@@ -1,0 +1,59 @@
+name: bot-trading
+x-python: &python
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment:
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trading}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-trading}
+    TRADING_MODE: ${TRADING_MODE:-paper}
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading}
+      POSTGRES_USER: ${POSTGRES_USER:-trading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  migrate:
+    <<: *python
+    command: [alembic, upgrade, head]
+    restart: 'no'
+  api:
+    <<: *python
+    command: [uvicorn, backend.app.main:app, --host, 0.0.0.0, --port, '8000']
+    ports:
+      - '127.0.0.1:8000:8000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/api/health")']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+  bot:
+    <<: *python
+    command: [python, -m, bot.worker]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  frontend:
+    build: ./frontend
+    ports:
+      - '127.0.0.1:3000:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:
