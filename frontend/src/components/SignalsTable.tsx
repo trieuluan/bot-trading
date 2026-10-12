@@ -27,6 +27,7 @@ export function SignalsTable({
           >
             <option value="all">Tất cả tín hiệu</option>
             <option value="long">Long</option>
+            <option value="short">Short</option>
           </select>
         </label>
       </div>
@@ -46,22 +47,24 @@ export function SignalsTable({
             {entries.map((signal) => (
               <tr key={signal.id} title={signal.reason}>
                 <td>
-                  <strong>BTC/USDT</strong>
+                  <strong>{signal.symbol}</strong>
                   <small>
                     {new Date(signal.time * 1000).toLocaleString('vi-VN', { timeZone: 'UTC' })} UTC
                   </small>
                 </td>
                 <td>
-                  <span className="pill green">
+                  <span className={`pill ${signal.side === 'long' ? 'green' : 'amber'}`}>
                     <ArrowUpRight size={12} />
-                    LONG
+                    {signal.side.toUpperCase()}
                   </span>
                 </td>
                 <td>{formatPrice(signal.entry)}</td>
                 <td>{formatPrice(signal.stop)}</td>
                 <td>{formatPrice(signal.target)}</td>
                 <td>
-                  <span className="pill">Demo replay</span>
+                  <span className="pill">
+                    {signal.source === 'mexc_futures' ? 'MEXC Futures' : 'Demo replay'}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -71,7 +74,7 @@ export function SignalsTable({
       {!entries.length && (
         <EmptyState
           title="Chờ một setup đủ điều kiện"
-          description="Tín hiệu xuất hiện khi nến đóng cửa vượt đỉnh 20 nến trước. Không có lệnh nào được gửi."
+          description="Tín hiệu xuất hiện khi nến đóng vượt đỉnh hoặc phá đáy 20 nến theo cấu hình nguồn dữ liệu. Không có lệnh nào được gửi."
         />
       )}
     </section>

@@ -1,26 +1,12 @@
 import pytest
-from alembic import command
-from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from backend.app.db import BotState, Event, Session, Signal
+from backend.app.db import BotState, Session, Signal
 from backend.app.main import app
 from backend.app.market import Candle, DemoAdapter
 from backend.app.strategy import breakout
 from bot.worker import tick
-
-
-@pytest.fixture(autouse=True)
-def database():
-    command.upgrade(Config("alembic.ini"), "head")
-    with Session.begin() as session:
-        session.query(Signal).delete()
-        session.query(Event).delete()
-        state = session.get(BotState, 1)
-        state.enabled = False
-        state.last_bar = 60
-        state.heartbeat = None
 
 
 def test_breakout_uses_previous_bars_and_risk():

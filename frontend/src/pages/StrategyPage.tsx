@@ -10,9 +10,17 @@ export function StrategyPage() {
       <p>Một chiến lược có quy tắc rõ để kiểm tra pipeline dữ liệu và tín hiệu.</p>
       <div className="rules-grid">
         {[
-          ['01', 'Điều kiện vào', 'Nến đã đóng có close lớn hơn high lớn nhất của 20 nến trước.'],
-          ['02', 'Stop-loss tham chiếu', 'Đáy thấp nhất của 5 nến trước thời điểm vào.'],
-          ['03', 'Mục tiêu tham chiếu', 'Entry + 2 × khoảng cách từ entry đến stop-loss.'],
+          [
+            '01',
+            'Điều kiện vào',
+            'LONG khi close vượt đỉnh 20 nến; SHORT khi phá đáy 20 nến (Futures).',
+          ],
+          ['02', 'Stop-loss tham chiếu', 'LONG: đáy 5 nến trước. SHORT: đỉnh 5 nến trước.'],
+          [
+            '03',
+            'Mục tiêu tham chiếu',
+            'Cách giá tín hiệu 2R theo chiều lệnh. Backtest vào ở nến kế tiếp.',
+          ],
         ].map(([step, title, description]) => (
           <div className="rule-card" key={step}>
             <span>{step}</span>
@@ -23,8 +31,8 @@ export function StrategyPage() {
       </div>
       <div className="rule">
         <FlaskConical size={20} />
-        Backtest, phí, trượt giá và mô phỏng khớp lệnh là bước tiếp theo; hiện chưa có báo cáo hiệu
-        suất.
+        Mở trang Backtest để đánh giá trên dữ liệu MEXC Futures với phí, trượt giá và funding. Kết
+        quả lịch sử chưa xác nhận hiệu quả tương lai.
       </div>
     </section>
   );

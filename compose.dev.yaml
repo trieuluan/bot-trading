@@ -1,4 +1,45 @@
+x-python-dev: &python-dev
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+    target: development
+  environment:
+    PYTHONDONTWRITEBYTECODE: '1'
+    PYTHONUNBUFFERED: '1'
+    WATCHFILES_FORCE_POLLING: 'true'
+    RUFF_CACHE_DIR: /tmp/ruff-cache
+    PYTEST_ADDOPTS: '-o cache_dir=/tmp/pytest-cache'
+  volumes:
+    - ./backend:/app/backend:ro
+    - ./bot:/app/bot:ro
+    - ./migrations:/app/migrations:ro
+    - ./alembic.ini:/app/alembic.ini:ro
+    - ./pyproject.toml:/app/pyproject.toml:ro
+
 services:
+  api:
+    <<: *python-dev
+    command:
+      - uvicorn
+      - backend.app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - '8000'
+      - --reload
+      - --reload-dir
+      - /app/backend/app
+  bot:
+    <<: *python-dev
+    command:
+      - watchfiles
+      - --filter
+      - python
+      - 'python -m bot.worker'
+      - /app/backend/app
+      - /app/bot
+  migrate:
+    <<: *python-dev
   frontend:
     build:
       context: ./frontend

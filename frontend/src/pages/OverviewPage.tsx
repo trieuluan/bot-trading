@@ -29,6 +29,15 @@ export function OverviewPage({
   setFilter: (value: string) => void;
   onOpenStrategy: () => void;
 }) {
+  const realMarket = snapshot.data_source === 'mexc_futures';
+  if (!snapshot.candles.length)
+    return (
+      <section className="panel prose">
+        <h2>Chờ dữ liệu nến</h2>
+        <p>Chưa có nến đã đóng. Xem trạng thái nguồn dữ liệu tại Kết nối sàn.</p>
+        {botPanel}
+      </section>
+    );
   const last = snapshot.candles.at(-1)!;
   const first = snapshot.candles[0];
   const change = ((last.close - first.open) / first.open) * 100;
@@ -37,9 +46,9 @@ export function OverviewPage({
     <>
       <div className="metrics">
         <MetricCard
-          title="GIÁ ĐÓNG CỬA MẪU"
+          title={realMarket ? 'GIÁ ĐÓNG CỬA FUTURES' : 'GIÁ ĐÓNG CỬA MẪU'}
           value={'$' + formatPrice(last.close)}
-          detail={`${change >= 0 ? '+' : ''}${change.toFixed(2)}% trong cửa sổ replay`}
+          detail={`${change >= 0 ? '+' : ''}${change.toFixed(2)}% trong cửa sổ nến`}
           icon={<TrendingUp size={17} />}
           positive
         />
@@ -66,13 +75,13 @@ export function OverviewPage({
         <section className="panel chart-panel">
           <div className="section-head">
             <h2>Thị trường đang theo dõi</h2>
-            <span className="pill">SYNTHETIC REPLAY</span>
+            <span className="pill">{realMarket ? 'MEXC PERPETUAL' : 'SYNTHETIC REPLAY'}</span>
           </div>
           <div className="chart-heading">
             <div className="asset-icon">₿</div>
             <div>
               <h3>
-                Bitcoin <span>BTC / USDT</span>
+                Bitcoin <span>{realMarket ? 'BTC_USDT PERP' : 'BTC / USDT'}</span>
               </h3>
               <div className="price">
                 {formatPrice(last.close)}{' '}
@@ -100,12 +109,19 @@ export function OverviewPage({
               C <b>{formatPrice(last.close)}</b>
             </span>
           </div>
-          <CandlestickChart candles={snapshot.candles} />
+          <CandlestickChart
+            candles={snapshot.candles}
+            label={realMarket ? 'Biểu đồ nến MEXC BTC_USDT perpetual 15 phút' : undefined}
+          />
           <div className="chart-footer">
             <span>
               <span className="legend-dot" /> Nến đóng cửa · UTC
             </span>
-            <span>1 nến replay / 5 giây khi bật bot</span>
+            <span>
+              {realMarket
+                ? 'Nến mới khi đóng · đồng bộ mỗi 15 giây'
+                : '1 nến replay / 5 giây khi bật bot'}
+            </span>
           </div>
         </section>
         {botPanel}
@@ -127,9 +143,9 @@ export function OverviewPage({
               <h3>
                 Structure Breakout <span className="pill">v0.1</span>
               </h3>
-              <p>Breakout đỉnh 20 nến · SL đáy 5 nến · TP 2R</p>
+              <p>Breakout 20 nến · SL 5 nến · TP 2R</p>
             </div>
-            <span className="pill amber">Chưa backtest</span>
+            <span className="pill amber">Có thể backtest</span>
           </div>
         </section>
         <section className="panel">
@@ -140,8 +156,12 @@ export function OverviewPage({
           <div className="connection-row">
             <div className="exchange-icon">D</div>
             <div>
-              <h3>Demo adapter</h3>
-              <p>Dữ liệu tổng hợp · không cần API key</p>
+              <h3>{realMarket ? 'MEXC Futures adapter' : 'Demo adapter'}</h3>
+              <p>
+                {realMarket
+                  ? 'Public market data · không cần API key'
+                  : 'Dữ liệu tổng hợp · không cần API key'}
+              </p>
             </div>
             <Check size={19} className="positive" />
           </div>

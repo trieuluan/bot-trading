@@ -8,6 +8,8 @@ import { OverviewPage } from './pages/OverviewPage';
 import { BotsPage } from './pages/BotsPage';
 import { StrategyPage } from './pages/StrategyPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
+import { PaperTradingPage } from './pages/PaperTradingPage';
+import { BacktestPage } from './pages/BacktestPage';
 import { ActivityPage } from './pages/ActivityPage';
 
 export default function App() {
@@ -63,7 +65,7 @@ export default function App() {
             <p>
               {connected
                 ? 'API đã kết nối.'
-                : 'Chưa kết nối API; biểu đồ đang dùng dữ liệu preview.'}{' '}
+                : 'API mất kết nối; hiển thị dữ liệu cuối hoặc preview ban đầu.'}{' '}
               {snapshot.bot.online ? 'Worker đang hoạt động.' : 'Worker chưa gửi heartbeat.'}
             </p>
           </div>
@@ -84,11 +86,27 @@ export default function App() {
           <div className="demo-banner">
             <FlaskConical size={17} />
             <span>
-              <strong>Đang ở môi trường mô phỏng.</strong> Giá và tín hiệu là dữ liệu tổng hợp; chưa
-              kết nối sàn, chưa có lệnh thực.
+              <strong>
+                {snapshot.data_source === 'mexc_futures'
+                  ? 'Dữ liệu MEXC Futures thật.'
+                  : 'Dữ liệu tổng hợp.'}
+              </strong>{' '}
+              {snapshot.data_source === 'mexc_futures'
+                ? 'BTC_USDT perpetual · lệnh mô phỏng nội bộ; không gửi lệnh tới sàn.'
+                : 'Replay để thử giao diện và pipeline; không phải giá thị trường.'}
             </span>
-            <span className="banner-tag">DEMO DATA</span>
+            <span className="banner-tag">
+              {snapshot.data_source === 'mexc_futures' ? 'PUBLIC MARKET DATA' : 'DEMO DATA'}
+            </span>
           </div>
+          {snapshot.data_source === 'mexc_futures' &&
+            (snapshot.market.stale || snapshot.market.error || !connected) && (
+              <div className="feedback" role="status">
+                Dữ liệu đang chậm hoặc mất kết nối.{' '}
+                {snapshot.market.error ?? 'Đang chờ lần đồng bộ kế tiếp.'} Biểu đồ giữ nến đã lưu;
+                không thay bằng dữ liệu mẫu.
+              </div>
+            )}
           {message && (
             <div role="status" className="feedback">
               {message}
@@ -112,7 +130,11 @@ export default function App() {
           )}
           {page === 'Bot của bạn' && <BotsPage snapshot={snapshot} botPanel={botPanel} />}
           {page === 'Chiến lược' && <StrategyPage />}
-          {page === 'Kết nối sàn' && <ConnectionsPage />}
+          {page === 'Kết nối sàn' && (
+            <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />
+          )}
+          {page === 'Ví mô phỏng' && <PaperTradingPage />}
+          {page === 'Backtest' && <BacktestPage connected={connected} />}
           {page === 'Nhật ký' && <ActivityPage snapshot={snapshot} />}
           <footer>
             <span>
@@ -120,7 +142,7 @@ export default function App() {
               <span className="footer-divider">/</span> Built for deliberate trading.
             </span>
             <span>
-              v0.1.0 <span className="footer-divider">·</span> Local workspace
+              v0.2.0 <span className="footer-divider">·</span> Local workspace
             </span>
           </footer>
         </main>

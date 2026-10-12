@@ -34,7 +34,7 @@ export function useTradingDashboard() {
       await setBotEnabled(enabled);
       await refresh();
       setMessage(
-        enabled ? 'Đã bật phân tích replay. Không gửi lệnh tới sàn.' : 'Đã dừng tạo tín hiệu mới.',
+        enabled ? 'Đã bật theo dõi tín hiệu. Không gửi lệnh tới sàn.' : 'Đã dừng tạo tín hiệu mới.',
       );
     } catch {
       setMessage('Không gửi được yêu cầu. Kiểm tra API rồi thử lại.');

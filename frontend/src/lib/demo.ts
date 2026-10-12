@@ -19,6 +19,7 @@ export function createPreviewSnapshot(): Snapshot {
     symbol: 'BTC/USDT',
     timeframe: '15m',
     bot: { enabled: false, online: false, heartbeat: null, last_bar: 65 },
+    market: { last_sync: null, last_closed_time: null, error: null, retry_at: null, stale: false },
     candles,
     signal_count: 0,
     signals: [],

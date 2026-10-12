@@ -1,18 +1,20 @@
 import type { Candle } from '../types/trading';
 import { formatPrice } from '../lib/format';
-export function CandlestickChart({ candles }: { candles: Candle[] }) {
+export function CandlestickChart({
+  candles,
+  label = 'Biểu đồ nến BTC USDT 15 phút, dữ liệu tổng hợp',
+}: {
+  candles: Candle[];
+  label?: string;
+}) {
   const visibleCandles = candles.slice(-64);
+  const maxVolume = Math.max(1, ...visibleCandles.map((candle) => candle.volume));
   const low = Math.min(...visibleCandles.map((candle) => candle.low)) - 200;
   const high = Math.max(...visibleCandles.map((candle) => candle.high)) + 200;
   const priceToY = (price: number) => 25 + ((high - price) / (high - low)) * 240;
   const candleSpacing = 720 / visibleCandles.length;
   return (
-    <svg
-      viewBox="0 0 840 350"
-      role="img"
-      aria-label="Biểu đồ nến BTC USDT 15 phút, dữ liệu tổng hợp"
-      className="candle-chart"
-    >
+    <svg viewBox="0 0 840 350" role="img" aria-label={label} className="candle-chart">
       {[0, 1, 2, 3, 4].map((index) => (
         <g key={index}>
           <line
@@ -53,9 +55,9 @@ export function CandlestickChart({ candles }: { candles: Candle[] }) {
             />
             <rect
               x={x - candleSpacing * 0.29}
-              y={318 - candle.volume / 12}
+              y={318 - (candle.volume / maxVolume) * 45}
               width={candleSpacing * 0.58}
-              height={candle.volume / 12}
+              height={(candle.volume / maxVolume) * 45}
               fill={color}
               opacity=".22"
             />

@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, create_engine
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .settings import DATABASE_URL
@@ -33,13 +42,102 @@ class Event(Base):
 class Signal(Base):
     __tablename__ = "signals"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    candle_time: Mapped[int] = mapped_column(Integer, unique=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "symbol", "timeframe", "candle_time", name="uq_signal_market_time"
+        ),
+    )
+    source: Mapped[str] = mapped_column(String(30), default="synthetic")
+    timeframe: Mapped[str] = mapped_column(String(10), default="15m")
+    candle_time: Mapped[int] = mapped_column(Integer)
     symbol: Mapped[str] = mapped_column(String(30))
     side: Mapped[str] = mapped_column(String(10))
     entry: Mapped[float] = mapped_column(Float)
     stop: Mapped[float] = mapped_column(Float)
     target: Mapped[float] = mapped_column(Float)
     reason: Mapped[str] = mapped_column(String(500))
+
+
+class MarketState(Base):
+    __tablename__ = "market_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(30), default="synthetic")
+    last_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class MarketCandle(Base):
+    __tablename__ = "market_candles"
+    source: Mapped[str] = mapped_column(String(30), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True)
+    timeframe: Mapped[str] = mapped_column(String(10), primary_key=True)
+    time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float)
+
+
+class BacktestRun(Base):
+    __tablename__ = "backtest_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    source: Mapped[str] = mapped_column(String(30))
+    result: Mapped[dict] = mapped_column(JSON)
+
+
+class PaperWallet(Base):
+    __tablename__ = "paper_wallet"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    initial_balance: Mapped[float] = mapped_column(Float, default=10000)
+    balance: Mapped[float] = mapped_column(Float, default=10000)
+    fee_bps: Mapped[float] = mapped_column(Float, default=5)
+    slippage_bps: Mapped[float] = mapped_column(Float, default=2)
+    quote: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    contract: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    funding_cursor: Mapped[int] = mapped_column(Integer)
+    funding_synced_at: Mapped[int] = mapped_column(Integer, default=0)
+    funding_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class PaperTrade(Base):
+    __tablename__ = "paper_trades"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    side: Mapped[str] = mapped_column(String(10))
+    entry_time: Mapped[int] = mapped_column(Integer)
+    entry: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[float] = mapped_column(Float)
+    contracts: Mapped[float] = mapped_column(Float)
+    stop: Mapped[float] = mapped_column(Float)
+    target: Mapped[float] = mapped_column(Float)
+    entry_fee: Mapped[float] = mapped_column(Float)
+    exit_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exit_fee: Mapped[float] = mapped_column(Float, default=0)
+    exit_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    funding_cost: Mapped[float] = mapped_column(Float, default=0)
+    net_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class PaperCommand(Base):
+    __tablename__ = "paper_commands"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+
+
+class PaperFunding(Base):
+    __tablename__ = "paper_funding"
+    trade_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rate: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float)
+    cost: Mapped[float] = mapped_column(Float)
 
 
 engine = create_engine(

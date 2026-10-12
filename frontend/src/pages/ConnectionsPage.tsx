@@ -1,26 +1,92 @@
-export function ConnectionsPage() {
+import { useState } from 'react';
+import type { Snapshot } from '../types/trading';
+import { selectMarket } from '../lib/api';
+
+export function ConnectionsPage({
+  snapshot,
+  connected,
+  onRefresh,
+}: {
+  snapshot: Snapshot;
+  connected: boolean;
+  onRefresh: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  async function choose(source: 'synthetic' | 'mexc_futures') {
+    setBusy(true);
+    setMessage('');
+    try {
+      await selectMarket(source);
+      await onRefresh();
+      setMessage(
+        'Đã đổi nguồn dữ liệu. Bot được dừng khi chuyển nguồn; bạn có thể bật lại ở trang Tổng quan.',
+      );
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Không kết nối được nguồn dữ liệu.');
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="panel prose">
-      <h2>Một lõi, nhiều kết nối</h2>
+      <h2>Nguồn dữ liệu thị trường</h2>
       <p>
-        Lớp MarketDataAdapter tách nguồn dữ liệu khỏi chiến lược. Hiện chỉ Demo adapter hoạt động.
+        MEXC Futures public API: BTC_USDT perpetual · 15 phút. Chỉ đọc nến đã đóng, không cần API
+        key. Bot lấy bù nến sau khi mất kết nối và kiểm tra khoảng trống trước khi tạo tín hiệu.
       </p>
       <div className="exchange-grid">
         {[
-          ['Demo', 'Đang sử dụng', 'Synthetic replay · BTC/USDT'],
-          ['Binance', 'Chưa tích hợp', 'Dự kiến: dữ liệu public spot'],
-          ['OKX', 'Chưa tích hợp', 'Dự kiến: adapter crypto'],
-          ['Forex / MT5', 'Chưa tích hợp', 'Cần connector riêng'],
-        ].map(([name, status, description]) => (
-          <div className="exchange-card" key={name}>
+          {
+            source: 'mexc_futures' as const,
+            name: 'MEXC Futures',
+            description: 'Giá hợp đồng thật · USDT perpetual · REST mỗi 15 giây',
+          },
+          {
+            source: 'synthetic' as const,
+            name: 'Demo replay',
+            description: 'Dữ liệu tổng hợp · chạy offline · phát lại tăng tốc',
+          },
+        ].map(({ source, name, description }) => (
+          <div className="exchange-card" key={source}>
             <div className="exchange-icon">{name[0]}</div>
             <h3>{name}</h3>
             <p>{description}</p>
-            <span className={`pill ${name === 'Demo' ? 'green' : ''}`}>{status}</span>
+            <button
+              className={snapshot.data_source === source ? 'primary' : 'secondary'}
+              disabled={!connected || busy || snapshot.data_source === source}
+              onClick={() => void choose(source)}
+            >
+              {snapshot.data_source === source
+                ? 'Đang sử dụng'
+                : busy
+                  ? 'Đang kết nối…'
+                  : 'Sử dụng nguồn này'}
+            </button>
           </div>
         ))}
       </div>
-      <p>Chưa thu thập hoặc lưu API key trong bản khung này.</p>
+      {message && <p role="status">{message}</p>}
+      {snapshot.data_source === 'mexc_futures' && (
+        <p>
+          Lần đồng bộ:{' '}
+          {snapshot.market.last_sync
+            ? new Date(snapshot.market.last_sync).toLocaleString('vi-VN')
+            : 'Chưa có'}{' '}
+          · {snapshot.market.stale ? 'Dữ liệu chậm cập nhật' : 'Đang cập nhật'}
+          {snapshot.market.error && ` · ${snapshot.market.error}`}
+        </p>
+      )}
+      <div className="rule">
+        MEXC hiện không cung cấp sandbox cho API. Demo Trading trên web và endpoint kiểm tra lệnh
+        Spot không phải môi trường khớp lệnh thử cho bot.
+      </div>
+      <p>
+        Chưa thu thập API key hoặc bật quyền đặt lệnh. Các sàn khác sẽ được thêm qua adapter riêng.
+      </p>
+      <a href="https://www.mexc.com/mexc-api" target="_blank" rel="noreferrer">
+        FAQ API chính thức của MEXC ↗
+      </a>
     </section>
   );
 }

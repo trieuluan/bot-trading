@@ -27,11 +27,13 @@ export function BotControlPanel({ snapshot, connected, busy, onToggle }: BotCont
       <dl>
         <div>
           <dt>Nguồn dữ liệu</dt>
-          <dd>Demo replay</dd>
+          <dd>{snapshot.data_source === 'mexc_futures' ? 'MEXC Futures' : 'Demo replay'}</dd>
         </div>
         <div>
           <dt>Thị trường</dt>
-          <dd>BTC/USDT · 15m</dd>
+          <dd>
+            {snapshot.data_source === 'mexc_futures' ? 'BTC_USDT perpetual' : 'BTC/USDT'} · 15m
+          </dd>
         </div>
         <div>
           <dt>Cửa sổ breakout</dt>
@@ -58,7 +60,7 @@ export function BotControlPanel({ snapshot, connected, busy, onToggle }: BotCont
           ? 'Đang xử lý…'
           : snapshot.bot.enabled
             ? 'Dừng tạo tín hiệu'
-            : 'Bật phân tích mô phỏng'}
+            : 'Bật theo dõi tín hiệu'}
       </button>
       <p className="micro">Chỉ tạo tín hiệu. Chưa thực thi lệnh.</p>
     </section>

@@ -14,8 +14,12 @@ export function BotsPage({ snapshot, botPanel }: { snapshot: Snapshot; botPanel:
           <ShieldCheck size={20} />
           Không có chức năng gửi lệnh tới sàn trong phiên bản này.
         </div>
-        <h3>Trạng thái replay</h3>
-        <p>Đã xử lý {snapshot.bot.last_bar} nến trên tối đa 2.000 nến mẫu.</p>
+        <h3>Trạng thái dữ liệu</h3>
+        <p>
+          {snapshot.data_source === 'mexc_futures'
+            ? `MEXC Futures · nến đóng mới nhất: ${snapshot.market.last_closed_time ? new Date(snapshot.market.last_closed_time * 1000).toISOString() : 'đang chờ'}`
+            : `Đã xử lý ${snapshot.bot.last_bar} nến trên tối đa 2.000 nến mẫu.`}
+        </p>
       </section>
     </div>
   );

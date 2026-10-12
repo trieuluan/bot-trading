@@ -9,12 +9,15 @@ import {
   Link2,
   ShieldCheck,
   Terminal,
+  Wallet,
 } from 'lucide-react';
 
 const navigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
   { label: 'Bot của bạn', icon: Bot },
   { label: 'Chiến lược', icon: FlaskConical },
+  { label: 'Ví mô phỏng', icon: Wallet },
+  { label: 'Backtest', icon: FlaskConical },
   { label: 'Kết nối sàn', icon: Link2 },
   { label: 'Nhật ký', icon: Terminal },
 ];
@@ -73,7 +76,7 @@ export function Sidebar({ page, menu, onNavigate, onOpenHelp }: SidebarProps) {
           <ShieldCheck size={21} />
           <h3>Thử nghiệm có kiểm soát</h3>
           <p>
-            Dữ liệu tổng hợp.
+            Dữ liệu thật hoặc replay.
             <br />
             Không dùng tiền thật.
           </p>
