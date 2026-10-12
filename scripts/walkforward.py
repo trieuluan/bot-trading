@@ -13,10 +13,10 @@ from pathlib import Path
 from backend.app.backtest import BacktestConfig, simulate
 from backend.app.market import Candle
 from backend.app.mexc import MexcFuturesAdapter
-from backend.app.strategy import breakout, retest
+from backend.app.strategy import breakout, mtf_retest, retest
 
 CACHE = Path("/tmp/walkforward-cache.json")
-WARMUP = 600  # every strategy trades the same bars; 600 lets EMA200 converge
+WARMUP = 1600  # every strategy trades the same bars; lets EMA200 / 4h EMA50 converge
 EMA_PERIOD = 200  # single pre-declared variant, not tuned
 
 
@@ -49,6 +49,7 @@ STRATEGIES = {
     "retest": (retest, 32),
     "breakout+ema200": (with_trend(breakout), WARMUP),
     "union(breakout,retest)": (first_of(breakout, retest), WARMUP),
+    "mtf(4h,1h,15m)": (mtf_retest, WARMUP),
     "union+ema200": (with_trend(first_of(breakout, retest)), WARMUP),
 }
 ROTATING = "rotate-by-prev-window"

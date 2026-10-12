@@ -166,3 +166,53 @@ def test_rotation_chooses_previous_window_not_current_or_future():
     assert rows[1] is results["retest"][2]
     results["breakout+ema200"][2] = window(1000000)
     assert rotate_previous(results)[0] == picks
+
+
+def test_mtf_needs_trend_breakout_pullback_and_confirmation():
+    from backend.app.strategy import aggregate, mtf_retest
+
+    def bar(i, o, h, low, c):
+        return Candle(i * 900, o, h, low, c, 1)
+
+    base = [
+        bar(i, 100 + i / 100, 100.5 + i / 100, 99.5 + i / 100, 100 + i / 100) for i in range(1200)
+    ]
+    brk = [bar(1200 + i, 119, 121, 119, 120) for i in range(4)]  # 1h close above 112.49
+    touch = bar(1204, 120, 120, 112, 113)  # pulls back into zone, holds above
+    confirm = bar(1205, 113, 118, 112.6, 117)
+    s = mtf_retest(base + brk + [touch, confirm])
+    assert (s.side, s.entry, s.stop, s.target) == ("long", 117, 112, 127)
+    assert mtf_retest(base + brk + [touch]) is None  # no confirmation yet
+    assert mtf_retest(base + brk) is None  # breakout alone
+    assert mtf_retest(base + brk + [touch, confirm, bar(1206, 117, 119, 116, 118)]) is None
+    drop = [bar(1200 + i, 80, 81, 79, 80) for i in range(4)]
+    assert mtf_retest(base + drop, allow_short=True) is None  # no short against 4h uptrend
+    assert [c.time for c in aggregate(base[:7], 3600)] == [0]  # partial hour dropped
+
+    mirrored = [
+        Candle(c.time, 200 - c.open, 200 - c.low, 200 - c.high, 200 - c.close, c.volume)
+        for c in base + brk + [touch, confirm]
+    ]
+    short = mtf_retest(mirrored, allow_short=True)
+    assert (short.side, short.entry, short.stop, short.target) == ("short", 83, 88, 73)
+    assert mtf_retest(mirrored) is None
+    invalidated = base + brk + [bar(1204, 120, 120, 110, 111), touch, confirm]
+    assert mtf_retest(invalidated) is None
+    delayed = base + brk + [bar(1204 + index, 120, 121, 119, 120) for index in range(48)]
+    delayed += [bar(1252, 120, 120, 112, 113), bar(1253, 113, 118, 112.6, 117)]
+    assert mtf_retest(delayed) is None
+
+
+def test_higher_timeframe_excludes_unclosed_and_incomplete_buckets():
+    from backend.app.strategy import aggregate
+
+    candles = [Candle(index * 900, 100, 101, 99, 100, 1) for index in range(20)]
+    assert aggregate(candles[:15], 14400) == []
+    expected = aggregate(candles[:16], 14400)
+    assert len(expected) == 1
+    candles[-1] = Candle(candles[-1].time, 100, 10000, 1, 5000, 1)
+    assert aggregate(candles, 14400) == expected
+    assert aggregate(candles[1:16], 14400) == []
+    assert aggregate([candles[0], candles[0], candles[2], candles[3]], 3600) == []
+    with pytest.raises(ValueError):
+        aggregate(candles, 900)

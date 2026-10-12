@@ -324,3 +324,22 @@ Lệnh auto mới lưu bản chụp vùng 20 nến, giá đóng nến tín hiệ
 Chart đánh dấu nến tín hiệu và hai biên vùng breakout. Lệnh cũ chưa có bản chụp được ghi rõ, không tái tạo lý do giả định.
 Lệnh thủ công không có tín hiệu breakout. Nến xem lại đọc từ cache DB, tối đa 2.000 nến từ 24 nến trước tín hiệu;
 không tự tải dữ liệu sàn hay thay đổi trạng thái bot khi xem lịch sử. Nến thiếu không được bù giả lập.
+
+### Nghiên cứu price action đa khung
+
+Chạy `PYTHONPATH=. python scripts/walkforward.py 12 30` để so sánh trên cache MEXC
+`/tmp/walkforward-cache.json` (tải dữ liệu public nếu chưa có cache cùng số tháng).
+"Tháng" ở script là 30 ngày, không phải tháng lịch. Cache có thể bị hệ điều hành dọn.
+
+Biến thể `mtf(4h,1h,15m)` dùng giá đóng 4h so với EMA50 làm bộ lọc xu hướng;
+1h đóng vượt vùng 20 nến trước tạo setup; sau đó 15m chạm vùng và một nến sau
+đóng cùng chiều, giữ vùng mới xác nhận. SL theo cấu trúc retest, TP 2R.
+Setup hết hạn sau 12 giờ hoặc hủy khi 15m đóng phá ngược vùng. Chỉ ghép các nến
+1h/4h đầy đủ theo UTC; vào ở open 15m kế tiếp, không dùng nến khung lớn chưa đóng.
+
+Các chiến lược cùng dùng 1.600 nến khởi tạo và cùng khoảng đánh giá; mỗi cửa sổ
+30 ngày bắt đầu lại với vốn ảo. Đây là so sánh quy tắc cố định theo các cửa sổ
+liên tiếp, không huấn luyện/tối ưu walk-forward. Dữ liệu đã được dùng nghiên cứu
+các biến thể trước nên không phải bộ kiểm chứng độc lập chưa từng xem.
+Giữ ngưỡng sàng lọc cũ: ít nhất 100 lệnh, PF gộp >1,3, ít nhất 60% cửa sổ có lãi,
+drawdown từng cửa sổ <10%. Kết quả đa khung chưa đạt; Auto Paper vẫn giữ chiến lược cũ.
