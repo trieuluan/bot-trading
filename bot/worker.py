@@ -1,9 +1,12 @@
 """Single-worker synthetic replay; generates signals, never sends orders."""
+
 import logging
 import signal
 import threading
+
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+
 from backend.app.db import BotState, Event, Session, Signal, utcnow
 from backend.app.market import DemoAdapter
 from backend.app.settings import validate_mode
@@ -11,6 +14,7 @@ from backend.app.strategy import breakout
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 stop = threading.Event()
+
 
 def tick():
     with Session.begin() as session:
@@ -30,8 +34,16 @@ def tick():
         if setup:
             exists = session.scalar(select(Signal.id).where(Signal.candle_time == candles[-1].time))
             if exists is None:
-                session.add(Signal(candle_time=candles[-1].time, symbol="BTC/USDT", **setup.__dict__))
-                session.add(Event(kind="signal", message="Phát hiện breakout LONG trên dữ liệu tổng hợp; không gửi lệnh"))
+                session.add(
+                    Signal(candle_time=candles[-1].time, symbol="BTC/USDT", **setup.__dict__)
+                )
+                session.add(
+                    Event(
+                        kind="signal",
+                        message="Phát hiện breakout LONG trên dữ liệu tổng hợp; không gửi lệnh",
+                    )
+                )
+
 
 def main():
     validate_mode()
@@ -44,6 +56,7 @@ def main():
         except SQLAlchemyError:
             logging.exception("Database unavailable; retrying without advancing replay")
         stop.wait(5)
+
 
 if __name__ == "__main__":
     main()

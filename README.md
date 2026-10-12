@@ -103,3 +103,33 @@ compose.yaml            frontend, api, bot, migrate, postgres
 - [CCXT](https://docs.ccxt.com/docs/manual): tham khảo chuẩn hóa adapter crypto; chưa cài trong bản này.
 
 Giao diện được viết riêng, không sao chép source hoặc tài sản của các sản phẩm trên. Higgsfield được dùng tạo một concept hình ảnh UI trong chat; ảnh không phải chart dữ liệu và không thay thế component tương tác.
+
+## Code style và cấu trúc frontend
+
+Source được giữ dạng dễ đọc. Chỉ output production trong `dist/` được minify bởi Vite.
+
+```text
+frontend/src/
+├── components/       # Chart, bot controls, table, sidebar, dialog
+├── pages/            # Tổng quan, bot, chiến lược, kết nối, nhật ký
+├── hooks/            # State và vòng cập nhật dashboard
+├── lib/              # API client, format giá, dữ liệu preview
+└── types/            # Kiểu dữ liệu API dùng chung
+```
+
+Frontend dùng Prettier (2 spaces, dòng tối đa 100 ký tự); Python dùng Ruff (4 spaces). VS Code có cấu hình format-on-save và gợi ý extensions trong `.vscode/`. Cài hai extension được gợi ý để editor dùng cùng formatter với CI.
+
+```bash
+cd frontend
+npm run format          # format frontend, JSON, YAML và Markdown
+npm run format:check    # kiểm tra mà không sửa file
+```
+
+Tại thư mục gốc, sau khi cài requirements-dev:
+
+```bash
+ruff format backend bot migrations
+ruff check backend bot migrations
+```
+
+CI kiểm tra format, Python lint, backend tests và frontend build.
