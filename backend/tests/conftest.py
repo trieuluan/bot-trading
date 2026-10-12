@@ -16,6 +16,8 @@ def database():
     from alembic.config import Config
 
     from backend.app.db import (
+        AutoPaperDecision,
+        AutoPaperState,
         BacktestRun,
         BotState,
         Event,
@@ -32,6 +34,7 @@ def database():
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            AutoPaperDecision,
             PaperFunding,
             PaperCommand,
             PaperTrade,
@@ -60,3 +63,13 @@ def database():
         wallet.error = wallet.retry_at = wallet.funding_error = None
         wallet.funding_cursor = 0
         wallet.funding_synced_at = 0
+
+        auto = session.get(AutoPaperState, 1)
+        auto.enabled = False
+        auto.risk_percent = 1
+        auto.max_daily_trades = 5
+        auto.daily_loss_percent = 3
+        auto.last_candle = None
+        auto.day = ""
+        auto.day_start_equity = 10000
+        auto.status = "Auto Paper đang tắt"

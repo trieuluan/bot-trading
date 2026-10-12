@@ -2,6 +2,8 @@ import type { Candle } from './trading';
 
 export type PaperTrade = {
   id: number;
+  origin: 'manual' | 'auto';
+  signal_time: number | null;
   side: 'long' | 'short';
   entry_time: number;
   entry: number;
@@ -41,4 +43,32 @@ export type PaperWallet = {
   position: PaperTrade | null;
   trades: PaperTrade[];
   candles: Candle[];
+};
+
+export type AutoPaperConfig = {
+  risk_percent: number;
+  max_daily_trades: number;
+  daily_loss_percent: number;
+};
+export type AutoDecision = {
+  candle_time: number;
+  evaluated_at: string;
+  action: 'opened' | 'skipped' | 'no_setup';
+  reason: string;
+  setup: { side: string; entry: number; stop: number; target: number; reason: string } | null;
+  trade_id: number | null;
+  parameters: AutoPaperConfig;
+};
+export type AutoPaperState = AutoPaperConfig & {
+  enabled: boolean;
+  last_candle: number | null;
+  day: string;
+  day_start_equity: number;
+  daily_trades: number;
+  daily_loss: number;
+  daily_loss_used_percent: number;
+  status: string;
+  worker_online: boolean;
+  next_close_time: number;
+  decisions: AutoDecision[];
 };

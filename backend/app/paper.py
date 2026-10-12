@@ -16,7 +16,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
-from .db import Event, PaperCommand, PaperFunding, PaperTrade, PaperWallet, Session, utcnow
+from .db import (
+    AutoPaperState,
+    Event,
+    PaperCommand,
+    PaperFunding,
+    PaperTrade,
+    PaperWallet,
+    Session,
+    utcnow,
+)
 from .feed import load_candles
 from .mexc import MarketDataError, MexcFuturesAdapter
 
@@ -229,6 +238,8 @@ def serialize_trade(trade):
         name: getattr(trade, name)
         for name in (
             "id",
+            "origin",
+            "signal_time",
             "side",
             "entry_time",
             "entry",
@@ -299,6 +310,54 @@ def replay_command(session, request_id, payload):
     return None
 
 
+def create_position(
+    session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None
+):
+    """Shared sizing/fill/accounting for manual and automatic paper entries.
+
+    Caller holds the wallet lock. No network or independent commit is allowed here.
+    """
+    fresh_quote(wallet)
+    if open_position(session):
+        raise HTTPException(409, "Đang có vị thế; đóng vị thế trước khi mở lệnh mới")
+    if not wallet.contract:
+        raise HTTPException(409, "Đang chờ thông số hợp đồng MEXC")
+    price = execution_price(wallet, side, opening=True)
+    valid = stop < price < target if side == "long" else target < price < stop
+    if not valid:
+        raise HTTPException(422, "SL/TP phải nằm hai phía entry theo chiều Long/Short")
+    info = wallet.contract
+    size, unit = Decimal(str(info["contractSize"])), Decimal(str(info["volUnit"]))
+    contracts = (
+        Decimal(str(requested_notional)) / Decimal(str(price)) / size / unit
+    ).to_integral_value(rounding=ROUND_DOWN) * unit
+    if not Decimal(str(info["minVol"])) <= contracts <= Decimal(str(info["maxVol"])):
+        raise HTTPException(422, "Khối lượng ngoài giới hạn hợp đồng MEXC")
+    quantity = float(contracts * size)
+    notional = quantity * price
+    fee = round(notional * wallet.fee_bps / 10000, 8)
+    if requested_notional > wallet.balance or notional + fee > wallet.balance:
+        raise HTTPException(422, "Không đủ USDT ảo; tổng notional + phí tối đa 1× số dư")
+    trade = PaperTrade(
+        side=side,
+        entry_time=int(time.time()),
+        origin=origin,
+        signal_time=signal_time,
+        entry=price,
+        quantity=quantity,
+        contracts=float(contracts),
+        stop=stop,
+        target=target,
+        entry_fee=fee,
+        exit_fee=0,
+        funding_cost=0,
+    )
+    wallet.balance = round(wallet.balance - fee, 8)
+    session.add(trade)
+    session.flush()
+    return trade
+
+
 @router.post("/orders")
 def open_order(payload: OpenOrder):
     command = payload.model_dump(mode="json")
@@ -309,51 +368,18 @@ def open_order(payload: OpenOrder):
             return previous
         fresh_quote(wallet)
         apply_stops(session, wallet, time.time())
-        if open_position(session):
-            raise HTTPException(409, "Đang có vị thế; đóng vị thế trước khi mở lệnh mới")
-        if not wallet.contract:
-            raise HTTPException(409, "Đang chờ thông số hợp đồng MEXC")
-        price = execution_price(wallet, payload.side, opening=True)
-        valid = (
-            payload.stop < price < payload.target
-            if payload.side == "long"
-            else payload.target < price < payload.stop
+        auto = session.get(AutoPaperState, 1)
+        if auto and auto.enabled:
+            raise HTTPException(409, "Dừng Auto Paper trước khi mở lệnh thủ công")
+        trade = create_position(
+            session, wallet, payload.side, payload.notional, payload.stop, payload.target
         )
-        if not valid:
-            raise HTTPException(422, "SL/TP phải nằm hai phía entry theo chiều Long/Short")
-        info = wallet.contract
-        size, unit = Decimal(str(info["contractSize"])), Decimal(str(info["volUnit"]))
-        contracts = (
-            Decimal(str(payload.notional)) / Decimal(str(price)) / size / unit
-        ).to_integral_value(rounding=ROUND_DOWN) * unit
-        if not Decimal(str(info["minVol"])) <= contracts <= Decimal(str(info["maxVol"])):
-            raise HTTPException(422, "Khối lượng ngoài giới hạn hợp đồng MEXC")
-        quantity = float(contracts * size)
-        notional = quantity * price
-        fee = round(notional * wallet.fee_bps / 10000, 8)
-        if payload.notional > wallet.balance or notional + fee > wallet.balance:
-            raise HTTPException(422, "Không đủ USDT ảo; tổng notional + phí tối đa 1× số dư")
-        trade = PaperTrade(
-            side=payload.side,
-            entry_time=int(time.time()),
-            entry=price,
-            quantity=quantity,
-            contracts=float(contracts),
-            stop=payload.stop,
-            target=payload.target,
-            entry_fee=fee,
-            exit_fee=0,
-            funding_cost=0,
-        )
-        wallet.balance = round(wallet.balance - fee, 8)
-        session.add(trade)
-        session.flush()
         result = {"trade_id": trade.id, "status": "opened", "mode": "paper"}
         session.add(PaperCommand(id=str(payload.request_id), payload=command, result=result))
         session.add(
             Event(
                 kind="paper",
-                message=f"PAPER #{trade.id}: mở {trade.side.upper()} {float(contracts):g} hợp đồng",
+                message=f"PAPER #{trade.id}: mở {trade.side.upper()} {trade.contracts:g} hợp đồng",
             )
         )
         return result

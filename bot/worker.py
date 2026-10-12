@@ -1,4 +1,4 @@
-"""Single-worker synthetic replay or MEXC Futures monitoring; generates signals, never sends orders."""
+"""Independent heartbeat, quotes/stops, research and auto-paper loops; no live orders."""
 
 import logging
 import signal
@@ -8,6 +8,7 @@ import time
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.app.auto_paper import auto_tick, baseline_auto_on_startup, report_auto_failure
 from backend.app.db import BotState, Event, MarketState, Session, Signal, utcnow
 from backend.app.feed import sync_market
 from backend.app.market import DemoAdapter
@@ -56,26 +57,59 @@ def tick():
                 )
 
 
+def market_tick():
+    try:
+        sync_market()
+    except MarketDataError:
+        logging.exception("Market sync paused; will retry after cooldown")
+
+
+def run_loop(name, callback, interval):
+    # Independent I/O loops: a slow history/funding request must not delay stops.
+    while not stop.is_set():
+        started = time.monotonic()
+        try:
+            callback()
+        except SQLAlchemyError:
+            logging.exception("%s database unavailable; retrying persisted state", name)
+        except Exception:
+            # Transactions roll back on errors; one loop must not terminate the worker.
+            logging.exception("%s failed", name)
+            if name == "auto-paper":
+                try:
+                    report_auto_failure()
+                except SQLAlchemyError:
+                    logging.exception("Cannot persist auto failure while database is unavailable")
+        stop.wait(max(0.1, interval - (time.monotonic() - started)))
+
+
 def main():
     validate_mode()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    logging.info("Paper signal worker ready; live order execution unavailable")
-    next_sync = 0.0
+    # Baseline before starting any auto loop. Fail/retry instead of trading history.
     while not stop.is_set():
         try:
-            tick()
-            sync_paper_quote()
-            sync_paper_funding()
-            if time.monotonic() >= next_sync:
-                try:
-                    sync_market()
-                except MarketDataError:
-                    logging.exception("Market sync paused; will retry after cooldown")
-                next_sync = time.monotonic() + 15
+            baseline_auto_on_startup()
+            break
         except SQLAlchemyError:
-            logging.exception("Database unavailable; retrying without advancing replay")
-        stop.wait(5)
+            logging.exception("Database/migration unavailable; auto startup is waiting")
+            stop.wait(5)
+    if stop.is_set():
+        return
+    logging.info("Paper worker ready; live exchange order execution unavailable")
+    jobs = [
+        ("heartbeat", tick, 5),
+        ("quotes-and-stops", sync_paper_quote, 5),
+        ("market-history", market_tick, 15),
+        ("funding", sync_paper_funding, 60),
+        ("auto-paper", auto_tick, 5),
+    ]
+    threads = [threading.Thread(target=run_loop, args=job, name=job[0]) for job in jobs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 if __name__ == "__main__":

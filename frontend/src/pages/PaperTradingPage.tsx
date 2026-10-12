@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Wallet, RefreshCw } from 'lucide-react';
+import { AutoPaperPanel } from '../components/AutoPaperPanel';
+import { AutoDecisionList } from '../components/AutoDecisionList';
 import { PaperChart } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
-import { fetchPaperWallet, openPaperOrder, closePaperPosition } from '../lib/api';
-import type { PaperWallet } from '../types/paper';
+import {
+  fetchPaperWallet,
+  fetchAutoPaper,
+  setAutoPaperEnabled,
+  openPaperOrder,
+  closePaperPosition,
+} from '../lib/api';
+import type { AutoPaperState, PaperWallet } from '../types/paper';
 
 const exitLabels: Record<string, string> = {
   manual: 'Đóng thủ công',
@@ -13,6 +21,7 @@ const exitLabels: Record<string, string> = {
 const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
 
 export function PaperTradingPage() {
+  const [auto, setAuto] = useState<AutoPaperState | null>(null);
   const [wallet, setWallet] = useState<PaperWallet | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -41,10 +50,11 @@ export function PaperTradingPage() {
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
-        const result = await fetchPaperWallet();
+        const [result, autoState] = await Promise.all([fetchPaperWallet(), fetchAutoPaper()]);
         if (active) {
           latest.current = result;
           setWallet(result);
+          setAuto(autoState);
           setOnline(true);
         }
       } catch {
@@ -61,9 +71,10 @@ export function PaperTradingPage() {
     };
   }, []);
   async function refresh() {
-    const result = await fetchPaperWallet();
+    const [result, autoState] = await Promise.all([fetchPaperWallet(), fetchAutoPaper()]);
     latest.current = result;
     setWallet(result);
+    setAuto(autoState);
     setOnline(true);
   }
   function suggestLevels(nextSide = side) {
@@ -94,12 +105,13 @@ export function PaperTradingPage() {
       setBusy(false);
     }
   }
-  async function close() {
+  async function close(pauseAuto = false) {
     if (!wallet?.position) return;
     setBusy(true);
     setError('');
     setMessage('');
     try {
+      if (pauseAuto) await setAutoPaperEnabled(false);
       await closePaperPosition(wallet.position.id, commandId(`close-${wallet.position.id}`));
       pending.current = null;
       setMessage('Đã đóng vị thế mô phỏng.');
@@ -132,8 +144,8 @@ export function PaperTradingPage() {
           <span className="pill amber">10.000 USDT ẢO · TỐI ĐA 1×</span>
         </div>
         <p>
-          Giá MEXC thật, tiền và lệnh mô phỏng nội bộ. Đặt Market Long/Short thủ công để kiểm tra
-          luồng giao dịch; bot tín hiệu chưa tự đặt lệnh.
+          Giá MEXC thật, tiền và lệnh mô phỏng nội bộ. Bật Auto Paper để chiến lược tự vào lệnh hoặc
+          dừng auto để đặt Market Long/Short thủ công.
         </p>
         <div className="paper-feed">
           <span className={`status-dot ${stale ? 'stale-dot' : ''}`} />
@@ -163,6 +175,13 @@ export function PaperTradingPage() {
           </p>
         )}
       </section>
+      <AutoPaperPanel
+        state={auto}
+        stale={!!stale}
+        online={online}
+        clock={clock}
+        onUpdated={refresh}
+      />
       <div className="research-metrics paper-metrics">
         {[
           ['Số dư ví', wallet?.balance],
@@ -209,9 +228,10 @@ export function PaperTradingPage() {
         </section>
         <section className="panel prose paper-order">
           <div className="section-head">
-            <h2>Đặt lệnh mô phỏng</h2>
+            <h2>Đặt lệnh thủ công</h2>
             <span className="pill">MARKET</span>
           </div>
+          {auto?.enabled && <p className="micro">Auto đang bật; dừng auto để mở lệnh thủ công.</p>}
           <form onSubmit={(event) => void submit(event)}>
             <div className="period-tabs" role="group" aria-label="Chiều lệnh">
               <button
@@ -280,7 +300,7 @@ export function PaperTradingPage() {
             <button
               type="submit"
               className="primary"
-              disabled={stale || busy || !!wallet?.position}
+              disabled={stale || busy || !!wallet?.position || !!auto?.enabled}
             >
               {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
             </button>
@@ -295,9 +315,20 @@ export function PaperTradingPage() {
         <div className="section-head">
           <h2>Vị thế đang mở</h2>
           {wallet?.position && (
-            <button className="secondary" disabled={busy || stale} onClick={() => void close()}>
-              Đóng vị thế mô phỏng
-            </button>
+            <div className="trade-review-buttons">
+              <button className="secondary" disabled={busy || stale} onClick={() => void close()}>
+                Đóng vị thế mô phỏng
+              </button>
+              {auto?.enabled && (
+                <button
+                  className="secondary"
+                  disabled={busy || stale}
+                  onClick={() => void close(true)}
+                >
+                  Dừng auto và đóng vị thế
+                </button>
+              )}
+            </div>
           )}
         </div>
         {wallet?.position ? (
@@ -305,6 +336,7 @@ export function PaperTradingPage() {
             <strong>
               #{wallet.position.id} {wallet.position.side.toUpperCase()}
             </strong>
+            <span className="pill">{wallet.position.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}</span>
             <span>
               {wallet.position.contracts} hợp đồng · {wallet.position.quantity} BTC
             </span>
@@ -324,6 +356,7 @@ export function PaperTradingPage() {
           quyết toán đã đóng.
         </p>
       </section>
+      <AutoDecisionList decisions={auto?.decisions ?? []} onViewTrade={viewTrade} />
       <section className="panel prose">
         <div className="section-head">
           <h2>Lịch sử lệnh mô phỏng</h2>
@@ -349,7 +382,12 @@ export function PaperTradingPage() {
                       #{trade.id} · {timeLabel(trade.entry_time)}
                     </button>
                   </td>
-                  <td>{trade.side.toUpperCase()}</td>
+                  <td>
+                    {trade.side.toUpperCase()}
+                    <small className="trade-origin">
+                      {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
+                    </small>
+                  </td>
                   <td>
                     {formatPrice(trade.entry)} →{' '}
                     {trade.exit === null ? '—' : formatPrice(trade.exit)}

@@ -107,6 +107,8 @@ class PaperWallet(Base):
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
+    origin: Mapped[str] = mapped_column(String(10), default="manual")
+    signal_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     side: Mapped[str] = mapped_column(String(10))
     entry_time: Mapped[int] = mapped_column(Integer)
@@ -138,6 +140,30 @@ class PaperFunding(Base):
     rate: Mapped[float] = mapped_column(Float)
     price: Mapped[float] = mapped_column(Float)
     cost: Mapped[float] = mapped_column(Float)
+
+
+class AutoPaperState(Base):
+    __tablename__ = "auto_paper_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    risk_percent: Mapped[float] = mapped_column(Float, default=1)
+    max_daily_trades: Mapped[int] = mapped_column(Integer, default=5)
+    daily_loss_percent: Mapped[float] = mapped_column(Float, default=3)
+    last_candle: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    day: Mapped[str] = mapped_column(String(10), default="")
+    day_start_equity: Mapped[float] = mapped_column(Float, default=10000)
+    status: Mapped[str] = mapped_column(String(500), default="Auto Paper đang tắt")
+
+
+class AutoPaperDecision(Base):
+    __tablename__ = "auto_paper_decisions"
+    candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    action: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(String(500))
+    setup: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    trade_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parameters: Mapped[dict] = mapped_column(JSON)
 
 
 engine = create_engine(

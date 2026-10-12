@@ -3,6 +3,8 @@
 from datetime import timedelta
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import BotState, Event, MarketCandle, MarketState, Session, Signal, utcnow
 from .market import Candle
@@ -42,6 +44,20 @@ def save_candles(session, candles: list[Candle]):
                 **candle.__dict__,
             )
         )
+
+
+def save_market_signal(session, candle_time, setup):
+    """Both monitoring and auto entry can discover the same bar concurrently."""
+    insert = sqlite_insert if session.bind.dialect.name == "sqlite" else postgres_insert
+    statement = insert(Signal).values(
+        source=SOURCE, symbol=SYMBOL, timeframe=TIMEFRAME, candle_time=candle_time, **setup.__dict__
+    )
+    result = session.execute(
+        statement.on_conflict_do_nothing(
+            index_elements=["source", "symbol", "timeframe", "candle_time"]
+        )
+    )
+    return result.rowcount == 1
 
 
 def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
@@ -97,24 +113,7 @@ def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
                     ):
                         raise MarketDataError("Gap in stored candles; signal processing paused")
                     setup = breakout(window, allow_short=True)
-                    exists = session.scalar(
-                        select(Signal.id).where(
-                            Signal.source == SOURCE,
-                            Signal.symbol == SYMBOL,
-                            Signal.timeframe == TIMEFRAME,
-                            Signal.candle_time == candle.time,
-                        )
-                    )
-                    if setup and exists is None:
-                        session.add(
-                            Signal(
-                                source=SOURCE,
-                                symbol=SYMBOL,
-                                timeframe=TIMEFRAME,
-                                candle_time=candle.time,
-                                **setup.__dict__,
-                            )
-                        )
+                    if setup and save_market_signal(session, candle.time, setup):
                         session.add(
                             Event(
                                 kind="signal",

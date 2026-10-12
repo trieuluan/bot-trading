@@ -128,7 +128,13 @@ export default function App() {
               onOpenStrategy={() => navigate('Chiến lược')}
             />
           )}
-          {page === 'Bot của bạn' && <BotsPage snapshot={snapshot} botPanel={botPanel} />}
+          {page === 'Bot của bạn' && (
+            <BotsPage
+              snapshot={snapshot}
+              botPanel={botPanel}
+              onOpenPaper={() => navigate('Ví mô phỏng')}
+            />
+          )}
           {page === 'Chiến lược' && <StrategyPage />}
           {page === 'Kết nối sàn' && (
             <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />

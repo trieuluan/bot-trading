@@ -132,7 +132,8 @@ export function PaperChart({ candles, trade }: { candles: Candle[]; trade: Paper
         {trade && (
           <strong>
             #{trade.id} {trade.side.toUpperCase()} ·{' '}
-            {trade.exit_time === null ? 'Đang mở' : 'Đã đóng'}
+            {trade.exit_time === null ? 'Đang mở' : 'Đã đóng'} ·{' '}
+            {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
           </strong>
         )}
         <span className="entry-legend">— Entry</span>

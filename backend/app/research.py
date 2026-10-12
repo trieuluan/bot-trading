@@ -10,7 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from .backtest import BacktestConfig, run_backtest
-from .db import BacktestRun, BotState, Event, MarketState, Session, utcnow
+from .db import (
+    AutoPaperState,
+    BacktestRun,
+    BotState,
+    Event,
+    MarketState,
+    PaperWallet,
+    Session,
+    utcnow,
+)
 from .feed import save_candles
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter
 
@@ -70,6 +79,10 @@ def configure_market(payload: MarketSelection):
             market = session.scalar(
                 select(MarketState).where(MarketState.id == 1).with_for_update()
             )
+            session.scalar(select(PaperWallet).where(PaperWallet.id == 1).with_for_update())
+            auto = session.get(AutoPaperState, 1)
+            if auto and auto.enabled and payload.source != SOURCE:
+                raise HTTPException(409, "Dừng Auto Paper trước khi chuyển sang dữ liệu tổng hợp")
             changed = market.source != payload.source
             if changed:
                 bot.enabled = False

@@ -262,9 +262,53 @@ Không cần API key; không gửi lệnh hoặc dùng tiền thật trên MEXC.
 - Chart có entry/exit/SL/TP; nến hiện tại chỉ gồm tick đã quan sát. 120 nến đóng
   lấy từ cache MEXC đang đồng bộ trong workspace; marker lịch sử chỉ hiện nếu
   thời gian lệnh nằm trong phạm vi nến. Mức giá vẫn có thể xem qua từng dòng lệnh.
-- Chưa có Limit, khớp một phần, liquidation, margin tiers, ADL hoặc bot tự đặt lệnh.
-  Nút bật bot hiện tại vẫn chỉ bật theo dõi tín hiệu.
+- Chưa có Limit, khớp một phần, liquidation, margin tiers hoặc ADL.
+  Nút theo dõi tín hiệu và Auto Paper có điều khiển riêng.
 
 API: `GET /api/paper/wallet`, `POST /api/paper/orders`,
 `POST /api/paper/positions/{id}/close`. API docs tại `http://localhost:8000/docs`.
 Ví và lịch sử lưu trong PostgreSQL qua restart container; không có chức năng tự reset.
+
+### Auto Paper: bot tự giao dịch trong ví mô phỏng
+
+**Ví mô phỏng → Auto Paper → lưu thông số → Bật Auto Paper.** Mặc định tắt.
+Migration `0004` giữ nguyên ví/lịch sử, thêm nhãn nguồn `manual` / `auto`, thời gian
+nến tín hiệu và nhật ký quyết định. Không có API key hoặc live execution.
+
+- Structure Breakout Long/Short trên BTC_USDT 15m, cùng quy tắc với backtest.
+  Đánh giá 21 nến đóng liên tục; vào bằng quote bid/ask nhận sau lúc đóng nến,
+  cộng trượt giá. Không giả vờ khớp đúng giá open lịch sử như một lệnh đã xảy ra.
+- Chỉ vào trong 60 giây sau đóng nến, một quyết định mỗi nến. Nến cũ/quá hạn,
+  giá vượt SL/TP, thiếu dữ liệu, lỗi funding hoặc đang có vị thế đều không mở mới.
+  Lý do hiện ở trạng thái và nhật ký (12 quyết định gần nhất).
+- Bật/resume hoặc khởi động worker sẽ baseline tại nến đóng mới nhất và chờ nến
+  kế tiếp. Không đặt bù tín hiệu trong thời gian tắt/mất kết nối/restart.
+- Khối lượng = ngân sách rủi ro / khoảng cách giá khớp đến SL, giới hạn 1× vốn,
+  làm tròn xuống bước hợp đồng. Ngân sách còn bị giới hạn bởi phần lỗ ngày còn lại.
+  Phí/trượt giá/gap có thể làm lỗ thực tế vượt ngân sách SL.
+- Mặc định rủi ro 1%, tối đa 5 lệnh auto/ngày UTC, ngưỡng lỗ equity 3%.
+  Lỗ ngày so với equity được quan sát đầu tiên trong ngày UTC, gồm PnL chưa chốt
+  và chi phí của toàn bộ ví; số lệnh chỉ đếm lệnh auto đã mở trong ngày đó.
+  Đây là ngưỡng dừng mở mới, không phải bảo đảm lỗ tối đa hoặc lệnh đóng cưỡng chế.
+- Chạm giới hạn sẽ tắt auto; không tự bật lại ngày sau. Không reset baseline khi
+  sửa cấu hình hay bật lại cùng ngày. Chỉ đổi thông số khi auto đã dừng.
+- Dừng auto vẫn giữ vị thế và SL/TP. Có thể đóng thủ công hoặc chọn **Dừng auto và
+  đóng vị thế**. Khi giá stale, việc đóng chờ quote mới; nút dừng auto vẫn dùng được.
+- Khi auto bật, khóa mở lệnh thủ công và chuyển nguồn sang synthetic. Đóng vị thế
+  vẫn được phép. Nút **Bật theo dõi tín hiệu** ở Tổng quan là bộ theo dõi độc lập,
+  không bật/tắt Auto Paper.
+- Worker có các vòng độc lập: heartbeat, quote/SLTP (5s), tải nến (15s), funding
+  (60s), auto (5s). Request lịch sử/funding chậm không chặn vòng quote/SLTP.
+  Lỗi xử lý auto bất ngờ dừng vào lệnh mới và ghi trạng thái; SL/TP vẫn chạy.
+- Wallet-row lock + quyết định khóa theo timestamp nến ngăn khớp lệnh trùng.
+  Ghi tín hiệu dùng `ON CONFLICT DO NOTHING`, tránh đụng giữa monitor và auto.
+
+API: `GET /api/paper/auto`, `POST /api/paper/auto/config`,
+`POST /api/paper/auto/control`. Các route `/api/paper/orders` và đóng vị thế
+vẫn dùng chung bộ khớp lệnh, tính phí và kế toán ví với auto.
+
+Kiểm tra đồng thời trên PostgreSQL (tạo/xóa database test riêng, không đổi dữ liệu app):
+
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -m backend.tests.check_auto_concurrency
+```

@@ -1517,3 +1517,70 @@ footer {
     display: flex;
   }
 }
+
+.auto-paper-panel {
+  margin: 20px 0;
+}
+.auto-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.auto-title h2 {
+  margin-bottom: 6px;
+}
+.auto-title p {
+  margin: 0;
+  font-size: 12px;
+}
+.auto-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  background: #f1f5ea;
+  border-radius: 8px;
+  font-size: 12px;
+  margin: 16px 0;
+}
+.auto-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.auto-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #e2e7dd;
+  border-radius: 8px;
+}
+.auto-stats span {
+  color: #63746a;
+  font-size: 11px;
+}
+.auto-stats strong {
+  font-size: 17px;
+}
+.auto-decision-reason {
+  min-width: 240px;
+  white-space: normal;
+  line-height: 1.6;
+}
+.trade-origin {
+  display: block;
+  font-size: 9px;
+  color: #63746a;
+  margin-top: 5px;
+}
+@media (max-width: 700px) {
+  .auto-stats {
+    grid-template-columns: 1fr;
+  }
+  .auto-title {
+    align-items: flex-start;
+  }
+}

@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
-from .db import BotState, Event, MarketState, Session, Signal
+from .auto_paper import router as auto_router
+from .db import AutoPaperState, BotState, Event, MarketState, Session, Signal
 from .feed import load_candles
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
@@ -23,6 +24,7 @@ async def lifespan(app):
 app = FastAPI(title="Signal Desk API", version="0.2.0", lifespan=lifespan)
 app.include_router(research_router)
 app.include_router(paper_router)
+app.include_router(auto_router)
 
 
 class Control(BaseModel):
@@ -35,7 +37,7 @@ def health():
     try:
         with Session() as session:
             session.execute(text("SELECT 1"))
-            if session.get(BotState, 1) is None:
+            if session.get(BotState, 1) is None or session.get(AutoPaperState, 1) is None:
                 raise RuntimeError("Run migrations")
             source = session.get(MarketState, 1).source
     except Exception as exc:
