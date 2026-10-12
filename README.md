@@ -28,6 +28,28 @@ docker compose down           # giữ volume dữ liệu
 
 `docker compose down -v` xóa toàn bộ dữ liệu database, chỉ dùng khi chủ động reset.
 
+## Docker dev với hot reload frontend
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up --build -d
+```
+
+Dashboard vẫn ở http://localhost:3000, nhưng được phục vụ bằng Vite dev server với React Fast Refresh. Sửa file trong `frontend/src/` sẽ cập nhật giao diện ngay, không cần build lại container. Source được bind mount; `node_modules` Linux nằm trong volume riêng, không dùng chung dependency macOS. Polling được bật để nhận thay đổi file qua Docker trên macOS.
+
+API và bot vẫn chạy bằng image như trước. Khi sửa dependency trong `package.json`/lockfile, khởi động lại frontend để chạy lại `npm ci`:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml restart frontend
+```
+
+Quay lại Nginx và bản production build:
+
+```bash
+docker compose -f compose.yaml up --build -d
+```
+
+Dùng đủ hai file Compose cho các lệnh dev để giữ đúng cấu hình.
+
 ## Phát triển cục bộ không cần Docker
 
 Python 3.13+ và Node.js 22+. Dùng SQLite cho dev; Docker dùng PostgreSQL.
@@ -82,7 +104,7 @@ compose.yaml            frontend, api, bot, migrate, postgres
 
 - `TRADING_MODE=paper` là giá trị duy nhất được hỗ trợ. API và worker từ chối khởi động nếu cấu hình live.
 - Chưa có authentication. Chỉ dùng môi trường phát triển; các cổng được bind về loopback. Không đưa bản này ra Internet hoặc chuyển bind thành `0.0.0.0` trước khi bổ sung đăng nhập, phân quyền, TLS và bảo vệ thao tác điều khiển.
-- Chưa tự deploy VPS. Docker image frontend là bản build tĩnh; thay source cần build lại. Backend cũng cần build lại. Dev cục bộ có reload như hướng dẫn trên.
+- Chưa tự deploy VPS. Docker mặc định dùng frontend build tĩnh; thay source cần build lại. Docker dev dùng Vite hot reload cho frontend như hướng dẫn trên. Backend và worker vẫn cần build lại khi sửa source.
 - PostgreSQL không publish cổng ra host; dữ liệu nằm trong named volume.
 - `.env` và API keys không được commit. Mật khẩu mặc định chỉ dành cho dev.
 - Dashboard offline hiển thị preview tổng hợp và vô hiệu hóa điều khiển. Dữ liệu này không ghi vào database. UI lấy lại snapshot API mỗi 5 giây, worker stale sau 30 giây.

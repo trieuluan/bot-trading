@@ -13,6 +13,7 @@ jobs:
       - run: ruff format --check backend bot migrations
       - run: python -m pytest backend/tests -q
       - run: docker compose config --quiet
+      - run: docker compose -f compose.yaml -f compose.dev.yaml config --quiet
   frontend:
     runs-on: ubuntu-latest
     defaults:
