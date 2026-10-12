@@ -3,13 +3,14 @@
 import time
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
-from .db import MarketState, MtfObservationEvent, MtfObservationState, Session
+from .db import MarketState, MtfObservationEvent, MtfObservationState, MtfResearchSample, Session
 from .feed import load_candles, save_candles
 from .market import serialize
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
+from .mtf_research import collect_sample
 from .strategy import aggregate, mtf_scan
 
 router = APIRouter(prefix="/api/observations/mtf", tags=["MTF Observations"])
@@ -160,6 +161,7 @@ def observation_tick(adapter=None, now=None):
             state.snapshot = snapshot
             state.last_candle = candles[-1].time
             state.error = state.retry_at = None
+            collect_sample(session, candles, snapshot)
             session.add(MtfObservationEvent(candle_time=state.last_candle, snapshot=snapshot))
     except MarketDataError as exc:
         with Session.begin() as session:
@@ -209,4 +211,29 @@ def observation_state():
             "candles": serialize(load_candles(session, limit=160, until=int(now) // 900 * 900))
             if available
             else [],
+        }
+
+
+@router.get("/dataset")
+def research_dataset(after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
+    with Session() as session:
+        rows = session.scalars(
+            select(MtfResearchSample)
+            .where(MtfResearchSample.confirm_time > after)
+            .order_by(MtfResearchSample.confirm_time)
+            .limit(limit + 1)
+        ).all()
+        return {
+            "observation_only": True,
+            "funding_included": False,
+            "label_definition": "1 = positive hypothetical PnL after fixed fees/slippage, excluding funding",
+            "samples": [
+                {
+                    "confirm_time": row.confirm_time,
+                    "features": row.features,
+                    "evaluation": row.evaluation,
+                }
+                for row in rows[:limit]
+            ],
+            "next_after": rows[limit - 1].confirm_time if len(rows) > limit else None,
         }

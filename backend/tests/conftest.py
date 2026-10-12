@@ -25,6 +25,7 @@ def database():
         MarketState,
         MtfObservationEvent,
         MtfObservationState,
+        MtfResearchSample,
         PaperCommand,
         PaperFunding,
         PaperTrade,
@@ -36,6 +37,7 @@ def database():
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            MtfResearchSample,
             MtfObservationEvent,
             AutoPaperDecision,
             PaperFunding,

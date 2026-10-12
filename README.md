@@ -358,3 +358,26 @@ vùng 1h, mức breakout, SL/TP tham chiếu, marker breakout/retest/xác nhận
 Kết quả backtest của biến thể này chưa đạt ngưỡng; dùng dữ liệu quan sát để kiểm chứng.
 
 API: `GET /api/observations/mtf`.
+
+### Dữ liệu chuẩn bị cho AI filter (chưa huấn luyện AI)
+
+Migration `0006` thêm `mtf_research_samples`. Từ lúc triển khai, mỗi setup MTF **đã xác nhận**
+ghi đúng một mẫu; không phát lại lịch sử. Setup hủy/hết hạn vẫn nằm trong nhật ký quan sát,
+không bị gán nhãn thua. Feature chốt tại nến xác nhận: ATR14 15m (trung bình true range),
+khoảng cách EMA50 4h theo ATR/chiều setup, độ rộng vùng breakout đã lưu, volume so với
+20 nến trước, thân nến, khoảng SL, giờ UTC và số nến chờ. Chỉ dùng nến đã đóng;
+`available_at` là thời điểm feature thực sự sẵn có. Funding feature hiện `null`, không giả là 0.
+
+Đánh giá giả lập độc lập vào open nến 15m kế tiếp, dùng SL/TP đã chốt. Phí cố định 5 bps
+và trượt giá 2 bps mỗi chiều; tối đa 96 nến (24h) rồi đóng theo close. Chạm cả SL/TP trong
+một nến tính SL trước; gap qua SL thoát tại open, entry ngoài SL/TP đánh dấu invalid.
+Mất nến đánh dấu censored, không đoán diễn biến đã bỏ lỡ. Mẫu pending/open chưa có nhãn.
+`label=1` nghĩa PnL giả lập dương **sau phí/trượt giá, chưa tính funding**;
+`net_r_ex_funding` không phải PnL giao dịch thật. Không mô phỏng khối lượng/lot, spread hay
+thanh khoản; funding chưa đủ nên bộ dữ liệu chưa dùng để khẳng định lợi nhuận hoặc bật bot.
+
+Xuất JSON phân trang: `GET /api/observations/mtf/dataset?after=0&limit=100` (tối đa 1000).
+Dùng `next_after` cho trang tiếp theo. Feature và evaluation tách riêng để tránh dùng nhãn
+tương lai làm đầu vào. Khi huấn luyện cần split theo thời gian và loại các mẫu train có
+`label_available_at` chồng lên kỳ kiểm tra; không split ngẫu nhiên. Mẫu cùng thời điểm hoặc
+chồng lấn vị thế không phải các phép thử độc lập. Không đổi chiến lược, Auto Paper hoặc ví.

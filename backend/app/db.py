@@ -105,6 +105,12 @@ class MtfObservationEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     snapshot: Mapped[dict] = mapped_column(JSON)
 
+class MtfResearchSample(Base):
+    __tablename__ = "mtf_research_samples"
+    confirm_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    features: Mapped[dict] = mapped_column(JSON)
+    evaluation: Mapped[dict] = mapped_column(JSON)
+
 
 class PaperWallet(Base):
     __tablename__ = "paper_wallet"
