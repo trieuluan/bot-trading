@@ -109,7 +109,9 @@ def set_status(session, state, message):
         session.add(Event(kind="auto_paper", message=message))
 
 
-def record_decision(session, state, candle_time, action, reason, setup=None, trade=None):
+def record_decision(
+    session, state, candle_time, action, reason, setup=None, trade=None, audit=None
+):
     state.last_candle = candle_time
     session.add(
         AutoPaperDecision(
@@ -122,6 +124,7 @@ def record_decision(session, state, candle_time, action, reason, setup=None, tra
                 "risk_percent": state.risk_percent,
                 "daily_loss_percent": state.daily_loss_percent,
                 "max_daily_trades": state.max_daily_trades,
+                **({"audit": audit} if audit else {}),
             },
         )
     )
@@ -240,6 +243,18 @@ def auto_tick(now=None):
             f"AUTO PAPER #{trade.id}: {setup.side.upper()} · {setup.reason}",
             setup,
             trade,
+            audit={
+                "strategy": "breakout_20_v1",
+                "reason": setup.reason,
+                "signal_time": candle_time,
+                "signal_close": candles[-1].close,
+                "range_start": candles[-21].time,
+                "range_end": candles[-2].time,
+                "range_high": max(c.high for c in candles[-21:-1]),
+                "range_low": min(c.low for c in candles[-21:-1]),
+                "risk_percent": state.risk_percent,
+                "risk_budget": risk_cash,
+            },
         )
 
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
 from .db import (
+    AutoPaperDecision,
     AutoPaperState,
     Event,
     PaperCommand,
@@ -233,8 +234,8 @@ def sync_paper_funding(adapter=None, now=None):
             adapter.close()
 
 
-def serialize_trade(trade):
-    return {
+def serialize_trade(trade, decision=None):
+    result = {
         name: getattr(trade, name)
         for name in (
             "id",
@@ -257,6 +258,35 @@ def serialize_trade(trade):
         )
     }
 
+    result["audit"] = decision.parameters.get("audit") if decision else None
+    result["entry_reason"] = decision.setup.get("reason") if decision and decision.setup else None
+    return result
+
+
+@router.get("/trades/{trade_id}/candles")
+def get_trade_candles(trade_id: int):
+    """Read cached history only; inspecting a trade never changes trading state."""
+    with Session() as session:
+        trade = session.get(PaperTrade, trade_id)
+        if not trade:
+            raise HTTPException(404, "Không tìm thấy lệnh mô phỏng")
+        anchor = trade.signal_time or int(trade.entry_time) // 900 * 900
+        end = int(trade.exit_time or time.time()) // 900 * 900 + 4 * 900
+        # Bound history from the signal forward so entry context is never truncated.
+        candles = load_candles(
+            session, since=anchor - 24 * 900, until=min(end, anchor + 1976 * 900)
+        )
+        result = [asdict(candle) for candle in candles]
+        wallet = session.get(PaperWallet, 1)
+        bar = wallet.quote.get("bar") if wallet and wallet.quote else None
+        if (
+            bar
+            and anchor - 24 * 900 <= bar["time"] < min(end, anchor + 1976 * 900)
+            and (not result or bar["time"] > result[-1]["time"])
+        ):
+            result.append(bar)
+        return result
+
 
 @router.get("/wallet")
 def get_wallet():
@@ -265,6 +295,16 @@ def get_wallet():
         wallet = lock_wallet(session)
         trades = session.scalars(select(PaperTrade).order_by(PaperTrade.id.desc()).limit(100)).all()
         position = open_position(session)
+        decisions = {
+            d.trade_id: d
+            for d in session.scalars(
+                select(AutoPaperDecision).where(
+                    AutoPaperDecision.trade_id.in_(
+                        [t.id for t in trades] + ([position.id] if position else [])
+                    )
+                )
+            )
+        }
         quote = wallet.quote
         mark = quote["fairPrice"] if quote else None
         unrealized = (
@@ -295,8 +335,8 @@ def get_wallet():
             error=wallet.error,
             funding_error=wallet.funding_error,
             funding_cursor=wallet.funding_cursor,
-            position=serialize_trade(position) if position else None,
-            trades=[serialize_trade(trade) for trade in trades],
+            position=serialize_trade(position, decisions.get(position.id)) if position else None,
+            trades=[serialize_trade(trade, decisions.get(trade.id)) for trade in trades],
             candles=candles,
         )
 

@@ -77,7 +77,9 @@ export function openPaperOrder(order: {
   return paperRequest('/api/paper/orders', order);
 }
 export function closePaperPosition(id: number, requestId: string): Promise<{ trade_id: number }> {
-  return paperRequest(`/api/paper/positions/${id}/close`, { request_id: requestId });
+  return paperRequest(`/api/paper/positions/${id}/close`, {
+    request_id: requestId,
+  });
 }
 
 export function fetchAutoPaper(): Promise<import('../types/paper').AutoPaperState> {
@@ -92,4 +94,8 @@ export function setAutoPaperEnabled(
   enabled: boolean,
 ): Promise<import('../types/paper').AutoPaperState> {
   return paperRequest('/api/paper/auto/control', { enabled });
+}
+
+export function fetchPaperTradeCandles(id: number): Promise<import('../types/trading').Candle[]> {
+  return paperRequest(`/api/paper/trades/${id}/candles`);
 }

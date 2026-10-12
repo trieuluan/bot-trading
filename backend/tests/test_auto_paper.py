@@ -289,3 +289,41 @@ def test_occupied_wallet_and_funding_error_are_visible_skips(ready):
         assert session.get(AutoPaperDecision, last).action == "skipped"
         assert "vị thế" in session.get(AutoPaperDecision, last).reason
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
+
+
+def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(ready):
+    _, seed = ready
+    last = seed("short")
+    auto_tick()
+    trade = client.get("/api/paper/wallet").json()["position"]
+    audit = trade["audit"]
+    assert audit["range_high"] == 100
+    assert audit["range_low"] == 90
+    assert audit["signal_close"] == 85
+    assert audit["range_start"] == last - 20 * 900
+    assert audit["range_end"] == last - 900
+    assert audit["risk_percent"] == 1
+    assert audit["risk_budget"] == 100
+    assert trade["entry_reason"] == audit["reason"]
+    with Session.begin() as session:
+        session.get(AutoPaperState, 1).risk_percent = 2
+        save_candles(session, [Candle(last - 900, 95, 120, 80, 95, 10)])
+    updated = client.get("/api/paper/wallet").json()["position"]
+    assert updated["audit"] == audit
+    candles = client.get(f"/api/paper/trades/{trade['id']}/candles").json()
+    assert candles[0]["time"] <= audit["range_start"]
+    assert any(c["time"] == last for c in candles)
+    assert candles[-1]["time"] == last + 900  # Current observed bar keeps fills visible.
+    assert client.get("/api/paper/trades/99999/candles").status_code == 404
+
+
+def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready):
+    _, seed = ready
+    last = seed()
+    auto_tick()
+    with Session.begin() as session:
+        decision = session.get(AutoPaperDecision, last)
+        decision.parameters = {"risk_percent": 1}
+    trade = client.get("/api/paper/wallet").json()["position"]
+    assert trade["audit"] is None
+    assert "20" in trade["entry_reason"]

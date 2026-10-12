@@ -2,10 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Wallet, RefreshCw } from 'lucide-react';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
 import { AutoDecisionList } from '../components/AutoDecisionList';
+import { PaperTradeDetails, exitLabels } from '../components/PaperTradeDetails';
+import type { Candle } from '../types/trading';
 import { PaperChart } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
 import {
   fetchPaperWallet,
+  fetchPaperTradeCandles,
   fetchAutoPaper,
   setAutoPaperEnabled,
   openPaperOrder,
@@ -13,11 +16,6 @@ import {
 } from '../lib/api';
 import type { AutoPaperState, PaperWallet } from '../types/paper';
 
-const exitLabels: Record<string, string> = {
-  manual: 'Đóng thủ công',
-  stop_loss: 'Stop-loss',
-  take_profit: 'Take-profit',
-};
 const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
 
 export function PaperTradingPage() {
@@ -31,13 +29,21 @@ export function PaperTradingPage() {
   const [notional, setNotional] = useState('1000');
   const [stop, setStop] = useState('');
   const [target, setTarget] = useState('');
+  const [history, setHistory] = useState<{
+    id: number;
+    candles: Candle[];
+  } | null>(null);
+  const [historyError, setHistoryError] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
   const latest = useRef<PaperWallet | null>(null);
   const chartSection = useRef<HTMLElement | null>(null);
   function viewTrade(id: number) {
     setSelectedId(id);
-    chartSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    chartSection.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
   }
   // Reuse a command ID after an ambiguous timeout; the API returns its original result.
   const pending = useRef<{ key: string; id: string } | null>(null);
@@ -89,7 +95,12 @@ export function PaperTradingPage() {
     setBusy(true);
     setError('');
     setMessage('');
-    const order = { side, notional: Number(notional), stop: Number(stop), target: Number(target) };
+    const order = {
+      side,
+      notional: Number(notional),
+      stop: Number(stop),
+      target: Number(target),
+    };
     try {
       const result = await openPaperOrder({
         ...order,
@@ -130,10 +141,36 @@ export function PaperTradingPage() {
     clock / 1000 - quote.received_at > 20 ||
     Math.abs(clock / 1000 - quote.time) > 30;
   const selected =
-    wallet?.trades.find((trade) => trade.id === selectedId) ??
-    wallet?.position ??
-    wallet?.trades[0] ??
-    null;
+    selectedId === -1
+      ? null
+      : (wallet?.trades.find((trade) => trade.id === selectedId) ?? wallet?.position ?? null);
+  const historicalId = selected?.exit_time != null ? selected.id : null;
+  const exitTime = selected?.exit_time;
+  useEffect(() => {
+    let active = true;
+    setHistory(null);
+    setHistoryError('');
+    if (historicalId !== null) {
+      fetchPaperTradeCandles(historicalId).then(
+        (candles) => {
+          if (active) setHistory({ id: historicalId, candles });
+        },
+        (cause) => {
+          if (active)
+            setHistoryError(cause instanceof Error ? cause.message : 'Không tải được nến lịch sử.');
+        },
+      );
+    }
+    return () => {
+      active = false;
+    };
+  }, [historicalId, exitTime]);
+  const chartCandles =
+    historicalId === null
+      ? (wallet?.candles ?? [])
+      : history?.id === historicalId
+        ? history.candles
+        : [];
   return (
     <>
       <section className="panel prose paper-intro">
@@ -210,7 +247,38 @@ export function PaperTradingPage() {
             </div>
             <span className="pill">PAPER FILLS</span>
           </div>
-          <PaperChart candles={wallet?.candles ?? []} trade={selected} />
+          <div className="chart-mode-tabs" role="group" aria-label="Chế độ chart">
+            <button
+              className={`secondary ${!selected ? 'selected' : ''}`}
+              onClick={() => setSelectedId(-1)}
+            >
+              Giá realtime
+            </button>
+            {wallet?.position && (
+              <button
+                className={`secondary ${selected?.id === wallet.position.id ? 'selected' : ''}`}
+                onClick={() => setSelectedId(wallet.position!.id)}
+              >
+                Vị thế đang mở #{wallet.position.id}
+              </button>
+            )}
+            {historicalId !== null && (
+              <span className="pill amber">ĐANG XEM LỊCH SỬ #{historicalId} · ĐÃ ĐÓNG</span>
+            )}
+          </div>
+          {historicalId !== null && !history && (
+            <p role="status">{historyError || 'Đang tải nến của lệnh lịch sử…'}</p>
+          )}
+          {(historicalId === null || history?.id === historicalId) && (
+            <PaperChart candles={chartCandles} trade={selected} />
+          )}
+          {selected ? (
+            <PaperTradeDetails trade={selected} />
+          ) : (
+            <p className="micro">
+              Chart giá realtime. Chọn một lệnh trong lịch sử để xem Entry, Exit và lý do giao dịch.
+            </p>
+          )}
           <div className="paper-book">
             <span>
               Bid <strong>{quote ? formatPrice(quote.bid1) : '—'}</strong>
@@ -348,7 +416,11 @@ export function PaperTradingPage() {
             </button>
           </div>
         ) : (
-          <p>Chưa có vị thế. Chọn Long hoặc Short và đặt một lệnh thử bằng USDT ảo.</p>
+          <p>
+            {auto?.enabled
+              ? 'Chưa có vị thế. Auto đang chờ tín hiệu nến đóng hợp lệ.'
+              : 'Chưa có vị thế. Bật Auto Paper hoặc đặt lệnh thủ công bằng USDT ảo.'}
+          </p>
         )}
         <p className="micro">
           Số dư = vốn ban đầu + PnL đã chốt − phí − funding. Equity cộng PnL chưa chốt theo fair
@@ -376,7 +448,10 @@ export function PaperTradingPage() {
             </thead>
             <tbody>
               {wallet?.trades.map((trade) => (
-                <tr key={trade.id}>
+                <tr
+                  key={trade.id}
+                  className={selected?.id === trade.id ? 'selected-trade-row' : undefined}
+                >
                   <td>
                     <button className="text-button" onClick={() => viewTrade(trade.id)}>
                       #{trade.id} · {timeLabel(trade.entry_time)}

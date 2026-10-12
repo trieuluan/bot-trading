@@ -1,6 +1,19 @@
 import type { Candle } from './trading';
 
 export type PaperTrade = {
+  audit: {
+    strategy: string;
+    reason: string;
+    signal_time: number;
+    signal_close: number;
+    range_start: number;
+    range_end: number;
+    range_high: number;
+    range_low: number;
+    risk_percent: number;
+    risk_budget: number;
+  } | null;
+  entry_reason: string | null;
   id: number;
   origin: 'manual' | 'auto';
   signal_time: number | null;
@@ -55,7 +68,13 @@ export type AutoDecision = {
   evaluated_at: string;
   action: 'opened' | 'skipped' | 'no_setup';
   reason: string;
-  setup: { side: string; entry: number; stop: number; target: number; reason: string } | null;
+  setup: {
+    side: string;
+    entry: number;
+    stop: number;
+    target: number;
+    reason: string;
+  } | null;
   trade_id: number | null;
   parameters: AutoPaperConfig;
 };

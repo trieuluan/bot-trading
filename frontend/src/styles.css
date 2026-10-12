@@ -1584,3 +1584,53 @@ footer {
     align-items: flex-start;
   }
 }
+
+.chart-mode-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.paper-trade-details {
+  margin-top: 18px;
+  padding: 18px;
+  background: #f5f7f0;
+  border: 1px solid #e2e7dd;
+  border-radius: 10px;
+}
+.paper-trade-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.paper-trade-facts dt,
+.paper-trade-facts small {
+  font-size: 11px;
+  color: #63746a;
+}
+.paper-trade-facts dd {
+  margin: 6px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.paper-trade-facts small {
+  display: block;
+  line-height: 1.6;
+}
+.selected-trade-row {
+  background: #f1f5ea;
+}
+.breakout-legend {
+  color: #91783d;
+}
+@media (max-width: 700px) {
+  .paper-trade-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.exit-legend {
+  color: #8a7ca3;
+}

@@ -312,3 +312,15 @@ Kiểm tra đồng thời trên PostgreSQL (tạo/xóa database test riêng, kh�
 ```sh
 docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -m backend.tests.check_auto_concurrency
 ```
+
+### Xem lại lệnh Paper trên chart
+
+Chart mặc định hiển thị vị thế đang mở (nếu có), hoặc giá realtime khi chưa có vị thế.
+Chọn một hàng lịch sử để xem riêng lệnh đã đóng; bấm **Giá realtime** để trở về.
+**Entry** là giá khớp mở, **Exit** là giá khớp đóng. Lý do thoát ghi rõ SL, TP hoặc đóng thủ công.
+Bảng chi tiết hiển thị thời gian UTC, rủi ro theo khoảng cách Entry–SL, tỷ lệ mục tiêu/rủi ro thực tế, phí và funding.
+
+Lệnh auto mới lưu bản chụp vùng 20 nến, giá đóng nến tín hiệu và ngân sách rủi ro vào quyết định cùng transaction mở lệnh.
+Chart đánh dấu nến tín hiệu và hai biên vùng breakout. Lệnh cũ chưa có bản chụp được ghi rõ, không tái tạo lý do giả định.
+Lệnh thủ công không có tín hiệu breakout. Nến xem lại đọc từ cache DB, tối đa 2.000 nến từ 24 nến trước tín hiệu;
+không tự tải dữ liệu sàn hay thay đổi trạng thái bot khi xem lịch sử. Nến thiếu không được bù giả lập.
