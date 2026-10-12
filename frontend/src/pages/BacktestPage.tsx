@@ -11,6 +11,7 @@ const periods = { full: 'Toàn bộ', in_sample: '70% đầu', out_of_sample: '3
 export function BacktestPage({ connected }: { connected: boolean }) {
   const [report, setReport] = useState<BacktestReport | null>(null);
   const [period, setPeriod] = useState<keyof typeof periods>('out_of_sample');
+  const [strategy, setStrategy] = useState<'breakout' | 'retest'>('breakout');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [days, setDays] = useState(30);
@@ -54,7 +55,7 @@ export function BacktestPage({ connected }: { connected: boolean }) {
     }
   }
 
-  const result = report?.result[period];
+  const result = strategy === 'retest' ? report?.result.retest?.[period] : report?.result[period];
   return (
     <>
       <section className="panel prose">
@@ -181,6 +182,12 @@ export function BacktestPage({ connected }: { connected: boolean }) {
             ro {report.result.parameters.risk_percent}% · phí {report.result.parameters.fee_bps} bps
             · trượt giá {report.result.parameters.slippage_bps} bps.
           </p>
+          <div className="period-tabs" role="group" aria-label="Chiến lược">
+            <button className={strategy === 'breakout' ? 'secondary selected' : 'secondary'} onClick={() => setStrategy('breakout')}>Breakout (đối chiếu)</button>
+            <button disabled={!report.result.retest} className={strategy === 'retest' ? 'secondary selected' : 'secondary'} onClick={() => setStrategy('retest')}>Breakout → Retest</button>
+            {!report.result.retest && <span className="micro">Chạy lại backtest để có kết quả retest.</span>}
+          </div>
+          <p className="micro">Retest: chờ tối đa 10 nến sau breakout; chạm vùng rồi nến xác nhận cùng chiều giữ vùng; SL theo retest, TP 2R. Giả thuyết kiểm chứng, không đảm bảo lợi nhuận tốt hơn.</p>
           <div className="period-tabs" role="group" aria-label="Khoảng đánh giá">
             {Object.entries(periods).map(([key, label]) => (
               <button
@@ -214,7 +221,7 @@ export function BacktestPage({ connected }: { connected: boolean }) {
           </div>
           <EquityChart points={result.equity_curve} />
           <TradeReview
-            key={`${report.id}-${period}`}
+            key={`${report.id}-${strategy}-${period}`}
             candles={report.result.candles}
             result={result}
           />

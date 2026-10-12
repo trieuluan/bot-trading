@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 
 from .market import Candle
 from .mexc import validate_candles
-from .strategy import breakout
+from .strategy import breakout, retest
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,8 @@ def simulate(
     fair_candles: list[Candle],
     contract: dict,
     warmup: int = 20,
+    signal=breakout,
+    window: int = 21,
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
@@ -135,7 +137,7 @@ def simulate(
         max_drawdown = max(max_drawdown, (peak - equity) / peak * 100)
         curve.append({"time": candle.time, "equity": round(equity, 6)})
         if position is None and index < len(candles) - 1 and cash > 0:
-            setup = breakout(candles[max(0, index - 20) : index + 1], allow_short=True)
+            setup = signal(candles[max(0, index + 1 - window) : index + 1], allow_short=True)
             if setup:
                 pending = (setup, candle.time)
 
@@ -190,6 +192,7 @@ def run_backtest(
         "fair_candles": fair_candles,
         "contract": contract,
     }
+    retest_args = {**common, "signal": retest, "window": 32}
     return {
         "strategy": "structure_breakout_long_short_v1",
         "parameters": asdict(config),
@@ -209,4 +212,10 @@ def run_backtest(
         "full": simulate(candles, **common),
         "in_sample": simulate(candles[:split], **common),
         "out_of_sample": simulate(candles[split - 20 :], **common),
+        "retest": {
+            "strategy": "breakout_retest_v1",
+            "full": simulate(candles, **retest_args),
+            "in_sample": simulate(candles[:split], **retest_args),
+            "out_of_sample": simulate(candles[split - 20 :], **retest_args),
+        },
     }

@@ -51,3 +51,38 @@ def breakout(candles: list[Candle], lookback: int = 20, allow_short: bool = Fals
             else None
         )
     return None
+
+def retest(
+    candles: list[Candle], lookback: int = 20, wait: int = 10, allow_short: bool = False
+) -> Setup | None:
+    """Breakout close, retest of broken level, confirming close. Fires only on the latest closed candle."""
+    last = len(candles) - 1
+    for b in range(last - 1, max(lookback - 1, last - wait - 1), -1):
+        hist = candles[b - lookback : b]
+        for d in (1, -1) if allow_short else (1,):
+            level = max(c.high for c in hist) if d == 1 else min(c.low for c in hist)
+            if d * (candles[b].close - level) <= 0:
+                continue
+            touched = []
+            for j in range(b + 1, min(last, b + wait) + 1):  # expires after `wait` candles
+                c = candles[j]
+                if d * (c.close - level) < 0:
+                    break  # closed back through the zone: setup cancelled
+                if touched and d * (c.close - c.open) > 0 and d * (c.close - level) > 0:
+                    if j == last:
+                        touched.append(c)
+                        stop = min(x.low for x in touched) if d == 1 else max(x.high for x in touched)
+                        risk = d * (c.close - stop)
+                        target = c.close + d * 2 * risk
+                        if risk > 0 and target > 0:
+                            return Setup(
+                                "long" if d == 1 else "short",
+                                c.close,
+                                stop,
+                                target,
+                                f"Breakout {lookback} nến, retest vùng {level:g}, nến xác nhận giữ vùng; SL theo retest; mục tiêu 2R.",
+                            )
+                    break  # confirmed earlier (already signalled) or invalid
+                if d * (level - (c.low if d == 1 else c.high)) >= 0 or touched:
+                    touched.append(c)
+    return None

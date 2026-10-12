@@ -5,7 +5,7 @@ from sqlalchemy import select
 from backend.app.db import BotState, Session, Signal
 from backend.app.main import app
 from backend.app.market import Candle, DemoAdapter
-from backend.app.strategy import breakout
+from backend.app.strategy import breakout, retest
 from bot.worker import tick
 
 
@@ -71,3 +71,29 @@ def test_invalid_control_and_stable_replay():
             == 422
         )
     assert DemoAdapter().candles(end=80)[-1] == DemoAdapter().candles(end=81)[-2]
+
+def test_retest_waits_for_retest_and_confirmation():
+    h = [Candle(i, 95, 100, 90, 96, 10) for i in range(20)]
+    brk = Candle(20, 96, 110, 95, 105, 10)
+    ret = Candle(21, 105, 106, 99, 101, 10)  # touches 100, holds, bearish
+    ok = Candle(22, 101, 108, 100, 107, 10)
+    assert retest(h + [brk]) is None and retest(h + [brk, ret]) is None
+    s = retest(h + [brk, ret, ok])
+    assert s.side == "long" and s.entry == 107 and s.stop == 99 and s.target == 123
+    assert retest(h + [brk, ret, Candle(22, 101, 102, 97, 98, 10)]) is None  # lost zone
+    assert retest(h + [brk, ret, ok, Candle(23, 107, 109, 106, 108, 10)]) is None  # no repeat
+
+def test_retest_short_expiry_and_no_lookahead():
+    h = [Candle(i, 95, 100, 90, 96, 10) for i in range(20)]
+    brk = Candle(20, 94, 95, 80, 85, 10)  # closes below 90
+    ret = Candle(21, 85, 91, 84, 89, 10)  # touches 90, closes back below
+    ok = Candle(22, 89, 89, 80, 82, 10)
+    s = retest(h + [brk, ret, ok], allow_short=True)
+    assert s.side == "short" and s.entry == 82 and s.stop == 91 and s.target == 64
+    assert retest(h + [brk, ret, ok]) is None  # long-only ignores shorts
+    # Later candles must not change an earlier verdict (no lookahead).
+    assert retest((h + [brk, ret, ok, Candle(23, 82, 120, 70, 110, 10)])[:23], allow_short=True)
+    # Retest after expiry is ignored.
+    up = [Candle(20, 96, 110, 95, 105, 10)] + [Candle(21 + i, 105, 108, 102, 106, 10) for i in range(10)]
+    late = [Candle(31, 106, 106, 99, 101, 10), Candle(32, 101, 108, 100, 107, 10)]
+    assert retest(h + up + late) is None

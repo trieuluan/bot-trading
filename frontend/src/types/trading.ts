@@ -90,5 +90,11 @@ export type BacktestReport = {
     full: BacktestPeriod;
     in_sample: BacktestPeriod;
     out_of_sample: BacktestPeriod;
+    retest?: {
+      strategy: string;
+      full: BacktestPeriod;
+      in_sample: BacktestPeriod;
+      out_of_sample: BacktestPeriod;
+    };
   };
 };
