@@ -35,11 +35,41 @@ def with_trend(signal, period=EMA_PERIOD):
     return filtered
 
 
+def first_of(*signals):
+    """Fixed rule, declared before running: first non-empty signal wins (order = argument order)."""
+
+    def combined(candles, allow_short=False):
+        return next((x for f in signals if (x := f(candles, allow_short=allow_short))), None)
+
+    return combined
+
+
 STRATEGIES = {
     "breakout": (breakout, 21),
     "retest": (retest, 32),
     "breakout+ema200": (with_trend(breakout), WARMUP),
+    "union(breakout,retest)": (first_of(breakout, retest), WARMUP),
+    "union+ema200": (with_trend(first_of(breakout, retest)), WARMUP),
 }
+ROTATING = "rotate-by-prev-window"
+
+
+def rotate_previous(results):
+    names = ("breakout", "retest", "breakout+ema200")
+    count = len(results[names[0]])
+    if count < 2 or any(len(results[name]) != count for name in names):
+        raise ValueError("Rotation needs at least two aligned windows per strategy")
+
+    def previous_pf(name, index):
+        trades = results[name][index - 1]["trades"]
+        gain = sum(max(0, trade["net_pnl"]) for trade in trades)
+        loss = -sum(min(0, trade["net_pnl"]) for trade in trades)
+        return gain / loss if loss else (float("inf") if gain else 0)
+
+    picks = [max(names, key=lambda name: previous_pf(name, index)) for index in range(1, count)]
+    return picks, [results[name][index] for index, name in enumerate(picks, 1)]
+
+
 # Pre-registered criteria, pooled over all non-overlapping windows, after fees/slippage/funding.
 MIN_TRADES, MIN_PF, MIN_WIN_POSITIVE, MAX_DD = 100, 1.3, 0.6, 10.0
 
@@ -94,8 +124,9 @@ def main(months: int, window_days: int):
     size, config = window_days * 96, BacktestConfig()
     starts = range(WARMUP, len(candles) - size + 1, size)
     print(f"{len(candles)} candles, {len(starts)} windows of {window_days}d, fresh capital each\n")
+    results = {}
     for name, (signal, window) in STRATEGIES.items():
-        rows = [
+        rows = results[name] = [
             simulate(
                 candles[s - WARMUP : s + size], config, data["funding"],
                 fair[s - WARMUP : s + size], data["contract"],
@@ -103,12 +134,20 @@ def main(months: int, window_days: int):
             )
             for s in starts
         ]  # fmt: skip
-        r = evaluate(rows)
-        print(f"{name}: windows={r['windows']} trades={r['trades']} pooledPF={r['pf']:.2f} "
-              f"meanRet={r['mean_return']:.2f}% positive={r['positive']:.0%} worstDD={r['worst_dd']:.2f}%")  # fmt: skip
-        print("  returns%:", " ".join(f"{w['return_percent']:.1f}" for w in rows))
-        print("  ", ", ".join(f"{k}: {'ok' if v else 'FAIL'}" for k, v in r["checks"].items()),
-              "=> PASS" if r["pass"] else "=> FAIL")  # fmt: skip
+        report(name, rows)
+    # Honest "pick the best": choose by PF of the PREVIOUS window only, trade the next one.
+    picks, rotated = rotate_previous(results)
+    report(ROTATING, rotated)
+    print("  picks:", ", ".join(picks))
+
+
+def report(name, rows):
+    r = evaluate(rows)
+    print(f"{name}: windows={r['windows']} trades={r['trades']} pooledPF={r['pf']:.2f} "
+          f"meanRet={r['mean_return']:.2f}% positive={r['positive']:.0%} worstDD={r['worst_dd']:.2f}%")  # fmt: skip
+    print("  returns%:", " ".join(f"{w['return_percent']:.1f}" for w in rows))
+    print("  ", ", ".join(f"{k}: {'ok' if v else 'FAIL'}" for k, v in r["checks"].items()),
+          "=> PASS" if r["pass"] else "=> FAIL")  # fmt: skip
 
 
 if __name__ == "__main__":

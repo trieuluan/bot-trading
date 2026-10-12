@@ -130,3 +130,39 @@ def test_trend_filter_blocks_counter_trend_setups():
     assert with_trend(flat, 10)(up) is not None  # close above rising EMA
     down = [Candle(i, 200 - i, 201 - i, 199 - i, 200 - i, 1) for i in range(30)]
     assert with_trend(flat, 10)(down) is None  # long against falling EMA
+
+
+def test_combined_signal_uses_fixed_priority_and_no_duplicate_order():
+    from scripts.walkforward import first_of
+
+    long_setup = Setup("long", 100, 90, 120, "first")
+    short_setup = Setup("short", 100, 110, 80, "second")
+
+    def first(candles, allow_short=False):
+        return long_setup if candles else None
+
+    def second(candles, allow_short=False):
+        return short_setup if allow_short else None
+
+    assert first_of(first, second)([1], allow_short=True) is long_setup
+    assert first_of(first, second)([], allow_short=True) is short_setup
+    assert first_of(first, second)([]) is None
+
+
+def test_rotation_chooses_previous_window_not_current_or_future():
+    from scripts.walkforward import rotate_previous
+
+    def window(gain):
+        return {"trades": [{"net_pnl": gain}, {"net_pnl": -1}]}
+
+    results = {
+        "breakout": [window(3), window(-100), window(1000)],
+        "retest": [window(2), window(5), window(-100)],
+        "breakout+ema200": [window(1), window(2), window(2000)],
+    }
+    picks, rows = rotate_previous(results)
+    assert picks == ["breakout", "retest"]
+    assert rows[0] is results["breakout"][1]
+    assert rows[1] is results["retest"][2]
+    results["breakout+ema200"][2] = window(1000000)
+    assert rotate_previous(results)[0] == picks
