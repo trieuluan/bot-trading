@@ -72,6 +72,7 @@ def test_invalid_control_and_stable_replay():
         )
     assert DemoAdapter().candles(end=80)[-1] == DemoAdapter().candles(end=81)[-2]
 
+
 def test_retest_waits_for_retest_and_confirmation():
     h = [Candle(i, 95, 100, 90, 96, 10) for i in range(20)]
     brk = Candle(20, 96, 110, 95, 105, 10)
@@ -82,6 +83,7 @@ def test_retest_waits_for_retest_and_confirmation():
     assert s.side == "long" and s.entry == 107 and s.stop == 99 and s.target == 123
     assert retest(h + [brk, ret, Candle(22, 101, 102, 97, 98, 10)]) is None  # lost zone
     assert retest(h + [brk, ret, ok, Candle(23, 107, 109, 106, 108, 10)]) is None  # no repeat
+
 
 def test_retest_short_expiry_and_no_lookahead():
     h = [Candle(i, 95, 100, 90, 96, 10) for i in range(20)]
@@ -94,6 +96,24 @@ def test_retest_short_expiry_and_no_lookahead():
     # Later candles must not change an earlier verdict (no lookahead).
     assert retest((h + [brk, ret, ok, Candle(23, 82, 120, 70, 110, 10)])[:23], allow_short=True)
     # Retest after expiry is ignored.
-    up = [Candle(20, 96, 110, 95, 105, 10)] + [Candle(21 + i, 105, 108, 102, 106, 10) for i in range(10)]
+    up = [Candle(20, 96, 110, 95, 105, 10)] + [
+        Candle(21 + i, 105, 108, 102, 106, 10) for i in range(10)
+    ]
     late = [Candle(31, 106, 106, 99, 101, 10), Candle(32, 101, 108, 100, 107, 10)]
     assert retest(h + up + late) is None
+
+
+def test_walkforward_criteria():
+    from scripts.walkforward import evaluate
+
+    def win(pnl):
+        return {
+            "trades": [{"net_pnl": pnl}] * 50,
+            "net_pnl": pnl,
+            "max_drawdown_percent": 3,
+            "return_percent": pnl,
+        }
+
+    assert evaluate([win(5), win(5), win(-1)])["pass"]
+    assert not evaluate([win(1), win(-1)])["pass"]  # PF 1.0
+    assert not evaluate([win(5)])["pass"]  # < 100 trades

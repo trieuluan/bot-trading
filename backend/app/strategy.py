@@ -52,6 +52,7 @@ def breakout(candles: list[Candle], lookback: int = 20, allow_short: bool = Fals
         )
     return None
 
+
 def retest(
     candles: list[Candle], lookback: int = 20, wait: int = 10, allow_short: bool = False
 ) -> Setup | None:
@@ -71,7 +72,9 @@ def retest(
                 if touched and d * (c.close - c.open) > 0 and d * (c.close - level) > 0:
                     if j == last:
                         touched.append(c)
-                        stop = min(x.low for x in touched) if d == 1 else max(x.high for x in touched)
+                        stop = (
+                            min(x.low for x in touched) if d == 1 else max(x.high for x in touched)
+                        )
                         risk = d * (c.close - stop)
                         target = c.close + d * 2 * risk
                         if risk > 0 and target > 0:
