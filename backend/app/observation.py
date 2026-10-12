@@ -1,12 +1,12 @@
 """Forward-only, read-only MTF observations. Never publishes trade signals or orders."""
 
 import time
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from .db import MarketState, MtfObservationEvent, MtfObservationState, Session, utcnow
+from .db import MarketState, MtfObservationEvent, MtfObservationState, Session
 from .feed import load_candles, save_candles
 from .market import serialize
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
@@ -41,6 +41,15 @@ def observe(candles, previous, started_at):
                 "reason": "Quá 12 giờ chưa xác nhận"
                 if expired
                 else "Xu hướng 4h không còn cùng chiều setup",
+            }
+        elif any(
+            current[key] != previous[key]
+            for key in ("level", "range_start", "range_end", "range_high", "range_low")
+        ):
+            current = {
+                **previous,
+                "status": "cancelled",
+                "reason": "Nến vùng tham chiếu đã thay đổi; hủy setup, không dịch chuyển vùng đã lưu",
             }
     else:
         current = next(
@@ -158,7 +167,9 @@ def observation_tick(adapter=None, now=None):
                 select(MtfObservationState).where(MtfObservationState.id == 1).with_for_update()
             )
             state.error = str(exc)
-            state.retry_at = utcnow() + timedelta(seconds=exc.retry_after)
+            state.retry_at = datetime.fromtimestamp(now, timezone.utc) + timedelta(
+                seconds=exc.retry_after
+            )
     finally:
         if client is not None and adapter is None:
             client.close()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, FlaskConical, Radio } from 'lucide-react';
+import { Eye, FlaskConical } from 'lucide-react';
 import { fetchMtfObservation } from '../lib/api';
 import { MtfObservationChart } from '../components/MtfObservationChart';
 import { formatPrice } from '../lib/format';
@@ -39,7 +39,7 @@ export function StrategyPage() {
     };
   }, []);
 
-  const snap = obs?.snapshot;
+  const snap = obs?.available ? obs.snapshot : null;
   return (
     <>
       <section className="panel prose">
@@ -55,7 +55,11 @@ export function StrategyPage() {
         </div>
         <p className="micro">
           Dữ liệu kiểm chứng tương lai độc lập. Auto Paper vẫn giữ breakout 15m cũ.
-          {obs?.stale && ' · Chờ nến mới hoặc nguồn dữ liệu đang cập nhật.'}
+          {obs && !obs.available && ' · Chọn nguồn MEXC Futures tại Kết nối sàn để quan sát.'}
+          {obs?.available &&
+            obs.stale &&
+            ' · Dữ liệu chậm/chưa đồng bộ: đây là trạng thái lưu gần nhất, không phải tín hiệu mới.'}
+          {obs?.error && ` · ${obs.error}`}
           {error && ` · ${error}`}
         </p>
         <div className="research-metrics">
@@ -89,7 +93,7 @@ export function StrategyPage() {
             <strong>Lý do hiện tại:</strong> {snap?.reason ?? 'Đang tải...'}
           </p>
         </div>
-        <MtfObservationChart candles={obs?.candles ?? []} snapshot={snap ?? null} />
+        {obs?.available && <MtfObservationChart candles={obs.candles} snapshot={snap ?? null} />}
         {obs?.events && obs.events.length > 0 && (
           <>
             <h3>Nhật ký quan sát gần nhất</h3>
@@ -129,7 +133,7 @@ export function StrategyPage() {
       <section className="panel prose">
         <div className="section-head">
           <h2>Structure Breakout (chiến lược cơ sở)</h2>
-          <span className="pill green">Đang kết nối bot</span>
+          <span className="pill amber">Chiến lược cơ sở · chưa xác nhận lợi nhuận</span>
         </div>
         <p>Chiến lược hiện tại đang dùng cho tín hiệu và Auto Paper.</p>
         <div className="rules-grid">

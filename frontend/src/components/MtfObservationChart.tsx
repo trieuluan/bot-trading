@@ -30,6 +30,7 @@ export function MtfObservationChart({
   const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
+  const fitted = useRef(false);
 
   useEffect(() => {
     if (!container.current) return;
@@ -57,6 +58,9 @@ export function MtfObservationChart({
       chart.current = null;
       series.current = null;
       markers.current = null;
+      lines.current = [];
+      ranges.current = [];
+      fitted.current = false;
     };
   }, []);
 
@@ -65,7 +69,10 @@ export function MtfObservationChart({
     series.current.setData(
       candles.map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
     );
-    chart.current?.timeScale().fitContent();
+    if (!fitted.current) {
+      chart.current?.timeScale().fitContent();
+      fitted.current = true;
+    }
   }, [candles]);
 
   useEffect(() => {
@@ -75,6 +82,7 @@ export function MtfObservationChart({
     lines.current = [];
     ranges.current.forEach((range) => chart.current?.removeSeries(range));
     ranges.current = [];
+    markers.current?.setMarkers([]);
 
     if (!snapshot) return;
     const start = Math.max(candles[0]?.time ?? snapshot.range_start, snapshot.range_start);
@@ -139,7 +147,12 @@ export function MtfObservationChart({
 
     const points: SeriesMarker<Time>[] = [];
     const map: [number | null, string, string, 'arrowUp' | 'arrowDown' | 'circle'][] = [
-      [snapshot.breakout_time, 'BREAKOUT 1H', '#b59854', 'circle'],
+      [
+        snapshot.breakout_time === null ? null : snapshot.breakout_time + 2700,
+        'BREAKOUT 1H',
+        '#b59854',
+        'circle',
+      ],
       [snapshot.touch_time, 'RETEST 15M', '#557fa1', 'circle'],
       [
         snapshot.confirm_time,
@@ -184,9 +197,13 @@ export function MtfObservationChart({
           </strong>
         )}
         <span className="breakout-legend">— Vùng 1h tham chiếu</span>
-        {snapshot?.level !== null && <span className="entry-legend">— Mức breakout</span>}
-        {snapshot?.stop !== null && <span className="stop-legend">— SL</span>}
-        {snapshot?.target !== null && <span className="target-legend">— TP</span>}
+        {snapshot && snapshot.level !== null && (
+          <span className="entry-legend">— Mức breakout</span>
+        )}
+        {snapshot && snapshot.stop !== null && <span className="stop-legend">— SL tham chiếu</span>}
+        {snapshot && snapshot.target !== null && (
+          <span className="target-legend">— TP tham chiếu</span>
+        )}
       </div>
     </div>
   );
