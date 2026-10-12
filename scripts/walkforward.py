@@ -16,8 +16,30 @@ from backend.app.mexc import MexcFuturesAdapter
 from backend.app.strategy import breakout, retest
 
 CACHE = Path("/tmp/walkforward-cache.json")
-STRATEGIES = {"breakout": (breakout, 21), "retest": (retest, 32)}
-WARMUP = 20
+WARMUP = 600  # every strategy trades the same bars; 600 lets EMA200 converge
+EMA_PERIOD = 200  # single pre-declared variant, not tuned
+
+
+def with_trend(signal, period=EMA_PERIOD):
+    """Keep only setups aligned with EMA(period) of closed candles: long above, short below."""
+
+    def filtered(candles, allow_short=False):
+        setup = signal(candles, allow_short=allow_short)
+        if setup is None:
+            return None
+        ema, k = candles[0].close, 2 / (period + 1)
+        for c in candles[1:]:
+            ema += k * (c.close - ema)
+        return setup if (setup.side == "long") == (candles[-1].close > ema) else None
+
+    return filtered
+
+
+STRATEGIES = {
+    "breakout": (breakout, 21),
+    "retest": (retest, 32),
+    "breakout+ema200": (with_trend(breakout), WARMUP),
+}
 # Pre-registered criteria, pooled over all non-overlapping windows, after fees/slippage/funding.
 MIN_TRADES, MIN_PF, MIN_WIN_POSITIVE, MAX_DD = 100, 1.3, 0.6, 10.0
 
@@ -70,13 +92,13 @@ def main(months: int, window_days: int):
     candles = [Candle(**c) for c in data["candles"]]
     fair = [Candle(**c) for c in data["fair"]]
     size, config = window_days * 96, BacktestConfig()
-    starts = range(0, len(candles) - size + 1, size)
+    starts = range(WARMUP, len(candles) - size + 1, size)
     print(f"{len(candles)} candles, {len(starts)} windows of {window_days}d, fresh capital each\n")
     for name, (signal, window) in STRATEGIES.items():
         rows = [
             simulate(
-                candles[max(0, s - WARMUP) : s + size], config, data["funding"],
-                fair[max(0, s - WARMUP) : s + size], data["contract"],
+                candles[s - WARMUP : s + size], config, data["funding"],
+                fair[s - WARMUP : s + size], data["contract"],
                 warmup=WARMUP, signal=signal, window=window,
             )
             for s in starts

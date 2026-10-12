@@ -5,7 +5,7 @@ from sqlalchemy import select
 from backend.app.db import BotState, Session, Signal
 from backend.app.main import app
 from backend.app.market import Candle, DemoAdapter
-from backend.app.strategy import breakout, retest
+from backend.app.strategy import Setup, breakout, retest
 from bot.worker import tick
 
 
@@ -117,3 +117,16 @@ def test_walkforward_criteria():
     assert evaluate([win(5), win(5), win(-1)])["pass"]
     assert not evaluate([win(1), win(-1)])["pass"]  # PF 1.0
     assert not evaluate([win(5)])["pass"]  # < 100 trades
+
+
+def test_trend_filter_blocks_counter_trend_setups():
+    from scripts.walkforward import with_trend
+
+    up = [Candle(i, 100 + i, 101 + i, 99 + i, 100 + i, 1) for i in range(30)]
+
+    def flat(*_a, **_k):
+        return Setup("long", 1, 0, 2, "x")
+
+    assert with_trend(flat, 10)(up) is not None  # close above rising EMA
+    down = [Candle(i, 200 - i, 201 - i, 199 - i, 200 - i, 1) for i in range(30)]
+    assert with_trend(flat, 10)(down) is None  # long against falling EMA
