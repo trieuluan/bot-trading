@@ -2,17 +2,8 @@ import { useEffect, useState } from 'react';
 import { Eye, FlaskConical } from 'lucide-react';
 import { fetchMtfObservation } from '../lib/api';
 import { MtfObservationChart } from '../components/MtfObservationChart';
-import { formatPrice } from '../lib/format';
+import { formatPrice, observationStatusLabels as statusLabels } from '../lib/format';
 import type { MtfObservationResponse } from '../types/trading';
-
-const statusLabels: Record<string, string> = {
-  waiting_breakout: 'Đang chờ breakout 1h',
-  waiting_retest: 'Đã breakout 1h · Chờ retest 15m',
-  waiting_confirm: 'Đã retest 15m · Chờ nến xác nhận giữ vùng',
-  confirmed: 'Đã xác nhận giữ vùng (chỉ quan sát)',
-  cancelled: 'Đã hủy setup',
-  expired: 'Hết hạn thời gian chờ',
-};
 
 export function StrategyPage() {
   const [obs, setObs] = useState<MtfObservationResponse | null>(null);
@@ -42,7 +33,7 @@ export function StrategyPage() {
   const snap = obs?.available ? obs.snapshot : null;
   return (
     <>
-      <section className="panel prose">
+      <section className="panel prose mtf-observation">
         <div className="section-head">
           <div>
             <h2>Quan sát trực tiếp: Price Action Đa Khung</h2>

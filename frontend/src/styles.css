@@ -1303,6 +1303,33 @@ footer {
 .research-metrics strong {
   font-size: 20px;
 }
+.mtf-observation {
+  font-variant-numeric: tabular-nums;
+}
+.mtf-observation p,
+.mtf-observation .research-metrics span,
+.mtf-observation .chart-ohlc {
+  color: #52675a;
+  font-size: 14px;
+}
+.mtf-observation .research-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.mtf-observation .research-metrics strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mtf-observation .chart-legend,
+.mtf-observation table {
+  font-size: 14px;
+}
+@media (max-width: 1200px) {
+  .mtf-observation .research-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .equity-chart {
   width: 100%;
   height: auto;
@@ -1321,6 +1348,9 @@ footer {
 @media (max-width: 700px) {
   .research-form,
   .research-metrics {
+    grid-template-columns: 1fr;
+  }
+  .mtf-observation .research-metrics {
     grid-template-columns: 1fr;
   }
 }

@@ -15,7 +15,7 @@ import {
   type SeriesMarker,
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
-import { formatPrice } from '../lib/format';
+import { formatPrice, observationStatusLabels } from '../lib/format';
 
 export function MtfObservationChart({
   candles,
@@ -39,6 +39,8 @@ export function MtfObservationChart({
       layout: {
         background: { type: ColorType.Solid, color: '#fcfdf9' },
         textColor: '#63746a',
+        fontFamily: "'DM Sans', sans-serif",
+        fontSize: 13,
         attributionLogo: true,
       },
       grid: { vertLines: { color: '#eef1e9' }, horzLines: { color: '#eef1e9' } },
@@ -191,8 +193,8 @@ export function MtfObservationChart({
       <div className="chart-legend">
         {snapshot && (
           <strong>
-            4H: {snapshot.trend ? snapshot.trend.toUpperCase() : '—'} ·{' '}
-            {snapshot.status.toUpperCase()} · VÙNG{' '}
+            Xu hướng 4h: {snapshot.trend ? (snapshot.trend === 'up' ? 'Tăng' : 'Giảm') : '—'} ·{' '}
+            {observationStatusLabels[snapshot.status] ?? snapshot.status} · Vùng{' '}
             {snapshot.level ? formatPrice(snapshot.level) : '—'}
           </strong>
         )}
