@@ -37,6 +37,43 @@ export type Snapshot = {
   events: { id: number; time: string; kind: string; message: string }[];
 };
 
+export type MtfObservationStatus =
+  'waiting_breakout' | 'waiting_retest' | 'waiting_confirm' | 'confirmed' | 'cancelled' | 'expired';
+
+export type MtfObservationSnapshot = {
+  strategy: string;
+  parameters: { lookback_1h: number; ema_4h: number; wait_hours: number; target_r: number };
+  candle_time: number;
+  trend: 'up' | 'down' | null;
+  closed_4h_time: number;
+  status: MtfObservationStatus;
+  reason: string;
+  range_start: number;
+  range_end: number;
+  range_high: number;
+  range_low: number;
+  side: 'long' | 'short' | null;
+  level: number | null;
+  breakout_time: number | null;
+  touch_time: number | null;
+  confirm_time: number | null;
+  expires_at: number | null;
+  stop: number | null;
+  target: number | null;
+};
+
+export type MtfObservationResponse = {
+  observation_only: boolean;
+  available: boolean;
+  stale: boolean;
+  error: string | null;
+  started_at: number | null;
+  last_candle: number | null;
+  snapshot: MtfObservationSnapshot | null;
+  events: { candle_time: number; snapshot: MtfObservationSnapshot }[];
+  candles: Candle[];
+};
+
 export type BacktestTrade = {
   stop: number;
   target: number;

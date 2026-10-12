@@ -99,3 +99,15 @@ export function setAutoPaperEnabled(
 export function fetchPaperTradeCandles(id: number): Promise<import('../types/trading').Candle[]> {
   return paperRequest(`/api/paper/trades/${id}/candles`);
 }
+
+export async function fetchMtfObservation(): Promise<
+  import('../types/trading').MtfObservationResponse
+> {
+  const response = await fetch('/api/observations/mtf', {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`MTF observation request failed: ${response.status}`);
+  }
+  return response.json();
+}

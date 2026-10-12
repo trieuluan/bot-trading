@@ -13,6 +13,7 @@ from backend.app.db import BotState, Event, MarketState, Session, Signal, utcnow
 from backend.app.feed import sync_market
 from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
+from backend.app.observation import observation_tick
 from backend.app.paper import sync_paper_funding, sync_paper_quote
 from backend.app.settings import validate_mode
 from backend.app.strategy import breakout
@@ -102,6 +103,7 @@ def main():
         ("heartbeat", tick, 5),
         ("quotes-and-stops", sync_paper_quote, 5),
         ("market-history", market_tick, 15),
+        ("mtf-observation", observation_tick, 15),
         ("funding", sync_paper_funding, 60),
         ("auto-paper", auto_tick, 5),
     ]

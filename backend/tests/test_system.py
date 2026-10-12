@@ -216,3 +216,47 @@ def test_higher_timeframe_excludes_unclosed_and_incomplete_buckets():
     assert aggregate([candles[0], candles[0], candles[2], candles[3]], 3600) == []
     with pytest.raises(ValueError):
         aggregate(candles, 900)
+
+
+def test_observation_lifecycle_and_safety_boundaries():
+    from backend.app.db import MarketState, MtfObservationState, PaperTrade, utcnow
+    from backend.app.feed import save_candles
+    from backend.app.mexc import SOURCE
+    from backend.app.observation import observation_tick, observe
+
+    def bar(i, o, h, low, c):
+        return Candle(1_700_000_000 // 14400 * 14400 + i * 900, o, h, low, c, 1)
+
+    candles = [
+        bar(i, 100 + i / 50, 100.5 + i / 50, 99.5 + i / 50, 100 + i / 50) for i in range(1600)
+    ]
+    now = candles[-1].time + 900 + 10
+    with Session.begin() as session:
+        session.get(MarketState, 1).source = SOURCE
+        session.get(MarketState, 1).last_sync = utcnow()
+        save_candles(session, candles)
+    observation_tick(now=now)
+    with Session() as session:
+        first = session.get(MtfObservationState, 1)
+        assert first.started_at == candles[-1].time + 900
+        assert first.last_candle == candles[-1].time
+        assert first.snapshot["status"] == "waiting_breakout"
+        assert not session.query(Signal).all()
+        assert not session.query(PaperTrade).all()
+
+    # Next 1h close creates breakout; 15m pullback and confirmation progress the snapshot.
+    breakout_bars = [bar(1600 + i, 140, 142, 139, 141) for i in range(4)]
+    touch = bar(1604, 141, 141, 132, 133)
+    confirm = bar(1605, 133, 139, 132.5, 138)
+    candles = candles + breakout_bars + [touch, confirm]
+    snap = observe(candles[:1604], first.snapshot, first.started_at)
+    assert snap["status"] == "waiting_retest" and snap["level"] is not None
+    assert snap["breakout_time"] == breakout_bars[0].time
+    snap_touch = observe(candles[:1605], snap, first.started_at)
+    assert snap_touch["status"] == "waiting_confirm" and snap_touch["touch_time"] == touch.time
+    snap_confirm = observe(candles, snap_touch, first.started_at)
+    assert snap_confirm["status"] == "confirmed" and snap_confirm["confirm_time"] == confirm.time
+    assert snap_confirm["stop"] == 132 and snap_confirm["target"] == 150
+    with TestClient(app) as client:
+        res = client.get("/api/observations/mtf").json()
+        assert res["observation_only"] is True and res["available"] is True

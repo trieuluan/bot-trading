@@ -23,6 +23,8 @@ def database():
         Event,
         MarketCandle,
         MarketState,
+        MtfObservationEvent,
+        MtfObservationState,
         PaperCommand,
         PaperFunding,
         PaperTrade,
@@ -34,6 +36,7 @@ def database():
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            MtfObservationEvent,
             AutoPaperDecision,
             PaperFunding,
             PaperCommand,
@@ -44,6 +47,9 @@ def database():
             BacktestRun,
         ):
             session.query(model).delete()
+        observer = session.get(MtfObservationState, 1)
+        observer.started_at = observer.last_candle = observer.snapshot = None
+        observer.error = observer.retry_at = None
         state = session.get(BotState, 1)
         state.enabled = False
         state.last_bar = 60

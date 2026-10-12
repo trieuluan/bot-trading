@@ -114,6 +114,119 @@ def aggregate(candles: list[Candle], seconds: int) -> list[Candle]:
     ]
 
 
+def mtf_scan(
+    candles: list[Candle],
+    allow_short: bool = True,
+    lookback: int = 20,
+    wait: int = 12,
+    ema_period: int = 50,
+) -> dict:
+    """4h EMA trend -> 1h breakout of the previous `lookback` bars in trend direction ->
+    15m pullback to the broken level -> 15m confirming close. Closed candles only.
+
+    Returns every breakout still inside the `wait`-hour window (`watches`, newest first),
+    the one to show (`current`) and a `setup` only when the LATEST 15m candle confirms."""
+    if lookback < 2 or wait < 1 or ema_period < 2:
+        raise ValueError("Invalid multi-timeframe strategy parameters")
+    h1, h4 = aggregate(candles, 3600), aggregate(candles, 14400)
+    empty = {"trend": None, "watches": [], "current": None, "setup": None}
+    if len(h4) < ema_period or len(h1) < lookback + 1:
+        return {**empty, "reason": "Chưa đủ nến 1h/4h đã đóng để xác định xu hướng"}
+    ema = h4[0].close
+    for c in h4[1:]:
+        ema += 2 / (ema_period + 1) * (c.close - ema)
+    d = 1 if h4[-1].close > ema else -1
+    trend = "up" if d == 1 else "down"
+    if d == -1 and not allow_short:
+        return {**empty, "trend": trend, "reason": "4h giảm nhưng short đang tắt"}
+    last = candles[-1]
+    watches, setup = [], None
+    for b in range(len(h1) - 1, max(lookback - 1, len(h1) - 1 - wait), -1):
+        hist = h1[b - lookback : b]
+        level = max(c.high for c in hist) if d == 1 else min(c.low for c in hist)
+        if d * (h1[b].close - level) <= 0:
+            continue  # not a breakout
+        start = h1[b].time + 3600
+        deadline = start + wait * 3600
+        watch = {
+            "side": "long" if d == 1 else "short",
+            "level": level,
+            "breakout_time": h1[b].time,
+            "range_start": hist[0].time,
+            "range_end": h1[b].time,
+            "range_high": max(c.high for c in hist),
+            "range_low": min(c.low for c in hist),
+            "touch_time": None,
+            "confirm_time": None,
+            "stop": None,
+            "target": None,
+        }
+        if any(d * (c.close - level) < 0 for c in h1[b + 1 :]):
+            watches.append({**watch, "status": "cancelled", "reason": "1h đóng phá ngược vùng"})
+            continue
+        touched = []
+        outcome = None
+        for c in candles:
+            if c.time < start or c.time + 900 > deadline:
+                continue
+            if d * (c.close - level) < 0:
+                outcome = {"status": "cancelled", "reason": "15m đóng phá ngược vùng"}
+                break
+            if touched and d * (c.close - c.open) > 0 and d * (c.close - level) > 0:
+                touched.append(c)
+                stop = min(x.low for x in touched) if d == 1 else max(x.high for x in touched)
+                target = c.close + d * 2 * (d * (c.close - stop))
+                if d * (c.close - stop) > 0 and target > 0:
+                    outcome = {
+                        "status": "confirmed",
+                        "confirm_time": c.time,
+                        "stop": stop,
+                        "target": target,
+                        "reason": "15m retest và nến xác nhận giữ vùng; SL theo retest; mục tiêu 2R.",
+                    }
+                    if c is last and setup is None:
+                        setup = Setup(
+                            watch["side"],
+                            c.close,
+                            stop,
+                            target,
+                            f"4h xu hướng {'tăng' if d == 1 else 'giảm'}; 1h breakout vùng {level:g}; "
+                            "15m retest và nến xác nhận giữ vùng; SL theo retest; mục tiêu 2R.",
+                        )
+                else:
+                    outcome = {"status": "cancelled", "reason": "SL/TP không hợp lệ"}
+                break
+            if d * (level - (c.low if d == 1 else c.high)) >= 0 or touched:
+                touched.append(c)
+        watch["touch_time"] = touched[0].time if touched else None
+        expired = last.time + 900 > deadline
+        if outcome is None:
+            outcome = (
+                {"status": "expired", "reason": f"Quá {wait} giờ chưa có nến xác nhận"}
+                if expired
+                else {
+                    "status": "waiting_confirm" if touched else "waiting_retest",
+                    "reason": "Đã retest vùng; chờ nến 15m xanh/đỏ xác nhận giữ vùng"
+                    if touched
+                    else "Đã breakout 1h; chờ giá quay lại retest vùng",
+                }
+            )
+        watches.append({**watch, **outcome})
+    alive = ("waiting_retest", "waiting_confirm")
+    current = next(
+        (w for w in watches if w["confirm_time"] == last.time),
+        next((w for w in watches if w["status"] in alive), watches[0] if watches else None),
+    )
+    reason = None if current else "Chưa có breakout 1h cùng chiều xu hướng 4h"
+    return {
+        "trend": trend,
+        "watches": watches,
+        "current": current,
+        "setup": setup,
+        "reason": reason,
+    }
+
+
 def mtf_retest(
     candles: list[Candle],
     allow_short: bool = False,
@@ -121,47 +234,4 @@ def mtf_retest(
     wait: int = 12,
     ema_period: int = 50,
 ) -> Setup | None:
-    """4h EMA trend -> 1h breakout of the previous `lookback` bars in trend direction ->
-    15m pullback to the broken level -> 15m confirming close. Closed candles only."""
-    if lookback < 2 or wait < 1 or ema_period < 2:
-        raise ValueError("Invalid multi-timeframe strategy parameters")
-    h1, h4 = aggregate(candles, 3600), aggregate(candles, 14400)
-    if len(h4) < ema_period or len(h1) < lookback + 1:
-        return None
-    ema = h4[0].close
-    for c in h4[1:]:
-        ema += 2 / (ema_period + 1) * (c.close - ema)
-    d = 1 if h4[-1].close > ema else -1
-    if d == -1 and not allow_short:
-        return None
-    last = candles[-1]
-    for b in range(len(h1) - 1, max(lookback - 1, len(h1) - 1 - wait), -1):
-        if last.time + 900 > h1[b].time + 3600 + wait * 3600:
-            continue
-        hist = h1[b - lookback : b]
-        level = max(c.high for c in hist) if d == 1 else min(c.low for c in hist)
-        if d * (h1[b].close - level) <= 0 or any(d * (c.close - level) < 0 for c in h1[b + 1 :]):
-            continue  # no breakout, or 1h closed back through the zone
-        touched = []
-        for c in (x for x in candles if x.time >= h1[b].time + 3600):
-            if d * (c.close - level) < 0:
-                break  # 15m close lost the zone: this breakout is cancelled
-            if touched and d * (c.close - c.open) > 0 and d * (c.close - level) > 0:
-                if c is last:
-                    touched.append(c)
-                    stop = min(x.low for x in touched) if d == 1 else max(x.high for x in touched)
-                    risk = d * (c.close - stop)
-                    target = c.close + d * 2 * risk
-                    if risk > 0 and target > 0:
-                        return Setup(
-                            "long" if d == 1 else "short",
-                            c.close,
-                            stop,
-                            target,
-                            f"4h xu hướng {'tăng' if d == 1 else 'giảm'}; 1h breakout vùng {level:g}; "
-                            "15m retest và nến xác nhận giữ vùng; SL theo retest; mục tiêu 2R.",
-                        )
-                break  # confirmed earlier (already signalled)
-            if d * (level - (c.low if d == 1 else c.high)) >= 0 or touched:
-                touched.append(c)
-    return None
+    return mtf_scan(candles, allow_short, lookback, wait, ema_period)["setup"]

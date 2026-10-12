@@ -183,11 +183,27 @@ export function BacktestPage({ connected }: { connected: boolean }) {
             · trượt giá {report.result.parameters.slippage_bps} bps.
           </p>
           <div className="period-tabs" role="group" aria-label="Chiến lược">
-            <button className={strategy === 'breakout' ? 'secondary selected' : 'secondary'} onClick={() => setStrategy('breakout')}>Breakout (đối chiếu)</button>
-            <button disabled={!report.result.retest} className={strategy === 'retest' ? 'secondary selected' : 'secondary'} onClick={() => setStrategy('retest')}>Breakout → Retest</button>
-            {!report.result.retest && <span className="micro">Chạy lại backtest để có kết quả retest.</span>}
+            <button
+              className={strategy === 'breakout' ? 'secondary selected' : 'secondary'}
+              onClick={() => setStrategy('breakout')}
+            >
+              Breakout (đối chiếu)
+            </button>
+            <button
+              disabled={!report.result.retest}
+              className={strategy === 'retest' ? 'secondary selected' : 'secondary'}
+              onClick={() => setStrategy('retest')}
+            >
+              Breakout → Retest
+            </button>
+            {!report.result.retest && (
+              <span className="micro">Chạy lại backtest để có kết quả retest.</span>
+            )}
           </div>
-          <p className="micro">Retest: chờ tối đa 10 nến sau breakout; chạm vùng rồi nến xác nhận cùng chiều giữ vùng; SL theo retest, TP 2R. Giả thuyết kiểm chứng, không đảm bảo lợi nhuận tốt hơn.</p>
+          <p className="micro">
+            Retest: chờ tối đa 10 nến sau breakout; chạm vùng rồi nến xác nhận cùng chiều giữ vùng;
+            SL theo retest, TP 2R. Giả thuyết kiểm chứng, không đảm bảo lợi nhuận tốt hơn.
+          </p>
           <div className="period-tabs" role="group" aria-label="Khoảng đánh giá">
             {Object.entries(periods).map(([key, label]) => (
               <button

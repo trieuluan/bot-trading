@@ -10,6 +10,7 @@ from .db import AutoPaperState, BotState, Event, MarketState, Session, Signal
 from .feed import load_candles
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
+from .observation import router as observation_router
 from .paper import router as paper_router
 from .research import router as research_router
 from .settings import validate_mode
@@ -25,6 +26,7 @@ app = FastAPI(title="Signal Desk API", version="0.2.0", lifespan=lifespan)
 app.include_router(research_router)
 app.include_router(paper_router)
 app.include_router(auto_router)
+app.include_router(observation_router)
 
 
 class Control(BaseModel):

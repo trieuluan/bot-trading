@@ -89,6 +89,23 @@ class BacktestRun(Base):
     result: Mapped[dict] = mapped_column(JSON)
 
 
+class MtfObservationState(Base):
+    __tablename__ = "mtf_observation_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_candle: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MtfObservationEvent(Base):
+    __tablename__ = "mtf_observation_events"
+    candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
+
 class PaperWallet(Base):
     __tablename__ = "paper_wallet"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

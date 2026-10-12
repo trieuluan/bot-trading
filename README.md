@@ -343,3 +343,18 @@ liên tiếp, không huấn luyện/tối ưu walk-forward. Dữ liệu đã đ�
 các biến thể trước nên không phải bộ kiểm chứng độc lập chưa từng xem.
 Giữ ngưỡng sàng lọc cũ: ít nhất 100 lệnh, PF gộp >1,3, ít nhất 60% cửa sổ có lãi,
 drawdown từng cửa sổ <10%. Kết quả đa khung chưa đạt; Auto Paper vẫn giữ chiến lược cũ.
+
+### Quan sát MTF trực tiếp (không đặt lệnh)
+
+Worker có vòng `mtf-observation` (mỗi 15 giây) chỉ chạy khi nguồn là MEXC Futures. Sau mỗi
+nến 15m đóng, nó đọc 1.600 nến đã đóng, tính xu hướng 4h/EMA50, breakout 1h, retest 15m và
+nến xác nhận; ghi trạng thái cùng lý do vào `mtf_observation_state/events`. Bảng này tách
+khỏi `signals`, Auto Paper và ví: kể cả khi `confirmed`, bot không tạo lệnh.
+
+Quan sát chỉ đi tới, không phát lại lịch sử: lần chạy đầu và mỗi khoảng gián đoạn dữ liệu
+bắt đầu từ nến kế tiếp; setup đang chờ bị hủy nếu mất nến. Trạng thái: chờ breakout, chờ
+retest, chờ xác nhận, đã xác nhận, đã hủy, hết hạn (12 giờ). Trang **Chiến lược** hiện
+vùng 1h, mức breakout, SL/TP tham chiếu, marker breakout/retest/xác nhận và nhật ký.
+Kết quả backtest của biến thể này chưa đạt ngưỡng; dùng dữ liệu quan sát để kiểm chứng.
+
+API: `GET /api/observations/mtf`.
