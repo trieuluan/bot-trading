@@ -95,7 +95,7 @@ def workspace_candles(
     workspace_id: str,
     timeframe: Literal["1m", "15m", "1h", "4h"] = "15m",
     price_type: Literal["last", "bid", "ask"] | None = None,
-    limit: int = Query(120, ge=1, le=2000),
+    limit: int = Query(1000, ge=1, le=5000),
 ):
     with Session() as session:
         workspace = session.get(Workspace, workspace_id)

@@ -160,6 +160,7 @@ export function ForexStrategyPage({
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
+  const [candleLimit, setCandleLimit] = useState(1000);
   const [chartError, setChartError] = useState('');
   const [quoteState, setQuoteState] = useState<QuoteState>({ status: 'connecting', quote: null });
   const [quoteHeartbeat, setQuoteHeartbeat] = useState(0);
@@ -268,9 +269,12 @@ export function ForexStrategyPage({
     setLoading(true);
     setCandles([]);
     setChartError('');
-    fetch(`/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=240`, {
-      signal: AbortSignal.timeout(10000),
-    })
+    fetch(
+      `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=${candleLimit}`,
+      {
+        signal: AbortSignal.timeout(10000),
+      },
+    )
       .then(async (res) => {
         if (!res.ok) throw new Error('Cannot load M15 bid candles');
         const data = await res.json();
@@ -291,7 +295,7 @@ export function ForexStrategyPage({
     return () => {
       active = false;
     };
-  }, [dashboard.market.last_sync, frame, side]);
+  }, [dashboard.market.last_sync, frame, side, candleLimit]);
 
   return (
     <section className="panel prose mtf-observation">
@@ -382,6 +386,18 @@ export function ForexStrategyPage({
           <select value={side} onChange={(event) => setSide(event.target.value)}>
             <option value="bid">Bid</option>
             <option value="ask">Ask</option>
+          </select>
+        </label>
+        <label>
+          Số lượng nến{' '}
+          <select
+            value={candleLimit}
+            onChange={(event) => setCandleLimit(Number(event.target.value))}
+          >
+            <option value="240">240 nến (~2.5 ngày M15)</option>
+            <option value="500">500 nến (~5 ngày M15)</option>
+            <option value="1000">1,000 nến (~10 ngày M15)</option>
+            <option value="2000">2,000 nến (~20 ngày M15)</option>
           </select>
         </label>
       </div>
