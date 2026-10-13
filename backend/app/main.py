@@ -20,6 +20,7 @@ from .db import (
     WorkspaceCandle,
 )
 from .exness_feed import feed_summary
+from .exness_observation import observation_summary
 from .feed import load_candles
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
@@ -132,7 +133,7 @@ def workspace_dashboard(workspace_id: str):
             "message": f"Đã lưu {bars:,} nến M15 mỗi phía bid/ask XAUUSD" if bars else "Chưa có nến XAUUSD trong kho",
             "bars": bars, "last_sync": last_sync, "worker_online": worker_online,
         },
-        "observation": {"status": "not_started", "message": "Chưa chạy MTF Exness"},
+        "observation": observation_summary(),
         "paper": {"status": "unavailable", "message": "Ví MEXC không dùng cho Exness"},
         "execution_enabled": False,
         "frames": frames,

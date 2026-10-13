@@ -14,6 +14,7 @@ from backend.app.exness_feed import (
     worker_heartbeat,
 )
 from backend.app.settings import validate_mode
+from backend.app.exness_observation import observation_tick
 
 
 def main():
@@ -40,6 +41,10 @@ def main():
                             logging.warning("Exness candle sync paused for %s; persisted retry", frame)
                             delay = exc.retry_after
                             break
+                    try:
+                        observation_tick()
+                    except Exception:
+                        logging.exception("Exness observation unavailable; no trading state changed")
                 else:
                     delay = 60
             except Exception:

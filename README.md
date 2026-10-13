@@ -503,3 +503,22 @@ Backlog là số khoảng nến cần kiểm tra, không phải số nến thị
 Kho nến có thật không đồng nghĩa đã kiểm tra lịch phiên hoặc chứng minh lịch sử đầy đủ:
 cần phân biệt giờ nghỉ, cuối tuần và khoảng thiếu từ nhà cung cấp trước khi bật MTF forex.
 Gập máy vẫn dừng Docker local; worker chạy bù sau khi máy thức, không thay thế VPS 24/7.
+
+### MTF Exness chỉ quan sát
+
+- Migration `0010` tạo `forex_observations`, tách khỏi trạng thái MTF và ví MEXC.
+  `exness-feed` chạy quan sát sau đồng bộ, không tạo signal giao dịch hoặc gọi endpoint lệnh.
+- Kiểm tra OHLC, timestamp đúng khung, cặp bid/ask, giá ask không thấp hơn bid;
+  lỗi hoặc backlog bất kỳ khung nào sẽ chặn xử lý. Dashboard hiển thị spread close và khoảng trống.
+  Chưa đối chiếu lịch phiên broker, nên không khẳng định khoảng trống là phiên nghỉ hay mất nến.
+- Dùng nến bid gốc Exness: EMA50 trên 4h đã đóng xác định hướng, 1h đóng vượt
+  đỉnh/đáy 20 nến trước tạo setup; M15 kế tiếp chạm vùng rồi một nến sau xác nhận giữ vùng.
+  Không tổng hợp H1/H4 từ M15, không dùng nến chưa đóng hoặc volume để lọc tín hiệu.
+- Vùng setup giữ nguyên; hủy nếu M15 đóng phá ngược, 4h đổi hướng, hoặc có khoảng trống M15;
+  hết hạn sau 12 giờ tính từ đóng nến breakout. SL theo cực trị từ retest đến xác nhận.
+  TP 2R tính từ close bid xác nhận chỉ là tham chiếu, chưa tính spread hoặc giá khớp.
+- Lần đầu quan sát từ nến M15 mới nhất; không tự replay 90 ngày thành kết quả nghiên cứu.
+  Sau restart tiếp tục từng nến chưa xử lý, tối đa 96 nến mỗi vòng; gắn nhãn `catch_up`/`live`.
+  Mỗi bước chỉ dùng H1/H4 đã đóng tại thời điểm bước đó. Nhật ký lưu cả trạng thái chờ và hủy.
+- Chưa có backtest/replay đánh giá lợi nhuận, ví paper forex hay đặt lệnh Exness.
+  Cần kiểm tra lịch phiên và mô phỏng khớp bid/ask trước những bước này.

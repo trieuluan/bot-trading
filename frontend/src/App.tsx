@@ -41,7 +41,35 @@ interface ForexDashboard {
     last_sync?: string | null;
     worker_online?: boolean;
   };
-  observation: { status: string; message: string };
+  observation: {
+    status: string;
+    message: string;
+    snapshot?: {
+      available_at: number;
+      trend: string | null;
+      range_low?: number;
+      range_high?: number;
+      level?: number;
+      stop?: number | null;
+      target?: number | null;
+      provenance: string;
+    } | null;
+    recent?: { candle_time: number; status: string; reason: string }[];
+    quality?: {
+      status: string;
+      message: string;
+      frames: {
+        timeframe: string;
+        paired_bars: number;
+        gap_count: number;
+        invalid_bars: number;
+        unpaired_bars: number;
+        crossed_bars: number;
+        close_spread_mean: number | null;
+        close_spread_max: number | null;
+      }[];
+    };
+  };
   paper: { status: string; message: string };
   frames?: FrameSummary[];
 }
@@ -234,6 +262,57 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               <p>
                 <strong>Chiến lược:</strong> {dashboard.observation.message}
               </p>
+              {dashboard.observation.snapshot && (
+                <div className="frames-summary">
+                  <h3>MTF XAUUSD · 4h / 1h / 15m · chỉ quan sát</h3>
+                  <p>
+                    Trạng thái: {dashboard.observation.status} · Xu hướng 4h:{' '}
+                    {dashboard.observation.snapshot.trend ?? 'chưa đủ nến'}
+                  </p>
+                  <p>
+                    Cập nhật theo nến đóng:{' '}
+                    {new Date(dashboard.observation.snapshot.available_at * 1000).toISOString()} ·{' '}
+                    {dashboard.observation.snapshot.provenance}
+                  </p>
+                  <p>
+                    Vùng 20 nến 1h: {dashboard.observation.snapshot.range_low ?? '—'} –{' '}
+                    {dashboard.observation.snapshot.range_high ?? '—'} · Mức breakout:{' '}
+                    {dashboard.observation.snapshot.level ?? '—'}
+                  </p>
+                  <p>
+                    SL tham chiếu: {dashboard.observation.snapshot.stop ?? '—'} · TP tham chiếu:{' '}
+                    {dashboard.observation.snapshot.target ?? '—'} (chưa tính spread/khớp lệnh)
+                  </p>
+                  <details>
+                    <summary>Nhật ký quan sát gần đây</summary>
+                    <ul>
+                      {dashboard.observation.recent?.map((event) => (
+                        <li key={event.candle_time}>
+                          {new Date(event.candle_time * 1000).toISOString()} · {event.status}:{' '}
+                          {event.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </div>
+              )}
+              {dashboard.observation.quality && (
+                <div className="frames-summary">
+                  <h3>Kiểm tra dữ liệu: {dashboard.observation.quality.status}</h3>
+                  <ul>
+                    {dashboard.observation.quality.frames.map((frame) => (
+                      <li key={frame.timeframe}>
+                        {frame.timeframe}: {frame.paired_bars} cặp nến · {frame.unpaired_bars} thiếu
+                        phía · {frame.invalid_bars} lỗi OHLC/thời gian · {frame.crossed_bars} đảo
+                        bid/ask · {frame.gap_count} khoảng trống · spread close trung bình/tối đa:{' '}
+                        {frame.close_spread_mean?.toFixed(3) ?? '—'}/
+                        {frame.close_spread_max?.toFixed(3) ?? '—'} USD/oz
+                      </li>
+                    ))}
+                  </ul>
+                  <p>{dashboard.observation.quality.message}</p>
+                </div>
+              )}
               <p>
                 <strong>Ví mô phỏng:</strong> {dashboard.paper.message}
               </p>
@@ -242,8 +321,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                 hoặc tự tạo giá.
               </p>
               <p>
-                Không lấp nến trong giờ nghỉ hoặc cuối tuần. Bước tiếp theo: kiểm tra lịch phiên và
-                độ đầy đủ dữ liệu trước khi chạy MTF forex.
+                Không lấp khoảng trống. MTF dùng nến gốc Exness, hủy setup khi gặp khoảng trống M15.
+                Chưa bật ví mô phỏng, replay đánh giá hiệu quả hoặc đặt lệnh Exness.
               </p>
             </section>
           )}

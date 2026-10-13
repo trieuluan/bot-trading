@@ -63,6 +63,12 @@ class WorkspaceFeedState(Base):
     retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ForexObservation(Base):
+    __tablename__ = "forex_observations"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
 class BotState(Base):
     __tablename__ = "bot_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

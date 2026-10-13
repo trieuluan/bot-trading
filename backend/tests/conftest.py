@@ -34,11 +34,13 @@ def database():
         Signal,
         WorkspaceCandle,
         WorkspaceFeedState,
+        ForexObservation,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            ForexObservation,
             WorkspaceCandle,
             MtfResearchSample,
             MtfObservationEvent,
