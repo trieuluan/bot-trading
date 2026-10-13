@@ -449,3 +449,23 @@ Báo cáo nằm ở `research-output/mtf-new-data-check.json`; không sửa cach
 cấu hình giao dịch. Không tạo lại báo cáo chọn ngưỡng khi đang đối chiếu dữ liệu mới.
 Đây vẫn là mở rộng lịch sử, không thay thế paper prospective. Tổng R mẫu có thể
 chồng thời gian, không phải lợi nhuận danh mục.
+
+### Workspace MEXC và Exness
+
+- Bộ chọn workspace ở sidebar tách MEXC Crypto Futures và Exness Forex Demo (`XAUUSD`).
+  Chuyển workspace chỉ đổi màn hình; không bật/tắt worker MEXC đang chạy.
+- Migration `0008` tạo `workspaces` và kho nến `workspace_candles` có khóa gồm
+  workspace, symbol, timeframe, price_type, time. Bid/ask không ghép thành last price;
+  không tự tạo volume forex. Giữ nguyên toàn bộ bảng, ví, lệnh và cursor MEXC cũ.
+- `GET /api/workspaces` liệt kê workspace; `GET /api/workspaces/{id}/dashboard`
+  đọc trạng thái; `/api/workspaces/{id}/candles` đọc đúng kho nến với `timeframe`,
+  `price_type`, `limit`. MEXC mặc định `last`, Exness mặc định `bid`; chưa có nến trả `[]`.
+- API legacy mặc định thuộc MEXC. Truyền `workspace_id` hoặc header `X-Workspace-ID`
+  của Exness tới API legacy bị từ chối HTTP 409; không chuyển lệnh sang ví MEXC.
+- Exness hiện chỉ có nền workspace và nơi lưu nến. Chưa đồng bộ giá, chưa chạy MTF,
+  chưa tạo ví forex hoặc gửi lệnh Demo. Các tab chưa hỗ trợ bị vô hiệu hóa, không
+  hiển thị số dư, tín hiệu hoặc giá MEXC làm dữ liệu Exness.
+- Đây là phân tách thị trường trong ứng dụng local, không phải tenant bảo mật đa người dùng.
+  Không expose API ra Internet khi chưa có authentication/authorization.
+
+Chạy migration trước khi dùng API workspace: `alembic upgrade head`.

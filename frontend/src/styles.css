@@ -123,6 +123,30 @@ small {
   font-size: 11px;
   color: #e1e9df;
 }
+.workspace-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  font: inherit;
+  color: inherit;
+  color-scheme: dark;
+  background: #153c32;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+}
+
+.forex-status {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
 .workspace small {
   color: #92aa9a;
   font-size: 10px;

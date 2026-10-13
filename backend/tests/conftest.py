@@ -32,11 +32,13 @@ def database():
         PaperWallet,
         Session,
         Signal,
+        WorkspaceCandle,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            WorkspaceCandle,
             MtfResearchSample,
             MtfObservationEvent,
             AutoPaperDecision,

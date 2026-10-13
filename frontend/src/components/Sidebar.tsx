@@ -11,6 +11,7 @@ import {
   Terminal,
   Wallet,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 const navigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
@@ -27,9 +28,20 @@ interface SidebarProps {
   menu: boolean;
   onNavigate: (page: string) => void;
   onOpenHelp: () => void;
+  workspacePicker?: ReactNode;
+  allowedPages?: string[];
+  botCount?: number;
 }
 
-export function Sidebar({ page, menu, onNavigate, onOpenHelp }: SidebarProps) {
+export function Sidebar({
+  page,
+  menu,
+  onNavigate,
+  onOpenHelp,
+  workspacePicker,
+  allowedPages,
+  botCount = 1,
+}: SidebarProps) {
   return (
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
       <a
@@ -48,13 +60,15 @@ export function Sidebar({ page, menu, onNavigate, onOpenHelp }: SidebarProps) {
           <small>TRADING WORKSPACE</small>
         </span>
       </a>
-      <div className="workspace">
-        <div className="avatar">L</div>
-        <div>
-          Personal workspace<small>Không gian cá nhân</small>
+      {workspacePicker ?? (
+        <div className="workspace">
+          <div className="avatar">L</div>
+          <div>
+            Personal workspace<small>Không gian cá nhân</small>
+          </div>
+          <ChevronDown size={14} />
         </div>
-        <ChevronDown size={14} />
-      </div>
+      )}
       <p className="nav-label">WORKSPACE</p>
       <nav>
         {navigation.map(({ label, icon: Icon }) => {
@@ -63,10 +77,16 @@ export function Sidebar({ page, menu, onNavigate, onOpenHelp }: SidebarProps) {
               className={page === label ? 'nav active' : 'nav'}
               key={label}
               onClick={() => onNavigate(label)}
+              disabled={allowedPages !== undefined && !allowedPages.includes(label)}
+              title={
+                allowedPages !== undefined && !allowedPages.includes(label)
+                  ? 'Chưa hỗ trợ trong workspace này'
+                  : undefined
+              }
             >
               <Icon size={18} />
               {label}
-              {label === 'Bot của bạn' && <span className="nav-count">1</span>}
+              {label === 'Bot của bạn' && <span className="nav-count">{botCount}</span>}
             </button>
           );
         })}

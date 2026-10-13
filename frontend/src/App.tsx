@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Bell, FlaskConical, Menu, RefreshCw, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { HelpDialog } from './components/HelpDialog';
@@ -12,7 +13,173 @@ import { PaperTradingPage } from './pages/PaperTradingPage';
 import { BacktestPage } from './pages/BacktestPage';
 import { ActivityPage } from './pages/ActivityPage';
 
+interface Workspace {
+  id: string;
+  name: string;
+  venue: string;
+  symbol: string;
+  execution_enabled: boolean;
+}
+
+interface ForexDashboard {
+  workspace: Workspace;
+  market: { status: string; message: string };
+  observation: { status: string; message: string };
+  paper: { status: string; message: string };
+}
+
 export default function App() {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selected, setSelected] = useState('mexc_futures');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/workspaces')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Workspace API chưa sẵn sàng; cần chạy migration.');
+        const data = (await response.json()) as { workspaces: Workspace[] };
+        if (!cancelled) setWorkspaces(data.workspaces);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Chưa tải được workspace. Kiểm tra API và migration.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const picker = (
+    <div className="workspace workspace-picker">
+      <label htmlFor="venue-workspace">Workspace / Sàn</label>
+      <select
+        id="venue-workspace"
+        value={selected}
+        disabled={workspaces.length === 0}
+        onChange={(event) => setSelected(event.target.value)}
+      >
+        {workspaces.length === 0 && <option value="mexc_futures">MEXC · Crypto Futures</option>}
+        {workspaces.map((workspace) => (
+          <option key={workspace.id} value={workspace.id}>
+            {workspace.name}
+          </option>
+        ))}
+      </select>
+      {error && <small role="status">{error}</small>}
+    </div>
+  );
+  return selected === 'exness_forex' ? (
+    <ForexWorkspace key={selected} workspacePicker={picker} />
+  ) : (
+    <MexcWorkspace key={selected} workspacePicker={picker} />
+  );
+}
+
+function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
+  const [page, setPage] = useState('Tổng quan');
+  const [menu, setMenu] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [dashboard, setDashboard] = useState<ForexDashboard | null>(null);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setDashboard(null);
+    setError('');
+    fetch('/api/workspaces/exness_forex/dashboard')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Không tải được workspace Exness.');
+        const data = (await response.json()) as ForexDashboard;
+        if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
+        if (!cancelled) setDashboard(data);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError('Không tải được workspace Exness. Không dùng dữ liệu MEXC thay thế.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [revision]);
+  return (
+    <div className="shell">
+      {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
+      <Sidebar
+        page={page}
+        menu={menu}
+        workspacePicker={workspacePicker}
+        botCount={0}
+        allowedPages={['Tổng quan', 'Kết nối sàn']}
+        onNavigate={(next) => {
+          setPage(next);
+          setMenu(false);
+        }}
+        onOpenHelp={() => setHelp(true)}
+      />
+      <div className="main">
+        <header className="topbar">
+          <div className="breadcrumb">
+            <button
+              className="icon-button mobile-menu"
+              aria-label="Mở menu"
+              onClick={() => setMenu(true)}
+            >
+              <Menu size={20} />
+            </button>
+            <span>Exness</span>
+            <span>/</span>
+            <strong>{page}</strong>
+          </div>
+          <span className="pill amber">DEMO · READ ONLY</span>
+        </header>
+        <main>
+          <div className="page-heading">
+            <div>
+              <h1>Exness · Forex Demo</h1>
+              <p>XAUUSD · Workspace riêng, không dùng ví hoặc tín hiệu MEXC.</p>
+            </div>
+            <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
+              <RefreshCw size={15} /> Làm mới
+            </button>
+          </div>
+          <div className="demo-banner">
+            <FlaskConical size={17} />
+            <span>Chỉ chuẩn bị kết nối đọc dữ liệu. Chưa chạy bot, MTF hoặc gửi lệnh Exness.</span>
+          </div>
+          {error && (
+            <div className="feedback" role="alert">
+              {error}
+            </div>
+          )}
+          {!dashboard && !error && <p role="status">Đang tải workspace Exness...</p>}
+          {dashboard && (
+            <section className="panel forex-status">
+              <h2>{page === 'Kết nối sàn' ? 'Kết nối Exness' : 'Trạng thái workspace'}</h2>
+              <p>
+                <strong>Thị trường:</strong> {dashboard.market.message}
+              </p>
+              <p>
+                <strong>Chiến lược:</strong> {dashboard.observation.message}
+              </p>
+              <p>
+                <strong>Ví mô phỏng:</strong> {dashboard.paper.message}
+              </p>
+              <p>
+                Nến bid/ask lưu riêng theo workspace, cặp và khung thời gian. Không ghép nến MEXC
+                hoặc tự tạo giá.
+              </p>
+              <p>
+                Bước tiếp theo: đồng bộ nến XAUUSD từ tài khoản Demo; chưa xác minh kết nối trong
+                màn hình này.
+              </p>
+            </section>
+          )}
+        </main>
+      </div>
+      {help && <HelpDialog onClose={() => setHelp(false)} />}
+    </div>
+  );
+}
+
+function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [page, setPage] = useState('Tổng quan');
   const [menu, setMenu] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -29,7 +196,13 @@ export default function App() {
   return (
     <div className="shell">
       {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
-      <Sidebar page={page} menu={menu} onNavigate={navigate} onOpenHelp={() => setHelp(true)} />
+      <Sidebar
+        page={page}
+        menu={menu}
+        workspacePicker={workspacePicker}
+        onNavigate={navigate}
+        onOpenHelp={() => setHelp(true)}
+      />
       <div className="main">
         <header className="topbar">
           <div className="breadcrumb">

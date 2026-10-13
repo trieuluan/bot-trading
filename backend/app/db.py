@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
@@ -21,6 +23,30 @@ def utcnow():
 
 class Base(DeclarativeBase):
     pass
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+    id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    venue: Mapped[str] = mapped_column(String(30), unique=True)
+    symbol: Mapped[str] = mapped_column(String(30))
+
+class WorkspaceCandle(Base):
+    __tablename__ = "workspace_candles"
+    __table_args__ = (
+        CheckConstraint("price_type IN ('bid', 'ask')", name="ck_workspace_candle_price_type"),
+        CheckConstraint("timeframe IN ('1m', '15m', '1h', '4h')", name="ck_workspace_candle_timeframe"),
+        CheckConstraint("open > 0 AND low > 0 AND low <= open AND low <= close AND high >= open AND high >= close", name="ck_workspace_candle_prices"),
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True)
+    timeframe: Mapped[str] = mapped_column(String(10), primary_key=True)
+    price_type: Mapped[str] = mapped_column(String(10), primary_key=True)
+    time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
 
 
 class BotState(Base):
