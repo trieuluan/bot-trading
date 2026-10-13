@@ -74,15 +74,18 @@ def normalize_specs(account, condition, now):
 
 def sync_specs(api, now=None):
     now = int(time.time()) if now is None else now
-    with Session.begin() as session:
-        state = session.get(ForexInstrumentState, WORKSPACE)
-        if state and state.retry_at > now:
-            return
-        if state is None:
-            state = ForexInstrumentState(workspace_id=WORKSPACE, checked_at=now, retry_at=now + SPEC_TTL)
-            session.add(state)
-        else:
-            state.retry_at = now + SPEC_TTL
+    try:
+        with Session.begin() as session:
+            state = session.get(ForexInstrumentState, WORKSPACE)
+            if state and state.retry_at > now:
+                return
+            if state is None:
+                state = ForexInstrumentState(workspace_id=WORKSPACE, checked_at=now, retry_at=now + SPEC_TTL)
+                session.add(state)
+            else:
+                state.retry_at = now + SPEC_TTL
+    except Exception:
+        return
     try:
         snapshot = normalize_specs(api.account(), api.condition("XAUUSD"), now)
         error = None
@@ -91,15 +94,27 @@ def sync_specs(api, now=None):
         snapshot = None
         error = "Instrument specification unavailable; costs remain unverified"
         retry = now + max(SPEC_TTL, int(getattr(exc, "retry_after", SPEC_TTL)))
-    with Session.begin() as session:
-        state = session.get(ForexInstrumentState, WORKSPACE)
-        state.checked_at, state.error, state.retry_at = now, error, retry
-        if snapshot is not None:
-            state.snapshot = snapshot
+    try:
+        with Session.begin() as session:
+            state = session.get(ForexInstrumentState, WORKSPACE)
+            if state is not None:
+                state.checked_at, state.error, state.retry_at = now, error, retry
+                if snapshot is not None:
+                    state.snapshot = snapshot
+    except Exception:
+        pass
 
 def spec_summary(session, now=None):
     now = int(time.time()) if now is None else now
-    state = session.get(ForexInstrumentState, WORKSPACE)
+    try:
+        state = session.get(ForexInstrumentState, WORKSPACE)
+    except Exception:
+        return {
+            "status": "unavailable",
+            "checked_at": None,
+            "error": "Chưa áp dụng migration 0012",
+            "profile": None,
+        }
     profile = state.snapshot if state else None
     return {
         "status": "unavailable" if not profile else "stale"
