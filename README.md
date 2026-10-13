@@ -520,5 +520,33 @@ Gập máy vẫn dừng Docker local; worker chạy bù sau khi máy thức, kh�
 - Lần đầu quan sát từ nến M15 mới nhất; không tự replay 90 ngày thành kết quả nghiên cứu.
   Sau restart tiếp tục từng nến chưa xử lý, tối đa 96 nến mỗi vòng; gắn nhãn `catch_up`/`live`.
   Mỗi bước chỉ dùng H1/H4 đã đóng tại thời điểm bước đó. Nhật ký lưu cả trạng thái chờ và hủy.
-- Chưa có backtest/replay đánh giá lợi nhuận, ví paper forex hay đặt lệnh Exness.
-  Cần kiểm tra lịch phiên và mô phỏng khớp bid/ask trước những bước này.
+- Chưa có backtest danh mục, ví paper forex hay đặt lệnh Exness.
+  Replay nghiên cứu bid/ask mô tả ở mục kế tiếp; lịch phiên vẫn cần xác minh.
+
+### Replay nghiên cứu MTF Exness
+
+`scripts/exness_mtf_replay.py` chỉ đọc kho nến, xuất JSON riêng; không sửa nhật ký quan sát,
+ví paper hoặc lệnh. Lịch sử 90 ngày bao gồm warmup EMA50 H4; thời gian đánh giá ngắn hơn 90 ngày.
+
+```sh
+mkdir -p research-output
+docker compose run --rm --no-deps \
+  -v "$PWD/scripts:/app/scripts:ro" \
+  -v "$PWD/research-output:/app/research-output" \
+  exness-feed python -m scripts.exness_mtf_replay
+```
+
+- Tín hiệu chỉ từ nến đã đóng; vào giả định ở open M15 kế tiếp: long mua ask, short bán bid.
+  Long thoát theo bid OHLC, short thoát theo ask OHLC; spread đã nằm trong hai phía giá.
+  SL giữ mức bid của cấu trúc retest; TP tính lại 2R từ entry giả định, không từ close xác nhận.
+- Nếu open vượt SL: thoát ở open, không bịa giá SL. Open vượt TP: lấy TP bảo thủ.
+  Nếu cùng nến chạm SL và TP: ưu tiên SL; báo số nến mơ hồ. Timeout sau 96 nến M15.
+- Khoảng trống chưa xác minh lịch phiên: mẫu đang chờ/mở chuyển `censored`, không tính vào
+  thống kê lãi/lỗ. Mẫu còn mở cuối dữ liệu cũng bị censored, không ép đóng.
+- `--slippage-bps` là trượt giá mỗi phía, `--commission-per-unit` là hoa hồng khứ hồi
+  theo đơn vị giá cho một đơn vị XAU, không phải theo lot. Mặc định cả hai bằng 0,
+  chưa hiệu chỉnh theo tài khoản; chưa tính swap. Không coi kết quả là lợi nhuận ròng thực tế.
+- `--as-of <UTC epoch seconds>` cố định thời điểm cắt dữ liệu; báo cáo lưu SHA256 dữ liệu,
+  giả định, chuyển trạng thái, từng mẫu, thống kê theo chiều và tháng UTC.
+  Mẫu có thể chồng lấn: tổng R/drawdown chỉ là thống kê mẫu đóng, không phải đường vốn tài khoản.
+- Đây là replay mô tả trên dữ liệu đã có, chưa out-of-sample hoặc chứng minh hiệu quả.
