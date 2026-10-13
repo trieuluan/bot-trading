@@ -103,6 +103,26 @@ def advance(evaluation, candle):
     }
 
 
+def sample_values(candles, snapshot):
+    return dict(
+        confirm_time=candles[-1].time,
+        features=extract_features(candles, snapshot),
+        evaluation={
+            "version": "next_open_24h_v1",
+            "provenance": snapshot.get("provenance", "live"),
+            "status": "pending",
+            "label": None,
+            "side": snapshot["side"],
+            "stop": snapshot["stop"],
+            "target": snapshot["target"],
+            "last_candle": candles[-1].time,
+            "horizon_bars": 96,
+            "fee_bps": 5,
+            "slippage_bps": 2,
+            "funding_included": False,
+        },
+    )
+
 def collect_sample(session, candles, snapshot):
     last = candles[-1]
     samples = session.scalars(
@@ -116,22 +136,4 @@ def collect_sample(session, candles, snapshot):
         return
     if session.get(MtfResearchSample, last.time) is not None:
         return
-    session.add(
-        MtfResearchSample(
-            confirm_time=last.time,
-            features=extract_features(candles, snapshot),
-            evaluation={
-                "version": "next_open_24h_v1",
-                "status": "pending",
-                "label": None,
-                "side": snapshot["side"],
-                "stop": snapshot["stop"],
-                "target": snapshot["target"],
-                "last_candle": last.time,
-                "horizon_bars": 96,
-                "fee_bps": 5,
-                "slippage_bps": 2,
-                "funding_included": False,
-            },
-        )
-    )
+    session.add(MtfResearchSample(**sample_values(candles, snapshot)))

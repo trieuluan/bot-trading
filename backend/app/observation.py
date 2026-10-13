@@ -1,7 +1,8 @@
-"""Forward-only, read-only MTF observations. Never publishes trade signals or orders."""
+"""Causal MTF observation and catch-up. Never publishes trade signals or orders."""
 
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from .strategy import aggregate, mtf_scan
 
 router = APIRouter(prefix="/api/observations/mtf", tags=["MTF Observations"])
 HISTORY = 1600
+CATCHUP_BATCH = 96
 ACTIVE = ("waiting_retest", "waiting_confirm")
 
 
@@ -90,6 +92,23 @@ def observe(candles, previous, started_at):
     return snapshot
 
 
+def observation_steps(candles, previous=None, started_at=None, after=None, provenance="historical"):
+    """Replay a causal fixed-size window; reject gaps before processing any step."""
+    if provenance not in ("live", "catch_up", "historical"):
+        raise ValueError("Invalid observation provenance")
+    validate_candles(candles)
+    if len(candles) < HISTORY:
+        raise MarketDataError("MTF cần đủ 1.600 nến 15m đã đóng liên tục")
+    started_at = started_at if started_at is not None else candles[HISTORY - 1].time + 900
+    if after is not None and candles[HISTORY - 1].time != after + 900:
+        raise MarketDataError("Missing catch-up boundary; refusing to skip candles")
+    for index in range(HISTORY - 1, len(candles)):
+        window = candles[index - HISTORY + 1:index + 1]
+        snapshot = observe(window, previous, started_at)
+        snapshot["provenance"] = provenance
+        previous = snapshot
+        yield window, snapshot
+
 def observation_tick(adapter=None, now=None):
     now = time.time() if now is None else now
     end = int(now) // 900 * 900
@@ -106,24 +125,26 @@ def observation_tick(adapter=None, now=None):
             return
         if state.retry_at and state.retry_at.replace(tzinfo=timezone.utc).timestamp() > now:
             return
-        candles = load_candles(session, limit=HISTORY, until=end)
-    if not candles or candles[-1].time != end - 900:
-        return
+        after = state.last_candle
+        first = after + 900 if after is not None else end - 900
+        batch_end = min(end, first + CATCHUP_BATCH * 900)
+        start = first - (HISTORY - 1) * 900
+        candles = load_candles(session, since=start, until=batch_end)
     client = None
     try:
-        backfill = len(candles) < HISTORY
+        backfill = len(candles) != (batch_end - start) // 900
         try:
             validate_candles(candles)
         except MarketDataError:
             backfill = True
         if backfill:
             client = adapter or MexcFuturesAdapter()
-            candles = client.history(end - HISTORY * 900, end, int(now))
+            candles = client.history(start, batch_end, int(now))
         validate_candles(candles)
         if (
-            len(candles) != HISTORY
-            or candles[0].time != end - HISTORY * 900
-            or candles[-1].time != end - 900
+            len(candles) != (batch_end - start) // 900
+            or candles[0].time != start
+            or candles[-1].time != batch_end - 900
         ):
             raise MarketDataError("MTF cần đủ 1.600 nến 15m đã đóng liên tục")
         with Session.begin() as session:
@@ -133,36 +154,21 @@ def observation_tick(adapter=None, now=None):
             state = session.scalar(
                 select(MtfObservationState).where(MtfObservationState.id == 1).with_for_update()
             )
-            if market.source != SOURCE or (
-                state.last_candle is not None and state.last_candle >= candles[-1].time
-            ):
+            if market.source != SOURCE or state.last_candle != after:
                 return
             if backfill:
                 save_candles(session, candles)
-            previous = state.snapshot
-            gap = state.last_candle is not None and candles[-1].time - state.last_candle > 900
-            if state.started_at is None or gap:
-                state.started_at = candles[-1].time + 900
-                snapshot = observe(candles, None, state.started_at)
-                snapshot["reason"] = "Bắt đầu quan sát từ nến kế tiếp; không phát lại lịch sử"
-                if gap:
-                    snapshot["reason"] = (
-                        "Bỏ qua khoảng thiếu dữ liệu; bắt đầu lại, không phát lại setup cũ"
-                    )
-                    if previous and previous["status"] in ACTIVE:
-                        snapshot.update(previous)
-                        snapshot.update(
-                            status="cancelled",
-                            candle_time=candles[-1].time,
-                            reason="Hủy setup do gián đoạn dữ liệu; không xác nhận bằng nến đã bỏ lỡ",
-                        )
-            else:
-                snapshot = observe(candles, previous, state.started_at)
-            state.snapshot = snapshot
-            state.last_candle = candles[-1].time
+            if state.started_at is None:
+                state.started_at = first + 900
+            provenance = "catch_up" if first < end - 900 or now - (first + 900) > 60 else "live"
+            for window, snapshot in observation_steps(
+                candles, state.snapshot, state.started_at, after, provenance,
+            ):
+                state.snapshot = snapshot
+                state.last_candle = window[-1].time
+                collect_sample(session, window, snapshot)
+                session.add(MtfObservationEvent(candle_time=state.last_candle, snapshot=snapshot))
             state.error = state.retry_at = None
-            collect_sample(session, candles, snapshot)
-            session.add(MtfObservationEvent(candle_time=state.last_candle, snapshot=snapshot))
     except MarketDataError as exc:
         with Session.begin() as session:
             state = session.scalar(
@@ -204,6 +210,9 @@ def observation_state():
             "error": state.error or market.error,
             "started_at": state.started_at,
             "last_candle": state.last_candle,
+            "backlog_bars": max(0, (int(now) // 900 * 900 - 900 - state.last_candle) // 900)
+            if state.last_candle is not None else None,
+            "catchup_batch": CATCHUP_BATCH,
             "snapshot": state.snapshot,
             "events": [
                 {"candle_time": event.candle_time, "snapshot": event.snapshot} for event in events
@@ -215,10 +224,21 @@ def observation_state():
 
 
 @router.get("/dataset")
-def research_dataset(after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
+def research_dataset(
+    after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000),
+    provenance: Literal["live", "catch_up"] | None = None,
+):
     with Session() as session:
+        query = select(MtfResearchSample)
+        if provenance == "live":
+            query = query.where(
+                (MtfResearchSample.evaluation["provenance"].as_string() == "live")
+                | MtfResearchSample.evaluation["provenance"].as_string().is_(None)
+            )
+        elif provenance:
+            query = query.where(MtfResearchSample.evaluation["provenance"].as_string() == provenance)
         rows = session.scalars(
-            select(MtfResearchSample)
+            query
             .where(MtfResearchSample.confirm_time > after)
             .order_by(MtfResearchSample.confirm_time)
             .limit(limit + 1)
@@ -230,6 +250,7 @@ def research_dataset(after: int = Query(0, ge=0), limit: int = Query(100, ge=1, 
             "samples": [
                 {
                     "confirm_time": row.confirm_time,
+                    "provenance": row.evaluation.get("provenance", "live"),
                     "features": row.features,
                     "evaluation": row.evaluation,
                 }

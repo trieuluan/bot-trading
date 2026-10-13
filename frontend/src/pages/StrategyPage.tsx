@@ -5,6 +5,8 @@ import { MtfObservationChart } from '../components/MtfObservationChart';
 import { formatPrice, observationStatusLabels as statusLabels } from '../lib/format';
 import type { MtfObservationResponse } from '../types/trading';
 
+const provenanceLabels = { live: 'Trực tiếp', catch_up: 'Chạy bù', historical: 'Lịch sử' };
+
 export function StrategyPage() {
   const [obs, setObs] = useState<MtfObservationResponse | null>(null);
   const [error, setError] = useState('');
@@ -36,7 +38,7 @@ export function StrategyPage() {
       <section className="panel prose mtf-observation">
         <div className="section-head">
           <div>
-            <h2>Quan sát trực tiếp: Price Action Đa Khung</h2>
+            <h2>Quan sát Price Action Đa Khung</h2>
             <p>4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và xác nhận giữ vùng.</p>
           </div>
           <span className="pill amber">
@@ -45,8 +47,12 @@ export function StrategyPage() {
           </span>
         </div>
         <p className="micro">
-          Dữ liệu kiểm chứng tương lai độc lập. Auto Paper vẫn giữ breakout 15m cũ.
+          Trực tiếp và chạy bù có nhãn riêng; tín hiệu cũ chỉ dùng nghiên cứu, không mở lệnh. Auto
+          Paper vẫn giữ breakout 15m cũ.
           {obs && !obs.available && ' · Chọn nguồn MEXC Futures tại Kết nối sàn để quan sát.'}
+          {obs?.backlog_bars && obs.backlog_bars > 0 ? (
+            <span className="negative"> · Đang xử lý bù {obs.backlog_bars} nến sau gián đoạn.</span>
+          ) : null}
           {obs?.available &&
             obs.stale &&
             ' · Dữ liệu chậm/chưa đồng bộ: đây là trạng thái lưu gần nhất, không phải tín hiệu mới.'}
@@ -82,6 +88,7 @@ export function StrategyPage() {
         <div style={{ marginTop: 12 }}>
           <p>
             <strong>Lý do hiện tại:</strong> {snap?.reason ?? 'Đang tải...'}
+            {snap && <span className="pill">{provenanceLabels[snap.provenance ?? 'live']}</span>}
           </p>
         </div>
         {obs?.available && <MtfObservationChart candles={obs.candles} snapshot={snap ?? null} />}
@@ -94,6 +101,7 @@ export function StrategyPage() {
                   <tr>
                     <th>Thời gian nến (UTC)</th>
                     <th>Trạng thái</th>
+                    <th>Nguồn quan sát</th>
                     <th>Chiều</th>
                     <th>Mức giá</th>
                     <th>Lý do</th>
@@ -109,6 +117,7 @@ export function StrategyPage() {
                           .replace('T', ' ')}
                       </td>
                       <td>{statusLabels[ev.snapshot.status] ?? ev.snapshot.status}</td>
+                      <td>{provenanceLabels[ev.snapshot.provenance ?? 'live']}</td>
                       <td>{ev.snapshot.side?.toUpperCase() ?? '—'}</td>
                       <td>{ev.snapshot.level ? formatPrice(ev.snapshot.level) : '—'}</td>
                       <td>{ev.snapshot.reason}</td>

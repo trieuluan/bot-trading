@@ -41,6 +41,7 @@ export type MtfObservationStatus =
   'waiting_breakout' | 'waiting_retest' | 'waiting_confirm' | 'confirmed' | 'cancelled' | 'expired';
 
 export type MtfObservationSnapshot = {
+  provenance?: 'live' | 'catch_up' | 'historical';
   strategy: string;
   parameters: { lookback_1h: number; ema_4h: number; wait_hours: number; target_r: number };
   candle_time: number;
@@ -69,6 +70,8 @@ export type MtfObservationResponse = {
   error: string | null;
   started_at: number | null;
   last_candle: number | null;
+  backlog_bars?: number | null;
+  catchup_batch?: number;
   snapshot: MtfObservationSnapshot | null;
   events: { candle_time: number; snapshot: MtfObservationSnapshot }[];
   candles: Candle[];

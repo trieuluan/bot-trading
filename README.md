@@ -351,8 +351,9 @@ nến 15m đóng, nó đọc 1.600 nến đã đóng, tính xu hướng 4h/EMA50
 nến xác nhận; ghi trạng thái cùng lý do vào `mtf_observation_state/events`. Bảng này tách
 khỏi `signals`, Auto Paper và ví: kể cả khi `confirmed`, bot không tạo lệnh.
 
-Quan sát chỉ đi tới, không phát lại lịch sử: lần chạy đầu và mỗi khoảng gián đoạn dữ liệu
-bắt đầu từ nến kế tiếp; setup đang chờ bị hủy nếu mất nến. Trạng thái: chờ breakout, chờ
+Lần chạy đầu đặt mốc quan sát từ nến kế tiếp. Sau gián đoạn, worker chạy bù tuần tự
+từ cursor đã lưu; thiếu nến thật thì dừng chờ tải đủ, không hủy setup chỉ vì máy ngủ.
+Trạng thái: chờ breakout, chờ
 retest, chờ xác nhận, đã xác nhận, đã hủy, hết hạn (12 giờ). Trang **Chiến lược** hiện
 vùng 1h, mức breakout, SL/TP tham chiếu, marker breakout/retest/xác nhận và nhật ký.
 Kết quả backtest của biến thể này chưa đạt ngưỡng; dùng dữ liệu quan sát để kiểm chứng.
@@ -362,7 +363,7 @@ API: `GET /api/observations/mtf`.
 ### Dữ liệu chuẩn bị cho AI filter (chưa huấn luyện AI)
 
 Migration `0006` thêm `mtf_research_samples`. Từ lúc triển khai, mỗi setup MTF **đã xác nhận**
-ghi đúng một mẫu; không phát lại lịch sử. Setup hủy/hết hạn vẫn nằm trong nhật ký quan sát,
+ghi đúng một mẫu, kể cả khi được phát hiện qua catch-up. Setup hủy/hết hạn nằm trong nhật ký,
 không bị gán nhãn thua. Feature chốt tại nến xác nhận: ATR14 15m (trung bình true range),
 khoảng cách EMA50 4h theo ATR/chiều setup, độ rộng vùng breakout đã lưu, volume so với
 20 nến trước, thân nến, khoảng SL, giờ UTC và số nến chờ. Chỉ dùng nến đã đóng;
@@ -403,3 +404,48 @@ Auto Paper tự tắt sau đóng đối soát, cần kiểm tra rồi bật lạ
 Đây là quy tắc mô phỏng dựa trên nến last-price, không chứng minh bid/ask đã chạm mức đó.
 Không tái tạo tick đã mất hoặc các giao cắt chỉ xảy ra trong nến entry. Máy ngủ, Docker
 dừng hoặc mất mạng vẫn làm mất giám sát; không có stop order gửi lên sàn.
+
+### MTF Replay và Catch-up
+
+- **Catch-up tự động:** Worker xử lý tối đa 96 nến mỗi vòng, tiếp tục cursor sau restart.
+  Không gửi lệnh. Thiếu nến thì tải bù rồi kiểm tra liên tục trước khi xử lý cả lô.
+  Snapshot và mẫu xác nhận mang nhãn `catch_up` hoặc `live`; provenance nằm trong
+  evaluation/audit, không đưa vào feature dự báo. Mẫu cũ chưa có nhãn nguồn được xem là live.
+  UI hiện nhãn và số nến còn chờ; API dataset hỗ trợ `?provenance=live` hoặc `catch_up`.
+- **Historical Replay ngoại tuyến:** Script dùng cùng observer, feature và bộ gán nhãn,
+  duyệt cửa sổ đúng 1.600 nến đến từng thời điểm; chỉ tổng hợp 1h/4h đã đóng.
+  Xuất JSON riêng (`provenance=historical`), không ghi vào DB trực tiếp hoặc ví.
+  Lưu các chuyển trạng thái gồm hủy/hết hạn, feature xác nhận, kết quả giả lập và hash cache.
+  Mẫu cuối chưa có tương lai vẫn pending/open; không bịa nhãn hoặc bù nến thiếu.
+
+Chạy từ thư mục repo, với cache MEXC do `scripts/walkforward.py` tạo:
+
+```sh
+PYTHONPATH=. python scripts/mtf_historical_replay.py --cache /tmp/walkforward-cache.json
+# Replay 30 ngày cuối, cộng warmup:
+PYTHONPATH=. python scripts/mtf_historical_replay.py --days 30 --output research-output/mtf-30d.json
+```
+
+Mặc định xuất `research-output/mtf-historical-samples.json` (gitignored).
+Historical và catch-up không phải quan sát thời gian thực độc lập. Phí giả định vẫn 5 bps,
+slippage 2 bps mỗi chiều, chưa funding/spread; không coi đây là phí API thật hoặc bằng chứng
+lợi nhuận, không tự chọn chiến lược hay bật Auto Paper. VPS chỉ cần nếu muốn xử lý thời gian thực.
+
+Tổng hợp theo tháng/chiều và kiểm tra ATR: 60% mẫu đầu chọn trung vị ATR%,
+40% sau đối chiếu; loại mẫu đầu có nhãn chưa biết tại mốc chia. Dataset đã xem
+trước nên đây chỉ là phân tích thăm dò, không phải holdout độc lập.
+
+```sh
+python scripts/mtf_dataset_report.py --self-check
+python scripts/mtf_dataset_report.py
+PYTHONPATH=. python scripts/mtf_forward_check.py --self-check
+PYTHONPATH=. python scripts/mtf_forward_check.py
+```
+
+`mtf_forward_check.py` kiểm tra hash cache/dataset/quy tắc, giữ nguyên ngưỡng trong
+`research-output/mtf-report.json`, tải nến MEXC đã đóng sau dataset gốc rồi replay.
+Chỉ setup xác nhận mới, đã có kết quả mới vào thống kê; pending/open được lưu riêng.
+Báo cáo nằm ở `research-output/mtf-new-data-check.json`; không sửa cache gốc, DB hay
+cấu hình giao dịch. Không tạo lại báo cáo chọn ngưỡng khi đang đối chiếu dữ liệu mới.
+Đây vẫn là mở rộng lịch sử, không thay thế paper prospective. Tổng R mẫu có thể
+chồng thời gian, không phải lợi nhuận danh mục.
