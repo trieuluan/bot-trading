@@ -38,6 +38,14 @@ services:
       - 'python -m bot.worker'
       - /app/backend/app
       - /app/bot
+  exness-feed:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./bot:/app/bot:ro
   migrate:
     <<: *python-dev
   frontend:

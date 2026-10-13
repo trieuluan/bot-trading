@@ -33,6 +33,7 @@ def database():
         Session,
         Signal,
         WorkspaceCandle,
+        WorkspaceFeedState,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
@@ -64,6 +65,11 @@ def database():
         market.last_sync = None
         market.error = None
         market.retry_at = None
+
+        for feed in session.query(WorkspaceFeedState).all():
+            feed.started_at = feed.checked_until = feed.last_sync = feed.worker_heartbeat = None
+            feed.error = feed.retry_at = None
+            feed.enabled = False
 
         wallet = session.get(PaperWallet, 1)
         wallet.initial_balance = wallet.balance = 10000

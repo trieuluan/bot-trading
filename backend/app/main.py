@@ -19,6 +19,7 @@ from .db import (
     Workspace,
     WorkspaceCandle,
 )
+from .exness_feed import feed_summary
 from .feed import load_candles
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
@@ -101,7 +102,7 @@ def workspace_candles(
                 "price_type": price_type, "candles": [
                     {field: getattr(row, field) for field in (
                         ("time", "open", "high", "low", "close", "volume")
-                        if workspace.venue == SOURCE else ("time", "open", "high", "low", "close")
+                        if workspace.venue == SOURCE else ("time", "open", "high", "low", "close", "tick_volume")
                     )} for row in reversed(rows)
                 ]}
 
@@ -114,13 +115,27 @@ def workspace_dashboard(workspace_id: str):
         identity = workspace_values(workspace)
     if workspace_id == SOURCE:
         return {"workspace": identity, **dashboard()}
+    frames = feed_summary()
+    m15 = next((item for item in frames if item["timeframe"] == "15m"), None)
+    bars = m15["bars_per_side"] if m15 else 0
+    last_sync = m15["last_sync"] if m15 else None
+    worker_online = bool(m15 and m15["worker_online"])
+    pending = any(item["remaining_intervals"] is None or item["remaining_intervals"] > 0 for item in frames)
+    status = ("backfill" if pending else "synced") if bars else "waiting"
+    if any(item["error"] for item in frames):
+        status = "error"
     return {
         "workspace": identity,
         "mode": "demo_read_only",
-        "market": {"status": "not_started", "message": "Chưa bật đồng bộ nến Exness"},
+        "market": {
+            "status": status,
+            "message": f"Đã lưu {bars:,} nến M15 mỗi phía bid/ask XAUUSD" if bars else "Chưa có nến XAUUSD trong kho",
+            "bars": bars, "last_sync": last_sync, "worker_online": worker_online,
+        },
         "observation": {"status": "not_started", "message": "Chưa chạy MTF Exness"},
         "paper": {"status": "unavailable", "message": "Ví MEXC không dùng cho Exness"},
         "execution_enabled": False,
+        "frames": frames,
     }
 
 

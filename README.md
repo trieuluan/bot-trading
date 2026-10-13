@@ -469,3 +469,37 @@ chồng thời gian, không phải lợi nhuận danh mục.
   Không expose API ra Internet khi chưa có authentication/authorization.
 
 Chạy migration trước khi dùng API workspace: `alembic upgrade head`.
+
+### Đồng bộ nến Exness XAUUSD
+
+- `exness-feed` là process Docker riêng với worker MEXC. Chỉ GET dữ liệu Exness;
+  không đọc/sửa ví, tín hiệu, cursor hoặc lệnh MEXC. Khóa Exness chỉ truyền vào service này,
+  không truyền vào API, frontend hoặc bot MEXC. Dùng cấu hình `EXNESS_ENVIRONMENT=demo`.
+- Bật `EXNESS_DATA_ENABLED=true` trong `.env` để process đồng bộ tự động mỗi 15 giây.
+  Để `false` nếu chưa cấu hình đủ bốn biến Exness. Sửa `.env` cần recreate service.
+- Đồng bộ trực tiếp M15, H1, H4 từ Exness, không tổng hợp H1/H4 bằng nến MEXC.
+  Chỉ lưu nến đã đóng, xác thực OHLC và bid/ask; thiếu volume giữ null, không thay bằng 0.
+  `tick_volume` giữ trường volume của nguồn, không phải volume hợp đồng futures.
+- Giới hạn số nến và nhịp gọi đọc từ API limits của tài khoản. HTTP 429 có cooldown;
+  lỗi ghi trạng thái rồi retry, không tiến cursor. Một page bid/ask và cursor commit cùng nhau.
+- Cursor theo khoảng thời gian đã kiểm tra, không theo nến cuối. Page rỗng trong phiên nghỉ
+  vẫn tiến qua khoảng đã yêu cầu; không bịa nến để lấp chỗ trống. Khi đã bắt kịp, kiểm tra
+  lại hai nến gần nhất tối đa mỗi phút để cập nhật nến nguồn sửa lại.
+- Backfill mặc định 90 ngày lịch; `--days` chỉ dùng khi khởi tạo frame chưa có cursor.
+  Chạy lại tiếp tục cursor, không tải lại từ đầu hoặc tự mở rộng về quá khứ.
+  Không chạy backfill song song với worker để tránh tranh lượt giới hạn API của tài khoản.
+
+```sh
+docker compose build api migrate exness-feed frontend
+docker compose run --rm --no-deps migrate
+# Tải ban đầu trước khi bật process chạy nền:
+docker compose run --rm --no-deps exness-feed python -m backend.app.exness_feed --days 90
+docker compose up -d --no-deps exness-feed api frontend
+```
+
+Dashboard Exness hiển thị số nến mỗi phía, khoảng đầu/cuối, lần đồng bộ gần nhất,
+heartbeat và lỗi/cooldown của từng frame; UI cập nhật mỗi 15 giây.
+Backlog là số khoảng nến cần kiểm tra, không phải số nến thị trường bị thiếu.
+Kho nến có thật không đồng nghĩa đã kiểm tra lịch phiên hoặc chứng minh lịch sử đầy đủ:
+cần phân biệt giờ nghỉ, cuối tuần và khoảng thiếu từ nhà cung cấp trước khi bật MTF forex.
+Gập máy vẫn dừng Docker local; worker chạy bù sau khi máy thức, không thay thế VPS 24/7.

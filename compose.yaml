@@ -3,7 +3,7 @@ x-python: &python
   build:
     context: .
     dockerfile: backend/Dockerfile
-  environment:
+  environment: &python-environment
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-trading}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-trading}
     TRADING_MODE: ${TRADING_MODE:-paper}
   depends_on:
@@ -14,7 +14,7 @@ services:
   postgres:
     image: postgres:17-alpine
     ports:
-      - "127.0.0.1:5432:5432"
+      - '127.0.0.1:5432:5432'
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-trading}
       POSTGRES_USER: ${POSTGRES_USER:-trading}
@@ -52,6 +52,21 @@ services:
   bot:
     <<: *python
     command: [python, -m, bot.worker]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  exness-feed:
+    <<: *python
+    command: [python, -m, bot.exness_worker]
+    environment:
+      <<: *python-environment
+      EXNESS_API_KEY: ${EXNESS_API_KEY:-}
+      EXNESS_PRIVATE_KEY: ${EXNESS_PRIVATE_KEY:-}
+      EXNESS_ACCOUNT_ID: ${EXNESS_ACCOUNT_ID:-}
+      EXNESS_API_BASE_URL: ${EXNESS_API_BASE_URL:-https://api.exness.com}
+      EXNESS_ENVIRONMENT: ${EXNESS_ENVIRONMENT:-demo}
+      EXNESS_SYMBOL: ${EXNESS_SYMBOL:-XAUUSD}
+      EXNESS_DATA_ENABLED: ${EXNESS_DATA_ENABLED:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully

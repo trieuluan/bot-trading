@@ -21,11 +21,29 @@ interface Workspace {
   execution_enabled: boolean;
 }
 
+interface FrameSummary {
+  timeframe: string;
+  bars_per_side: number;
+  first_candle: number | null;
+  last_candle: number | null;
+  last_sync: string | null;
+  remaining_intervals: number | null;
+  worker_online: boolean;
+  error: string | null;
+}
+
 interface ForexDashboard {
   workspace: Workspace;
-  market: { status: string; message: string };
+  market: {
+    status: string;
+    message: string;
+    bars?: number;
+    last_sync?: string | null;
+    worker_online?: boolean;
+  };
   observation: { status: string; message: string };
   paper: { status: string; message: string };
+  frames?: FrameSummary[];
 }
 
 export default function App() {
@@ -82,21 +100,35 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    let inflight = false;
     setDashboard(null);
     setError('');
-    fetch('/api/workspaces/exness_forex/dashboard')
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Không tải được workspace Exness.');
-        const data = (await response.json()) as ForexDashboard;
-        if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
-        if (!cancelled) setDashboard(data);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setError('Không tải được workspace Exness. Không dùng dữ liệu MEXC thay thế.');
-      });
+    function refreshForex() {
+      if (inflight) return;
+      inflight = true;
+      void fetch('/api/workspaces/exness_forex/dashboard')
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Không tải được workspace Exness.');
+          const data = (await response.json()) as ForexDashboard;
+          if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
+          if (!cancelled) {
+            setDashboard(data);
+            setError('');
+          }
+        })
+        .catch(() => {
+          if (!cancelled)
+            setError('Mất kết nối API; giữ dữ liệu Exness cuối. Không dùng dữ liệu MEXC thay thế.');
+        })
+        .finally(() => {
+          inflight = false;
+        });
+    }
+    refreshForex();
+    const interval = setInterval(refreshForex, 15000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [revision]);
   return (
@@ -142,7 +174,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           </div>
           <div className="demo-banner">
             <FlaskConical size={17} />
-            <span>Chỉ chuẩn bị kết nối đọc dữ liệu. Chưa chạy bot, MTF hoặc gửi lệnh Exness.</span>
+            <span>
+              Chỉ đọc nến Exness. Worker dữ liệu độc lập; chưa chạy MTF hoặc gửi lệnh Exness.
+            </span>
           </div>
           {error && (
             <div className="feedback" role="alert">
@@ -156,6 +190,47 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               <p>
                 <strong>Thị trường:</strong> {dashboard.market.message}
               </p>
+              {dashboard.market.last_sync && (
+                <p>
+                  <strong>Đồng bộ gần nhất:</strong>{' '}
+                  {new Date(dashboard.market.last_sync).toLocaleString('vi-VN', {
+                    timeZone: 'UTC',
+                  })}{' '}
+                  UTC
+                </p>
+              )}
+              <p>
+                <strong>Worker nến Exness:</strong>{' '}
+                <span
+                  className={`status-pill ${dashboard.market.worker_online && !error ? 'online' : 'offline'}`}
+                >
+                  {error
+                    ? 'Chưa xác minh kết nối'
+                    : dashboard.market.worker_online
+                      ? 'Có heartbeat gần đây'
+                      : 'Không có heartbeat gần đây'}
+                </span>
+              </p>
+              {dashboard.frames && dashboard.frames.length > 0 && (
+                <div className="frames-summary">
+                  <h3>Khung nến đã đồng bộ</h3>
+                  <ul>
+                    {dashboard.frames.map((frame) => (
+                      <li key={frame.timeframe}>
+                        <strong>{frame.timeframe.toUpperCase()}:</strong>{' '}
+                        {frame.bars_per_side.toLocaleString()} nến mỗi phía bid/ask
+                        {frame.last_candle
+                          ? ` (đến ${new Date(frame.last_candle * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`
+                          : ' (chưa có)'}
+                        {frame.remaining_intervals
+                          ? ` · còn ${frame.remaining_intervals} khoảng nến cần kiểm tra`
+                          : ''}
+                        {frame.error ? ` · lỗi: ${frame.error}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <p>
                 <strong>Chiến lược:</strong> {dashboard.observation.message}
               </p>
@@ -167,8 +242,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                 hoặc tự tạo giá.
               </p>
               <p>
-                Bước tiếp theo: đồng bộ nến XAUUSD từ tài khoản Demo; chưa xác minh kết nối trong
-                màn hình này.
+                Không lấp nến trong giờ nghỉ hoặc cuối tuần. Bước tiếp theo: kiểm tra lịch phiên và
+                độ đầy đủ dữ liệu trước khi chạy MTF forex.
               </p>
             </section>
           )}

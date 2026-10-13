@@ -2,6 +2,7 @@
 
 import base64
 import json
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -14,7 +15,9 @@ EMPTY_BODY_HASH = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
 
 
 class ExnessError(RuntimeError):
-    pass
+    def __init__(self, message, retry_after=60):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 def validate_host(base_url):
@@ -73,6 +76,8 @@ class ExnessReadOnly:
         self.api_key, self.account_id, self.base_url = api_key, account_id, base_url
         self.key = load_private_key(private_key)
         self.client = client or httpx.Client(base_url=base_url, timeout=10)
+        self.request_interval = 0.55
+        self.next_request = 0
 
     @classmethod
     def from_env(cls):
@@ -88,6 +93,10 @@ class ExnessReadOnly:
             raise ExnessError("Only relative /v1/ GET paths are allowed")
         query = urlencode(params or {})
         target = httpx.URL(f"{path}?{query}" if query else path).raw_path.decode("ascii")
+        delay = self.next_request - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        self.next_request = time.monotonic() + self.request_interval
         try:
             response = self.client.get(
                 self.base_url.rstrip("/") + target,
@@ -96,15 +105,23 @@ class ExnessReadOnly:
             )
         except httpx.HTTPError as exc:
             raise ExnessError("Cannot reach Exness API") from exc
-        if response.status_code != 200:
-            code = ""
+        if response.status_code == 429:
             try:
-                body = response.json()
-                code = str(body.get("code") or body.get("error", {}).get("code") or "")
-            except (ValueError, AttributeError, TypeError):
-                pass
-            raise ExnessError(f"Exness HTTP {response.status_code} {code}".strip())
-        return response.json()
+                cooldown = float(response.headers.get("Retry-After", "60"))
+                if not math.isfinite(cooldown):
+                    raise ValueError
+            except ValueError:
+                cooldown = 60
+            raise ExnessError("Exness rate limit; waiting before retry", max(2, min(cooldown, 3600)))
+        if response.status_code != 200:
+            raise ExnessError(f"Exness HTTP {response.status_code}")
+        try:
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError
+            return payload
+        except ValueError as exc:
+            raise ExnessError("Invalid Exness JSON response") from exc
 
     def use_access_point(self):
         """Switch to the account's dedicated host (api.exness.com returns 404 for account routes)."""
@@ -125,7 +142,7 @@ class ExnessReadOnly:
             f"/v1/configuration/accounts/{self.account_id}/instruments/{quote(instrument, safe='')}/conditions"
         )
 
-    def candles(self, instrument, timeframe, start: int, end: int):
+    def candles(self, instrument, timeframe, start: int, end: int, now=None):
         """Closed bid+ask candles in [start, end), UTC seconds."""
         duration = {"M1": 60, "M15": 900, "H1": 3600, "H4": 14400}.get(timeframe)
         if duration is None or start >= end:
@@ -141,10 +158,18 @@ class ExnessReadOnly:
                 "to": iso(end),
             },
         )
-        cutoff = min(end, int(time.time()))
+        cutoff = min(end, int(time.time()) if now is None else now)
         rows = []
-        for row in data["candles"]:
-            opened = datetime.fromisoformat(row["time"].replace("Z", "+00:00")).timestamp()
-            if start <= opened and opened + duration <= cutoff:
-                rows.append(row)
+        try:
+            if not isinstance(data["candles"], list):
+                raise ValueError
+            for row in data["candles"]:
+                stamp = datetime.fromisoformat(row["time"].replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    raise ValueError
+                opened = stamp.timestamp()
+                if start <= opened and opened + duration <= cutoff:
+                    rows.append(row)
+        except (KeyError, ValueError, TypeError, AttributeError) as exc:
+            raise ExnessError("Invalid Exness candle timestamps") from exc
         return rows

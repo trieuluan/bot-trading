@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -47,6 +48,19 @@ class WorkspaceCandle(Base):
     high: Mapped[float] = mapped_column(Float)
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
+    tick_volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+class WorkspaceFeedState(Base):
+    __tablename__ = "workspace_feed_state"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    timeframe: Mapped[str] = mapped_column(String(10), primary_key=True)
+    started_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checked_until: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BotState(Base):
