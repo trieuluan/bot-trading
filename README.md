@@ -381,3 +381,25 @@ Dùng `next_after` cho trang tiếp theo. Feature và evaluation tách riêng đ
 tương lai làm đầu vào. Khi huấn luyện cần split theo thời gian và loại các mẫu train có
 `label_available_at` chồng lên kỳ kiểm tra; không split ngẫu nhiên. Mẫu cùng thời điểm hoặc
 chồng lấn vị thế không phải các phép thử độc lập. Không đổi chiến lược, Auto Paper hoặc ví.
+
+### Đối soát SL/TP ví mô phỏng sau gián đoạn
+
+Migration `0007` lưu tiến độ đối soát trong `paper_trades.monitoring`, tồn tại qua restart.
+Vòng quote kiểm tra nến MEXC 15m đã đóng từ sau nến entry, theo thứ tự thời gian;
+không giới hạn 96 nến. Nến entry bị bỏ qua vì high/low có thể xuất hiện trước lúc mở lệnh.
+Thiếu nến thì chờ đồng bộ, không nhảy qua khoảng trống; UI hiện cảnh báo và Auto Paper chờ.
+SL/TP theo bid/ask hiện tại vẫn chạy khi lịch sử chưa đủ. Khi có đủ lịch sử, giao cắt
+đầu tiên kích hoạt khớp **giả lập tại SL/TP kèm trượt giá bất lợi**. Nếu mở nến vượt SL,
+dùng giá mở nến; TP vẫn khớp tại mức TP, không hưởng giá gap tốt hơn. Cả hai chạm thì ưu tiên SL.
+Thời điểm đóng là đầu nến nếu gap SL, hoặc giây cuối nến làm mốc ước lượng;
+không biết chính xác tick chạm. Audit lưu `execution_model=historical_levels_v1`,
+`time_basis`, thời điểm đối soát và funding đã hoàn tác sau thời điểm đóng giả lập.
+Funding sau exit được đưa về 0 và lưu giá trị cũ trong audit, tránh tính hai lần khi retry.
+Không tự sửa các lệnh đã đóng theo bản đối soát cũ.
+
+Lý do `recovered_stop_loss` / `recovered_take_profit` phân biệt đóng sau đối soát với
+đóng theo quote trực tiếp; lưu nến kích hoạt và trường hợp chạm cả hai trong audit.
+Auto Paper tự tắt sau đóng đối soát, cần kiểm tra rồi bật lại thủ công.
+Đây là quy tắc mô phỏng dựa trên nến last-price, không chứng minh bid/ask đã chạm mức đó.
+Không tái tạo tick đã mất hoặc các giao cắt chỉ xảy ra trong nến entry. Máy ngủ, Docker
+dừng hoặc mất mạng vẫn làm mất giám sát; không có stop order gửi lên sàn.

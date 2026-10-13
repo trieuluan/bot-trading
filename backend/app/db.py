@@ -130,6 +130,7 @@ class PaperWallet(Base):
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
+    monitoring: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     origin: Mapped[str] = mapped_column(String(10), default="manual")
     signal_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -1,6 +1,16 @@
 import type { Candle } from './trading';
 
 export type PaperTrade = {
+  monitoring: {
+    status: 'watching' | 'history_pending' | 'recovered';
+    next_bar: number;
+    trigger_bar?: number;
+    ambiguous?: boolean;
+    fill_basis?: 'level' | 'gap_open';
+    execution_model?: 'historical_levels_v1';
+    recovered_at?: number;
+    time_basis?: 'bar_open' | 'bar_end_proxy';
+  } | null;
   audit: {
     strategy: string;
     reason: string;

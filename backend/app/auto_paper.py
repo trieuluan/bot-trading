@@ -154,6 +154,10 @@ def auto_tick(now=None):
             set_status(session, state, exc.detail)
             return
         roll_day(session, wallet, state, now)
+        position = open_position(session)
+        if position and (position.monitoring or {}).get("status") == "history_pending":
+            set_status(session, state, "Vị thế đang thiếu dữ liệu đối soát SL/TP; chờ đồng bộ nến")
+            return
         reason = limit_reason(session, wallet, state, now)
         if reason:
             state.enabled = False

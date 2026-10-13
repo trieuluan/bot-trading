@@ -1,8 +1,8 @@
 """Local paper execution. Public market data only; never calls exchange order APIs.
 
 Wallet-row locks serialize commands, stops and funding. Prices are sampled, not a
-matching engine: fills use observed bid/ask plus slippage, stops may gap, and no
-unobserved tick path is reconstructed after an outage.
+matching engine: live fills use bid/ask; recovery simulates historical levels and
+stop gaps with adverse slippage. Exact intrabar execution times are unavailable.
 """
 
 import time
@@ -83,10 +83,10 @@ def execution_price(wallet, side, opening):
     return base * (1 + (1 if buying else -1) * wallet.slippage_bps / 10000)
 
 
-def close_position(session, wallet, trade, reason, now):
-    price = execution_price(wallet, trade.side, opening=False)
+def close_position(session, wallet, trade, reason, now, price=None, exit_time=None):
+    price = price if price is not None else execution_price(wallet, trade.side, opening=False)
     trade.exit = price
-    trade.exit_time = int(now)
+    trade.exit_time = int(exit_time if exit_time is not None else now)
     trade.exit_reason = reason
     trade.exit_fee = round(price * trade.quantity * wallet.fee_bps / 10000, 8)
     gross = direction(trade) * trade.quantity * (price - trade.entry)
@@ -104,12 +104,72 @@ def apply_stops(session, wallet, now):
     if trade is None:
         return
     quote = fresh_quote(wallet, now)
+    reconcile_stops(session, wallet, trade, now)
+    if trade.exit_time is not None:
+        return
     # Executable side of the sampled book, not a candle high/low.
     price = quote["bid1"] if trade.side == "long" else quote["ask1"]
     stopped = price <= trade.stop if trade.side == "long" else price >= trade.stop
     targeted = price >= trade.target if trade.side == "long" else price <= trade.target
     if stopped or targeted:
         close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
+        return
+
+def reconcile_stops(session, wallet, trade, now):
+    """Simulated candle crossing closes conservatively at historical SL/TP, not present quote."""
+    monitoring = trade.monitoring or {}
+    cursor = monitoring.get("next_bar", (trade.entry_time // 900 + 1) * 900)
+    end = int(now) // 900 * 900
+    for candle in load_candles(session, since=cursor, until=end):
+        if candle.time != cursor:
+            break
+        stopped = candle.low <= trade.stop if trade.side == "long" else candle.high >= trade.stop
+        targeted = candle.high >= trade.target if trade.side == "long" else candle.low <= trade.target
+        if stopped or targeted:
+            reason = "recovered_stop_loss" if stopped else "recovered_take_profit"
+            level = trade.stop if stopped else trade.target
+            gap = stopped and (candle.open <= level if trade.side == "long" else candle.open >= level)
+            base = candle.open if gap else level
+            fill = base * (1 + (-1 if trade.side == "long" else 1) * wallet.slippage_bps / 10000)
+            exit_time = candle.time if gap else candle.time + 899
+            reversed_funding = []
+            for funding in session.scalars(select(PaperFunding).where(
+                PaperFunding.trade_id == trade.id, PaperFunding.time > exit_time,
+            )):
+                reversed_funding.append(dict(time=funding.time, cost=funding.cost))
+                wallet.balance = round(wallet.balance + funding.cost, 8)
+                trade.funding_cost = round(trade.funding_cost - funding.cost, 8)
+                funding.cost = 0
+            trade.monitoring = dict(
+                next_bar=cursor,
+                status="recovered",
+                trigger_bar=candle.time,
+                ambiguous=bool(stopped and targeted),
+                fill_basis="gap_open" if gap else "level",
+                execution_model="historical_levels_v1",
+                recovered_at=int(now),
+                time_basis="bar_open" if gap else "bar_end_proxy",
+                reversed_funding=reversed_funding,
+            )
+            close_position(session, wallet, trade, reason, now, price=fill, exit_time=exit_time)
+            state = session.get(AutoPaperState, 1)
+            if state:
+                state.enabled = False
+                state.status = "Đã dừng Auto Paper: đối soát SL/TP lịch sử; kiểm tra ví trước khi bật lại"
+            session.add(Event(kind="paper", message=(
+                f"PAPER #{trade.id}: nến {candle.time} chạm {'SL' if stopped else 'TP'}; "
+                f"khớp giả lập {fill:.2f} USDT; thời gian trong nến là ước lượng. "
+                "Cả hai chạm thì ưu tiên SL. Auto Paper đã dừng."
+            )))
+            return
+        cursor += 900
+    status = "history_pending" if cursor < end else "watching"
+    if status == "history_pending" and monitoring.get("status") != status:
+        session.add(Event(kind="paper", message=(
+            f"PAPER #{trade.id}: thiếu nến từ {cursor}; chờ đối soát SL/TP, "
+            "SL/TP theo quote hiện tại vẫn chạy"
+        )))
+    trade.monitoring = dict(next_bar=cursor, status=status)
 
 
 def sync_paper_quote(adapter=None):
@@ -255,6 +315,7 @@ def serialize_trade(trade, decision=None):
             "exit_reason",
             "funding_cost",
             "net_pnl",
+            "monitoring",
         )
     }
 
@@ -381,6 +442,7 @@ def create_position(
     trade = PaperTrade(
         side=side,
         entry_time=int(time.time()),
+        monitoring=dict(next_bar=(int(time.time()) // 900 + 1) * 900, status="watching"),
         origin=origin,
         signal_time=signal_time,
         entry=price,

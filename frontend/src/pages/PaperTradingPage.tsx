@@ -411,6 +411,11 @@ export function PaperTradingPage() {
             <span>Entry {formatPrice(wallet.position.entry)}</span>
             <span className="negative">SL {formatPrice(wallet.position.stop)}</span>
             <span className="positive">TP {formatPrice(wallet.position.target)}</span>
+            {wallet.position.monitoring?.status === 'history_pending' && (
+              <span className="negative" role="status">
+                Thiếu nến đối soát SL/TP; Auto Paper chờ. SL/TP theo quote hiện tại vẫn chạy.
+              </span>
+            )}
             <button className="text-button" onClick={() => viewTrade(wallet.position!.id)}>
               Xem trên chart
             </button>

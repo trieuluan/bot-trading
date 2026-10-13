@@ -5,6 +5,8 @@ export const exitLabels: Record<string, string> = {
   manual: 'Đóng thủ công',
   stop_loss: 'Stop-loss (SL)',
   take_profit: 'Take-profit (TP)',
+  recovered_stop_loss: 'SL lịch sử (đối soát)',
+  recovered_take_profit: 'TP lịch sử (đối soát)',
 };
 export const utcTime = (time: number) =>
   new Date(time * 1000).toLocaleString('vi-VN', { timeZone: 'UTC' }) + ' UTC';
@@ -25,6 +27,14 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
         </span>
       </div>
       <p>
+        {trade.monitoring?.status === 'recovered' && (
+          <span className="negative">
+            {trade.monitoring.execution_model === 'historical_levels_v1'
+              ? `Khớp giả lập lịch sử: ${trade.monitoring.fill_basis === 'gap_open' ? 'giá mở nến vượt SL' : 'mức SL/TP'}, kèm trượt giá bất lợi. Thời gian đóng trong nến là ước lượng, không phải tick thật.`
+              : 'Bản đối soát cũ: đóng theo bid/ask khi phục hồi, không khớp tại SL/TP lịch sử.'}
+            {trade.monitoring.ambiguous ? ' Cùng nến chạm cả hai: ưu tiên SL.' : ''}
+          </span>
+        )}
         {trade.origin === 'manual'
           ? 'Bạn mở lệnh Market thủ công; lệnh này không có tín hiệu breakout của bot.'
           : (trade.entry_reason ?? 'Lệnh auto cũ chưa lưu lý do vào lệnh.')}
