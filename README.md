@@ -520,10 +520,24 @@ Gập máy vẫn dừng Docker local; worker chạy bù sau khi máy thức, kh�
 - Lần đầu quan sát từ nến M15 mới nhất; không tự replay 90 ngày thành kết quả nghiên cứu.
   Sau restart tiếp tục từng nến chưa xử lý, tối đa 96 nến mỗi vòng; gắn nhãn `catch_up`/`live`.
   Mỗi bước chỉ dùng H1/H4 đã đóng tại thời điểm bước đó. Nhật ký lưu cả trạng thái chờ và hủy.
-- Chưa có backtest danh mục, ví paper forex hay đặt lệnh Exness.
+  UI tách tiến độ tải bù từng khung với số nến M15 đã tải còn chờ phân tích và mốc nến đã tính.
+  Trạng thái worker ngoại tuyến hoặc lỗi dữ liệu luôn được ưu tiên, không báo đang chạy bù khi worker đã dừng.
+  Test mô phỏng nghỉ 6/30 giờ đối chiếu từng snapshot với chạy liên tục, gồm nhiều trang tải bù,
+  giới hạn 96 nến mỗi lượt, nhãn nguồn và xử lý lại không trùng bản ghi; không chạm DB thực.
+- Quan sát không gửi lệnh Exness. Ví paper forex cục bộ mô tả bên dưới; chưa khớp trên tài khoản Demo sàn.
   Replay nghiên cứu bid/ask mô tả ở mục kế tiếp; lịch phiên vẫn cần xác minh.
 
 ### Replay nghiên cứu MTF Exness
+
+Trong workspace **Exness · Forex Demo**:
+
+- **Chiến lược:** chart XAUUSD chọn M15/H1/H4 và bid/ask. Vùng H1, mức breakout,
+  SL/TP và dấu retest/xác nhận/hủy nằm trên chart Bid M15. Dữ liệu đều lấy từ Exness.
+- **Nhật ký:** 20 nến quan sát gần nhất, lý do chờ/hủy và nhãn trực tiếp/chạy bù.
+- **Backtest:** đọc báo cáo replay đã tạo, không tự chạy replay hoặc đặt lệnh từ UI.
+  Chỉ so sánh độ nhạy trượt giá khi SHA256 bộ nến giống nhau.
+- API mount thư mục `research-output` ở chế độ chỉ đọc. Không thấy file thì UI báo chưa có
+  kết quả; không lấy kết quả MEXC thay thế. Sau sửa mount cần recreate container API.
 
 `scripts/exness_mtf_replay.py` chỉ đọc kho nến, xuất JSON riêng; không sửa nhật ký quan sát,
 ví paper hoặc lệnh. Lịch sử 90 ngày bao gồm warmup EMA50 H4; thời gian đánh giá ngắn hơn 90 ngày.
@@ -550,3 +564,63 @@ docker compose run --rm --no-deps \
   giả định, chuyển trạng thái, từng mẫu, thống kê theo chiều và tháng UTC.
   Mẫu có thể chồng lấn: tổng R/drawdown chỉ là thống kê mẫu đóng, không phải đường vốn tài khoản.
 - Đây là replay mô tả trên dữ liệu đã có, chưa out-of-sample hoặc chứng minh hiệu quả.
+
+### Giá trực tiếp Exness
+
+- API giữ một WebSocket XAUUSD Bid/Ask mỗi process khi `EXNESS_DATA_ENABLED=true`, ký GET
+  theo access point tài khoản, đọc limits trước khi subscribe; không gửi lệnh broker.
+- Frontend nhận SSE `/api/workspaces/exness_forex/quotes/stream` tối đa mỗi giây. Nhiều tab
+  dùng chung upstream. Chạy một uvicorn worker; nhiều process/replica chưa chia sẻ quota.
+- Chart ghép nến Bid/Ask M15/H1/H4 từ mọi tick backend nhận; SSE gửi OHLC mỗi giây,
+  giữ tối đa 32 nến mỗi khung trong RAM. Tick cực trị giữa hai lần SSE vẫn được tính.
+  Nến đầu sau kết nối hoặc gián đoạn quá 15 giây mang nhãn OHLC tạm thời/thiếu tick.
+  OHLC tick có thể khác nến sàn; nến REST đã đóng luôn được ưu tiên thay thế.
+  Nến live chỉ để xem; MTF và giá vào paper vẫn dùng nến đóng.
+  Mọi tick hợp lệ được xử lý SL/TP ví Live trong DB, không phụ thuộc tab trình duyệt hoặc nhịp SSE.
+- Tick quá 15 giây hoặc mất stream: ẩn nến/đường live, báo dữ liệu cũ/chưa có tick.
+  Gập máy vẫn ngắt kết nối; nối lại với backoff, REST worker tiếp tục bù nến.
+- Lỗi quyền, subscribe hoặc quota dừng stream, không lặp retry. Kiểm tra cấu hình/quota
+  trước khi restart API. Key chỉ ở backend, không chuyển ra frontend.
+
+### Ví paper Exness cục bộ
+
+- Worker Exness tự chạy paper sau bước quan sát khi `EXNESS_DATA_ENABLED=true` và cả ba khung
+  đã đồng bộ, hợp lệ. Migration `0011` lưu tài khoản, checkpoint và lệnh trong bảng forex riêng.
+  Không gửi lệnh tới Exness, không đọc hoặc đổi ví MEXC. Không mở lệnh từ lịch sử trước lúc khởi tạo.
+- Tab **Ví mô phỏng** có hai ví khởi tạo 10,000 USD: **Live** cho tín hiệu mới xử lý kịp lúc;
+  **Replay** chỉ cho tín hiệu bỏ lỡ/chạy bù. Lệnh Live đang chờ mà bỏ lỡ nến vào chuyển sang Replay.
+  Kết quả hai ví không gộp; UI hiển thị vị thế, số dư, equity, P&L đã/chưa chốt, lịch sử và lý do bỏ qua.
+- Mỗi ví chỉ một vị thế. Rủi ro mục tiêu 1% số dư, notional tối đa 1 lần số dư, khối lượng theo oz,
+  chưa hiệu chuẩn lot/minimum/margin sàn. Long vào Ask open M15 kế tiếp, thoát Bid; Short ngược lại.
+  Chỉ ghi nhận khớp sau khi nến đóng; TP 2R theo giá vào, SL cấu trúc retest. Không timeout vị thế.
+- Spread dùng bid/ask thực; trượt giá giả định 2 bps mỗi chiều, commission khứ hồi 0 USD/oz,
+  chưa tính swap, chưa hiệu chuẩn chi phí tài khoản. Giả định lưu trên từng lệnh; không coi là P&L thực tế.
+- Bật lại máy: xử lý tối đa 96 nến mỗi tick, lưu checkpoint và tiền trong cùng transaction;
+  SL/TP tính tại nến lịch sử đầu tiên chạm, không lấy giá hiện tại. Gap open vượt SL dùng open bất lợi;
+  vượt TP dùng TP bảo thủ; cùng nến chạm SL/TP ưu tiên SL và ghi nhãn mơ hồ.
+- Ví Live đang mở: tick mới (tối đa 15 giây tuổi) kiểm tra SL/TP theo Bid cho Long, Ask cho Short.
+  Chỉ xử lý khi checkpoint đã đến hết M15 trước; cùng khóa workspace với worker để tránh chốt hai lần.
+  SL dùng giá tick quan sát cộng trượt giá; TP dùng mức TP bảo thủ cộng trượt giá.
+  Khi bắt đầu theo tick, reconnect, lỗi ghi DB hoặc thiếu tick quá 15 giây: nến M15 hiện tại
+  phải đóng và được đối soát trước khi tiếp tục live, tránh TP mới che mất SL cũ (hoặc ngược lại).
+  Mất tick không có nghĩa chắc chắn mất dữ liệu; chính sách này cố ý bảo thủ.
+  Ví Replay, tín hiệu MTF, giá vào và trạng thái ví MEXC không đổi; không gửi lệnh broker.
+- Khoảng trống M15 chưa xác minh khi có vị thế: ghi `censored`, khóa mở lệnh mới, equity chưa xác định.
+  Không bịa P&L hoặc giả định đã thoát. Chưa tự mở khóa; cần đối soát dữ liệu trước khi bổ sung xử lý phiên.
+- Kiểm thử `backend/tests/test_forex_paper.py` dùng SQLite riêng: SL/TP Long/Short, spread,
+  gap, ngủ máy, rollback, idempotency, chạy bù nhiều batch và không thay đổi ví MEXC.
+
+### Nhật ký lệnh và báo cáo ví paper Exness
+
+- **Nhật ký chi tiết (Journal v2):** Mỗi lệnh lưu đầy đủ nguồn gốc tín hiệu (xu hướng 4H, EMA 4H,
+  mốc breakout 1H, nến retest 15M, lý do xác nhận), giá mở Bid/Ask, spread thực tế tại thời điểm vào/thoát,
+  khối lượng theo oz và quy đổi lot, mức trượt giá mô phỏng (USD) và P&L thô vs P&L ròng.
+- **Xuất CSV:** Endpoint `/api/workspaces/exness_forex/paper/trades.csv?channel=live|replay`
+  cho phép tải toàn bộ nhật ký chi tiết với timestamp UTC giây để phân tích độc lập.
+- **Báo cáo hiệu suất:** Tách biệt hoàn toàn hai mẫu Live và Replay. Thống kê kỳ vọng R/lệnh (Expectancy R),
+  tổng R, Profit Factor, Max Drawdown đỉnh-đáy trên số dư đã chốt, tỷ lệ thắng và phân nhóm theo chiều,
+  nguồn thoát (tick vs nến đóng) và tháng giao dịch. Không gộp hoặc so sánh trực tiếp hai tập dữ liệu khác thời điểm.
+- **Hiệu chuẩn thông số Exness Demo:** Migration `0012` lưu thông số công cụ từ API Exness (`/conditions`).
+  Áp dụng quy tắc làm tròn lot xuống (`volume_step` 0.01 lot = 1 oz, tối thiểu 0.01 lot).
+  Nếu khối lượng theo rủi ro nhỏ hơn lot tối thiểu, lệnh bị từ chối thay vì tăng quy mô ép vào lệnh.
+  Ghi rõ các khoản chưa thể xác minh tự động (như đơn vị swap, giờ rollover, HMR động) thay vì mặc định chi phí bằng 0.

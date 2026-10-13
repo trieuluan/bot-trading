@@ -144,19 +144,25 @@ def observation_tick(now=None):
 def observation_summary(now=None):
     now = int(time.time()) if now is None else now
     with Session() as session:
-        quality = audit_frames(load_frames(session, now))
+        frames = load_frames(session, now)
+        quality = audit_frames(frames)
         latest = latest_observation(session)
         events = session.scalars(select(ForexObservation).where(
             ForexObservation.workspace_id == WORKSPACE,
         ).order_by(ForexObservation.candle_time.desc()).limit(20)).all()
         snapshot = latest.snapshot if latest else None
+        closed_times = [row.time for row in frames["15m"] if row.price_type == "bid"]
+        pending = sum(stamp > latest.candle_time for stamp in closed_times) if latest else min(1, len(closed_times))
         feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
         paused = quality["status"] == "blocked" or any(
             state is None or state.error or state.checked_until is None
             or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
             for frame, state in zip(FRAMES, feeds)
         )
-        status = "data_paused" if paused else snapshot["status"] if snapshot else "not_started"
-        message = "Dữ liệu chưa sẵn sàng; snapshot bên dưới là lần quan sát đã lưu" if paused else snapshot["reason"] if snapshot else "Chờ worker khởi tạo MTF Exness"
+        status = "data_paused" if paused else "catching_up" if latest and pending else snapshot["status"] if snapshot else "not_started"
+        message = "Dữ liệu chưa sẵn sàng; snapshot bên dưới là lần quan sát đã lưu" if paused else f"Đang chạy bù MTF; còn {pending} nến 15m chưa phân tích" if latest and pending else snapshot["reason"] if snapshot else "Chờ worker khởi tạo MTF Exness"
         return {"status": status, "message": message,
+                "catch_up": {"pending_bars": pending,
+                             "last_processed_candle": latest.candle_time if latest else None,
+                             "latest_closed_candle": closed_times[-1] if closed_times else None},
                 "snapshot": snapshot, "recent": [row.snapshot for row in events], "quality": quality}

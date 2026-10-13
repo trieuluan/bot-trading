@@ -1,9 +1,10 @@
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
-from backend.app.db import ForexObservation, PaperWallet, Session, WorkspaceFeedState
+from backend.app.db import ForexObservation, MarketCandle, PaperWallet, Session, WorkspaceCandle, WorkspaceFeedState
 from backend.app.exness_feed import FRAMES, WORKSPACE, sync_page
 from backend.app.exness_observation import audit_frames, observe_forex, observation_summary, observation_tick
 from backend.tests.test_exness_feed import FakeApi
@@ -96,3 +97,79 @@ def test_worker_cursor_restart_catchup_idempotency_and_mexc_isolation():
     summary = observation_summary(NOW + 3600)
     assert summary["status"] == "data_paused"
     assert summary["snapshot"]["candle_time"] == NOW + 2700
+
+@pytest.mark.parametrize("offline_hours", [6, 30])
+def test_sleep_resume_matches_continuous_observation_and_reports_backlog(offline_hours):
+    start = 80 * 14400
+    end = start + offline_hours * 3600
+
+    class TrendingApi(FakeApi):
+        def candles(self, symbol, code, begin, finish, now=None):
+            rows = super().candles(symbol, code, begin, finish, now)
+            for row in rows:
+                stamp = int(datetime.fromisoformat(row["time"]).timestamp())
+                if code == "H4":
+                    close, low = 100 + stamp // 14400, 99 + stamp // 14400
+                elif stamp == start - (3600 if code == "H1" else 900):
+                    close, low = 103, 102
+                elif code == "M15" and stamp == start:
+                    close, low = 102, 100
+                elif code == "M15" and stamp > start:
+                    close, low = 104, 103
+                else:
+                    close, low = 100, 99
+                for side, spread in (("bid", 0), ("ask", 1)):
+                    row[side] = {"open": close + spread - 0.5, "close": close + spread,
+                                 "low": low + spread, "high": close + spread + 1}
+            return rows
+
+    api = TrendingApi()
+    for frame in FRAMES:
+        sync_page(api, frame, days=10, now=start)
+    assert observation_tick(start)["status"] == "waiting_retest"
+    for current in range(start + 900, end + 1, 900):
+        for frame in FRAMES:
+            sync_page(api, frame, days=10, now=current)
+        observation_tick(current)
+    with Session() as session:
+        expected = [dict(row.snapshot) for row in session.scalars(
+            select(ForexObservation).order_by(ForexObservation.candle_time)
+        )]
+    assert expected[1]["status"] == "waiting_confirm"
+    assert expected[2]["status"] == "confirmed"
+
+    with Session.begin() as session:
+        session.query(ForexObservation).filter(ForexObservation.candle_time >= start).delete()
+        session.query(WorkspaceCandle).filter(WorkspaceCandle.time >= start).delete()
+        for frame, (_, step) in FRAMES.items():
+            session.get(WorkspaceFeedState, (WORKSPACE, frame)).checked_until = start // step * step
+    assert observation_summary(end)["status"] == "data_paused"
+    api.candle_limit = 48
+    for frame in FRAMES:
+        while sync_page(api, frame, days=10, now=end)["status"] == "backfill":
+            assert observation_tick(end)["status"] == "blocked"
+
+    progress = observation_summary(end)
+    assert progress["status"] == "catching_up"
+    assert progress["catch_up"]["pending_bars"] == offline_hours * 4
+    assert progress["catch_up"]["last_processed_candle"] == start - 900
+    assert progress["catch_up"]["latest_closed_candle"] == end - 900
+    observation_tick(end)
+    assert observation_summary(end)["catch_up"]["pending_bars"] == max(0, offline_hours * 4 - 96)
+    while observation_summary(end)["catch_up"]["pending_bars"]:
+        observation_tick(end)
+    observation_tick(end)
+    with Session() as session:
+        actual = [dict(row.snapshot) for row in session.scalars(
+            select(ForexObservation).order_by(ForexObservation.candle_time)
+        )]
+        assert len(actual) == len(expected)
+        assert actual[1]["provenance"] == "catch_up"
+        assert actual[-1]["provenance"] == "live"
+        assert session.query(MarketCandle).count() == 0
+        assert session.get(PaperWallet, 1).balance == 10000
+    for snapshots in (expected, actual):
+        for snapshot in snapshots:
+            snapshot.pop("provenance")
+    assert actual == expected
+    assert observation_summary(end)["status"] != "catching_up"

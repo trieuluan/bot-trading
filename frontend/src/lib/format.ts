@@ -8,4 +8,8 @@ export const observationStatusLabels: Record<string, string> = {
   confirmed: 'Đã xác nhận giữ vùng (chỉ quan sát)',
   cancelled: 'Đã hủy setup',
   expired: 'Hết hạn thời gian chờ',
+  warming_up: 'Đang khởi động',
+  data_paused: 'Tạm dừng do dữ liệu',
+  catching_up: 'Đang chạy bù MTF',
+  not_started: 'Chưa bắt đầu',
 };

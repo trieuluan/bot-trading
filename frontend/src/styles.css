@@ -147,6 +147,27 @@ small {
   padding: 24px;
 }
 
+.forex-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 20px 0;
+}
+.forex-chart-controls label {
+  display: grid;
+  gap: 8px;
+  min-width: 160px;
+  font-size: 14px;
+}
+.forex-chart-controls select {
+  padding: 10px;
+  border: 1px solid #ccd4ca;
+  border-radius: 8px;
+  background: #fcfdf9;
+  color: #263d30;
+  font: inherit;
+}
+
 .status-pill {
   display: inline-block;
   padding: 2px 8px;
@@ -1494,6 +1515,45 @@ footer {
 }
 .exit-legend {
   color: #8a7ca3;
+}
+
+.forex-catchup {
+  margin: 16px 0 20px;
+  padding: 20px;
+}
+
+.forex-paper-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.forex-paper-switch [aria-pressed='true'] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.forex-paper .research-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.forex-paper caption {
+  text-align: left;
+  padding: 10px 0;
+}
+.forex-catchup .micro {
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #63746a;
+}
+.forex-catchup-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 13px;
 }
 .trade-execution-details {
   display: flex;

@@ -35,11 +35,17 @@ def database():
         WorkspaceCandle,
         WorkspaceFeedState,
         ForexObservation,
+        ForexPaperTrade,
+        ForexPaperAccount,
+        ForexInstrumentState,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            ForexPaperTrade,
+            ForexPaperAccount,
+            ForexInstrumentState,
             ForexObservation,
             WorkspaceCandle,
             MtfResearchSample,

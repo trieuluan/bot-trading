@@ -1,9 +1,13 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import json
+import math
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
@@ -21,6 +25,9 @@ from .db import (
 )
 from .exness_feed import feed_summary
 from .exness_observation import observation_summary
+from .exness_quotes import quotes, router as quotes_router
+from .forex_paper import forex_paper_summary
+from .forex_reporting import journal_csv
 from .feed import load_candles
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
@@ -33,7 +40,11 @@ from .settings import validate_mode
 @asynccontextmanager
 async def lifespan(app):
     validate_mode()
-    yield
+    quotes.start()
+    try:
+        yield
+    finally:
+        await quotes.stop()
 
 
 app = FastAPI(title="Signal Desk API", version="0.2.0", lifespan=lifespan)
@@ -41,6 +52,14 @@ app.include_router(research_router)
 app.include_router(paper_router)
 app.include_router(auto_router)
 app.include_router(observation_router)
+app.include_router(quotes_router)
+
+@app.get("/api/workspaces/exness_forex/paper/trades.csv")
+def forex_journal(channel: Literal["live", "replay"] = "live"):
+    return StreamingResponse(journal_csv(channel), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="exness-paper-{channel}.csv"',
+        "Cache-Control": "no-store",
+    })
 
 @app.middleware("http")
 async def legacy_workspace_guard(request, call_next):
@@ -134,11 +153,54 @@ def workspace_dashboard(workspace_id: str):
             "bars": bars, "last_sync": last_sync, "worker_online": worker_online,
         },
         "observation": observation_summary(),
-        "paper": {"status": "unavailable", "message": "Ví MEXC không dùng cho Exness"},
+        "paper": forex_paper_summary(),
         "execution_enabled": False,
         "frames": frames,
     }
 
+
+RESEARCH_DIRECTORY = Path(__file__).resolve().parents[2] / "research-output"
+
+@app.get("/api/workspaces/exness_forex/research")
+def exness_research():
+    results = []
+    for filename in ("exness-mtf-replay.json", "exness-mtf-replay-slip-1bps.json", "exness-mtf-replay-slip-2bps.json"):
+        path = RESEARCH_DIRECTORY / filename
+        if not path.exists():
+            continue
+        try:
+            if path.stat().st_size > 8 * 1024 * 1024:
+                raise ValueError("Oversized report")
+            report = json.loads(path.read_text(encoding="utf-8"))
+            if report["version"] != "exness_mtf_replay_v1" or report["source"] != "exness_forex" or report["symbol"] != "XAUUSD":
+                raise ValueError("Wrong source")
+            if not all(isinstance(report[key], dict) for key in ("summary", "assumptions", "by_side")):
+                raise ValueError("Invalid report")
+            checks = [(report["summary"], key, key in ("win_rate", "mean_r_ex_swap", "profit_factor_ex_swap")) for key in (
+                "confirmations", "resolved", "win_rate", "mean_r_ex_swap", "sum_r_ex_swap",
+                "profit_factor_ex_swap", "closed_sample_drawdown_r",
+            )]
+            checks.append((report["assumptions"], "slippage_bps_each_side", False))
+            for side in ("long", "short"):
+                checks.extend((report["by_side"][side], key, key == "win_rate") for key in ("resolved", "sum_r_ex_swap", "win_rate"))
+            for group, key, nullable in checks:
+                value = group[key]
+                if value is None and nullable:
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError("Invalid metric")
+            for key in ("start", "end", "as_of"):
+                if isinstance(report[key], bool) or not isinstance(report[key], int) or report[key] < 0:
+                    raise ValueError("Invalid timestamp")
+            if not isinstance(report["dataset_sha256"], str) or len(report["dataset_sha256"]) != 64:
+                raise ValueError("Invalid dataset hash")
+            results.append({key: report[key] for key in (
+                "version", "source", "symbol", "as_of", "start", "end", "dataset_sha256",
+                "processed_bars", "evaluated_bars", "summary", "assumptions", "by_side", "by_month",
+            )})
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError):
+            return {"available": False, "reports": [], "error": "Báo cáo Exness không hợp lệ; cần chạy lại replay"}
+    return {"available": bool(results), "reports": results, "error": None}
 
 @app.get("/api/health")
 def health():

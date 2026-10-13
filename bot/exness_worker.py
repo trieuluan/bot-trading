@@ -15,6 +15,8 @@ from backend.app.exness_feed import (
 )
 from backend.app.settings import validate_mode
 from backend.app.exness_observation import observation_tick
+from backend.app.forex_paper import paper_tick
+from backend.app.forex_costs import sync_specs
 
 
 def main():
@@ -32,6 +34,7 @@ def main():
                 if enabled:
                     if api is None:
                         api = connect_exness()
+                    sync_specs(api)
                     for frame in FRAMES:
                         if stop.is_set():
                             break
@@ -43,8 +46,9 @@ def main():
                             break
                     try:
                         observation_tick()
+                        paper_tick()
                     except Exception:
-                        logging.exception("Exness observation unavailable; no trading state changed")
+                        logging.exception("Exness observation/paper unavailable; no broker orders sent")
                 else:
                     delay = 60
             except Exception:

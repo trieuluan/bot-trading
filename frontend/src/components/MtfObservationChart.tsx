@@ -17,12 +17,23 @@ import {
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import { formatPrice, observationStatusLabels } from '../lib/format';
 
+export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
+  status: string;
+  trend: string | null;
+};
+
 export function MtfObservationChart({
   candles,
   snapshot,
+  livePrice = null,
+  liveCandles = [],
+  title = 'BTC_USDT perpetual · 15m (vùng tham chiếu từ 1h) · Chỉ quan sát, không gửi lệnh',
 }: {
-  candles: Candle[];
-  snapshot: MtfObservationSnapshot | null;
+  candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
+  snapshot: ObservationChartSnapshot | null;
+  title?: string;
+  livePrice?: { price: number; label: string } | null;
+  liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -67,15 +78,34 @@ export function MtfObservationChart({
   }, []);
 
   useEffect(() => {
-    if (!series.current || !candles.length) return;
+    const priceSeries = series.current;
+    if (!priceSeries || !livePrice) return;
+    const line = priceSeries.createPriceLine({
+      price: livePrice.price,
+      color: '#287fa3',
+      lineWidth: 2,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: true,
+      title: livePrice.label,
+    });
+    return () => {
+      if (series.current === priceSeries) priceSeries.removePriceLine(line);
+    };
+  }, [livePrice]);
+
+  useEffect(() => {
+    if (!series.current) return;
     series.current.setData(
-      candles.map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
+      [
+        ...candles,
+        ...liveCandles.filter((candle) => candle.time > (candles.at(-1)?.time ?? -1)),
+      ].map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
     );
-    if (!fitted.current) {
+    if (!fitted.current && candles.length) {
       chart.current?.timeScale().fitContent();
       fitted.current = true;
     }
-  }, [candles]);
+  }, [candles, liveCandles]);
 
   useEffect(() => {
     const priceSeries = series.current;
@@ -157,6 +187,12 @@ export function MtfObservationChart({
       ],
       [snapshot.touch_time, 'RETEST 15M', '#557fa1', 'circle'],
       [
+        ['cancelled', 'expired'].includes(snapshot.status) ? snapshot.candle_time : null,
+        snapshot.status === 'expired' ? 'HẾT HẠN' : 'HỦY SETUP',
+        '#bd7164',
+        'circle',
+      ],
+      [
         snapshot.confirm_time,
         'XÁC NHẬN 15M',
         '#2c856c',
@@ -181,9 +217,7 @@ export function MtfObservationChart({
 
   return (
     <div className="trade-chart-wrap">
-      <div className="chart-ohlc">
-        BTC_USDT perpetual · 15m (vùng tham chiếu từ 1h) · Chỉ quan sát, không gửi lệnh
-      </div>
+      <div className="chart-ohlc">{title}</div>
       <div
         ref={container}
         className="trade-candlestick-chart"

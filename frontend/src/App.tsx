@@ -12,6 +12,14 @@ import { ConnectionsPage } from './pages/ConnectionsPage';
 import { PaperTradingPage } from './pages/PaperTradingPage';
 import { BacktestPage } from './pages/BacktestPage';
 import { ActivityPage } from './pages/ActivityPage';
+import {
+  ForexStrategyPage,
+  ForexObservationLog,
+  ForexResearchPage,
+  ForexCatchupStatus,
+} from './pages/ForexStrategyPage';
+import type { ObservationChartSnapshot } from './components/MtfObservationChart';
+import { ForexPaperPage, type ForexPaperSummary } from './pages/ForexPaperPage';
 
 interface Workspace {
   id: string;
@@ -30,9 +38,10 @@ interface FrameSummary {
   remaining_intervals: number | null;
   worker_online: boolean;
   error: string | null;
+  retry_at?: string | null;
 }
 
-interface ForexDashboard {
+export interface ForexDashboard {
   workspace: Workspace;
   market: {
     status: string;
@@ -44,17 +53,21 @@ interface ForexDashboard {
   observation: {
     status: string;
     message: string;
-    snapshot?: {
-      available_at: number;
-      trend: string | null;
-      range_low?: number;
-      range_high?: number;
-      level?: number;
-      stop?: number | null;
-      target?: number | null;
-      provenance: string;
-    } | null;
-    recent?: { candle_time: number; status: string; reason: string }[];
+    catch_up?: {
+      pending_bars: number;
+      last_processed_candle: number | null;
+      latest_closed_candle: number | null;
+    };
+    snapshot?:
+      | (Partial<ObservationChartSnapshot> & {
+          available_at: number;
+        })
+      | null;
+    recent?: (Partial<ObservationChartSnapshot> & {
+      candle_time: number;
+      status: string;
+      reason: string;
+    })[];
     quality?: {
       status: string;
       message: string;
@@ -70,7 +83,7 @@ interface ForexDashboard {
       }[];
     };
   };
-  paper: { status: string; message: string };
+  paper: ForexPaperSummary;
   frames?: FrameSummary[];
 }
 
@@ -134,7 +147,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     function refreshForex() {
       if (inflight) return;
       inflight = true;
-      void fetch('/api/workspaces/exness_forex/dashboard')
+      void fetch('/api/workspaces/exness_forex/dashboard', { signal: AbortSignal.timeout(10000) })
         .then(async (response) => {
           if (!response.ok) throw new Error('Không tải được workspace Exness.');
           const data = (await response.json()) as ForexDashboard;
@@ -167,7 +180,14 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         menu={menu}
         workspacePicker={workspacePicker}
         botCount={0}
-        allowedPages={['Tổng quan', 'Kết nối sàn']}
+        allowedPages={[
+          'Tổng quan',
+          'Chiến lược',
+          'Ví mô phỏng',
+          'Backtest',
+          'Nhật ký',
+          'Kết nối sàn',
+        ]}
         onNavigate={(next) => {
           setPage(next);
           setMenu(false);
@@ -203,7 +223,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           <div className="demo-banner">
             <FlaskConical size={17} />
             <span>
-              Chỉ đọc nến Exness. Worker dữ liệu độc lập; chưa chạy MTF hoặc gửi lệnh Exness.
+              MTF XAUUSD + paper cục bộ. Dữ liệu và ví riêng Exness; không gửi lệnh Demo sàn, không
+              dùng ví MEXC.
             </span>
           </div>
           {error && (
@@ -212,7 +233,25 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             </div>
           )}
           {!dashboard && !error && <p role="status">Đang tải workspace Exness...</p>}
-          {dashboard && (
+          {dashboard && <ForexCatchupStatus dashboard={dashboard} disconnected={!!error} />}
+          {dashboard && page === 'Chiến lược' && (
+            <ForexStrategyPage dashboard={dashboard} disconnected={!!error} />
+          )}
+          {dashboard && page === 'Ví mô phỏng' && (
+            <ForexPaperPage
+              paper={dashboard.paper}
+              paused={
+                !!error ||
+                !dashboard.market.worker_online ||
+                dashboard.observation.status === 'data_paused'
+              }
+            />
+          )}
+          {dashboard && page === 'Nhật ký' && (
+            <ForexObservationLog events={dashboard.observation.recent ?? []} />
+          )}
+          {page === 'Backtest' && <ForexResearchPage revision={revision} />}
+          {dashboard && ['Tổng quan', 'Kết nối sàn'].includes(page) && (
             <section className="panel forex-status">
               <h2>{page === 'Kết nối sàn' ? 'Kết nối Exness' : 'Trạng thái workspace'}</h2>
               <p>
@@ -322,7 +361,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </p>
               <p>
                 Không lấp khoảng trống. MTF dùng nến gốc Exness, hủy setup khi gặp khoảng trống M15.
-                Chưa bật ví mô phỏng, replay đánh giá hiệu quả hoặc đặt lệnh Exness.
+                Replay nghiên cứu nằm trong tab Backtest. Ví mô phỏng riêng trong tab Ví mô phỏng;
+                không gửi lệnh Exness.
               </p>
             </section>
           )}

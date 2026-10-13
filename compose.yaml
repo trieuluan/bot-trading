@@ -32,6 +32,17 @@ services:
     restart: 'no'
   api:
     <<: *python
+    environment:
+      <<: *python-environment
+      EXNESS_API_KEY: ${EXNESS_API_KEY:-}
+      EXNESS_PRIVATE_KEY: ${EXNESS_PRIVATE_KEY:-}
+      EXNESS_ACCOUNT_ID: ${EXNESS_ACCOUNT_ID:-}
+      EXNESS_API_BASE_URL: ${EXNESS_API_BASE_URL:-https://api.exness.com}
+      EXNESS_ENVIRONMENT: ${EXNESS_ENVIRONMENT:-demo}
+      EXNESS_SYMBOL: ${EXNESS_SYMBOL:-XAUUSD}
+      EXNESS_DATA_ENABLED: ${EXNESS_DATA_ENABLED:-false}
+    volumes:
+      - ./research-output:/app/research-output:ro
     command: [uvicorn, backend.app.main:app, --host, 0.0.0.0, --port, '8000']
     ports:
       - '127.0.0.1:8000:8000'

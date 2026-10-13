@@ -69,6 +69,30 @@ class ForexObservation(Base):
     candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
 
+class ForexInstrumentState(Base):
+    __tablename__ = "forex_instrument_state"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    checked_at: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    retry_at: Mapped[int] = mapped_column(Integer)
+
+class ForexPaperAccount(Base):
+    __tablename__ = "forex_paper_accounts"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    channel: Mapped[str] = mapped_column(String(10), primary_key=True)
+    started_at: Mapped[int] = mapped_column(Integer)
+    last_candle: Mapped[int] = mapped_column(Integer)
+    balance: Mapped[float] = mapped_column(Float, default=10000)
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+class ForexPaperTrade(Base):
+    __tablename__ = "forex_paper_trades"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    channel: Mapped[str] = mapped_column(String(10), primary_key=True)
+    confirm_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
 class BotState(Base):
     __tablename__ = "bot_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
