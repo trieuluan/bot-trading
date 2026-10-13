@@ -42,7 +42,7 @@ services:
       EXNESS_SYMBOL: ${EXNESS_SYMBOL:-XAUUSD}
       EXNESS_DATA_ENABLED: ${EXNESS_DATA_ENABLED:-false}
     volumes:
-      - ./research-output:/app/research-output:ro
+      - ./research-output:/app/research-output
     command: [uvicorn, backend.app.main:app, --host, 0.0.0.0, --port, '8000']
     ports:
       - '127.0.0.1:8000:8000'
