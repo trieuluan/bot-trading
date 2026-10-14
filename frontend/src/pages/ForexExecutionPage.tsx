@@ -91,6 +91,30 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
         {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
         {data && (
           <>
+            <section aria-label="Bộ học chiến lược" className="panel">
+              <h3>Bộ học chiến lược · {data.learning?.mode ?? 'Đang khởi tạo'}</h3>
+              <p>{data.learning?.reason}</p>
+              <p>
+                {data.learning?.processed_bars ?? 0} nến · Cập nhật {date(data.learning?.updated_at ?? null)} ·
+                Lựa chọn mô phỏng: {data.learning?.latest?.selected ?? 'Không vào lệnh'}
+              </p>
+              <p className="muted">Dữ liệu mô phỏng, không phải fill sàn. Bộ học chưa điều khiển lệnh demo; executor vẫn dùng regime_router.</p>
+              <div className="research-metrics">
+                {Object.entries(data.learning?.strategy_summary ?? {}).map(([name, stats]) => (
+                  <div key={name}>
+                    <span>{name}</span>
+                    <strong>{stats.signals} tín hiệu · {stats.closed} đóng</strong>
+                    <span>R trung bình: {amount(stats.mean_r)} · {stats.excluded} bị loại</span>
+                  </div>
+                ))}
+              </div>
+              <p>
+                Kiểm thử ngoài mẫu: {data.learning?.validation?.selected_closed ?? 0} lệnh được chọn ·
+                R bộ học {amount(data.learning?.validation?.selected_mean_r)} ·
+                R router {amount(data.learning?.validation?.baseline_mean_r)}.
+                {' '}Đây là thống kê tín hiệu chồng lấn, không phải lợi nhuận ví.
+              </p>
+            </section>
             <div className="research-metrics">
               <div>
                 <span className="muted">Executor</span>

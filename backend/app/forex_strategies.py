@@ -43,7 +43,48 @@ def range_rejection(candle, hours, minutes):
         return {"side": "long", "stop": candle.low, "reason": "H1 sideway, M15 bật lên từ biên dưới"}
     return None
 
-RULES = {"trend_pullback": trend_pullback, "range_rejection": range_rejection}
+def donchian_breakout(candle, hours, minutes):
+    history = [row for row in minutes if row.time < candle.time][-20:]
+    closed = _closed_hours(candle, hours)
+    if len(history) < 20 or len(closed) < 50:
+        return None
+    fast = ema([row.close for row in closed], 20)
+    slow = ema([row.close for row in closed], 50)
+    if candle.close > max(row.high for row in history) and fast > slow:
+        return {"side": "long", "stop": min(row.low for row in history[-3:]), "reason": "M15 Donchian20 breakout; H1 EMA20 > EMA50"}
+    if candle.close < min(row.low for row in history) and fast < slow:
+        return {"side": "short", "stop": max(row.high for row in history[-3:]), "reason": "M15 Donchian20 breakdown; H1 EMA20 < EMA50"}
+    return None
+
+def liquidity_sweep(candle, hours, minutes):
+    history = [row for row in minutes if row.time < candle.time][-20:]
+    if len(history) < 20:
+        return None
+    high, low = max(row.high for row in history), min(row.low for row in history)
+    if candle.low < low < candle.close and candle.close > candle.open and candle.high <= high:
+        return {"side": "long", "stop": candle.low, "reason": "M15 sweeps prior 20-bar low and reclaims"}
+    if candle.high > high > candle.close and candle.close < candle.open and candle.low >= low:
+        return {"side": "short", "stop": candle.high, "reason": "M15 sweeps prior 20-bar high and rejects"}
+    return None
+
+def squeeze_breakout(candle, hours, minutes):
+    history = [row for row in minutes if row.time < candle.time][-40:]
+    if len(history) < 40:
+        return None
+    recent, prior = history[-10:], history[:-10]
+    width = max(row.high for row in recent) - min(row.low for row in recent)
+    typical = sum(row.high - row.low for row in prior) / len(prior)
+    if typical <= 0 or width > 3 * typical:
+        return None
+    if candle.close > max(row.high for row in recent):
+        return {"side": "long", "stop": min(row.low for row in recent), "reason": "M15 10-bar compression breaks upward"}
+    if candle.close < min(row.low for row in recent):
+        return {"side": "short", "stop": max(row.high for row in recent), "reason": "M15 10-bar compression breaks downward"}
+    return None
+
+RULES = {"trend_pullback": trend_pullback, "range_rejection": range_rejection,
+         "donchian_breakout": donchian_breakout, "liquidity_sweep": liquidity_sweep,
+         "squeeze_breakout": squeeze_breakout}
 STRATEGIES = ("breakout_retest", *RULES, "regime_router")
 
 
@@ -87,7 +128,7 @@ def router_snapshot(candle, hours, minutes, higher=(), breakout=None):
     if (not breakout or breakout.get("candle_time") != candle.time
             or breakout.get("available_at", available) > available):
         return {**snapshot, "status": "data_paused", "reason": "Chờ quan sát breakout đúng nến, không dùng tín hiệu cũ/tương lai"}
-    components = [strategy_snapshot(name, candle, hours, minutes) for name in RULES]
+    components = [strategy_snapshot(name, candle, hours, minutes) for name in ("trend_pullback", "range_rejection")]
     candidates = [row for row in [breakout, *components] if row.get("status") == "confirmed"]
     snapshot["component_signals"] = [{"strategy": "breakout_retest" if row is breakout else row["strategy"],
                                       "side": row["side"]} for row in candidates]
@@ -132,7 +173,7 @@ def strategy_snapshot(strategy, candle, hours, minutes, *, higher=(), breakout=N
         if strategy == "trend_pullback" else {"target_r": 2, "lookback_1h": 20, "edge_fraction": 0.1},
     }
     needed = 20 if strategy == "range_rejection" else 50
-    if len(hours) < needed or len(minutes) < (1 if strategy == "range_rejection" else 20):
+    if len(hours) < needed or len(minutes) < (40 if strategy == "squeeze_breakout" else 1 if strategy == "range_rejection" else 20):
         return snapshot
     if minutes[-1].time != candle.time - 900 or hours[-1].time + 7200 <= snapshot["available_at"]:
         return {**snapshot, "status": "data_paused", "reason": "Khoảng trống dữ liệu; chưa xác nhận tín hiệu"}
@@ -165,6 +206,8 @@ def strategy_snapshot(strategy, candle, hours, minutes, *, higher=(), breakout=N
         stop = signal["stop"]
         direction = 1 if signal["side"] == "long" else -1
         risk = direction * (candle.close - stop)
+        if risk <= 0:
+            return {**snapshot, "status": "invalid", "reason": "Invalid structural stop"}
         target = candle.close + direction * 2 * risk if risk > 0 else None
         return {**snapshot, **signal, "status": "confirmed", "reference_entry": candle.close,
                 "stop": stop, "target": target, "confirm_time": candle.time}

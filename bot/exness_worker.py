@@ -20,6 +20,7 @@ from backend.app.forex_paper import paper_tick
 from backend.app.exness_execution import execution_tick, record_error
 from backend.app.forex_costs import sync_specs
 from backend.app.exness_gaps import recheck_gap
+from backend.app.forex_learner import learning_tick
 
 
 def main():
@@ -64,6 +65,10 @@ def main():
                         logging.exception("Exness demo execution tick failed; no duplicate orders")
                         if isinstance(exc, ExnessError):
                             stop.wait(exc.retry_after)
+                    try:
+                        learning_tick()
+                    except Exception:
+                        logging.exception("Exness learning paused; executor unchanged")
                 else:
                     delay = 60
             except Exception as exc:

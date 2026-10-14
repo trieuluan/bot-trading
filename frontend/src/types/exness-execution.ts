@@ -28,6 +28,15 @@ export interface BrokerPosition {
 }
 
 export interface ExnessExecution {
+  learning?: {
+    mode: string;
+    reason: string;
+    updated_at?: number;
+    processed_bars?: number;
+    strategy_summary?: Record<string, { signals: number; closed: number; excluded: number; mean_r: number | null }>;
+    validation?: { selected_closed: number; selected_mean_r: number | null; baseline_mean_r: number | null; eligible: boolean };
+    latest?: { time: number; selected: string | null };
+  };
   configured: boolean;
   enabled: boolean;
   worker_online: boolean;

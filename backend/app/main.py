@@ -16,6 +16,8 @@ from sqlalchemy import func, select, text
 
 from .auto_paper import router as auto_router
 from .exness_execution import router as execution_router, enabled as demo_execution_enabled
+from .forex_learner import router as learning_router
+from .forex_strategies import STRATEGIES
 from .db import (
     AutoPaperState,
     BotState,
@@ -55,6 +57,7 @@ app = FastAPI(title="Signal Desk API", version="0.2.0", lifespan=lifespan)
 app.include_router(research_router)
 app.include_router(paper_router)
 app.include_router(execution_router)
+app.include_router(learning_router)
 app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
@@ -225,7 +228,7 @@ def exness_research():
             identities = set()
             for row in comparison["results"]:
                 identity = (row["strategy"], row["slippage_bps"])
-                if (identity in identities or identity[0] not in ("breakout_retest", "trend_pullback", "range_rejection", "regime_router")
+                if (identity in identities or identity[0] not in STRATEGIES
                         or type(identity[1]) is not int or identity[1] not in (0, 1, 2)
                         or row["status"] not in ("blocked", "open", "complete")
                         or type(row["equity_verified"]) is not bool):

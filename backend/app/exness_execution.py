@@ -25,6 +25,7 @@ from .exness_feed import FRAMES, WORKSPACE
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
 from .forex_strategies import strategy_snapshot
+from .forex_learner import summary as learning_summary
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("submitting", "submitted", "uncertain", "closing")
@@ -360,7 +361,8 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         "has_more": offset + limit < len(rows), "intents": [row.snapshot for row in intents[:20]],
         "open_count": len(broker.get("positions", [])), "orders": broker.get("orders", []),
         "closed_count": sum(row["status"] == "closed" for row in rows),
-        "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2)}
+        "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2),
+        "learning": learning_summary()}
 
 
 class ExecutionControl(BaseModel):
