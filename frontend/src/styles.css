@@ -1837,8 +1837,13 @@ footer {
   animation: pulse-ring 2s infinite ease-out;
 }
 @keyframes pulse-ring {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .learner-grid-table {
   width: 100%;
@@ -1896,4 +1901,84 @@ footer {
 }
 .decision-banner strong {
   color: #1e5b47;
+}
+/* Tabbed execution shell */
+.execution-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.execution-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  background: #ebeee6;
+  padding: 6px;
+  border-radius: 10px;
+  margin: 14px 0;
+}
+.execution-tabs button {
+  border: none;
+  background: transparent;
+  padding: 10px 14px;
+  border-radius: 6px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #55635b;
+}
+.execution-tabs button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.6);
+}
+.execution-tabs button[aria-selected='true'] {
+  background: #ffffff;
+  color: #1e5b47;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.execution-tabs button span {
+  font-weight: 700;
+  font-size: 13px;
+}
+.execution-tabs button small {
+  font-size: 11px;
+  color: #7b887f;
+}
+.execution-tab-content {
+  outline: none;
+}
+.execution-selection {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.execution-selection h3 {
+  margin: 2px 0 4px;
+  font-size: 14px;
+}
+.execution-selection p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.execution-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.execution-chart-panel .panel.mtf-observation {
+  margin-top: 0;
+}
+.execution-replay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }

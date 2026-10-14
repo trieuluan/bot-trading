@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
-import { ForexStrategyPage } from './ForexStrategyPage';
+import { ForexReplayControl, ForexStrategyPage } from './ForexStrategyPage';
 
 const url = '/api/workspaces/exness_forex/execution';
 const amount = (value: number | string | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 3 });
 const date = (stamp: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
+
+type Panel = 'orders' | 'chart' | 'learning' | 'replay';
+const panels: [Panel, string, string][] = [
+  ['orders', 'Lệnh trên sàn', 'Vị thế và lịch sử khớp lệnh'],
+  ['chart', 'Chart giao dịch', 'Giá khớp, SL và TP trên chart'],
+  ['learning', 'Bộ học', 'Giả thuyết, mẫu và kết quả học'],
+  ['replay', 'Phòng thử nghiệm', 'So sánh trên nến đã lưu'],
+];
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
 const isBot = (source: string) => source === 'learning' || source === 'regime_router';
@@ -19,6 +27,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [panel, setPanel] = useState<Panel>('orders');
   const [filter, setFilter] = useState<Filter>('all');
   useEffect(() => {
     const controller = new AbortController();
@@ -88,7 +97,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
   const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
   return (
-    <>
+    <div className="execution-desk">
       <section className="panel prose forex-execution">
         <div className="section-head">
           <div>
@@ -141,7 +150,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </span>
                 <span className="sub">
                   {closedRows.length
-                    ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) · chưa gồm phí/swap`
+                    ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) trên trang này · chưa xác minh phí/swap`
                     : 'Chưa có lệnh đóng'}
                 </span>
               </div>
@@ -163,7 +172,47 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
               </span>
             </div>
-            <section aria-label="Bộ học chiến lược">
+            <nav className="execution-tabs" role="tablist" aria-label="Không gian bot">
+              {panels.map(([key, title, subtitle], index) => (
+                <button
+                  key={key}
+                  id={`execution-tab-${key}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={panel === key}
+                  aria-controls={`execution-panel-${key}`}
+                  tabIndex={panel === key ? 0 : -1}
+                  onClick={() => setPanel(key)}
+                  onKeyDown={(event) => {
+                    let target = index;
+                    if (event.key === 'ArrowRight') target = (index + 1) % panels.length;
+                    else if (event.key === 'ArrowLeft')
+                      target = (index + panels.length - 1) % panels.length;
+                    else if (event.key === 'Home') target = 0;
+                    else if (event.key === 'End') target = panels.length - 1;
+                    else return;
+                    event.preventDefault();
+                    setPanel(panels[target][0]);
+                    document.getElementById(`execution-tab-${panels[target][0]}`)?.focus();
+                  }}
+                >
+                  <span>
+                    {title}
+                    {key === 'orders' ? ` · ${data.open_count} mở` : ''}
+                  </span>
+                  <small>{subtitle}</small>
+                </button>
+              ))}
+            </nav>
+            <section
+              hidden={panel !== 'learning'}
+              id="execution-panel-learning"
+              role="tabpanel"
+              aria-labelledby="execution-tab-learning"
+              tabIndex={0}
+              className="execution-tab-content"
+              aria-label="Bộ học chiến lược"
+            >
               <div className="section-head">
                 <h3>Bộ học tự sinh chiến lược</h3>
                 <span className="muted">
@@ -216,211 +265,277 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 {amount(data.learning?.validation?.baseline_mean_r)}.
               </p>
             </section>
-            <div className="section-head">
-              <h3>Lệnh trên sàn</h3>
-              <div className="filter-pills" role="group" aria-label="Lọc lệnh">
-                {(
-                  [
-                    ['all', 'Tất cả'],
-                    ['open', 'Đang mở'],
-                    ['closed', 'Đã đóng'],
-                    ['bot', 'Của bot'],
-                  ] as [Filter, string][]
-                ).map(([key, text]) => (
-                  <button
-                    key={key}
-                    className={filter === key ? 'selected' : ''}
-                    aria-pressed={filter === key}
-                    onClick={() => setFilter(key)}
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="micro">
-              SL/TP gửi kèm lệnh; TP theo 2R từ quote gửi lệnh. Tạm dừng không đóng vị thế đang mở.
-              Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn vẫn có hiệu lực; khi mở lại sẽ
-              đối soát fill thật.
-            </p>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Position / nguồn</th>
-                    <th>Chiều · lot</th>
-                    <th>Vào / thời gian</th>
-                    <th>SL / TP sàn</th>
-                    <th>Thoát / thời gian</th>
-                    <th>Profit USD</th>
-                    <th>Trạng thái / chart</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((position) => (
-                    <tr
-                      key={position.position_id}
-                      className={selectedId === position.position_id ? 'broker-selected' : ''}
+            <section
+              hidden={panel !== 'orders'}
+              id="execution-panel-orders"
+              role="tabpanel"
+              aria-labelledby="execution-tab-orders"
+              tabIndex={0}
+              className="execution-tab-content"
+            >
+              <div className="section-head">
+                <div>
+                  <h3>Vị thế & lịch sử giao dịch</h3>
+                  <p className="micro">
+                    Dữ liệu từ Exness · chọn một vị thế để mở chart khớp lệnh.
+                  </p>
+                </div>
+                <div className="filter-pills" role="group" aria-label="Lọc lệnh">
+                  {(
+                    [
+                      ['all', 'Tất cả'],
+                      ['open', 'Đang mở'],
+                      ['closed', 'Đã đóng'],
+                      ['bot', 'Của bot'],
+                    ] as [Filter, string][]
+                  ).map(([key, text]) => (
+                    <button
+                      key={key}
+                      className={filter === key ? 'selected' : ''}
+                      aria-pressed={filter === key}
+                      onClick={() => setFilter(key)}
                     >
-                      <td>
-                        #{position.position_id}
-                        <br />
-                        <small>
-                          {position.source === 'learning'
-                            ? 'BOT · learning'
-                            : position.source === 'regime_router'
-                              ? 'BOT · router cũ'
-                              : 'Probe / lệnh khác'}
-                        </small>
-                      </td>
-                      <td>
-                        {position.side?.toUpperCase() ?? '—'} · {amount(position.volume)}
-                      </td>
-                      <td>
-                        {amount(position.open_price)}
-                        <br />
-                        <small>{date(position.open_time)}</small>
-                      </td>
-                      <td>
-                        {amount(position.stop)} / {amount(position.target)}
-                      </td>
-                      <td>
-                        {amount(position.close_price)}
-                        <br />
-                        <small>{date(position.close_time)}</small>
-                      </td>
-                      <td
-                        className={
-                          position.pnl == null ? '' : position.pnl >= 0 ? 'positive' : 'negative'
-                        }
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="micro">
+                SL/TP gửi kèm lệnh; TP theo 2R từ quote gửi lệnh. Tạm dừng không đóng vị thế đang
+                mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn vẫn có hiệu lực; khi mở
+                lại sẽ đối soát fill thật.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Position / nguồn</th>
+                      <th>Chiều · lot</th>
+                      <th>Vào / thời gian</th>
+                      <th>SL / TP sàn</th>
+                      <th>Thoát / thời gian</th>
+                      <th>Profit USD</th>
+                      <th>Trạng thái / chart</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((position) => (
+                      <tr
+                        key={position.position_id}
+                        className={selectedId === position.position_id ? 'broker-selected' : ''}
                       >
-                        {amount(position.pnl)}
-                      </td>
-                      <td>
-                        {position.status === 'open'
-                          ? 'Đang mở'
-                          : position.status === 'closed'
-                            ? 'Đã đóng'
-                            : 'Chưa đủ lịch sử'}
-                        <br />
-                        <button
-                          className="secondary"
-                          aria-pressed={selectedId === position.position_id}
-                          onClick={() => setSelectedId(position.position_id)}
+                        <td>
+                          #{position.position_id}
+                          <br />
+                          <small>
+                            {position.source === 'learning'
+                              ? 'BOT · learning'
+                              : position.source === 'regime_router'
+                                ? 'BOT · router cũ'
+                                : 'Probe / lệnh khác'}
+                          </small>
+                        </td>
+                        <td>
+                          {position.side?.toUpperCase() ?? '—'} · {amount(position.volume)}
+                        </td>
+                        <td>
+                          {amount(position.open_price)}
+                          <br />
+                          <small>{date(position.open_time)}</small>
+                        </td>
+                        <td>
+                          {amount(position.stop)} / {amount(position.target)}
+                        </td>
+                        <td>
+                          {amount(position.close_price)}
+                          <br />
+                          <small>{date(position.close_time)}</small>
+                        </td>
+                        <td
+                          className={
+                            position.pnl == null ? '' : position.pnl >= 0 ? 'positive' : 'negative'
+                          }
                         >
-                          Xem chart & deal
-                        </button>
-                        {position.status === 'open' && position.signal_time != null && (
+                          {amount(position.pnl)}
+                        </td>
+                        <td>
+                          {position.status === 'open'
+                            ? 'Đang mở'
+                            : position.status === 'closed'
+                              ? 'Đã đóng'
+                              : 'Chưa đủ lịch sử'}
+                          <br />
                           <button
                             className="secondary"
-                            disabled={
-                              busy || !!error || position.close_requested || !data.worker_online
-                            }
+                            aria-pressed={selectedId === position.position_id}
                             onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
-                                )
-                              )
-                                void action(`/trades/${position.signal_time}/close`, 'POST');
+                              setSelectedId(position.position_id);
+                              setPanel('chart');
                             }}
                           >
-                            {position.close_requested ? 'Đã yêu cầu đóng' : 'Đóng vị thế'}
+                            Xem chart & deal
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!rows.length && (
-              <p>Không có lệnh khớp bộ lọc. Bot chờ tín hiệu mới, không ép mở lệnh.</p>
-            )}
-            <div className="forex-chart-controls">
-              <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>
-                Trang trước
-              </button>
-              <span>
-                {offset + 1}–{Math.min(offset + 50, data.total)} / {data.total}
-              </span>
-              <button disabled={!data.has_more} onClick={() => setOffset(offset + 50)}>
-                Trang sau
-              </button>
-            </div>
-            {selected && (
-              <details open key={selected.position_id}>
-                <summary>
-                  Deal khớp sàn #{selected.position_id} · {selected.reason ?? 'Lệnh ngoài executor'}
-                </summary>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Deal / Order ID</th>
-                        <th>Loại</th>
-                        <th>Giá · lot</th>
-                        <th>Thời gian</th>
-                        <th>Profit / commission</th>
+                          {position.status === 'open' && position.signal_time != null && (
+                            <button
+                              className="secondary"
+                              disabled={
+                                busy || !!error || position.close_requested || !data.worker_online
+                              }
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
+                                  )
+                                )
+                                  void action(`/trades/${position.signal_time}/close`, 'POST');
+                              }}
+                            >
+                              {position.close_requested ? 'Đã yêu cầu đóng' : 'Đóng vị thế'}
+                            </button>
+                          )}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {selected.deals.map((deal) => (
-                        <tr key={deal.deal_id}>
-                          <td>
-                            {deal.deal_id} / {deal.order_id ?? '—'}
-                          </td>
-                          <td>
-                            {deal.type} · {deal.direction}
-                          </td>
-                          <td>
-                            {amount(deal.price)} · {amount(deal.volume)}
-                          </td>
-                          <td>{date(deal.event_time)}</td>
-                          <td>
-                            {amount(deal.profit?.amount)} / {deal.commission ?? 'Chưa có từ API'}
-                          </td>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!rows.length && (
+                <p>Không có lệnh khớp bộ lọc. Bot chờ tín hiệu mới, không ép mở lệnh.</p>
+              )}
+              <div className="forex-chart-controls">
+                <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>
+                  Trang trước
+                </button>
+                <span>
+                  {data.total ? offset + 1 : 0}–{Math.min(offset + 50, data.total)} / {data.total} ·
+                  bộ lọc áp dụng trang hiện tại
+                </span>
+                <button disabled={!data.has_more} onClick={() => setOffset(offset + 50)}>
+                  Trang sau
+                </button>
+              </div>
+              {selected && (
+                <details open key={selected.position_id}>
+                  <summary>
+                    Deal khớp sàn #{selected.position_id} ·{' '}
+                    {selected.reason ?? 'Lệnh ngoài executor'}
+                  </summary>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Deal / Order ID</th>
+                          <th>Loại</th>
+                          <th>Giá · lot</th>
+                          <th>Thời gian</th>
+                          <th>Profit / commission</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {selected.deals.map((deal) => (
+                          <tr key={deal.deal_id}>
+                            <td>
+                              {deal.deal_id} / {deal.order_id ?? '—'}
+                            </td>
+                            <td>
+                              {deal.type} · {deal.direction}
+                            </td>
+                            <td>
+                              {amount(deal.price)} · {amount(deal.volume)}
+                            </td>
+                            <td>{date(deal.event_time)}</td>
+                            <td>
+                              {amount(deal.profit?.amount)} / {deal.commission ?? 'Chưa có từ API'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+              <details>
+                <summary>Lệnh chờ sàn & nhật ký gửi lệnh</summary>
+                <p>
+                  {data.orders.length} lệnh chờ/SLTP trên sàn. Lệnh chưa xác minh kết quả sẽ chặn mở
+                  thêm, không gửi lại.
+                </p>
+                {data.orders.map((order) => (
+                  <p key={order.order_id}>
+                    #{order.order_id} · {order.instrument} · {order.order_type} · {order.volume}
+                  </p>
+                ))}
+                {data.intents.map((intent) => (
+                  <p key={intent.signal_time}>
+                    {date(intent.signal_time)} · {intent.status} ·{' '}
+                    {intent.ack?.operation_id ?? 'Chưa có ACK'} · {intent.error ?? intent.reason}
+                  </p>
+                ))}
               </details>
-            )}
-            <details>
-              <summary>Lệnh chờ sàn & nhật ký gửi lệnh</summary>
-              <p>
-                {data.orders.length} lệnh chờ/SLTP trên sàn. Lệnh chưa xác minh kết quả sẽ chặn mở
-                thêm, không gửi lại.
+              <p className="micro">
+                Lịch sử nhập từ {date(data.history_from)}, sau đó đồng bộ tăng dần; không trộn ví
+                paper/replay.
               </p>
-              {data.orders.map((order) => (
-                <p key={order.order_id}>
-                  #{order.order_id} · {order.instrument} · {order.order_type} · {order.volume}
-                </p>
-              ))}
-              {data.intents.map((intent) => (
-                <p key={intent.signal_time}>
-                  {date(intent.signal_time)} · {intent.status} ·{' '}
-                  {intent.ack?.operation_id ?? 'Chưa có ACK'} · {intent.error ?? intent.reason}
-                </p>
-              ))}
-            </details>
-            <p className="micro">
-              Lịch sử nhập từ {date(data.history_from)}, sau đó đồng bộ tăng dần; không trộn ví
-              paper/replay.
-            </p>
+            </section>
           </>
         )}
       </section>
       {data && (
-        <ForexStrategyPage
-          dashboard={dashboard}
-          disconnected={!!error}
-          executions={data.positions}
-          selectedPosition={selected}
-          executionOnly
-        />
+        <>
+          <section
+            hidden={panel !== 'chart'}
+            id="execution-panel-chart"
+            role="tabpanel"
+            aria-labelledby="execution-tab-chart"
+            tabIndex={0}
+            className="execution-tab-content execution-chart-panel"
+          >
+            <div className="execution-selection">
+              <div>
+                <span className="execution-eyebrow">GIAO DỊCH / XAUUSD</span>
+                <h3>
+                  {selected
+                    ? `Vị thế #${selected.position_id} · ${selected.side?.toUpperCase() ?? '—'}`
+                    : 'Theo dõi thị trường & giá khớp'}
+                </h3>
+                <p>
+                  {selected
+                    ? `Vào ${amount(selected.open_price)} · SL ${amount(selected.stop)} · TP ${amount(selected.target)}`
+                    : 'Chọn lệnh ở tab Lệnh trên sàn để xem đúng vị thế, hoặc theo dõi chart trực tiếp.'}
+                </p>
+              </div>
+              <button type="button" className="secondary" onClick={() => setPanel('orders')}>
+                Xem lệnh & deal
+              </button>
+            </div>
+            <ForexStrategyPage
+              dashboard={dashboard}
+              disconnected={!!error}
+              executions={data.positions}
+              selectedPosition={selected}
+              executionOnly
+              includeReplay={false}
+            />
+          </section>
+          <section
+            hidden={panel !== 'replay'}
+            id="execution-panel-replay"
+            role="tabpanel"
+            aria-labelledby="execution-tab-replay"
+            tabIndex={0}
+            className="execution-tab-content execution-replay-panel"
+          >
+            <div className="execution-selection">
+              <div>
+                <span className="execution-eyebrow">NGHIÊN CỨU / KHÔNG GỬI LỆNH</span>
+                <h3>Phòng thử nghiệm chiến lược</h3>
+                <p>Replay tách biệt tài khoản demo. Kết quả mô phỏng không thay thế fill từ sàn.</p>
+              </div>
+            </div>
+            <ForexReplayControl />
+          </section>
+        </>
       )}
-    </>
+    </div>
   );
 }

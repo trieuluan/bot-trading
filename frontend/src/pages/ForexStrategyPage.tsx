@@ -195,12 +195,14 @@ export function ForexStrategyPage({
   executions = [],
   selectedPosition,
   executionOnly = false,
+  includeReplay = true,
 }: {
   dashboard: ForexDashboard;
   disconnected: boolean;
   executions?: BrokerPosition[];
   selectedPosition?: BrokerPosition;
   executionOnly?: boolean;
+  includeReplay?: boolean;
 }) {
   const [candles, setCandles] = useState<ForexCandle[]>([]);
   const [loading, setLoading] = useState(false);
@@ -732,7 +734,7 @@ export function ForexStrategyPage({
           </ul>
         </div>
       )}
-      <ForexReplayControl />
+      {includeReplay && <ForexReplayControl />}
     </section>
   );
 }
@@ -805,7 +807,11 @@ export function ForexObservationLog({
   );
 }
 
-function ForexReplayControl({ onComplete }: { onComplete?: (data: ResearchApiResponse) => void }) {
+export function ForexReplayControl({
+  onComplete,
+}: {
+  onComplete?: (data: ResearchApiResponse) => void;
+}) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ResearchApiResponse | null>(null);
@@ -843,12 +849,12 @@ function ForexReplayControl({ onComplete }: { onComplete?: (data: ResearchApiRes
     <div className="panel prose" style={{ marginTop: '1rem' }}>
       <h3>Thử ngay trên nến Exness đã lưu</h3>
       <p>
-        Replay cả 4 chiến lược trên toàn bộ nến M15 trong cơ sở dữ liệu. Mỗi chiến lược một ví
+        Replay các chiến lược trên toàn bộ nến M15 trong cơ sở dữ liệu. Mỗi chiến lược một ví
         $10,000 độc lập, cùng spread Bid/Ask và trượt giá 0/1/2 bps. Không gọi API sàn, không sửa ví
         paper đang chạy.
       </p>
       <button type="button" disabled={running} onClick={() => void runReplay()}>
-        {running ? 'Đang replay 4 chiến lược…' : 'Chạy replay 4 chiến lược'}
+        {running ? 'Đang chạy replay…' : 'Chạy so sánh chiến lược'}
       </button>
       {running && <p role="status">Đang tính các nến đã đóng; có thể mất 10–30 giây.</p>}
       {error && (
