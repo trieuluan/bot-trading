@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
 from .auto_paper import router as auto_router
+from .exness_execution import router as execution_router, enabled as demo_execution_enabled
 from .db import (
     AutoPaperState,
     BotState,
@@ -53,6 +54,7 @@ async def lifespan(app):
 app = FastAPI(title="Signal Desk API", version="0.2.0", lifespan=lifespan)
 app.include_router(research_router)
 app.include_router(paper_router)
+app.include_router(execution_router)
 app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
@@ -85,7 +87,7 @@ class Control(BaseModel):
 
 def workspace_values(workspace):
     return {"id": workspace.id, "name": workspace.name, "venue": workspace.venue,
-            "symbol": workspace.symbol, "execution_enabled": False}
+            "symbol": workspace.symbol, "execution_enabled": workspace.id == "exness_forex" and demo_execution_enabled()}
 
 @app.get("/api/workspaces")
 def workspaces():
@@ -155,7 +157,7 @@ def workspace_dashboard(workspace_id: str):
         status = "error"
     return {
         "workspace": identity,
-        "mode": "demo_read_only",
+        "mode": "demo_execution" if demo_execution_enabled() else "demo_read_only",
         "market": {
             "status": status,
             "message": f"Đã lưu {bars:,} nến M15 mỗi phía bid/ask XAUUSD" if bars else "Chưa có nến XAUUSD trong kho",
@@ -163,7 +165,7 @@ def workspace_dashboard(workspace_id: str):
         },
         "observation": observation_summary(),
         "paper": forex_paper_summary(),
-        "execution_enabled": False,
+        "execution_enabled": demo_execution_enabled(),
         "frames": frames,
     }
 

@@ -1,4 +1,4 @@
-"""Isolated, opt-in demo calibration. The regular Exness client stays GET-only."""
+"""Opt-in demo execution. The regular Exness client stays GET-only."""
 
 import hashlib
 import json
@@ -50,6 +50,7 @@ def signed_mutation_headers(api, method, path, body, key, now_ms=None):
 class ExnessDemoClient:
     def __init__(self, api):
         self.api = api
+        self.last_submission = None
 
     def verify_demo(self):
         if os.getenv("EXNESS_ENVIRONMENT") != "demo" or os.getenv("EXNESS_SYMBOL") != "XAUUSD":
@@ -69,7 +70,7 @@ class ExnessDemoClient:
             raise ExnessError("Invalid trading state")
         return snapshot
 
-    def prepare(self):
+    def prepare(self, *, require_flat=True):
         self.verify_demo()
         condition = self.api.condition("XAUUSD")
         if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
@@ -93,9 +94,10 @@ class ExnessDemoClient:
         self.api.request_interval = max(1.05, self.api.request_interval, *[
             float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
             for rate in rates])
-        snapshot = self.snapshot()
-        if snapshot.get("positions") or snapshot.get("orders"):
-            raise ExnessError("Calibration requires empty demo account; unrelated trades untouched")
+        if require_flat:
+            snapshot = self.snapshot()
+            if snapshot.get("positions") or snapshot.get("orders"):
+                raise ExnessError("Calibration requires empty demo account; unrelated trades untouched")
         return condition
 
     def open_body(self, side, condition, quote, key):
@@ -116,8 +118,40 @@ class ExnessDemoClient:
         return {"instrument": "XAUUSD", "side": side, "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "comment": key[:32]}
 
+    def strategy_body(self, signal, condition, quote, key):
+        validate_quote(quote)
+        if signal.get("side") not in ("long", "short"):
+            raise ValueError("Invalid signal side")
+        if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
+                or condition.get("exec_mode") != "market" or condition.get("quote_currency") != "USD"):
+            raise ExnessError("XAUUSD market execution unavailable")
+        volume = Decimal("0.01")
+        minimum, maximum, step = [positive_decimal(condition[name]) for name in
+                                   ("volume_min", "volume_max", "volume_step")]
+        if not minimum <= volume <= maximum or (volume - minimum) % step:
+            raise ExnessError("0.01 lot unsupported")
+        digits = condition["point_digits"]
+        if isinstance(digits, bool) or not isinstance(digits, int) or not 0 <= digits <= 10:
+            raise ValueError("Invalid precision")
+        tick = Decimal(1).scaleb(-digits)
+        long = signal["side"] == "long"
+        entry = positive_decimal(quote["ask" if long else "bid"])
+        stop = positive_decimal(signal["stop"]).quantize(tick,
+            rounding=ROUND_CEILING if long else ROUND_FLOOR)
+        risk = (entry - stop) if long else (stop - entry)
+        units = volume * positive_decimal(condition["contract_size"])
+        if (risk <= 0 or risk * units > 25 or units * entry > 10000
+                or (long and stop >= positive_decimal(quote["bid"]))
+                or (not long and stop <= positive_decimal(quote["ask"]))):
+            raise ExnessError("Invalid structure stop or planned risk exceeds $25")
+        target = (entry + (2 if long else -2) * risk).quantize(tick)
+        positive_decimal(target)
+        return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": "0.01",
+                "stop_loss_price": format(stop, "f"), "take_profit_price": format(target, "f"),
+                "comment": key[:32]}
+
     def mutate(self, method, key, body=None, position_id=None, quote=None,
-               quote_source=None, condition=None, on_submit=None):
+               quote_source=None, condition=None, on_submit=None, build=None):
         self.last_submission = None
         if os.getenv("EXNESS_DEMO_ORDERS_ENABLED") != "true":
             raise ExnessError("Demo execution is disabled")
@@ -143,6 +177,8 @@ class ExnessDemoClient:
             validate_quote(quote)
             if condition is not None:
                 body = self.open_body(body["side"], condition, quote, key)
+            elif build is not None:
+                body = build(quote)
             if body.get("side") not in ("buy", "sell") or positive_decimal(body.get("volume")) > Decimal("0.01"):
                 raise ValueError("Invalid demo lot or direction")
             positive_decimal(body.get("stop_loss_price"))

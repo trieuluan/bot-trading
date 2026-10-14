@@ -11,7 +11,9 @@ os.environ["TRADING_MODE"] = "paper"
 
 
 @pytest.fixture(autouse=True)
-def database():
+def database(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_EXECUTION_ENABLED", "false")
+    monkeypatch.setenv("EXNESS_DEMO_ORDERS_ENABLED", "false")
     from alembic import command
     from alembic.config import Config
 
@@ -39,11 +41,17 @@ def database():
         ForexPaperAccount,
         ForexInstrumentState,
         ForexGapAudit,
+        ExnessExecutionState,
+        ExnessExecutionTrade,
+        ExnessDeal,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            ExnessExecutionTrade,
+            ExnessExecutionState,
+            ExnessDeal,
             ForexGapAudit,
             ForexPaperTrade,
             ForexPaperAccount,

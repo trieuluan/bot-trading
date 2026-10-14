@@ -6,6 +6,7 @@ import {
   type ObservationChartSnapshot,
 } from '../components/MtfObservationChart';
 import { formatPrice, observationStatusLabels } from '../lib/format';
+import type { BrokerPosition } from '../types/exness-execution';
 
 interface ForexCandle {
   time: number;
@@ -191,9 +192,15 @@ export function ForexCatchupStatus({
 export function ForexStrategyPage({
   dashboard,
   disconnected,
+  executions = [],
+  selectedPosition,
+  executionOnly = false,
 }: {
   dashboard: ForexDashboard;
   disconnected: boolean;
+  executions?: BrokerPosition[];
+  selectedPosition?: BrokerPosition;
+  executionOnly?: boolean;
 }) {
   const [candles, setCandles] = useState<ForexCandle[]>([]);
   const [loading, setLoading] = useState(false);
@@ -338,7 +345,7 @@ export function ForexStrategyPage({
       setChartError('');
       try {
         const res = await fetch(
-          `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : ''}`,
+          `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : selectedPosition?.status === 'closed' && selectedPosition.close_time ? `&before=${selectedPosition.close_time + 18000}` : ''}`,
           { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) },
         );
         if (!res.ok) throw new Error('Cannot load Exness candles');
@@ -378,7 +385,7 @@ export function ForexStrategyPage({
       active = false;
       controller.abort();
     };
-  }, [frame, side]);
+  }, [frame, side, selectedPosition?.position_id]);
 
   useEffect(() => {
     historyActions.current.refresh();
@@ -389,53 +396,65 @@ export function ForexStrategyPage({
       <div className="section-head">
         <div>
           <h2>
-            {view === 'mtf'
-              ? 'Breakout + Retest'
-              : view === 'trend'
-                ? 'Trend Pullback'
-                : 'Range Rejection'}{' '}
+            {executionOnly
+              ? 'Chart khớp lệnh sàn'
+              : view === 'mtf'
+                ? 'Breakout + Retest'
+                : view === 'trend'
+                  ? 'Trend Pullback'
+                  : 'Range Rejection'}{' '}
             · XAUUSD
           </h2>
           <p>
-            {view === 'mtf'
-              ? '4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và nến xác nhận giữ vùng.'
-              : view === 'trend'
-                ? 'H1 EMA20/50 xác định xu hướng → M15 chạm EMA20 → nến đóng xác nhận cùng chiều.'
-                : 'Range 20 nến H1 đi ngang → M15 chạm biên → nến đóng từ chối vào trong range.'}
+            {executionOnly
+              ? 'Dấu BUY/SELL/EXIT lấy từ deal Exness. Chọn vị thế để xem giá khớp, SL và TP sàn.'
+              : view === 'mtf'
+                ? '4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và nến xác nhận giữ vùng.'
+                : view === 'trend'
+                  ? 'H1 EMA20/50 xác định xu hướng → M15 chạm EMA20 → nến đóng xác nhận cùng chiều.'
+                  : 'Range 20 nến H1 đi ngang → M15 chạm biên → nến đóng từ chối vào trong range.'}
           </p>
         </div>
         <span className="pill amber">
           <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
-          Paper tự động · nến bid gốc Exness
+          {executionOnly
+            ? 'Lệnh demo trên sàn · Bid/Ask Exness'
+            : 'Paper tự động · nến bid gốc Exness'}
         </span>
       </div>
-      <div className="forex-paper-switch" role="group" aria-label="Chọn chiến lược">
-        <button className="secondary" aria-pressed={view === 'mtf'} onClick={() => setView('mtf')}>
-          Breakout + Retest
-        </button>
-        <button
-          className="secondary"
-          aria-pressed={view === 'trend'}
-          onClick={() => setView('trend')}
-        >
-          Trend Pullback
-        </button>
-        <button
-          className="secondary"
-          aria-pressed={view === 'range'}
-          onClick={() => setView('range')}
-        >
-          Range Rejection
-        </button>
-        <button
-          className="secondary"
-          aria-pressed={view === 'router'}
-          onClick={() => setView('router')}
-        >
-          Regime Router
-        </button>
-      </div>
-      {view !== 'mtf' && (
+      {!executionOnly && (
+        <div className="forex-paper-switch" role="group" aria-label="Chọn chiến lược">
+          <button
+            className="secondary"
+            aria-pressed={view === 'mtf'}
+            onClick={() => setView('mtf')}
+          >
+            Breakout + Retest
+          </button>
+          <button
+            className="secondary"
+            aria-pressed={view === 'trend'}
+            onClick={() => setView('trend')}
+          >
+            Trend Pullback
+          </button>
+          <button
+            className="secondary"
+            aria-pressed={view === 'range'}
+            onClick={() => setView('range')}
+          >
+            Range Rejection
+          </button>
+          <button
+            className="secondary"
+            aria-pressed={view === 'router'}
+            onClick={() => setView('router')}
+          >
+            Regime Router
+          </button>
+        </div>
+      )}
+      {!executionOnly && view !== 'mtf' && (
         <p role="status">
           Ví paper{' '}
           {shadow?.status === 'tracking'
@@ -465,56 +484,60 @@ export function ForexStrategyPage({
         </p>
       )}
 
-      <div className="research-metrics">
-        <div>
-          <span className="muted">{view === 'mtf' ? 'Xu hướng 4h' : 'Xu hướng H1'}</span>
-          <strong>
-            {snap?.trend === 'up'
-              ? 'TĂNG (chỉ Long)'
-              : snap?.trend === 'down'
-                ? 'GIẢM (chỉ Short)'
-                : snap?.trend === 'sideway'
-                  ? 'ĐI NGANG'
-                  : 'CHƯA RÕ'}
-          </strong>
+      {!executionOnly && (
+        <div className="research-metrics">
+          <div>
+            <span className="muted">{view === 'mtf' ? 'Xu hướng 4h' : 'Xu hướng H1'}</span>
+            <strong>
+              {snap?.trend === 'up'
+                ? 'TĂNG (chỉ Long)'
+                : snap?.trend === 'down'
+                  ? 'GIẢM (chỉ Short)'
+                  : snap?.trend === 'sideway'
+                    ? 'ĐI NGANG'
+                    : 'CHƯA RÕ'}
+            </strong>
+          </div>
+          <div>
+            <span className="muted">Trạng thái MTF</span>
+            <strong>{observationStatusLabels[currentStatus] ?? currentStatus}</strong>
+          </div>
+          <div>
+            <span className="muted">{view === 'trend' ? 'EMA20 M15' : 'Vùng 20 nến 1h'}</span>
+            <strong>
+              {view === 'trend' && snap?.level != null
+                ? formatPrice(snap.level)
+                : snap?.range_low && snap?.range_high
+                  ? `${formatPrice(snap.range_low)} – ${formatPrice(snap.range_high)}`
+                  : '—'}
+            </strong>
+          </div>
+          <div>
+            <span className="muted">SL / TP tham chiếu</span>
+            <strong>
+              {snap?.stop && snap?.target
+                ? `${formatPrice(snap.stop)} / ${formatPrice(snap.target)}`
+                : 'Chưa có'}
+            </strong>
+          </div>
         </div>
-        <div>
-          <span className="muted">Trạng thái MTF</span>
-          <strong>{observationStatusLabels[currentStatus] ?? currentStatus}</strong>
-        </div>
-        <div>
-          <span className="muted">{view === 'trend' ? 'EMA20 M15' : 'Vùng 20 nến 1h'}</span>
-          <strong>
-            {view === 'trend' && snap?.level != null
-              ? formatPrice(snap.level)
-              : snap?.range_low && snap?.range_high
-                ? `${formatPrice(snap.range_low)} – ${formatPrice(snap.range_high)}`
-                : '—'}
-          </strong>
-        </div>
-        <div>
-          <span className="muted">SL / TP tham chiếu</span>
-          <strong>
-            {snap?.stop && snap?.target
-              ? `${formatPrice(snap.stop)} / ${formatPrice(snap.target)}`
-              : 'Chưa có'}
-          </strong>
-        </div>
-      </div>
+      )}
 
-      <div style={{ marginTop: 12 }}>
-        <p>
-          <strong>Chi tiết quan sát:</strong>{' '}
-          {view === 'mtf'
-            ? dashboard.observation.message
-            : (shadowObs?.reason ?? 'Chờ worker khởi tạo')}
-          {snap?.['provenance'] && (
-            <span className="pill" style={{ marginLeft: 8 }}>
-              {snap.provenance}
-            </span>
-          )}
-        </p>
-      </div>
+      {!executionOnly && (
+        <div style={{ marginTop: 12 }}>
+          <p>
+            <strong>Chi tiết quan sát:</strong>{' '}
+            {view === 'mtf'
+              ? dashboard.observation.message
+              : (shadowObs?.reason ?? 'Chờ worker khởi tạo')}
+            {snap?.['provenance'] && (
+              <span className="pill" style={{ marginLeft: 8 }}>
+                {snap.provenance}
+              </span>
+            )}
+          </p>
+        </div>
+      )}
 
       {loading && <p className="micro">Đang tải nến {frame.toUpperCase()} Exness...</p>}
       <div className="forex-chart-controls">
@@ -593,38 +616,49 @@ export function ForexStrategyPage({
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
       <MtfObservationChart
-        key={`${frame}-${side}`}
+        key={`${frame}-${side}-${selectedPosition?.position_id ?? ''}`}
         onLoadOlder={hasMore && !chartError ? () => historyActions.current.older() : undefined}
         candles={candles}
         liveCandles={
-          quoteLive
+          quoteLive && !(executionOnly && selectedPosition?.status === 'closed')
             ? (quoteState.candles?.[frame] ?? []).map((row) => ({
                 time: row.time,
                 ...(side === 'bid' ? row.bid : row.ask),
               }))
             : []
         }
-        snapshot={frame === '15m' && side === 'bid' ? fullSnapshot : null}
+        snapshot={!executionOnly && frame === '15m' && side === 'bid' ? fullSnapshot : null}
+        executions={executions}
+        selectedPositionId={selectedPosition?.position_id}
+        frameSeconds={frame === '4h' ? 14400 : frame === '1h' ? 3600 : 900}
         trendLabel={view === 'mtf' ? 'Xu hướng 4h' : 'Xu hướng H1'}
         levelLabel={view === 'trend' ? 'EMA20 M15' : 'Mức breakout'}
         livePrice={
-          quoteLive
+          quoteLive && !(executionOnly && selectedPosition?.status === 'closed')
             ? {
                 price: side === 'bid' ? quoteState.quote!.bid : quoteState.quote!.ask,
                 label: `${side.toUpperCase()} LIVE`,
               }
             : null
         }
-        title={`Exness XAUUSD · ${view} · ${side.toUpperCase()} ${frame} · USD/oz · UTC · PAPER`}
+        title={`Exness XAUUSD · ${executionOnly ? 'FILL SÀN DEMO' : view} · ${side.toUpperCase()} ${frame} · USD/oz · UTC`}
       />
       <p className="micro">
-        Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không dịch
-        chuyển mức giá của setup.
+        {executionOnly
+          ? 'Mũi tên là fill vào, chấm tròn là fill thoát. Marker được gom vào nến theo thời gian khớp thật; bảng deal giữ timestamp gốc. SL/TP chỉ hiện khi có dữ liệu sàn hoặc journal bot.'
+          : 'Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không dịch chuyển mức giá của setup.'}
       </p>
 
-      {view !== 'mtf' && (
+      {!executionOnly && view !== 'mtf' && (
         <div style={{ marginTop: 24 }}>
-          <h3>Nhật ký paper · {view === 'trend' ? 'trend_pullback' : view === 'range' ? 'range_rejection' : 'regime_router'}</h3>
+          <h3>
+            Nhật ký paper ·{' '}
+            {view === 'trend'
+              ? 'trend_pullback'
+              : view === 'range'
+                ? 'range_rejection'
+                : 'regime_router'}
+          </h3>
           <p>
             Theo dõi từ khi ví khởi tạo, tự chạy bù nến khi máy mở lại. Kết quả lịch sử ở tab
             Backtest; không cần backtest có lãi mới được chạy paper.
@@ -675,7 +709,7 @@ export function ForexStrategyPage({
           )}
         </div>
       )}
-      {view === 'mtf' && (
+      {!executionOnly && view === 'mtf' && (
         <div style={{ marginTop: 24 }}>
           <h3>Quy tắc Breakout + Retest XAUUSD</h3>
           <ul>
@@ -838,8 +872,8 @@ function ForexReplayControl({ onComplete }: { onComplete?: (data: ResearchApiRes
                   : row.status === 'open'
                     ? 'Còn lệnh chờ/mở'
                     : 'Đã xử lý hết lịch sử'}
-                .
-                {' '}Đóng trước nghỉ phiên: {row.session_closes ?? 0} · Mẫu qua gap bị loại: {row.excluded_trades ?? 0}.
+                . Đóng trước nghỉ phiên: {row.session_closes ?? 0} · Mẫu qua gap bị loại:{' '}
+                {row.excluded_trades ?? 0}.
               </p>
             ))}
         </div>
@@ -956,10 +990,12 @@ export function ForexResearchPage({ revision }: { revision: number }) {
                         : 'Hoàn tất'}
                     {row.blocked_at != null && (
                       <>
-                        {' '}· {new Date(row.blocked_at * 1000).toISOString()}
+                        {' '}
+                        · {new Date(row.blocked_at * 1000).toISOString()}
                         {row.blocked_gap && (
                           <span className="micro block muted">
-                            (thiếu {row.blocked_gap.missing_intervals} nến, {row.blocked_gap.classification})
+                            (thiếu {row.blocked_gap.missing_intervals} nến,{' '}
+                            {row.blocked_gap.classification})
                           </span>
                         )}
                       </>
@@ -980,13 +1016,22 @@ export function ForexResearchPage({ revision }: { revision: number }) {
       {!!data?.gap_audits?.length && (
         <div className="panel prose">
           <h3>Đối soát gap trực tiếp với Exness</h3>
-          <p>API trả rỗng không chứng minh nghỉ lễ. Mẫu qua gap bị loại; PnL chưa biết không được coi là 0. Số dư và lợi nhuận chỉ tính phần dữ liệu đủ.</p>
+          <p>
+            API trả rỗng không chứng minh nghỉ lễ. Mẫu qua gap bị loại; PnL chưa biết không được coi
+            là 0. Số dư và lợi nhuận chỉ tính phần dữ liệu đủ.
+          </p>
           {data.gap_audits.slice(0, 10).map((gap) => (
             <p key={`${gap.after}-${gap.before}`}>
-              {new Date((gap.after + 900) * 1000).toISOString()} – {new Date(gap.before * 1000).toISOString()}: {' '}
-              {{ no_bars_returned: 'Exness không trả nến', backfilled: 'Đã tải bù nến', api_error: 'API lỗi, sẽ thử lại',
-                partial_check: 'Mới kiểm tra một phần', inconsistent_timeframes: 'M1/M15 chưa khớp' }[gap.status] ?? gap.status}
-              {' '}· Kiểm tra: {new Date(gap.checked_at * 1000).toISOString()}
+              {new Date((gap.after + 900) * 1000).toISOString()} –{' '}
+              {new Date(gap.before * 1000).toISOString()}:{' '}
+              {{
+                no_bars_returned: 'Exness không trả nến',
+                backfilled: 'Đã tải bù nến',
+                api_error: 'API lỗi, sẽ thử lại',
+                partial_check: 'Mới kiểm tra một phần',
+                inconsistent_timeframes: 'M1/M15 chưa khớp',
+              }[gap.status] ?? gap.status}{' '}
+              · Kiểm tra: {new Date(gap.checked_at * 1000).toISOString()}
             </p>
           ))}
         </div>

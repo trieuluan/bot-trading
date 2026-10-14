@@ -102,6 +102,27 @@ class ForexPaperTrade(Base):
     confirm_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
 
+class ExnessExecutionState(Base):
+    __tablename__ = "exness_execution_state"
+    account: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
+class ExnessExecutionTrade(Base):
+    __tablename__ = "exness_execution_trades"
+    account: Mapped[str] = mapped_column(String(32), primary_key=True)
+    signal_time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
+class ExnessDeal(Base):
+    __tablename__ = "exness_deals"
+    account: Mapped[str] = mapped_column(String(32), primary_key=True)
+    deal_id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    position_id: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
+    event_time: Mapped[int] = mapped_column(Integer, index=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
 class BotState(Base):
     __tablename__ = "bot_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

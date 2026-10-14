@@ -674,3 +674,28 @@ Không thay đổi ví MEXC, không gửi lệnh Demo hay tiền thật tới Ex
   Áp dụng quy tắc làm tròn lot xuống (`volume_step` 0.01 lot = 1 oz, tối thiểu 0.01 lot).
   Nếu khối lượng theo rủi ro nhỏ hơn lot tối thiểu, lệnh bị từ chối thay vì tăng quy mô ép vào lệnh.
   Ghi rõ các khoản chưa thể xác minh tự động (như đơn vị swap, giờ rollover, HMR động) thay vì mặc định chi phí bằng 0.
+
+### Exness Demo: lệnh trên sàn
+
+Đặt `EXNESS_DEMO_EXECUTION_ENABLED=true` trong `.env`, chạy `docker compose up -d`
+sau migration `0014`. Executor chạy trong `exness-feed`, tách khỏi ví paper/replay và MEXC.
+Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không hỗ trợ tài khoản real.
+
+- `regime_router` chỉ gửi tín hiệu M15 đóng mới, trong 120 giây; bỏ qua tín hiệu trước lúc bật bot.
+- Mỗi lệnh 0.01 lot, tối đa một vị thế trên tài khoản, không giới hạn số lệnh/ngày.
+- SL theo cấu trúc, TP 2R từ quote gửi lệnh. R thực tế thay đổi theo giá khớp.
+  Bỏ qua nếu mức lỗ dự kiến tới SL vượt $25; đây không phải bảo đảm mức lỗ tối đa khi gap/slippage.
+- SL/TP đặt tại Exness, tiếp tục có hiệu lực khi Mac ngủ. Đóng trước kỳ nghỉ theo lịch chuẩn
+  cần worker đang hoạt động; không bảo đảm đóng trước ngày lễ bất thường hoặc lúc máy offline.
+- Ghi intent trước HTTP, idempotency key theo tín hiệu; ACK không đồng nghĩa đã khớp.
+  Đối soát operation/order/deal/position ID. Kết quả chưa rõ chặn lệnh mới, không tự gửi lại.
+- Dùng khóa theo tài khoản để chặn executor trùng và không chạy đồng thời probe calibration.
+- Workspace Exness → **Bot của bạn**: balance/equity sàn, lệnh đang mở/đã đóng, deal/order ID,
+  chart Bid/Ask live, dấu vào/thoát thực tế, SL/TP, tạm dừng mở lệnh và yêu cầu đóng vị thế của bot.
+  Lệnh probe/thủ công được ghi nguồn riêng, không tự đóng lệnh ngoài bot.
+- Lịch sử nhập ban đầu 24 giờ rồi lưu tăng dần trong DB, đọc theo trang; profit lấy từ deal sàn,
+  không tự coi là net sau commission/swap. Khi mở máy lại, đối soát lịch sử sàn thay vì giả lập fill.
+
+API trạng thái: `GET /api/workspaces/exness_forex/execution` (có `offset`, `limit`).
+`PATCH` cùng URL với `{"enabled": false}` chỉ dừng mở mới, không hủy SL/TP.
+Giữ API bind localhost; không đưa các endpoint điều khiển lên Internet khi chưa có xác thực.

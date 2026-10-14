@@ -17,6 +17,7 @@ from backend.app.exness_feed import (
 from backend.app.settings import validate_mode
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_paper import paper_tick
+from backend.app.exness_execution import execution_tick, record_error
 from backend.app.forex_costs import sync_specs
 from backend.app.exness_gaps import recheck_gap
 
@@ -56,6 +57,13 @@ def main():
                         paper_tick()
                     except Exception:
                         logging.exception("Exness observation/paper unavailable; no broker orders sent")
+                    try:
+                        execution_tick(api)
+                    except Exception as exc:
+                        record_error(api.account_id, exc)
+                        logging.exception("Exness demo execution tick failed; no duplicate orders")
+                        if isinstance(exc, ExnessError):
+                            stop.wait(exc.retry_after)
                 else:
                     delay = 60
             except Exception as exc:

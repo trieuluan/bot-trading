@@ -15,6 +15,7 @@ import {
   type SeriesMarker,
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
+import type { BrokerPosition } from '../types/exness-execution';
 import { formatPrice, observationStatusLabels } from '../lib/format';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
@@ -27,6 +28,9 @@ export function MtfObservationChart({
   snapshot,
   livePrice = null,
   liveCandles = [],
+  executions = [],
+  selectedPositionId,
+  frameSeconds = 900,
   onLoadOlder,
   trendLabel = 'Xu hướng 4h',
   levelLabel = 'Mức breakout',
@@ -37,6 +41,9 @@ export function MtfObservationChart({
   title?: string;
   livePrice?: { price: number; label: string } | null;
   liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
+  executions?: BrokerPosition[];
+  selectedPositionId?: string;
+  frameSeconds?: number;
   onLoadOlder?: () => void;
   trendLabel?: string;
   levelLabel?: string;
@@ -139,107 +146,155 @@ export function MtfObservationChart({
     ranges.current = [];
     markers.current?.setMarkers([]);
 
-    if (!snapshot) return;
-    const start = Math.max(candles[0]?.time ?? snapshot.range_start, snapshot.range_start);
-    const end = Math.min(candles.at(-1)?.time ?? snapshot.range_end, snapshot.range_end);
-    if (end > start) {
-      for (const [val, color] of [
-        [snapshot.range_high, '#b59854'],
-        [snapshot.range_low, '#b59854'],
-      ] as const) {
-        const range = chart.current.addSeries(LineSeries, {
-          color,
-          lineWidth: 2,
-          lineStyle: LineStyle.Dashed,
-          lastValueVisible: false,
-          priceLineVisible: false,
-          crosshairMarkerVisible: false,
-        });
-        range.setData([
-          { time: start as UTCTimestamp, value: val },
-          { time: end as UTCTimestamp, value: val },
-        ]);
-        ranges.current.push(range);
+    const points: SeriesMarker<Time>[] = [];
+    if (snapshot) {
+      const start = Math.max(candles[0]?.time ?? snapshot.range_start, snapshot.range_start);
+      const end = Math.min(candles.at(-1)?.time ?? snapshot.range_end, snapshot.range_end);
+      if (end > start) {
+        for (const [val, color] of [
+          [snapshot.range_high, '#b59854'],
+          [snapshot.range_low, '#b59854'],
+        ] as const) {
+          const range = chart.current.addSeries(LineSeries, {
+            color,
+            lineWidth: 2,
+            lineStyle: LineStyle.Dashed,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          range.setData([
+            { time: start as UTCTimestamp, value: val },
+            { time: end as UTCTimestamp, value: val },
+          ]);
+          ranges.current.push(range);
+        }
+      }
+
+      if (snapshot.level !== null) {
+        lines.current.push(
+          priceSeries.createPriceLine({
+            price: snapshot.level,
+            color: '#b59854',
+            lineWidth: 1,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title:
+              levelLabel === 'Mức breakout'
+                ? `VÙNG PHÁ (${snapshot.side?.toUpperCase() ?? 'CHỜ'})`
+                : levelLabel,
+          }),
+        );
+      }
+      if (snapshot.stop !== null) {
+        lines.current.push(
+          priceSeries.createPriceLine({
+            price: snapshot.stop,
+            color: '#bd7164',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'SL THAM CHIẾU',
+          }),
+        );
+      }
+      if (snapshot.target !== null) {
+        lines.current.push(
+          priceSeries.createPriceLine({
+            price: snapshot.target,
+            color: '#2c856c',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'TP THAM CHIẾU',
+          }),
+        );
+      }
+
+      const map: [number | null, string, string, 'arrowUp' | 'arrowDown' | 'circle'][] = [
+        [
+          snapshot.breakout_time === null ? null : snapshot.breakout_time + 2700,
+          'BREAKOUT 1H',
+          '#b59854',
+          'circle',
+        ],
+        [snapshot.touch_time, 'RETEST 15M', '#557fa1', 'circle'],
+        [
+          ['cancelled', 'expired'].includes(snapshot.status) ? snapshot.candle_time : null,
+          snapshot.status === 'expired' ? 'HẾT HẠN' : 'HỦY SETUP',
+          '#bd7164',
+          'circle',
+        ],
+        [
+          snapshot.confirm_time,
+          'XÁC NHẬN 15M',
+          '#2c856c',
+          snapshot.side === 'long' ? 'arrowUp' : 'arrowDown',
+        ],
+      ];
+      for (const [timestamp, label, color, shape] of map) {
+        if (timestamp === null) continue;
+        const bucket = Math.floor(timestamp / 900) * 900;
+        if (candles.some((c) => c.time === bucket)) {
+          points.push({
+            time: bucket as UTCTimestamp,
+            position: snapshot.side === 'short' ? 'aboveBar' : 'belowBar',
+            color,
+            shape,
+            text: label,
+          });
+        }
       }
     }
-
-    if (snapshot.level !== null) {
-      lines.current.push(
-        priceSeries.createPriceLine({
-          price: snapshot.level,
-          color: '#b59854',
-          lineWidth: 1,
-          lineStyle: LineStyle.Solid,
-          axisLabelVisible: true,
-          title:
-            levelLabel === 'Mức breakout'
-              ? `VÙNG PHÁ (${snapshot.side?.toUpperCase() ?? 'CHỜ'})`
-              : levelLabel,
-        }),
-      );
-    }
-    if (snapshot.stop !== null) {
-      lines.current.push(
-        priceSeries.createPriceLine({
-          price: snapshot.stop,
-          color: '#bd7164',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'SL THAM CHIẾU',
-        }),
-      );
-    }
-    if (snapshot.target !== null) {
-      lines.current.push(
-        priceSeries.createPriceLine({
-          price: snapshot.target,
-          color: '#2c856c',
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'TP THAM CHIẾU',
-        }),
-      );
-    }
-
-    const points: SeriesMarker<Time>[] = [];
-    const map: [number | null, string, string, 'arrowUp' | 'arrowDown' | 'circle'][] = [
-      [
-        snapshot.breakout_time === null ? null : snapshot.breakout_time + 2700,
-        'BREAKOUT 1H',
-        '#b59854',
-        'circle',
-      ],
-      [snapshot.touch_time, 'RETEST 15M', '#557fa1', 'circle'],
-      [
-        ['cancelled', 'expired'].includes(snapshot.status) ? snapshot.candle_time : null,
-        snapshot.status === 'expired' ? 'HẾT HẠN' : 'HỦY SETUP',
-        '#bd7164',
-        'circle',
-      ],
-      [
-        snapshot.confirm_time,
-        'XÁC NHẬN 15M',
-        '#2c856c',
-        snapshot.side === 'long' ? 'arrowUp' : 'arrowDown',
-      ],
-    ];
-    for (const [timestamp, label, color, shape] of map) {
-      if (timestamp === null) continue;
-      const bucket = Math.floor(timestamp / 900) * 900;
-      if (candles.some((c) => c.time === bucket)) {
+    for (const trade of executions) {
+      for (const deal of trade.deals) {
+        if (!['open', 'close'].includes(deal.type)) continue;
+        const bucket = Math.floor(deal.event_time / frameSeconds) * frameSeconds;
+        if (!candles.some((candle) => candle.time === bucket)) continue;
+        const entry = deal.type === 'open';
         points.push({
           time: bucket as UTCTimestamp,
-          position: snapshot.side === 'short' ? 'aboveBar' : 'belowBar',
-          color,
-          shape,
-          text: label,
+          position: entry
+            ? trade.side === 'buy'
+              ? 'belowBar'
+              : 'aboveBar'
+            : trade.side === 'buy'
+              ? 'aboveBar'
+              : 'belowBar',
+          color: entry
+            ? '#557fa1'
+            : trade.pnl == null
+              ? '#63746a'
+              : trade.pnl >= 0
+                ? '#2c856c'
+                : '#bd7164',
+          shape: entry ? (trade.side === 'buy' ? 'arrowUp' : 'arrowDown') : 'circle',
+          text: `${entry ? trade.side?.toUpperCase() : 'EXIT'} #${trade.position_id} @ ${deal.price}`,
         });
+      }
+      if (trade.position_id === selectedPositionId) {
+        for (const [price, color, title] of [
+          [trade.open_price, '#557fa1', 'ENTRY KHỚP SÀN'],
+          [trade.stop, '#bd7164', 'SL SÀN'],
+          [trade.target, '#2c856c', 'TP SÀN'],
+          [trade.close_price, '#63746a', 'EXIT KHỚP SÀN'],
+        ] as const) {
+          if (price == null || price <= 0) continue;
+          lines.current.push(
+            priceSeries.createPriceLine({
+              price,
+              color,
+              title,
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+            }),
+          );
+        }
       }
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
-  }, [snapshot, candles, levelLabel]);
+  }, [snapshot, candles, levelLabel, executions, selectedPositionId, frameSeconds]);
 
   return (
     <div className="trade-chart-wrap">

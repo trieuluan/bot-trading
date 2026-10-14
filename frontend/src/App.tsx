@@ -20,6 +20,7 @@ import {
 } from './pages/ForexStrategyPage';
 import type { ObservationChartSnapshot } from './components/MtfObservationChart';
 import { ForexPaperPage, type ForexPaperSummary } from './pages/ForexPaperPage';
+import { ForexExecutionPage } from './pages/ForexExecutionPage';
 
 interface Workspace {
   id: string;
@@ -43,6 +44,7 @@ interface FrameSummary {
 
 export interface ForexDashboard {
   workspace: Workspace;
+  execution_enabled?: boolean;
   market: {
     status: string;
     message: string;
@@ -179,9 +181,10 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         page={page}
         menu={menu}
         workspacePicker={workspacePicker}
-        botCount={0}
+        botCount={dashboard?.execution_enabled ? 1 : 0}
         allowedPages={[
           'Tổng quan',
+          'Bot của bạn',
           'Chiến lược',
           'Ví mô phỏng',
           'Backtest',
@@ -208,7 +211,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <span>/</span>
             <strong>{page}</strong>
           </div>
-          <span className="pill amber">DEMO · READ ONLY</span>
+          <span className="pill amber">
+            {dashboard?.execution_enabled ? 'DEMO · LỆNH SÀN' : 'DEMO · READ ONLY'}
+          </span>
         </header>
         <main>
           <div className="page-heading">
@@ -223,8 +228,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           <div className="demo-banner">
             <FlaskConical size={17} />
             <span>
-              MTF XAUUSD + paper cục bộ. Dữ liệu và ví riêng Exness; không gửi lệnh Demo sàn, không
-              dùng ví MEXC.
+              {dashboard?.execution_enabled
+                ? 'Bot regime_router được phép gửi lệnh Exness Demo. Xem lệnh và chart tại Bot của bạn. Không dùng tiền thật hoặc ví MEXC.'
+                : 'MTF XAUUSD + paper cục bộ. Dữ liệu và ví riêng Exness; không gửi lệnh Demo sàn, không dùng ví MEXC.'}
             </span>
           </div>
           {error && (
@@ -237,6 +243,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           {dashboard && page === 'Chiến lược' && (
             <ForexStrategyPage dashboard={dashboard} disconnected={!!error} />
           )}
+          {dashboard && page === 'Bot của bạn' && <ForexExecutionPage dashboard={dashboard} />}
           {dashboard && page === 'Ví mô phỏng' && (
             <ForexPaperPage
               paper={dashboard.paper}
