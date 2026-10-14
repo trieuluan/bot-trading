@@ -40,6 +40,65 @@ def test_shadow_wallets_start_without_trades_and_do_not_touch_live():
         assert session.get(ForexPaperAccount, (WORKSPACE, "live")) is None
 
 
+def router_history():
+    stamp = 60 * 14400
+    hours = [bar(stamp - (60 - index) * 3600, 100 + index, 101 + index,
+                 99 + index, 100 + index) for index in range(60)]
+    higher = [bar(index * 14400, 100 + index, 101 + index, 99 + index,
+                  100 + index) for index in range(60)]
+    minutes = [bar(stamp - (30 - index) * 900, 158, 160, 157, 159)
+               for index in range(30)]
+    candle = bar(stamp, 158, 160, 150, 159.4)
+    breakout = {"candle_time": stamp, "available_at": stamp + 900,
+                "status": "waiting_breakout", "reason": "waiting"}
+    return candle, hours, minutes, higher, breakout
+
+
+def test_router_selects_trend_without_future_candles():
+    candle, hours, minutes, higher, breakout = router_history()
+    snapshot = strategy_snapshot("regime_router", candle, hours, minutes,
+                                 higher=higher, breakout=breakout)
+    assert snapshot["status"] == "confirmed"
+    assert snapshot["selected_strategy"] == "trend_pullback"
+    assert snapshot["stop"] == 150
+    future = bar(candle.time + 900, 10000, 10001, 9999, 10000)
+    assert snapshot == strategy_snapshot("regime_router", candle, hours + [future],
+                                         minutes + [future], higher=higher + [future],
+                                         breakout=breakout)
+    assert strategy_snapshot("regime_router", candle, hours, minutes, higher=higher,
+                             breakout={**breakout, "available_at": candle.time + 1800})["status"] == "data_paused"
+
+
+def test_router_prioritizes_breakout_and_rejects_conflicting_signals(monkeypatch):
+    from backend.app.forex_strategies import RULES
+
+    candle, hours, minutes, higher, breakout = router_history()
+    breakout.update(status="confirmed", side="long", stop=149)
+    snapshot = strategy_snapshot("regime_router", candle, hours, minutes,
+                                 higher=higher, breakout=breakout)
+    assert snapshot["selected_strategy"] == "breakout_retest"
+    assert snapshot["confluence"] == 2
+    monkeypatch.setitem(RULES, "range_rejection", lambda *args: {
+        "side": "short", "stop": 161, "reason": "opposing"})
+    assert strategy_snapshot("regime_router", candle, hours, minutes, higher=higher,
+                             breakout=breakout)["status"] == "conflicting_signals"
+
+
+def test_router_selects_range_but_not_during_active_breakout():
+    candle, hours, minutes, higher, breakout = router_history()
+    hours = [bar(row.time, 100, 110, 90, 100 + index % 2)
+             for index, row in enumerate(hours)]
+    candle = bar(candle.time, 91, 96, 90, 95)
+    snapshot = strategy_snapshot("regime_router", candle, hours, minutes,
+                                 higher=higher, breakout=breakout)
+    assert snapshot["status"] == "confirmed"
+    assert snapshot["selected_strategy"] == "range_rejection"
+    assert snapshot["side"] == "long"
+    snapshot = strategy_snapshot("regime_router", candle, hours, minutes, higher=higher,
+                                 breakout={**breakout, "status": "waiting_retest"})
+    assert snapshot["status"] != "confirmed"
+
+
 def test_trend_short_and_snapshot_excludes_future_candles():
     hours = [bar(index * 3600, 200 - index, 201 - index, 199 - index, 200 - index) for index in range(60)]
     stamp = 60 * 3600
