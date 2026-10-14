@@ -35,7 +35,9 @@ export interface ExnessExecution {
     processed_bars?: number;
     strategy_summary?: Record<string, { signals: number; closed: number; excluded: number; mean_r: number | null }>;
     validation?: { selected_closed: number; selected_mean_r: number | null; baseline_mean_r: number | null; eligible: boolean };
-    latest?: { time: number; selected: string | null };
+    latest?: { time: number; selected: string | null; mode?: string };
+    broker_learning?: { closed_labels: number; fees_included: boolean; note: string };
+    assumptions?: { slippage_bps_each_side: number; slippage_measurement?: { bps: number; fills: number; measured: boolean } };
   };
   configured: boolean;
   enabled: boolean;

@@ -24,8 +24,7 @@ from .exness_demo_client import ExnessDemoClient, positive_decimal, validate_quo
 from .exness_feed import FRAMES, WORKSPACE
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
-from .forex_strategies import strategy_snapshot
-from .forex_learner import summary as learning_summary
+from .forex_learner import live_signal, summary as learning_summary
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("submitting", "submitted", "uncertain", "closing")
@@ -175,10 +174,11 @@ def evaluate(session, now):
         return None
     candle = minutes[-1]
     breakout = session.get(ForexObservation, (WORKSPACE, candle.time))
-    return strategy_snapshot("regime_router", candle,
-        [row for row in frames["1h"] if row.price_type == "bid"], minutes,
-        higher=[row for row in frames["4h"] if row.price_type == "bid"],
-        breakout=breakout.snapshot if breakout else None)
+    ask = next((row for row in frames["15m"] if row.price_type == "ask" and row.time == candle.time), None)
+    if ask is None:
+        return None
+    return live_signal(candle, [row for row in frames["1h"] if row.price_type == "bid"], minutes,
+                       ask, breakout.snapshot if breakout else None)
 
 
 def execution_tick(api, now=None):
@@ -341,7 +341,8 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
             data = intent.snapshot
             if data.get("position_id") == pid:
                 body = data.get("body", {})
-                position.update(source="regime_router", signal_time=intent.signal_time, reason=data.get("reason"),
+                position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
+                    signal_time=intent.signal_time, reason=data.get("reason"),
                     stop=float(body["stop_loss_price"]) if body.get("stop_loss_price") else None,
                     target=float(body["take_profit_price"]) if body.get("take_profit_price") else None,
                     close_requested=data.get("close_requested", False))
@@ -353,7 +354,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
     heartbeat = meta.get("heartbeat")
     return {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
-        "account": account, "strategy": "regime_router", "lot": "0.01", "max_concurrent": max_positions(),
+        "account": account, "strategy": "learning", "lot": "0.01", "max_concurrent": max_positions(),
         "planned_risk_ceiling_usd": 25, "error": meta.get("error"), "decision": meta.get("decision"),
         "account_state": broker.get("account_state"), "synced_at": meta.get("history_synced_at"),
         "history_from": meta.get("history_from", state.started_at - 86400) if state else None,

@@ -1,5 +1,6 @@
 import pytest
-from backend.app.forex_learner import bucket, choose, context
+import random
+from backend.app.forex_learner import SEEDS, bucket, choose, context, evolve, genome_name, genome_signal
 from backend.app.forex_strategies import STRATEGIES
 
 def bar(time=1000, close=100.0, open=100.0, high=101.0, low=99.0):
@@ -18,8 +19,8 @@ def test_learner_feature_extraction_without_future():
 
 def test_learner_abstains_when_insufficient_samples():
     signal = {"strategy": "trend_pullback", "side": "long"}
-    selected, scored = choose([signal], {"trend": "up", "utc_session": 1}, model={})
-    assert selected is None
+    selected, mode, scored = choose([signal], {"trend": "up", "utc_session": 1}, model={})
+    assert selected is None and mode == "abstain"
     assert scored[0]["count"] == 0
 
 def test_learner_selects_positive_lower_bound_when_sample_size_met():
@@ -27,10 +28,32 @@ def test_learner_selects_positive_lower_bound_when_sample_size_met():
     features = {"trend": "up", "utc_session": 1}
     key = bucket(signal, features)
     model = {key: {"count": 40, "mean_r": 0.8, "lower_r": 0.3}}
-    selected, scored = choose([signal], features, model)
-    assert selected == signal
+    selected, mode, scored = choose([signal], features, model)
+    assert selected == signal and mode == "exploit"
     assert scored[0]["lower_r"] == 0.3
 
 def test_rules_include_new_hypotheses():
     for name in ("donchian_breakout", "liquidity_sweep", "squeeze_breakout"):
         assert name in STRATEGIES
+
+def test_explore_picks_untested_candidate_only_when_enabled():
+    signal = {"strategy": "gen_x", "side": "long"}
+    assert choose([signal], {"trend": "up", "utc_session": 1}, {}, explore=True)[1] == "explore"
+
+def test_genome_signal_uses_closed_bars_only_and_atr_stop():
+    hours = [bar(i * 3600, close=100 + i) for i in range(60)]
+    t = 60 * 3600
+    minutes = [bar(t - 900 * (20 - i), close=100, high=101, low=99) for i in range(20)]
+    g = {"mode": "breakout", "lookback": 20, "stop_atr": 1.5, "trend": True}
+    signal = genome_signal(g, bar(t, close=105, open=101, high=106, low=100), hours, minutes)
+    assert signal["side"] == "long" and signal["stop"] == 105 - 1.5 * 2
+    future = bar(t + 900, close=1, high=1000, low=0)
+    assert signal == genome_signal(g, bar(t, close=105, open=101, high=106, low=100), hours, minutes + [future])
+
+def test_evolution_keeps_population_bounded_and_unique():
+    samples = [{"status": "resolved", "strategy": genome_name(SEEDS[0]), "label_available_at": 1, "net_r_ex_swap": 1.0}
+               for _ in range(25)]
+    population = evolve(samples, SEEDS, 10, 1)
+    assert 6 <= len(population) <= 12
+    assert len({genome_name(g) for g in population}) == len(population)
+    assert SEEDS[0] in population

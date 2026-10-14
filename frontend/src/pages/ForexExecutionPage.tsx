@@ -71,7 +71,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           <div>
             <h2>Lệnh sàn Exness Demo</h2>
             <p>
-              Tài khoản {data?.account ?? '—'} · regime_router · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị thế mỗi lúc ·
+              Tài khoản {data?.account ?? '—'} · {data?.strategy ?? 'learning'} · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị thế mỗi lúc ·
               không giới hạn tổng số lệnh.
             </p>
           </div>
@@ -92,13 +92,19 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
         {data && (
           <>
             <section aria-label="Bộ học chiến lược" className="panel">
-              <h3>Bộ học chiến lược · {data.learning?.mode ?? 'Đang khởi tạo'}</h3>
+              <h3>Bộ học tự sinh chiến lược · {data.learning?.mode ?? 'Đang khởi tạo'}</h3>
               <p>{data.learning?.reason}</p>
               <p>
                 {data.learning?.processed_bars ?? 0} nến · Cập nhật {date(data.learning?.updated_at ?? null)} ·
-                Lựa chọn mô phỏng: {data.learning?.latest?.selected ?? 'Không vào lệnh'}
+                Chế độ nến mới: {data.learning?.latest?.mode ?? '—'} ·
+                Chiến lược chọn: {data.learning?.latest?.selected ?? 'Không vào lệnh'}
               </p>
-              <p className="muted">Dữ liệu mô phỏng, không phải fill sàn. Bộ học chưa điều khiển lệnh demo; executor vẫn dùng regime_router.</p>
+              <p className="muted">
+                Trượt giá giả lập khớp theo đo đạc demo: {data.learning?.assumptions?.slippage_bps_each_side ?? 0} bps
+                ({data.learning?.assumptions?.slippage_measurement?.fills ?? 0} fills thực tế).
+                {' '}Nhãn học sàn thật: {data.learning?.broker_learning?.closed_labels ?? 0} lệnh đóng đã gom.
+              </p>
+              <p className="muted">Bộ học điều khiển lệnh demo. Thống kê nghiên cứu bên dưới là mô phỏng; vị thế và fill sàn hiển thị riêng. Các lệnh thăm dò chưa có bằng chứng lợi nhuận.</p>
               <div className="research-metrics">
                 {Object.entries(data.learning?.strategy_summary ?? {}).map(([name, stats]) => (
                   <div key={name}>
