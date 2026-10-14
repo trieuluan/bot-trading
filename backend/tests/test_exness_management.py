@@ -89,3 +89,15 @@ def test_invalid_sl_buffer_rejected(buffer):
     client, cond, quote = _client_and_inputs()
     with pytest.raises(ExnessError):
         client.strategy_body({"side": "long", "stop": 2595, "stop_buffer": buffer}, cond, quote, "bad")
+
+@pytest.mark.parametrize("side, stop", [("long", 2601), ("short", 2599)])
+def test_buffer_cannot_rescue_invalid_structural_stop(side, stop):
+    client, cond, quote = _client_and_inputs()
+    with pytest.raises(ExnessError, match="Invalid structure stop"):
+        client.strategy_body({"side": side, "stop": stop, "stop_buffer": 10}, cond, quote, "bad")
+
+def test_buffered_stop_does_not_force_minimum_lot_above_budget(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    client, cond, quote = _client_and_inputs()
+    with pytest.raises(ExnessError, match="Minimum lot exceeds risk budget"):
+        client.strategy_body({"side": "long", "stop": 2576, "stop_buffer": 2}, cond, quote, "risk")
