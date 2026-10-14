@@ -553,6 +553,18 @@ docker compose run --rm --no-deps \
 docker compose exec api python -m scripts.exness_mtf_replay --compare
 ```
 
+Đo spread XAUUSD từ kho nến và lấy mẫu stream đang chạy trong 60 giây (chỉ đọc):
+
+```sh
+docker compose exec -T api python - --seconds 60 < scripts/exness_cost_audit.py
+```
+
+Báo cáo: `research-output/exness-cost-audit.json`. Spread lịch sử dùng open/close M15,
+không phải tick đồng bộ. Mẫu live lấy khoảng 1 Hz, bỏ quote cũ và trùng.
+Replay đã tính spread bid/ask; không cộng spread báo cáo lần nữa. Slippage thật cần
+giá khớp từ broker và bid/ask tại thời điểm gửi lệnh; giá khớp paper không đủ.
+Thiếu commission không đồng nghĩa phí bằng 0. Script không gửi lệnh và không sửa cấu hình chi phí.
+
 - Tín hiệu chỉ từ nến đã đóng; vào giả định ở open M15 kế tiếp: long mua ask, short bán bid.
   Long thoát theo bid OHLC, short thoát theo ask OHLC; spread đã nằm trong hai phía giá.
   SL giữ mức bid của cấu trúc retest; TP tính lại 2R từ entry giả định, không từ close xác nhận.
