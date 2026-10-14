@@ -134,6 +134,13 @@ class QuoteStream:
         self.status = "disabled"
 
     async def run(self):
+        while True:
+            await self.run_once()
+            if self.status not in ("unavailable", "rate_limited"):
+                return
+            await asyncio.sleep(60)
+
+    async def run_once(self):
         api = None
         try:
             if (

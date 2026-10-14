@@ -32,6 +32,8 @@ services:
       - --reload
       - --reload-dir
       - /app/backend/app
+      - --timeout-graceful-shutdown
+      - '5'
   bot:
     <<: *python-dev
     command:
