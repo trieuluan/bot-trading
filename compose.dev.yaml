@@ -1,3 +1,4 @@
+# Dev only. Enabled by COMPOSE_FILE in local .env.
 x-python-dev: &python-dev
   build:
     context: .
@@ -12,6 +13,8 @@ x-python-dev: &python-dev
   volumes:
     - ./backend:/app/backend:ro
     - ./bot:/app/bot:ro
+    - ./scripts:/app/scripts:ro
+    - ./research-output:/app/research-output
     - ./migrations:/app/migrations:ro
     - ./alembic.ini:/app/alembic.ini:ro
     - ./pyproject.toml:/app/pyproject.toml:ro
@@ -39,13 +42,14 @@ services:
       - /app/backend/app
       - /app/bot
   exness-feed:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: development
-    volumes:
-      - ./backend:/app/backend:ro
-      - ./bot:/app/bot:ro
+    <<: *python-dev
+    command:
+      - watchfiles
+      - --filter
+      - python
+      - 'python -m bot.exness_worker'
+      - /app/backend/app
+      - /app/bot
   migrate:
     <<: *python-dev
   frontend:

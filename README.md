@@ -30,38 +30,42 @@ docker compose down           # giữ volume dữ liệu
 
 ## Docker dev với hot reload
 
+Bật dev một lần bằng cách thêm vào `.env` (file không commit, production không có dòng này):
+
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up --build -d
+# Set COMPOSE_FILE=compose.yaml:compose.dev.yaml in .env once.
+docker compose up --build -d
 ```
 
-Dashboard vẫn ở http://localhost:3000, nhưng được phục vụ bằng Vite dev server với React Fast Refresh. Sửa file trong `frontend/src/` sẽ cập nhật giao diện ngay, không cần build lại container. Source được bind mount; `node_modules` Linux nằm trong volume riêng, không dùng chung dependency macOS. Polling được bật để nhận thay đổi file qua Docker trên macOS.
+Từ đó `docker compose up -d`, `exec`, `logs` tự dùng cấu hình dev. Dashboard vẫn ở http://localhost:3000, nhưng được phục vụ bằng Vite dev server với React Fast Refresh. Sửa file trong `frontend/src/` sẽ cập nhật giao diện ngay, không cần build lại container. Source được bind mount; `node_modules` Linux nằm trong volume riêng, không dùng chung dependency macOS. Polling được bật để nhận thay đổi file qua Docker trên macOS.
 
 | Service    | Chế độ dev                                                                  |
 | ---------- | --------------------------------------------------------------------------- |
 | `frontend` | Vite + React Fast Refresh khi sửa giao diện                                 |
 | `api`      | Uvicorn tự restart khi sửa `backend/app/`                                   |
 | `bot`      | Watchfiles gửi SIGINT rồi restart worker khi sửa `bot/` hoặc `backend/app/` |
+| `exness-feed` | Watchfiles restart feed khi sửa `bot/` hoặc `backend/app/`                |
 | `migrate`  | Đọc migration từ source mount, chạy theo lệnh; không tự theo dõi file       |
 | `postgres` | Giữ nguyên PostgreSQL và volume dữ liệu                                     |
 
-Python source được mount chỉ đọc; polling nhận thay đổi file trên macOS. API và worker dùng image dev có pytest, Ruff và Watchfiles. Sau restart, worker đọc lại trạng thái và nến đã commit từ database; bật/tắt bot được giữ nguyên. Khi sửa chiến lược, thay đổi sẽ áp dụng từ lần xử lý kế tiếp sau restart.
+Python source, gồm `scripts/`, được mount chỉ đọc; polling nhận thay đổi file trên macOS. `research-output/` được mount đọc/ghi để API và worker dùng chung báo cáo replay. API và worker dùng image dev có pytest, Ruff và Watchfiles. Sau restart, worker đọc lại trạng thái và nến đã commit từ database; bật/tắt bot được giữ nguyên. Khi sửa chiến lược, thay đổi sẽ áp dụng từ lần xử lý kế tiếp sau restart. Script dùng source mới ở lần gọi tiếp theo, không tự chạy lại.
 
 Khi sửa dependency trong `package.json`/lockfile, khởi động lại frontend để chạy lại `npm ci`:
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml restart frontend
+docker compose restart frontend
 ```
 
 Khi sửa `backend/requirements*.txt` hoặc Dockerfile Python, build lại các service Python:
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up --build -d api bot migrate
+docker compose up --build -d api bot exness-feed migrate
 ```
 
 Khi thêm/sửa migration, áp dụng chủ động trước khi dùng code phụ thuộc schema mới:
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
+docker compose run --rm migrate
 ```
 
 Nếu thay đổi schema không tương thích với code đang chạy, dừng `api bot` trước khi migrate rồi chạy lại. Không chỉnh migration đã áp dụng; tạo revision mới.
@@ -69,10 +73,10 @@ Nếu thay đổi schema không tương thích với code đang chạy, dừng `
 Chạy kiểm tra bên trong image dev, database test được tạo riêng và không dùng PostgreSQL đang chạy:
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml exec api python -m pytest backend/tests -q
-docker compose -f compose.yaml -f compose.dev.yaml exec api ruff check backend bot migrations
-docker compose -f compose.yaml -f compose.dev.yaml exec api ruff format --check backend bot migrations
-docker compose -f compose.yaml -f compose.dev.yaml logs -f api bot
+docker compose exec api python -m pytest backend/tests -q
+docker compose exec api ruff check backend bot migrations
+docker compose exec api ruff format --check backend bot migrations
+docker compose logs -f api bot
 ```
 
 Quay lại Nginx và image Python production không có dev dependencies/watchers:
@@ -81,7 +85,7 @@ Quay lại Nginx và image Python production không có dev dependencies/watcher
 docker compose -f compose.yaml up --build -d
 ```
 
-Dùng đủ hai file Compose cho các lệnh dev để giữ đúng cấu hình.
+Trên máy production không đặt `COMPOSE_FILE`, hoặc đặt `COMPOSE_FILE=compose.yaml`, rồi dùng cùng lệnh `docker compose up -d`. `-f compose.yaml` ghi đè lựa chọn trong `.env` nếu cần chạy bản production trên máy dev. Không sao chép `.env` dev lên production. Compose chọn cấu hình từ môi trường, không tự đoán máy dev/production.
 
 ## Phát triển cục bộ không cần Docker
 
@@ -310,7 +314,7 @@ vẫn dùng chung bộ khớp lệnh, tính phí và kế toán ví với auto.
 Kiểm tra đồng thời trên PostgreSQL (tạo/xóa database test riêng, không đổi dữ liệu app):
 
 ```sh
-docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -m backend.tests.check_auto_concurrency
+docker compose exec -T api python -m backend.tests.check_auto_concurrency
 ```
 
 ### Xem lại lệnh Paper trên chart
