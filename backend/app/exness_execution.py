@@ -29,6 +29,7 @@ from .exness_management import (max_lot, risk_budget, split_bodies, closed_minut
 from decimal import Decimal
 from .forex_learner import live_signal, summary as learning_summary
 from .exness_targets import target_context
+from .exness_management import structure_stop_buffer
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -218,6 +219,7 @@ def evaluate(session, now):
     hours = [row for row in frames["1h"] if row.price_type == "bid"]
     signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None)
     if signal:
+        signal["stop_buffer"] = structure_stop_buffer(minutes)
         signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])
     return signal
 

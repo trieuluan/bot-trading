@@ -91,7 +91,7 @@ def test_commits_intent_before_submit_and_native_sltp(monkeypatch):
             body = json.loads(kwargs["content"])
             assert row.snapshot["body"] == body
             assert body["volume"] == "0.01"
-            assert float(body["stop_loss_price"]) == 3995
+            assert float(body["stop_loss_price"]) == 3994.75
             assert float(body["take_profit_price"]) > 4000.25
         return SimpleNamespace(status_code=202, json=lambda: {"operation_id": "123"})
     api.client.request.side_effect = request

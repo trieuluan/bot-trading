@@ -53,3 +53,39 @@ def test_early_exit_requires_new_adverse_close_after_entry():
     assert exit_reason("buy", 21 * 900, rows) == "early_risk_exit"
     assert exit_reason("buy", 22 * 900, rows) is None
     assert exit_reason("sell", 21 * 900, rows) is None
+
+
+def _client_and_inputs():
+    import time
+    from unittest.mock import MagicMock
+    from backend.app.exness_demo_client import ExnessDemoClient
+    cond = {**COND, "instrument": "XAUUSD", "trade_mode": "enabled", "exec_mode": "market", "quote_currency": "USD"}
+    now = time.time()
+    return ExnessDemoClient(MagicMock()), cond, {"bid": 2600.0, "ask": 2600.4, "time": now, "received_at": now}
+
+def test_structural_stop_adds_buffer_and_rounds_outward(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    client, cond, quote = _client_and_inputs()
+    long = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8}, cond, quote, "k1")
+    short = client.strategy_body({"side": "short", "stop": 2605.0, "stop_buffer": 0.8}, cond, quote, "k2")
+    spread = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.1}, cond, quote, "k3")
+    genome = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8, "generated": True}, cond, quote, "k4")
+    assert Decimal(long["stop_loss_price"]) == Decimal("2594.200")
+    assert Decimal(short["stop_loss_price"]) == Decimal("2605.800")
+    assert Decimal(spread["stop_loss_price"]) == Decimal("2594.600")
+    assert Decimal(genome["stop_loss_price"]) == Decimal("2595.000")
+
+def test_sl_buffer_uses_true_range_including_previous_close():
+    from backend.app.exness_management import structure_stop_buffer
+    rows = [bar(index * 900, 100, 101, 99, 100) for index in range(15)]
+    rows[-1] = bar(14 * 900, 110, 111, 109, 110)
+    assert structure_stop_buffer(rows) == pytest.approx((13 * 2 + 11) / 14 * 0.25)
+    with pytest.raises(ExnessError, match="15 closed"):
+        structure_stop_buffer(rows[-14:])
+
+@pytest.mark.parametrize("buffer", [-1, float("nan"), float("inf"), True])
+def test_invalid_sl_buffer_rejected(buffer):
+    client, cond, quote = _client_and_inputs()
+    with pytest.raises(ExnessError):
+        client.strategy_body({"side": "long", "stop": 2595, "stop_buffer": buffer}, cond, quote, "bad")

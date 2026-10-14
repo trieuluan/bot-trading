@@ -134,8 +134,15 @@ class ExnessDemoClient:
         tick = Decimal(1).scaleb(-digits)
         long = signal["side"] == "long"
         entry = positive_decimal(quote["ask" if long else "bid"])
-        stop = positive_decimal(signal["stop"]).quantize(tick,
-            rounding=ROUND_CEILING if long else ROUND_FLOOR)
+        pad = Decimal(0)
+        if not signal.get("generated"):  # structural stops sit beyond the level; ATR genome stops already have room
+            raw_buffer = signal.get("stop_buffer", 0)
+            if isinstance(raw_buffer, bool) or not isinstance(raw_buffer, (int, float)) or not math.isfinite(raw_buffer) or raw_buffer < 0:
+                raise ExnessError("Invalid structure SL buffer")
+            pad = max(Decimal(str(raw_buffer)),
+                      positive_decimal(quote["ask"]) - positive_decimal(quote["bid"]))
+        stop = (positive_decimal(signal["stop"]) + (-pad if long else pad)).quantize(tick,
+            rounding=ROUND_FLOOR if long else ROUND_CEILING)
         risk_distance = (entry - stop) if long else (stop - entry)
         if risk_distance <= 0:
             raise ExnessError("Invalid structure stop")
