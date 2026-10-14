@@ -7,8 +7,14 @@ from backend.app.exness_targets import structural_target, target_context
 def candle(stamp, opening, high, low, close):
     return SimpleNamespace(time=stamp, open=opening, high=high, low=low, close=close)
 
-def test_structural_target_caps_at_2r():
-    context = {"barriers": [{"side": "long", "price": 2700.0, "reason": "H1 Donchian20"}], "buffer": 0.5}
+def test_far_barrier_allows_target_beyond_2r():
+    context = {"barriers": [{"side": "long", "price": 2640.0, "reason": "H4 Donchian20"}], "buffer": 0.5}
+    target, reason = structural_target("long", Decimal("2600"), Decimal("2590"), context, Decimal("0.001"))
+    assert target == Decimal("2639.500")
+    assert reason == "H4 Donchian20 @ 2640.0"
+
+def test_no_barrier_falls_back_to_2r():
+    context = {"barriers": [{"side": "short", "price": 2500.0, "reason": "H1 swing low"}], "buffer": 0.5}
     target, reason = structural_target("long", Decimal("2600"), Decimal("2590"), context, Decimal("0.001"))
     assert target == Decimal("2620.000")
     assert reason == "fixed_2r"

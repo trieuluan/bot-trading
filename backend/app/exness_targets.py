@@ -1,4 +1,4 @@
-"""Closed H1/H4 barriers for demo exits; fixed 2R remains the ceiling."""
+"""Closed H1/H4 barriers for demo exits; 2R only when no barrier is ahead."""
 
 from decimal import Decimal
 
@@ -35,18 +35,20 @@ def structural_target(side, entry, stop, context, tick):
     risk = direction * (entry - stop)
     if risk <= 0:
         raise ExnessError("Invalid structure stop")
-    target, reason = entry + direction * 2 * risk, "fixed_2r"
+    target, reason = entry + direction * 2 * risk, "fixed_2r"  # no barrier ahead: 2R fallback
     buffer = Decimal(str(context["buffer"]))
     if not buffer.is_finite() or buffer < 0:
         raise ExnessError("Invalid TP buffer")
+    ahead = []
     for barrier in context["barriers"]:
         price = Decimal(str(barrier["price"]))
         if not price.is_finite() or price <= 0:
             raise ExnessError("Invalid TP barrier")
         if barrier["side"] == side and direction * (price - entry) > 0:
-            candidate = price - direction * buffer
-            if direction * (candidate - target) < 0:
-                target, reason = candidate, f'{barrier["reason"]} @ {price}'
+            ahead.append((direction * (price - entry), price, barrier["reason"]))
+    if ahead:  # nearest barrier decides, even beyond 2R
+        _, price, label = min(ahead, key=lambda item: item[0])
+        target, reason = price - direction * buffer, f"{label} @ {price}"
     target = target.quantize(tick)
     if direction * (target - entry) < risk:
         raise ExnessError("skipped_poor_rr: structural TP below 1R")
