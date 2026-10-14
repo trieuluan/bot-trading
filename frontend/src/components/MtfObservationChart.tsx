@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   LineSeries,
@@ -17,6 +17,7 @@ import {
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition } from '../types/exness-execution';
 import { formatPrice, observationStatusLabels } from '../lib/format';
+import { placeChartTags } from '../lib/chart-tags';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
   status: string;
@@ -34,6 +35,11 @@ export function MtfObservationChart({
   onLoadOlder,
   trendLabel = 'Xu hướng 4h',
   levelLabel = 'Mức breakout',
+  dark = false,
+  pnlOf,
+  pnlAt,
+  onClosePosition,
+  onSelectPosition,
   title = 'BTC_USDT perpetual · 15m (vùng tham chiếu từ 1h) · Chỉ quan sát, không gửi lệnh',
 }: {
   candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
@@ -47,6 +53,11 @@ export function MtfObservationChart({
   onLoadOlder?: () => void;
   trendLabel?: string;
   levelLabel?: string;
+  dark?: boolean;
+  pnlOf?: (position: BrokerPosition) => number | null;
+  pnlAt?: (position: BrokerPosition, price: number) => number | null;
+  onClosePosition?: (position: BrokerPosition) => void;
+  onSelectPosition?: (id: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -58,19 +69,75 @@ export function MtfObservationChart({
   const loadOlder = useRef(onLoadOlder);
   loadOlder.current = onLoadOlder;
   const previousTimes = useRef<number[]>([]);
+  const [tags, setTags] = useState<
+    { id: string; kind: 'entry' | 'stop' | 'target'; y: number; displayY: number; column: number }[]
+  >([]);
+  const openRows = executions.filter(
+    (row) => row.status === 'open' && row.open_price != null && row.open_price > 0,
+  );
+  const activeId = selectedPositionId ?? openRows[0]?.position_id;
+  const openKey =
+    `${activeId}:` +
+    openRows
+      .map((row) => `${row.position_id}:${row.open_price}:${row.stop}:${row.target}`)
+      .join('|');
+  useEffect(() => {
+    if (!openKey) {
+      setTags([]);
+      return;
+    }
+    let frame = 0;
+    let last = '';
+    const tick = () => {
+      const priceSeries = series.current;
+      if (priceSeries) {
+        const next = openRows.flatMap((row) =>
+          (
+            [
+              ['entry', row.open_price],
+              ['stop', row.stop],
+              ['target', row.target],
+            ] as const
+          ).flatMap(([kind, price]) => {
+            if (kind !== 'entry' && row.position_id !== activeId) return [];
+            if (price == null || !Number.isFinite(price) || price <= 0) return [];
+            const y = priceSeries.priceToCoordinate(price);
+            return y === null ? [] : [{ id: row.position_id, kind, y: Math.round(y) }];
+          }),
+        );
+        const placed = placeChartTags(
+          next,
+          Math.max(0, (container.current?.clientHeight ?? 0) - 30),
+        );
+        const key = placed
+          .map((tag) => `${tag.id}:${tag.kind}:${tag.y}:${tag.displayY}:${tag.column}`)
+          .join('|');
+        if (key !== last) {
+          last = key;
+          setTags(placed);
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [openKey]);
 
   useEffect(() => {
     if (!container.current) return;
     chart.current = createChart(container.current, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#fcfdf9' },
-        textColor: '#63746a',
+        background: { type: ColorType.Solid, color: dark ? '#0b100e' : '#fcfdf9' },
+        textColor: dark ? '#899b91' : '#63746a',
         fontFamily: "'DM Sans', sans-serif",
         fontSize: 13,
         attributionLogo: true,
       },
-      grid: { vertLines: { color: '#eef1e9' }, horzLines: { color: '#eef1e9' } },
+      grid: {
+        vertLines: { color: dark ? '#1a2420' : '#eef1e9' },
+        horzLines: { color: dark ? '#1a2420' : '#eef1e9' },
+      },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 },
       rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.15 } },
     });
@@ -246,38 +313,27 @@ export function MtfObservationChart({
         }
       }
     }
-    for (const trade of executions) {
+    const openTrades = executions.filter((trade) => trade.status === 'open');
+    const activeId = selectedPositionId ?? openTrades[0]?.position_id;
+    for (const trade of openTrades) {
+      const isSelected = trade.position_id === activeId;
       for (const deal of trade.deals) {
-        if (!['open', 'close'].includes(deal.type)) continue;
+        if (deal.type !== 'open') continue;
         const bucket = Math.floor(deal.event_time / frameSeconds) * frameSeconds;
         if (!candles.some((candle) => candle.time === bucket)) continue;
-        const entry = deal.type === 'open';
         points.push({
           time: bucket as UTCTimestamp,
-          position: entry
-            ? trade.side === 'buy'
-              ? 'belowBar'
-              : 'aboveBar'
-            : trade.side === 'buy'
-              ? 'aboveBar'
-              : 'belowBar',
-          color: entry
-            ? '#557fa1'
-            : trade.pnl == null
-              ? '#63746a'
-              : trade.pnl >= 0
-                ? '#2c856c'
-                : '#bd7164',
-          shape: entry ? (trade.side === 'buy' ? 'arrowUp' : 'arrowDown') : 'circle',
-          text: `${entry ? trade.side?.toUpperCase() : 'EXIT'} #${trade.position_id} @ ${deal.price}`,
+          position: trade.side === 'buy' ? 'belowBar' : 'aboveBar',
+          color: isSelected ? '#557fa1' : '#33443d',
+          shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: `${trade.side?.toUpperCase()} #${trade.position_id} @ ${deal.price}`,
         });
       }
-      if (trade.position_id === selectedPositionId) {
+      if (isSelected) {
         for (const [price, color, title] of [
-          [trade.open_price, '#557fa1', 'ENTRY KHỚP SÀN'],
-          [trade.stop, '#bd7164', 'SL SÀN'],
-          [trade.target, '#2c856c', 'TP SÀN'],
-          [trade.close_price, '#63746a', 'EXIT KHỚP SÀN'],
+          [trade.open_price, '#557fa1', `ENTRY #${trade.position_id}`],
+          [trade.stop, '#bd7164', `SL #${trade.position_id}`],
+          [trade.target, '#2c856c', `TP #${trade.position_id}`],
         ] as const) {
           if (price == null || price <= 0) continue;
           lines.current.push(
@@ -291,6 +347,17 @@ export function MtfObservationChart({
             }),
           );
         }
+      } else if (trade.open_price && trade.open_price > 0) {
+        lines.current.push(
+          priceSeries.createPriceLine({
+            price: trade.open_price,
+            color: '#2a3b33',
+            title: `#${trade.position_id}`,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: false,
+          }),
+        );
       }
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
@@ -299,12 +366,117 @@ export function MtfObservationChart({
   return (
     <div className="trade-chart-wrap">
       <div className="chart-ohlc">{title}</div>
-      <div
-        ref={container}
-        className="trade-candlestick-chart"
-        role="img"
-        aria-label="Chart quan sát đa khung"
-      />
+      <div className="chart-price-surface">
+        <div
+          ref={container}
+          className="trade-candlestick-chart"
+          role="img"
+          aria-label="Chart quan sát đa khung"
+        />
+        <div className="position-tag-layer">
+          {!snapshot &&
+            (() => {
+              return tags.map((tag) => {
+                const row = openRows.find((item) => item.position_id === tag.id);
+                if (!row) return null;
+                const isSelected = tag.id === activeId;
+                if (tag.kind !== 'entry' && !isSelected) return null;
+                const key = `${tag.id}-${tag.kind}`;
+                if (tag.kind !== 'entry') {
+                  const price = tag.kind === 'stop' ? row.stop : row.target;
+                  const value = price == null ? null : (pnlAt?.(row, price) ?? null);
+                  if (value == null) return null;
+                  return (
+                    <div
+                      key={key}
+                      className={`position-tag ${value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : 'is-faded'}`}
+                      style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
+                      title={`#${row.position_id} · ${price} · P/L dự kiến, chưa trừ phí/swap`}
+                    >
+                      <span>
+                        {tag.kind === 'stop' ? 'SL' : 'TP'} #{row.position_id}
+                      </span>
+                      <strong>
+                        {value >= 0 ? '+' : '−'}
+                        {Math.abs(value).toFixed(2)} USD
+                      </strong>
+                    </div>
+                  );
+                }
+                const pnl = pnlOf?.(row) ?? null;
+                const tone = pnl == null ? 'flat' : pnl >= 0 ? 'win' : 'loss';
+                return (
+                  <div
+                    key={key}
+                    className={`position-tag ${tone} ${isSelected ? 'is-selected' : 'is-faded'}`}
+                    style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
+                    title={`#${row.position_id} · Giá vào ${row.open_price} · P/L ước tính, chưa trừ phí/swap`}
+                  >
+                    <button
+                      type="button"
+                      className="position-tag-select"
+                      aria-label={`Chọn vị thế #${row.position_id}`}
+                      aria-pressed={isSelected}
+                      onClick={() => onSelectPosition?.(row.position_id)}
+                    >
+                      <span className="tag-vol">
+                        {row.volume} <small>#{row.position_id}</small>
+                      </span>
+                      <strong>
+                        {pnl == null
+                          ? '—'
+                          : `${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)} USD`}
+                      </strong>
+                    </button>
+                    {isSelected &&
+                      onClosePosition &&
+                      row.signal_time != null &&
+                      !row.close_requested && (
+                        <button
+                          type="button"
+                          aria-label={`Đóng vị thế #${row.position_id}`}
+                          onClick={() => {
+                            onClosePosition(row);
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                  </div>
+                );
+              });
+            })()}
+          <svg className="position-tag-leaders" aria-hidden="true">
+            {!snapshot &&
+              tags.map((tag) =>
+                tag.y !== tag.displayY ? (
+                  <line
+                    key={`${tag.id}-${tag.kind}`}
+                    x1={6}
+                    y1={tag.y}
+                    x2={12 + tag.column * 300}
+                    y2={tag.displayY}
+                  />
+                ) : null,
+              )}
+          </svg>
+        </div>
+      </div>
+      {executions && executions.length > 0 && !snapshot && (
+        <div className="broker-chart-legend" aria-label="Chú thích dấu khớp lệnh sàn">
+          <span>
+            <span className="broker-marker-dot marker-entry" aria-hidden="true" /> Mũi tên: Entry vị
+            thế đang mở
+          </span>
+          {selectedPositionId && (
+            <>
+              <span className="stop-legend">--- SL sàn</span>
+              <span className="target-legend">--- TP sàn</span>
+              <span className="entry-legend">--- Giá vào</span>
+            </>
+          )}
+        </div>
+      )}
       <div className="chart-legend">
         {snapshot && (
           <strong>

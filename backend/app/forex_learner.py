@@ -266,24 +266,41 @@ def broker_labels(session, account):
     for row in trades:
         data = row.snapshot
         signal = data.get("signal", {})
-        if data.get("status") != "closed" or not signal.get("policy_features"):
+        if not signal.get("policy_features"):
             continue
-        fills = [deal.snapshot for deal in deals if deal.position_id == data.get("position_id")]
-        opens = [deal for deal in fills if deal.get("type") == "open"]
-        exits = [deal for deal in fills if deal.get("type") == "close"]
-        if not opens or not exits or any("profit" not in deal for deal in exits):
+        legs = data.get("legs") or [data]
+        if any(leg.get("status") in ("planned", "submitting", "submitted", "uncertain", "open", "closing") for leg in legs):
             continue
-        volume = sum(float(deal["volume"]) for deal in opens)
-        if volume <= 0 or sum(float(deal["volume"]) for deal in exits) + 1e-9 < volume:
-            continue
-        entry = sum(float(deal["price"]) * float(deal["volume"]) for deal in opens) / volume
-        risk = abs(entry - float(data["body"]["stop_loss_price"])) * volume * 100
-        if risk <= 0:
-            continue
-        labels.append({"status": "resolved", "bucket": bucket(signal, signal["policy_features"]),
-                       "net_r_ex_swap": sum(float(deal["profit"]["amount"]) for deal in exits) / risk,
-                       "label_available_at": max(deal["event_time"] for deal in exits),
-                       "provenance": "broker_demo_profit_ex_fees", "position_id": data["position_id"]})
+        total_risk, total_profit, available = 0.0, 0.0, 0
+        valid = True
+        for leg in legs:
+            pid = leg.get("position_id")
+            if leg.get("status") != "closed" or not pid:
+                continue
+            fills = [deal.snapshot for deal in deals if deal.position_id == pid]
+            opens = [deal for deal in fills if deal.get("type") == "open"]
+            exits = [deal for deal in fills if deal.get("type") == "close"]
+            if not opens or not exits or any("profit" not in deal for deal in exits):
+                valid = False
+                break
+            volume = sum(float(deal["volume"]) for deal in opens)
+            if volume <= 0 or sum(float(deal["volume"]) for deal in exits) + 1e-9 < volume:
+                valid = False
+                break
+            entry = sum(float(deal["price"]) * float(deal["volume"]) for deal in opens) / volume
+            stop = leg.get("body", {}).get("stop_loss_price")
+            if not stop:
+                valid = False
+                break
+            total_risk += abs(entry - float(stop)) * volume * float(leg.get("contract_size", 100))
+            total_profit += sum(float(deal["profit"]["amount"]) for deal in exits)
+            available = max(available, max(deal["event_time"] for deal in exits))
+        if valid and total_risk > 0:
+            labels.append({"status": "resolved", "bucket": bucket(signal, signal["policy_features"]),
+                           "net_r_ex_swap": total_profit / total_risk, "label_available_at": available,
+                           "provenance": "broker_demo_profit_ex_fees", "position_id":
+                           next((leg["position_id"] for leg in legs if leg.get("position_id")), None),
+                           "exit_policy": data.get("exit_policy", "fixed_2r")})
     return labels
 
 @router.get("")

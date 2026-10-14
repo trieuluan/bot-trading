@@ -10,6 +10,7 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import httpx
 
 from .exness import ExnessError, b64url
+from .exness_management import max_lot, risk_budget, size_lot
 
 
 def positive_decimal(value):
@@ -33,7 +34,7 @@ def validate_quote(quote, now=None):
 
 
 def signed_mutation_headers(api, method, path, body, key, now_ms=None):
-    if method not in ("POST", "DELETE") or not key:
+    if method not in ("POST", "DELETE", "PATCH") or not key:
         raise ValueError("Mutation requires method and stable idempotency key")
     timestamp = int(time.time() * 1000) if now_ms is None else now_ms
     payload = json.dumps({
@@ -87,10 +88,11 @@ class ExnessDemoClient:
         limits = self.api.limits()["limits"]["rest"]
         required = {"openPosition", "closePosition", "getTradingStateSnapshot", "getAccountDetails"}
         methods = limits["methods"]
+        self.can_modify = "modifyOrder" in {row["api_operation_id"] for row in methods}
         if not required <= {row["api_operation_id"] for row in methods}:
             raise ExnessError("Required trading methods unavailable")
         rates = [limits["global_account_rate"], *[row["rate_limit"] for row in methods
-                 if row["api_operation_id"] in required]]
+                 if row["api_operation_id"] in required | {"modifyOrder"}]]
         self.api.request_interval = max(1.05, self.api.request_interval, *[
             float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
             for rate in rates])
@@ -125,11 +127,6 @@ class ExnessDemoClient:
         if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
                 or condition.get("exec_mode") != "market" or condition.get("quote_currency") != "USD"):
             raise ExnessError("XAUUSD market execution unavailable")
-        volume = Decimal("0.01")
-        minimum, maximum, step = [positive_decimal(condition[name]) for name in
-                                   ("volume_min", "volume_max", "volume_step")]
-        if not minimum <= volume <= maximum or (volume - minimum) % step:
-            raise ExnessError("0.01 lot unsupported")
         digits = condition["point_digits"]
         if isinstance(digits, bool) or not isinstance(digits, int) or not 0 <= digits <= 10:
             raise ValueError("Invalid precision")
@@ -138,30 +135,44 @@ class ExnessDemoClient:
         entry = positive_decimal(quote["ask" if long else "bid"])
         stop = positive_decimal(signal["stop"]).quantize(tick,
             rounding=ROUND_CEILING if long else ROUND_FLOOR)
-        risk = (entry - stop) if long else (stop - entry)
-        units = volume * positive_decimal(condition["contract_size"])
-        if (risk <= 0 or risk * units > 25 or units * entry > 10000
+        risk_distance = (entry - stop) if long else (stop - entry)
+        if risk_distance <= 0:
+            raise ExnessError("Invalid structure stop")
+        contract = positive_decimal(condition["contract_size"])
+        volume = size_lot(risk_distance, condition)
+        minimum = positive_decimal(condition["volume_min"])
+        step = positive_decimal(condition["volume_step"])
+        if (volume - minimum) % step:
+            raise ExnessError("Lot not aligned to broker step")
+        units = volume * contract
+        planned_risk = risk_distance * units
+        if (planned_risk <= 0 or planned_risk > risk_budget()
+                or units * entry > 50000
                 or (long and stop >= positive_decimal(quote["bid"]))
                 or (not long and stop <= positive_decimal(quote["ask"]))):
-            raise ExnessError("Invalid structure stop or planned risk exceeds $25")
-        target = (entry + (2 if long else -2) * risk).quantize(tick)
+            raise ExnessError("Invalid structure stop or planned risk out of bounds")
+        target = (entry + (2 if long else -2) * risk_distance).quantize(tick)
         positive_decimal(target)
-        return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": "0.01",
+        return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "take_profit_price": format(target, "f"),
                 "comment": key[:32]}
 
     def mutate(self, method, key, body=None, position_id=None, quote=None,
-               quote_source=None, condition=None, on_submit=None, build=None):
+               quote_source=None, condition=None, on_submit=None, build=None, order_id=None):
         self.last_submission = None
         if os.getenv("EXNESS_DEMO_ORDERS_ENABLED") != "true":
             raise ExnessError("Demo execution is disabled")
-        if method not in ("POST", "DELETE") or not isinstance(key, str) or not key:
+        if method not in ("POST", "DELETE", "PATCH") or not isinstance(key, str) or not key:
             raise ValueError("Explicit method and stable idempotency key required")
         if method == "POST" and (position_id is not None or not isinstance(body, dict)
                                   or body.get("instrument") != "XAUUSD"):
             raise ValueError("Invalid demo open request")
         if method == "DELETE" and (not isinstance(position_id, str) or not position_id.isdigit() or body):
             raise ValueError("Invalid demo close request")
+        if method == "PATCH":
+            if not isinstance(order_id, str) or not order_id.isdigit() or set(body or {}) != {"stop_loss_price"}:
+                raise ValueError("Only protective SL updates supported")
+            positive_decimal(body["stop_loss_price"])
         self.verify_demo()
         delay = self.api.next_request - time.monotonic()
         if delay > 0:
@@ -170,7 +181,7 @@ class ExnessDemoClient:
             try:
                 quote = quote_source()
             except Exception:
-                if method == "POST":
+                if method in ("POST", "PATCH"):
                     raise
                 quote = None
         if method == "POST":
@@ -179,12 +190,30 @@ class ExnessDemoClient:
                 body = self.open_body(body["side"], condition, quote, key)
             elif build is not None:
                 body = build(quote)
-            if body.get("side") not in ("buy", "sell") or positive_decimal(body.get("volume")) > Decimal("0.01"):
+            max_allowed = Decimal("0.01") if condition is not None else max_lot()
+            if body.get("side") not in ("buy", "sell") or positive_decimal(body.get("volume")) > max_allowed:
                 raise ValueError("Invalid demo lot or direction")
             positive_decimal(body.get("stop_loss_price"))
+        if method == "PATCH":
+            validate_quote(quote)
+            snapshot = self.snapshot()
+            order = next((row for row in snapshot["orders"] if row.get("order_id") == order_id
+                          and row.get("order_type") == "sltp"), None)
+            position = next((row for row in snapshot["positions"] if order
+                             and row.get("position_id") == order.get("position_id")
+                             and row.get("instrument") == "XAUUSD"), None)
+            if not order or not position:
+                raise ExnessError("No active XAUUSD protection to modify")
+            stop = positive_decimal(body["stop_loss_price"])
+            old = positive_decimal(order.get("stop_loss_price"))
+            if not (old < stop < Decimal(str(quote["bid"])) if position["direction"] == "buy"
+                    else Decimal(str(quote["ask"])) < stop < old):
+                raise ExnessError("SL update would loosen protection or cross market")
         path = f"/v1/trading/accounts/{self.api.account_id}/positions"
         if method == "DELETE":
             path += "/" + position_id
+        if method == "PATCH":
+            path = f"/v1/trading/accounts/{self.api.account_id}/orders/{order_id}"
         data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode() if body else b""
         self.api.next_request = time.monotonic() + self.api.request_interval
         self.last_submission = {"submitted_at": time.time(), "method": method, "key": key,

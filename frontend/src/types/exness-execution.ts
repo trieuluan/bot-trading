@@ -14,6 +14,12 @@ export interface BrokerPosition {
   reason?: string;
   close_requested?: boolean;
   pnl: number | null;
+  role?: 'tp1' | 'runner';
+  management_stage?: string;
+  management_status?: string;
+  management_error?: string;
+  close_reason?: string;
+  partial_taken?: boolean;
   deals: {
     deal_id: string;
     order_id?: string;
@@ -47,6 +53,8 @@ export interface ExnessExecution {
   strategy: string;
   lot: string;
   max_concurrent: number;
+  planned_risk_ceiling_usd?: number;
+  stop_management_available?: boolean;
   decision: string | null;
   error: string | null;
   synced_at: number | null;

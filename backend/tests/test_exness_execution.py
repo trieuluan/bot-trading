@@ -50,6 +50,8 @@ def setup_env(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_ORDERS_ENABLED", "true")
     monkeypatch.setenv("EXNESS_ACCOUNT_ID", "31000117657")
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "1")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.01")
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
     monkeypatch.setattr(ee, "live_quote", lambda: {"bid": 4000.0, "ask": 4000.25, "time": NOW, "received_at": NOW})
 
 def test_disabled_by_default(monkeypatch):
@@ -202,3 +204,20 @@ def test_pending_order_blocks_new_position(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "5")
     assert ee.busy({"positions": [], "orders": [{"order_type": "limit"}]})
     assert not ee.busy({"positions": [], "orders": [{"order_type": "sltp"}]})
+
+
+def test_signal_splits_into_native_tp1_then_runner_only_after_first_fill(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    bodies = []
+    def request(method, url, **kwargs):
+        bodies.append(json.loads(kwargs["content"]))
+        return SimpleNamespace(status_code=202, json=lambda: {"operation_id": str(len(bodies))})
+    api.client.request.side_effect = request
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    assert len(bodies) == 1 and bodies[0]["volume"] == "0.02"
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
+        assert [leg["status"] for leg in row.snapshot["legs"]] == ["submitted", "planned"]

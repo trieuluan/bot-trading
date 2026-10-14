@@ -77,6 +77,9 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
     }
   }
   const selected = data?.positions.find((position) => position.position_id === selectedId);
+  const openPositions = (data?.positions ?? []).filter((position) => position.status === 'open');
+  const chartPosition =
+    openPositions.find((position) => position.position_id === selectedId) ?? openPositions[0];
   const rows = useMemo(
     () =>
       (data?.positions ?? []).filter(
@@ -103,7 +106,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           <div>
             <h2>Bot Exness Demo</h2>
             <p>
-              Tài khoản {data?.account ?? '—'} · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị
+              Tài khoản {data?.account ?? '—'} · {data?.lot ?? '0.01'} lot · tối đa {data?.max_concurrent ?? 1} vị
               thế cùng lúc
             </p>
           </div>
@@ -387,7 +390,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                                     `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
                                   )
                                 )
-                                  void action(`/trades/${position.signal_time}/close`, 'POST');
+                                  void action(`/trades/${position.signal_time}/close?position_id=${position.position_id}`, 'POST');
                               }}
                             >
                               {position.close_requested ? 'Đã yêu cầu đóng' : 'Đóng vị thế'}
@@ -494,14 +497,14 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               <div>
                 <span className="execution-eyebrow">GIAO DỊCH / XAUUSD</span>
                 <h3>
-                  {selected
-                    ? `Vị thế #${selected.position_id} · ${selected.side?.toUpperCase() ?? '—'}`
+                  {chartPosition
+                    ? `Vị thế #${chartPosition.position_id} · ${chartPosition.side?.toUpperCase() ?? '—'}`
                     : 'Theo dõi thị trường & giá khớp'}
                 </h3>
                 <p>
-                  {selected
-                    ? `Vào ${amount(selected.open_price)} · SL ${amount(selected.stop)} · TP ${amount(selected.target)}`
-                    : 'Chọn lệnh ở tab Lệnh trên sàn để xem đúng vị thế, hoặc theo dõi chart trực tiếp.'}
+                  {chartPosition
+                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}`
+                    : 'Chart chỉ hiển thị vị thế đang mở. Lịch sử lệnh đã đóng nằm ở tab Lệnh trên sàn.'}
                 </p>
               </div>
               <button type="button" className="secondary" onClick={() => setPanel('orders')}>
@@ -511,10 +514,20 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
             <ForexStrategyPage
               dashboard={dashboard}
               disconnected={!!error}
-              executions={data.positions}
-              selectedPosition={selected}
+              executions={openPositions}
+              selectedPosition={chartPosition}
+              onSelectPosition={setSelectedId}
               executionOnly
               includeReplay={false}
+              onClosePosition={(position) => {
+                if (
+                  !busy &&
+                  !error &&
+                  data.worker_online &&
+                  window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
+                )
+                  void action(`/trades/${position.signal_time}/close?position_id=${position.position_id}`, 'POST');
+              }}
             />
           </section>
           <section

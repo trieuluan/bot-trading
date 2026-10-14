@@ -196,6 +196,8 @@ export function ForexStrategyPage({
   selectedPosition,
   executionOnly = false,
   includeReplay = true,
+  onClosePosition,
+  onSelectPosition,
 }: {
   dashboard: ForexDashboard;
   disconnected: boolean;
@@ -203,12 +205,15 @@ export function ForexStrategyPage({
   selectedPosition?: BrokerPosition;
   executionOnly?: boolean;
   includeReplay?: boolean;
+  onClosePosition?: (position: BrokerPosition) => void;
+  onSelectPosition?: (id: string) => void;
 }) {
   const [candles, setCandles] = useState<ForexCandle[]>([]);
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
   const [view, setView] = useState<'mtf' | 'trend' | 'range' | 'router'>('mtf');
+  const historyBefore = selectedPosition?.status === 'closed' ? selectedPosition.close_time : null;
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const historyActions = useRef({ older: () => {}, refresh: () => {} });
@@ -347,7 +352,7 @@ export function ForexStrategyPage({
       setChartError('');
       try {
         const res = await fetch(
-          `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : selectedPosition?.status === 'closed' && selectedPosition.close_time ? `&before=${selectedPosition.close_time + 18000}` : ''}`,
+          `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : historyBefore ? `&before=${historyBefore + 18000}` : ''}`,
           { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) },
         );
         if (!res.ok) throw new Error('Cannot load Exness candles');
@@ -387,43 +392,85 @@ export function ForexStrategyPage({
       active = false;
       controller.abort();
     };
-  }, [frame, side, selectedPosition?.position_id]);
+  }, [frame, side, historyBefore]);
 
   useEffect(() => {
     historyActions.current.refresh();
   }, [dashboard.market.last_sync]);
 
+  const pnlAt = (position: BrokerPosition, price: number) => {
+    const contract = Number(dashboard.paper?.calibration?.profile?.contract_size);
+    if (
+      (position.side !== 'buy' && position.side !== 'sell') ||
+      ![contract, position.volume, position.open_price, price].every(
+        (value) => typeof value === 'number' && Number.isFinite(value) && value > 0,
+      )
+    )
+      return null;
+    const move =
+      position.side === 'buy' ? price - position.open_price! : position.open_price! - price;
+    return move * position.volume! * contract;
+  };
+  const pnlOf = (position: BrokerPosition) => {
+    const quote = quoteState.quote;
+    return quoteLive && quote
+      ? pnlAt(position, position.side === 'buy' ? quote.bid : quote.ask)
+      : null;
+  };
+
   return (
-    <section className="panel prose mtf-observation">
-      <div className="section-head">
-        <div>
-          <h2>
+    <section
+      className={`panel prose mtf-observation ${executionOnly ? 'broker-chart-terminal' : ''}`}
+    >
+      {executionOnly ? (
+        <header className="broker-market-header">
+          <div className="broker-instrument">
+            <span className="broker-symbol">XAU</span>
+            <div>
+              <h2>
+                Gold / US Dollar <span>XAUUSD</span>
+              </h2>
+              <p>
+                Exness Demo <span>·</span> Giá gốc sàn <span>·</span> UTC
+              </p>
+            </div>
+          </div>
+          <span className={`broker-stream-state ${quoteLive ? 'is-live' : ''}`} role="status">
+            <span aria-hidden="true" />
+            {quoteLive ? 'Tick trực tiếp' : 'Stream gián đoạn'}
+          </span>
+        </header>
+      ) : (
+        <div className="section-head">
+          <div>
+            <h2>
+              {executionOnly
+                ? 'Chart khớp lệnh sàn'
+                : view === 'mtf'
+                  ? 'Breakout + Retest'
+                  : view === 'trend'
+                    ? 'Trend Pullback'
+                    : 'Range Rejection'}{' '}
+              · XAUUSD
+            </h2>
+            <p>
+              {executionOnly
+                ? 'Dấu BUY/SELL/EXIT lấy từ deal Exness. Chọn vị thế để xem giá khớp, SL và TP sàn.'
+                : view === 'mtf'
+                  ? '4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và nến xác nhận giữ vùng.'
+                  : view === 'trend'
+                    ? 'H1 EMA20/50 xác định xu hướng → M15 chạm EMA20 → nến đóng xác nhận cùng chiều.'
+                    : 'Range 20 nến H1 đi ngang → M15 chạm biên → nến đóng từ chối vào trong range.'}
+            </p>
+          </div>
+          <span className="pill amber">
+            <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
             {executionOnly
-              ? 'Chart khớp lệnh sàn'
-              : view === 'mtf'
-                ? 'Breakout + Retest'
-                : view === 'trend'
-                  ? 'Trend Pullback'
-                  : 'Range Rejection'}{' '}
-            · XAUUSD
-          </h2>
-          <p>
-            {executionOnly
-              ? 'Dấu BUY/SELL/EXIT lấy từ deal Exness. Chọn vị thế để xem giá khớp, SL và TP sàn.'
-              : view === 'mtf'
-                ? '4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và nến xác nhận giữ vùng.'
-                : view === 'trend'
-                  ? 'H1 EMA20/50 xác định xu hướng → M15 chạm EMA20 → nến đóng xác nhận cùng chiều.'
-                  : 'Range 20 nến H1 đi ngang → M15 chạm biên → nến đóng từ chối vào trong range.'}
-          </p>
+              ? 'Lệnh demo trên sàn · Bid/Ask Exness'
+              : 'Paper tự động · nến bid gốc Exness'}
+          </span>
         </div>
-        <span className="pill amber">
-          <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
-          {executionOnly
-            ? 'Lệnh demo trên sàn · Bid/Ask Exness'
-            : 'Paper tự động · nến bid gốc Exness'}
-        </span>
-      </div>
+      )}
       {!executionOnly && (
         <div className="forex-paper-switch" role="group" aria-label="Chọn chiến lược">
           <button
@@ -542,83 +589,215 @@ export function ForexStrategyPage({
       )}
 
       {loading && <p className="micro">Đang tải nến {frame.toUpperCase()} Exness...</p>}
-      <div className="forex-chart-controls">
-        <label>
-          Khung nến{' '}
-          <select value={frame} onChange={(event) => setFrame(event.target.value)}>
-            <option value="15m">15 phút · Xác nhận</option>
-            <option value="1h">1 giờ · Breakout</option>
-            <option value="4h">4 giờ · Xu hướng</option>
-          </select>
-        </label>
-        <label>
-          Phía giá{' '}
-          <select value={side} onChange={(event) => setSide(event.target.value)}>
-            <option value="bid">Bid</option>
-            <option value="ask">Ask</option>
-          </select>
-        </label>
-        <span role="status" className="micro">
-          {candles.length.toLocaleString()} nến ·{' '}
-          {loadingOlder
-            ? 'Đang tải lịch sử...'
-            : hasMore
-              ? 'Kéo trái để tải thêm'
-              : 'Đã hết lịch sử lưu trong DB'}
-        </span>
-        {(hasMore || chartError) && (
-          <button
-            type="button"
-            disabled={loading || loadingOlder}
-            onClick={() =>
-              hasMore ? historyActions.current.older() : historyActions.current.refresh()
-            }
-          >
-            {chartError ? 'Tải lại' : 'Tải nến cũ'}
-          </button>
-        )}
-      </div>
+      {executionOnly ? (
+        <div className="broker-chart-toolbar">
+          <div className="broker-segments" role="group" aria-label="Khung thời gian chart">
+            {['15m', '1h', '4h'].map((value) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={frame === value}
+                onClick={() => setFrame(value)}
+              >
+                {value.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <span className="broker-toolbar-divider" aria-hidden="true" />
+          <div className="broker-segments" role="group" aria-label="Phía giá chart">
+            {['bid', 'ask'].map((value) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={side === value}
+                onClick={() => setSide(value)}
+              >
+                {value.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
+            <span>
+              BID <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
+            </span>
+            <span>
+              ASK <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
+            </span>
+            <span>
+              SPREAD{' '}
+              <strong>
+                {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
+              </strong>
+            </span>
+          </div>
+          {(hasMore || chartError) && (
+            <button
+              className="secondary broker-history-button"
+              type="button"
+              disabled={loading || loadingOlder}
+              onClick={() =>
+                chartError ? historyActions.current.refresh() : historyActions.current.older()
+              }
+            >
+              {chartError ? 'Thử tải lại' : loadingOlder ? 'Đang tải…' : 'Thêm lịch sử'}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="forex-chart-controls">
+          <label>
+            Khung nến{' '}
+            <select value={frame} onChange={(event) => setFrame(event.target.value)}>
+              <option value="15m">15 phút · Xác nhận</option>
+              <option value="1h">1 giờ · Breakout</option>
+              <option value="4h">4 giờ · Xu hướng</option>
+            </select>
+          </label>
+          <label>
+            Phía giá{' '}
+            <select value={side} onChange={(event) => setSide(event.target.value)}>
+              <option value="bid">Bid</option>
+              <option value="ask">Ask</option>
+            </select>
+          </label>
+          <span role="status" className="micro">
+            {candles.length.toLocaleString()} nến ·{' '}
+            {loadingOlder
+              ? 'Đang tải lịch sử...'
+              : hasMore
+                ? 'Kéo trái để tải thêm'
+                : 'Đã hết lịch sử lưu trong DB'}
+          </span>
+          {(hasMore || chartError) && (
+            <button
+              type="button"
+              disabled={loading || loadingOlder}
+              onClick={() =>
+                hasMore ? historyActions.current.older() : historyActions.current.refresh()
+              }
+            >
+              {chartError ? 'Tải lại' : 'Tải nến cũ'}
+            </button>
+          )}
+        </div>
+      )}
       {chartError && <p role="alert">{chartError}</p>}
-      <div className="research-metrics" aria-label="Giá Exness trực tiếp">
-        <div>
-          <span className="muted">Stream XAUUSD</span>
-          <strong>
-            {quoteStatusLabels[
-              quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
-            ] ?? 'Stream chưa sẵn sàng'}
-          </strong>
+      {!executionOnly && (
+        <div className="research-metrics" aria-label="Giá Exness trực tiếp">
+          <div>
+            <span className="muted">Stream XAUUSD</span>
+            <strong>
+              {quoteStatusLabels[
+                quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
+              ] ?? 'Stream chưa sẵn sàng'}
+            </strong>
+          </div>
+          <div>
+            <span className="muted">Bid · USD/oz</span>
+            <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
+          </div>
+          <div>
+            <span className="muted">Ask · USD/oz</span>
+            <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
+          </div>
+          <div>
+            <span className="muted">Spread · USD/oz</span>
+            <strong>
+              {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
+            </strong>
+          </div>
         </div>
-        <div>
-          <span className="muted">Bid · USD/oz</span>
-          <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
-        </div>
-        <div>
-          <span className="muted">Ask · USD/oz</span>
-          <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
-        </div>
-        <div>
-          <span className="muted">Spread · USD/oz</span>
-          <strong>
-            {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
-          </strong>
-        </div>
-      </div>
-      <p className="micro">
-        Nến đang chạy ghép từ tick {side.toUpperCase()} Exness, cập nhật mỗi giây. Nến live chỉ để
-        theo dõi; nến đóng từ REST thay thế khi đồng bộ, MTF và paper không đổi.{' '}
-        {!quoteLive
-          ? 'Stream tạm dừng; không hiển thị nến live cũ.'
-          : quoteState.candles?.[frame]?.at(-1)?.partial
-            ? 'Nến hiện tại thiếu tick đầu nến hoặc có gián đoạn; OHLC tạm thời.'
-            : 'OHLC từ tick đã nhận, có thể khác nến chính thức.'}
-        {quoteState.quote &&
-          ` Tick gần nhất: ${new Date(quoteState.quote.time * 1000).toISOString()}`}
-      </p>
+      )}
+      {!executionOnly && (
+        <p className="micro">
+          Nến đang chạy ghép từ tick {side.toUpperCase()} Exness, cập nhật mỗi giây. Nến live chỉ để
+          theo dõi; nến đóng từ REST thay thế khi đồng bộ, MTF và paper không đổi.{' '}
+          {!quoteLive
+            ? 'Stream tạm dừng; không hiển thị nến live cũ.'
+            : quoteState.candles?.[frame]?.at(-1)?.partial
+              ? 'Nến hiện tại thiếu tick đầu nến hoặc có gián đoạn; OHLC tạm thời.'
+              : 'OHLC từ tick đã nhận, có thể khác nến chính thức.'}
+          {quoteState.quote &&
+            ` Tick gần nhất: ${new Date(quoteState.quote.time * 1000).toISOString()}`}
+        </p>
+      )}
       {!loading && !chartError && candles.length === 0 && (
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
+      {executionOnly && executions.length > 0 && (
+        <div className="broker-position-picker" role="group" aria-label="Chọn vị thế đang mở">
+          <span className="broker-position-count">{executions.length} vị thế mở</span>
+          {executions.map((position) => {
+            const selected = position.position_id === selectedPosition?.position_id;
+            const pnl = pnlOf(position);
+            return (
+              <button
+                type="button"
+                key={position.position_id}
+                className="broker-position-chip"
+                aria-pressed={selected}
+                onClick={() => onSelectPosition?.(position.position_id)}
+              >
+                <span className={position.side === 'buy' ? 'positive' : 'negative'}>
+                  {position.side?.toUpperCase() ?? '—'}
+                </span>
+                <span>#{position.position_id}</span>
+                <span>{position.volume ?? '—'} lot {position.role === 'tp1' ? '· TP1' : position.role === 'runner' ? '· TP2' : ''}</span>
+                <strong className={pnl == null ? '' : pnl >= 0 ? 'positive' : 'negative'}>
+                  {pnl == null ? '— USD' : `${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)} USD`}
+                </strong>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {executionOnly && selectedPosition && (
+        <div className="broker-position-strip" aria-label="Vị thế đang xem">
+          <span
+            className={`broker-direction ${selectedPosition.side === 'buy' ? 'positive' : 'negative'}`}
+          >
+            {selectedPosition.side?.toUpperCase() ?? '—'}{' '}
+            <small>
+              {selectedPosition.volume} lot · #{selectedPosition.position_id}
+            </small>
+          </span>
+          <span>
+            GIÁ VÀO
+            <strong>
+              {selectedPosition.open_price != null ? formatPrice(selectedPosition.open_price) : '—'}
+            </strong>
+          </span>
+          <span className="broker-stop">
+            STOP LOSS
+            <strong>
+              {selectedPosition.stop != null ? formatPrice(selectedPosition.stop) : '—'}
+            </strong>
+          </span>
+          <span className="broker-target">
+            TAKE PROFIT
+            <strong>
+              {selectedPosition.target != null ? formatPrice(selectedPosition.target) : '—'}
+            </strong>
+          </span>
+          <span>
+            {selectedPosition.status === 'closed' ? 'PROFIT SÀN' : 'TRẠNG THÁI'}
+            <strong>
+              {selectedPosition.status === 'closed'
+                ? `${selectedPosition.pnl?.toFixed(2) ?? '—'} USD`
+                : selectedPosition.status === 'open'
+                  ? [selectedPosition.role === 'tp1' ? 'TP1 · 1R' : 'TP2 · 2R',
+                      selectedPosition.partial_taken ? 'Đã chốt TP1' : '',
+                      selectedPosition.management_status === 'confirmed'
+                        ? selectedPosition.management_stage === 'trailing' ? 'Đã dời trailing SL' : 'Đã dời SL về entry'
+                        : selectedPosition.management_status === 'submitted' ? 'Đang xác minh dời SL' : '',
+                    ].filter(Boolean).join(' · ')
+                  : 'Chưa đủ lịch sử'}
+            </strong>
+          </span>
+        </div>
+      )}
       <MtfObservationChart
-        key={`${frame}-${side}-${selectedPosition?.position_id ?? ''}`}
+        key={`${frame}-${side}`}
         onLoadOlder={hasMore && !chartError ? () => historyActions.current.older() : undefined}
         candles={candles}
         liveCandles={
@@ -631,6 +810,11 @@ export function ForexStrategyPage({
         }
         snapshot={!executionOnly && frame === '15m' && side === 'bid' ? fullSnapshot : null}
         executions={executions}
+        dark={executionOnly}
+        onClosePosition={onClosePosition}
+        onSelectPosition={onSelectPosition}
+        pnlAt={pnlAt}
+        pnlOf={pnlOf}
         selectedPositionId={selectedPosition?.position_id}
         frameSeconds={frame === '4h' ? 14400 : frame === '1h' ? 3600 : 900}
         trendLabel={view === 'mtf' ? 'Xu hướng 4h' : 'Xu hướng H1'}
@@ -645,9 +829,26 @@ export function ForexStrategyPage({
         }
         title={`Exness XAUUSD · ${executionOnly ? 'FILL SÀN DEMO' : view} · ${side.toUpperCase()} ${frame} · USD/oz · UTC`}
       />
-      <p className="micro">
+      {executionOnly && (
+        <div className="broker-chart-status">
+          <span>
+            {loading
+              ? 'Đang tải nến…'
+              : `${candles.length.toLocaleString()} nến ${frame.toUpperCase()}`}
+          </span>
+          <span>
+            {selectedPosition?.status === 'closed'
+              ? 'Đang xem lịch sử vị thế · không ghép tick'
+              : quoteLive
+                ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
+                : 'Tick tạm dừng · không dùng giá cũ'}
+          </span>
+          <span>{hasMore ? 'Kéo trái để tải thêm' : 'Hết lịch sử đã lưu'}</span>
+        </div>
+      )}
+      <p className={executionOnly ? 'broker-chart-footnote' : 'micro'}>
         {executionOnly
-          ? 'Mũi tên là fill vào, chấm tròn là fill thoát. Marker được gom vào nến theo thời gian khớp thật; bảng deal giữ timestamp gốc. SL/TP chỉ hiện khi có dữ liệu sàn hoặc journal bot.'
+          ? 'Chart chỉ hiện vị thế đang mở: mũi tên là fill vào, SL/TP theo dữ liệu sàn. Lệnh đã đóng xem ở tab Lệnh trên sàn.'
           : 'Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không dịch chuyển mức giá của setup.'}
       </p>
 
