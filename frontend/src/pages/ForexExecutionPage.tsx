@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
 import { ForexStrategyPage } from './ForexStrategyPage';
@@ -9,6 +9,9 @@ const amount = (value: number | string | null | undefined) =>
 const date = (stamp: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
 
+type Filter = 'all' | 'open' | 'closed' | 'bot';
+const isBot = (source: string) => source === 'learning' || source === 'regime_router';
+
 export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard }) {
   const [data, setData] = useState<ExnessExecution | null>(null);
   const [selectedId, setSelectedId] = useState<string>();
@@ -16,6 +19,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<Filter>('all');
   useEffect(() => {
     const controller = new AbortController();
     let inflight = false;
@@ -64,15 +68,34 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
     }
   }
   const selected = data?.positions.find((position) => position.position_id === selectedId);
+  const rows = useMemo(
+    () =>
+      (data?.positions ?? []).filter(
+        (position) =>
+          filter === 'all' ||
+          (filter === 'bot' ? isBot(position.source) : position.status === filter),
+      ),
+    [data, filter],
+  );
+  const closedRows = (data?.positions ?? []).filter(
+    (position) => position.status === 'closed' && position.pnl != null,
+  );
+  const wins = closedRows.filter((position) => (position.pnl ?? 0) > 0).length;
+  const strategies = Object.entries(data?.learning?.strategy_summary ?? {})
+    .filter(([, stats]) => stats.signals > 0)
+    .sort((x, y) => (y[1].mean_r ?? -99) - (x[1].mean_r ?? -99));
+  const picked = data?.learning?.latest?.selected;
+  const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
+  const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
   return (
     <>
       <section className="panel prose forex-execution">
         <div className="section-head">
           <div>
-            <h2>Lệnh sàn Exness Demo</h2>
+            <h2>Bot Exness Demo</h2>
             <p>
-              Tài khoản {data?.account ?? '—'} · {data?.strategy ?? 'learning'} · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị thế mỗi lúc ·
-              không giới hạn tổng số lệnh.
+              Tài khoản {data?.account ?? '—'} · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị
+              thế cùng lúc
             </p>
           </div>
           <button
@@ -91,79 +114,134 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
         {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
         {data && (
           <>
-            <section aria-label="Bộ học chiến lược" className="panel">
-              <h3>Bộ học tự sinh chiến lược · {data.learning?.mode ?? 'Đang khởi tạo'}</h3>
-              <p>{data.learning?.reason}</p>
-              <p>
-                {data.learning?.processed_bars ?? 0} nến · Cập nhật {date(data.learning?.updated_at ?? null)} ·
-                Chế độ nến mới: {data.learning?.latest?.mode ?? '—'} ·
-                Chiến lược chọn: {data.learning?.latest?.selected ?? 'Không vào lệnh'}
-              </p>
-              <p className="muted">
-                Trượt giá giả lập khớp theo đo đạc demo: {data.learning?.assumptions?.slippage_bps_each_side ?? 0} bps
-                ({data.learning?.assumptions?.slippage_measurement?.fills ?? 0} fills thực tế).
-                {' '}Nhãn học sàn thật: {data.learning?.broker_learning?.closed_labels ?? 0} lệnh đóng đã gom.
-              </p>
-              <p className="muted">Bộ học điều khiển lệnh demo. Thống kê nghiên cứu bên dưới là mô phỏng; vị thế và fill sàn hiển thị riêng. Các lệnh thăm dò chưa có bằng chứng lợi nhuận.</p>
-              <div className="research-metrics">
-                {Object.entries(data.learning?.strategy_summary ?? {}).map(([name, stats]) => (
-                  <div key={name}>
-                    <span>{name}</span>
-                    <strong>{stats.signals} tín hiệu · {stats.closed} đóng</strong>
-                    <span>R trung bình: {amount(stats.mean_r)} · {stats.excluded} bị loại</span>
-                  </div>
-                ))}
+            <div className="forex-exec-hero">
+              <div className="forex-exec-card">
+                <span className="label">Trạng thái bot</span>
+                <span className="val">
+                  <span className={`badge-status badge-${state}`}>
+                    <span className="pulse-dot" />
+                    {label}
+                  </span>
+                </span>
+                <span className="sub">Đồng bộ sàn: {date(data.synced_at)}</span>
               </div>
-              <p>
-                Kiểm thử ngoài mẫu: {data.learning?.validation?.selected_closed ?? 0} lệnh được chọn ·
-                R bộ học {amount(data.learning?.validation?.selected_mean_r)} ·
-                R router {amount(data.learning?.validation?.baseline_mean_r)}.
-                {' '}Đây là thống kê tín hiệu chồng lấn, không phải lợi nhuận ví.
-              </p>
-            </section>
-            <div className="research-metrics">
-              <div>
-                <span className="muted">Executor</span>
-                <strong>
-                  {data.worker_online
-                    ? data.enabled
-                      ? 'Đang chạy'
-                      : 'Tạm dừng mở lệnh'
-                    : 'Worker offline'}
-                </strong>
-              </div>
-              <div>
-                <span className="muted">Balance / Equity USD</span>
-                <strong>
+              <div className="forex-exec-card">
+                <span className="label">Balance / Equity · USD</span>
+                <span className="val">
                   {amount(data.account_state?.balance)} / {amount(data.account_state?.equity)}
-                </strong>
+                </span>
+                <span className="sub">
+                  Margin đã dùng: {amount(data.account_state?.used_margin)}
+                </span>
               </div>
-              <div>
-                <span className="muted">Đang mở / Đã đóng</span>
-                <strong>
-                  {data.open_count} / {data.closed_count}
-                </strong>
-              </div>
-              <div>
-                <span className="muted">Profit từ deal sàn · USD</span>
-                <strong className={data.broker_profit >= 0 ? 'positive' : 'negative'}>
+              <div className="forex-exec-card">
+                <span className="label">Profit deal sàn · USD</span>
+                <span className={`val ${data.broker_profit >= 0 ? 'positive' : 'negative'}`}>
                   {amount(data.broker_profit)}
-                </strong>
+                </span>
+                <span className="sub">
+                  {closedRows.length
+                    ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) · chưa gồm phí/swap`
+                    : 'Chưa có lệnh đóng'}
+                </span>
+              </div>
+              <div className="forex-exec-card">
+                <span className="label">Đang mở / Đã đóng</span>
+                <span className="val">
+                  {data.open_count} / {data.closed_count}
+                </span>
+                <span className="sub">Giới hạn mở: {data.max_concurrent}</span>
               </div>
             </div>
-            <p role="status">
-              <strong>Bot đang chờ:</strong>{' '}
-              {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
-              {data.error ? ` · Lỗi: ${data.error}` : ''}
-            </p>
+            <div className="decision-banner" role="status">
+              <span>
+                <strong>Bot đang:</strong>{' '}
+                {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
+                {data.error ? ` · Lỗi: ${data.error}` : ''}
+              </span>
+              <span className="muted">
+                {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
+              </span>
+            </div>
+            <section aria-label="Bộ học chiến lược">
+              <div className="section-head">
+                <h3>Bộ học tự sinh chiến lược</h3>
+                <span className="muted">
+                  {data.learning?.processed_bars ?? 0} nến · cập nhật{' '}
+                  {date(data.learning?.updated_at ?? null)}
+                </span>
+              </div>
+              <p className="micro">
+                Trượt giá giả lập {data.learning?.assumptions?.slippage_bps_each_side ?? 0} bps (đo
+                từ {data.learning?.assumptions?.slippage_measurement?.fills ?? 0} fill demo). Nhãn
+                học từ sàn: {data.learning?.broker_learning?.closed_labels ?? 0} lệnh. Bảng dưới là
+                mô phỏng chồng lấn, không phải lợi nhuận ví; lệnh thăm dò chưa có bằng chứng lãi.
+              </p>
+              <div className="table-wrap">
+                <table className="learner-grid-table">
+                  <thead>
+                    <tr>
+                      <th>Chiến lược</th>
+                      <th>Tín hiệu</th>
+                      <th>Đã đóng</th>
+                      <th>R trung bình</th>
+                      <th>Loại</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {strategies.map(([name, stats]) => (
+                      <tr key={name} className={name === picked ? 'active-strat' : ''}>
+                        <td>
+                          {name}
+                          {name === picked ? ' · đang chọn' : ''}
+                        </td>
+                        <td>{stats.signals}</td>
+                        <td>{stats.closed}</td>
+                        <td
+                          className={
+                            stats.mean_r == null ? '' : stats.mean_r >= 0 ? 'positive' : 'negative'
+                          }
+                        >
+                          {amount(stats.mean_r)}
+                        </td>
+                        <td>{stats.excluded}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="micro">
+                Ngoài mẫu: {data.learning?.validation?.selected_closed ?? 0} tín hiệu được chọn · R
+                bộ học {amount(data.learning?.validation?.selected_mean_r)} · R router cũ{' '}
+                {amount(data.learning?.validation?.baseline_mean_r)}.
+              </p>
+            </section>
+            <div className="section-head">
+              <h3>Lệnh trên sàn</h3>
+              <div className="filter-pills" role="group" aria-label="Lọc lệnh">
+                {(
+                  [
+                    ['all', 'Tất cả'],
+                    ['open', 'Đang mở'],
+                    ['closed', 'Đã đóng'],
+                    ['bot', 'Của bot'],
+                  ] as [Filter, string][]
+                ).map(([key, text]) => (
+                  <button
+                    key={key}
+                    className={filter === key ? 'selected' : ''}
+                    aria-pressed={filter === key}
+                    onClick={() => setFilter(key)}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="micro">
-              SL/TP gửi kèm lệnh tới Exness. TP đặt theo 2R từ quote gửi lệnh, R thực tế có thể lệch
-              khi khớp. Tạm dừng không đóng vị thế đang mở. Profit lấy từ broker, không mặc định bao
-              gồm phí/swap. Đồng bộ: {date(data.synced_at)}.
-            </p>
-            <p className="micro">
-              Nếu Mac ngủ, bot không mở hay chủ động đóng lệnh trước kỳ nghỉ; SL/TP đã đặt trên sàn
-              vẫn do Exness xử lý. Khi mở máy, đối soát fill sàn; không giả lập giá đóng.
+              SL/TP gửi kèm lệnh; TP theo 2R từ quote gửi lệnh. Tạm dừng không đóng vị thế đang mở.
+              Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn vẫn có hiệu lực; khi mở lại sẽ
+              đối soát fill thật.
             </p>
             <div className="table-wrap">
               <table>
@@ -179,7 +257,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   </tr>
                 </thead>
                 <tbody>
-                  {data.positions.map((position) => (
+                  {rows.map((position) => (
                     <tr
                       key={position.position_id}
                       className={selectedId === position.position_id ? 'broker-selected' : ''}
@@ -188,9 +266,11 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                         #{position.position_id}
                         <br />
                         <small>
-                          {position.source === 'regime_router'
-                            ? 'BOT · router'
-                            : 'Probe / lệnh khác'}
+                          {position.source === 'learning'
+                            ? 'BOT · learning'
+                            : position.source === 'regime_router'
+                              ? 'BOT · router cũ'
+                              : 'Probe / lệnh khác'}
                         </small>
                       </td>
                       <td>
@@ -254,10 +334,8 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </tbody>
               </table>
             </div>
-            {!data.positions.length && (
-              <p>
-                Chưa có vị thế trong lịch sử đã đồng bộ. Bot chờ tín hiệu mới, không ép mở lệnh.
-              </p>
+            {!rows.length && (
+              <p>Không có lệnh khớp bộ lọc. Bot chờ tín hiệu mới, không ép mở lệnh.</p>
             )}
             <div className="forex-chart-controls">
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>

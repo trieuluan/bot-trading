@@ -1776,3 +1776,124 @@ footer {
 .broker-selected {
   background: #edf4ee;
 }
+/* Forex Execution & Learner Dashboard */
+.forex-exec-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+.forex-exec-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.forex-exec-card .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.forex-exec-card .val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #263d35;
+  line-height: 1.2;
+}
+.forex-exec-card .sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-live {
+  background: #e6f4ea;
+  color: #137333;
+}
+.badge-paused {
+  background: #fef7e0;
+  color: #b06000;
+}
+.badge-offline {
+  background: #fce8e6;
+  color: #c5221f;
+}
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-ring 2s infinite ease-out;
+}
+@keyframes pulse-ring {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.learner-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.learner-grid-table th,
+.learner-grid-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.learner-grid-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.learner-grid-table tr.active-strat {
+  background: #f0f7f3;
+  font-weight: 600;
+}
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.filter-pills button {
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
+}
+.filter-pills button.selected {
+  background: #1e5b47;
+  color: #fff;
+  border-color: #1e5b47;
+}
+.decision-banner {
+  background: #ffffff;
+  border-left: 4px solid #1e5b47;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-left-color: #1e5b47;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 10px 0 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.decision-banner strong {
+  color: #1e5b47;
+}
