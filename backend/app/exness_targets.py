@@ -7,11 +7,16 @@ from .exness import ExnessError
 
 def target_context(candle, hours, higher):
     barriers = []
+    buffer = None
     for frame, duration, rows in (("H1", 3600, hours), ("H4", 14400, higher)):
         closed = sorted((row for row in rows if row.time + duration <= candle.time + 900),
                         key=lambda row: row.time)[-60:]
         if len(closed) < 20:
             raise ExnessError(f"Need 20 closed {frame} candles for structural TP")
+        if frame == "H1":
+            ranges = [max(row.high - row.low, abs(row.high - previous.close), abs(row.low - previous.close))
+                      for previous, row in zip(closed[-15:-1], closed[-14:])]
+            buffer = sum(ranges) / len(ranges) * 0.1
         for side, price in (("long", max(row.high for row in closed[-20:])),
                             ("short", min(row.low for row in closed[-20:]))):
             barriers.append({"side": side, "price": price, "reason": f"{frame} Donchian20"})
@@ -22,7 +27,7 @@ def target_context(candle, hours, higher):
                 barriers.append({"side": "long", "price": row.high, "reason": f"{frame} swing high"})
             if all(row.low < neighbor.low for neighbor in neighbors):
                 barriers.append({"side": "short", "price": row.low, "reason": f"{frame} swing low"})
-    return {"barriers": barriers, "buffer": (candle.high - candle.low) * 0.1}
+    return {"barriers": barriers, "buffer": buffer}
 
 
 def structural_target(side, entry, stop, context, tick):

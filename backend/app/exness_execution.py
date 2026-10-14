@@ -413,6 +413,7 @@ def submit_leg(client, row, index, data, condition, now):
     def on_submit(submission):
         persist_leg(api.account_id, row.signal_time, index,
                     {"status": "submitting", "body": submission["body"], "quote": submission["quote"],
+                     "tp_reason": signal.get("tp_reason"),
                      "submitted_at": submission["submitted_at"]})
     try:
         ack = client.mutate("POST", key, body=data["body"], quote_source=live_quote,
@@ -485,7 +486,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                 position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
                     signal_time=intent.signal_time, reason=data.get("reason"),
                     role=leg_info.get("role", "runner"),
-                    tp_reason="Chot mot phan tai 1R" if leg_info.get("role") == "tp1" else data.get("signal", {}).get("tp_reason"),
+                    tp_reason="Chốt một phần tại 1R" if leg_info.get("role") == "tp1" else leg_info.get("tp_reason", data.get("signal", {}).get("tp_reason")),
                     management_stage=mgmt.get("stage"),
                     management_status=mgmt.get("status"),
                     management_error=mgmt.get("error"),

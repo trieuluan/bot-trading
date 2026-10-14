@@ -296,7 +296,10 @@ def broker_labels(session, account):
             total_profit += sum(float(deal["profit"]["amount"]) for deal in exits)
             available = max(available, max(deal["event_time"] for deal in exits))
         if valid and total_risk > 0:
-            labels.append({"status": "resolved", "bucket": bucket(signal, signal["policy_features"]),
+            policy_bucket = bucket(signal, signal["policy_features"])
+            if data.get("exit_policy") == "structural_tp_v1":
+                policy_bucket += ":structural_tp_v1"
+            labels.append({"status": "resolved", "bucket": policy_bucket,
                            "net_r_ex_swap": total_profit / total_risk, "label_available_at": available,
                            "provenance": "broker_demo_profit_ex_fees", "position_id":
                            next((leg["position_id"] for leg in legs if leg.get("position_id")), None),
