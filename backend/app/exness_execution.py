@@ -1,6 +1,6 @@
 """Opt-in DEMO broker execution for regime_router.
 
-Strictly demo only. One 0.01 lot position at a time. Native broker SL/TP.
+Strictly demo only. Configurable position cap, 0.01 lot each. Native broker SL/TP.
 Deals synced from Exness are the ground truth for chart markers and trade history.
 """
 
@@ -27,6 +27,7 @@ from .exness_sessions import session_closed_ahead
 from .forex_strategies import strategy_snapshot
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
+PENDING = ("submitting", "submitted", "uncertain", "closing")
 ACTIVE = ("submitting", "submitted", "uncertain", "open", "closing")
 
 
@@ -35,6 +36,17 @@ def enabled():
             and os.getenv("EXNESS_ENVIRONMENT") == "demo"
             and os.getenv("EXNESS_SYMBOL") == "XAUUSD")
 
+
+def max_positions():
+    # ponytail: cap 1..20 via env; add runtime settings when needed.
+    try:
+        return min(20, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS", "1"))))
+    except ValueError:
+        return 1
+
+def busy(broker):
+    pending = [order for order in broker["orders"] if order.get("order_type") != "sltp"]
+    return pending or len(broker["positions"]) >= max_positions()
 
 def utc(stamp):
     return datetime.fromtimestamp(stamp, timezone.utc).isoformat()
@@ -233,9 +245,9 @@ def _execution_tick(api, now=None):
         state = session.get(ExnessExecutionState, api.account_id)
         pending = session.scalars(select(ExnessExecutionTrade).where(
             ExnessExecutionTrade.account == api.account_id)).all()
-        unresolved = any(row.snapshot["status"] in ACTIVE for row in pending)
+        unresolved = any(row.snapshot["status"] in PENDING for row in pending)
         reason = "paused" if not state.enabled else "reconciling" if unresolved else (
-            "position_active" if broker["positions"] or broker["orders"] else
+            "position_active" if busy(broker) else
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
         signal = evaluate(session, now) if reason is None else None
@@ -255,8 +267,8 @@ def _execution_tick(api, now=None):
                 persist(api.account_id, stamp, {"status": "skipped", "error": "Paused before submit"})
                 return "paused"
         current = client.snapshot()
-        if current["positions"] or current["orders"]:
-            persist(api.account_id, stamp, {"status": "skipped", "error": "Account no longer flat"})
+        if busy(current):
+            persist(api.account_id, stamp, {"status": "skipped", "error": "Position limit reached"})
             return "position_active"
         quote = live_quote()
         body = client.strategy_body(signal, condition, quote, key)
@@ -340,7 +352,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
     heartbeat = meta.get("heartbeat")
     return {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
-        "account": account, "strategy": "regime_router", "lot": "0.01", "max_concurrent": 1,
+        "account": account, "strategy": "regime_router", "lot": "0.01", "max_concurrent": max_positions(),
         "planned_risk_ceiling_usd": 25, "error": meta.get("error"), "decision": meta.get("decision"),
         "account_state": broker.get("account_state"), "synced_at": meta.get("history_synced_at"),
         "history_from": meta.get("history_from", state.started_at - 86400) if state else None,

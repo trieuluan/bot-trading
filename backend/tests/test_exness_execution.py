@@ -49,6 +49,7 @@ def setup_env(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_EXECUTION_ENABLED", "true")
     monkeypatch.setenv("EXNESS_DEMO_ORDERS_ENABLED", "true")
     monkeypatch.setenv("EXNESS_ACCOUNT_ID", "31000117657")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "1")
     monkeypatch.setattr(ee, "live_quote", lambda: {"bid": 4000.0, "ask": 4000.25, "time": NOW, "received_at": NOW})
 
 def test_disabled_by_default(monkeypatch):
@@ -168,3 +169,36 @@ def test_summary_pairs_deals_into_positions():
     assert pos["position_id"] == "99"
     assert pos["status"] == "closed"
     assert pos["pnl"] == 10.0
+
+def test_max_positions_env_allows_more_than_one(monkeypatch):
+    monkeypatch.delenv("EXNESS_DEMO_MAX_POSITIONS", raising=False)
+    pos = {"position_id": "1", "instrument": "XAUUSD", "direction": "buy"}
+    broker = {"positions": [pos], "orders": []}
+    assert ee.busy(broker)
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
+    assert not ee.busy(broker)
+    assert ee.busy({"positions": [pos, pos], "orders": []})
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "999")
+    assert ee.max_positions() == 20
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid", ""])
+def test_invalid_position_limit_fails_safe(monkeypatch, value):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", value)
+    assert ee.max_positions() == 1
+
+def test_open_position_and_its_protection_allow_new_signal(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "5")
+    api = dummy_api(positions=[{"position_id": "100", "instrument": "XAUUSD"}],
+                    orders=[{"position_id": "100", "order_type": "sltp",
+                             "stop_loss_price": "3995", "take_profit_price": "4010"}])
+    seed_executor(api, monkeypatch)
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=NOW - 1800,
+                                       snapshot={"status": "open", "position_id": "100"}))
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    assert api.client.request.call_count == 1
+
+def test_pending_order_blocks_new_position(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "5")
+    assert ee.busy({"positions": [], "orders": [{"order_type": "limit"}]})
+    assert not ee.busy({"positions": [], "orders": [{"order_type": "sltp"}]})

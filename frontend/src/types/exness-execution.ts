@@ -35,6 +35,7 @@ export interface ExnessExecution {
   account: string;
   strategy: string;
   lot: string;
+  max_concurrent: number;
   decision: string | null;
   error: string | null;
   synced_at: number | null;

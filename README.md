@@ -682,7 +682,7 @@ sau migration `0014`. Executor chạy trong `exness-feed`, tách khỏi ví pape
 Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không hỗ trợ tài khoản real.
 
 - `regime_router` chỉ gửi tín hiệu M15 đóng mới, trong 120 giây; bỏ qua tín hiệu trước lúc bật bot.
-- Mỗi lệnh 0.01 lot, tối đa một vị thế trên tài khoản, không giới hạn số lệnh/ngày.
+- Mỗi lệnh 0.01 lot, tối đa `EXNESS_DEMO_MAX_POSITIONS` vị thế cùng lúc (mặc định 1, trần 20), không giới hạn số lệnh/ngày.
 - SL theo cấu trúc, TP 2R từ quote gửi lệnh. R thực tế thay đổi theo giá khớp.
   Bỏ qua nếu mức lỗ dự kiến tới SL vượt $25; đây không phải bảo đảm mức lỗ tối đa khi gap/slippage.
 - SL/TP đặt tại Exness, tiếp tục có hiệu lực khi Mac ngủ. Đóng trước kỳ nghỉ theo lịch chuẩn

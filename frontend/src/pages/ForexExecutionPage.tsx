@@ -71,7 +71,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           <div>
             <h2>Lệnh sàn Exness Demo</h2>
             <p>
-              Tài khoản {data?.account ?? '—'} · regime_router · 0.01 lot · một vị thế mỗi lúc ·
+              Tài khoản {data?.account ?? '—'} · regime_router · 0.01 lot · tối đa {data?.max_concurrent ?? 1} vị thế mỗi lúc ·
               không giới hạn tổng số lệnh.
             </p>
           </div>
