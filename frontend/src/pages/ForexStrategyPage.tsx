@@ -199,7 +199,7 @@ export function ForexStrategyPage({
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
-  const [view, setView] = useState<'mtf' | 'trend' | 'range'>('mtf');
+  const [view, setView] = useState<'mtf' | 'trend' | 'range' | 'router'>('mtf');
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const historyActions = useRef({ older: () => {}, refresh: () => {} });
@@ -290,7 +290,9 @@ export function ForexStrategyPage({
               ? 'exness_mtf_v1'
               : view === 'trend'
                 ? 'trend_pullback'
-                : 'range_rejection',
+                : view === 'range'
+                  ? 'range_rejection'
+                  : 'regime_router',
           parameters: snap.parameters ?? {
             lookback_1h: 20,
             ema_4h: 50,
@@ -424,6 +426,13 @@ export function ForexStrategyPage({
           onClick={() => setView('range')}
         >
           Range Rejection
+        </button>
+        <button
+          className="secondary"
+          aria-pressed={view === 'router'}
+          onClick={() => setView('router')}
+        >
+          Regime Router
         </button>
       </div>
       {view !== 'mtf' && (
@@ -615,7 +624,7 @@ export function ForexStrategyPage({
 
       {view !== 'mtf' && (
         <div style={{ marginTop: 24 }}>
-          <h3>Nhật ký paper · {view === 'trend' ? 'trend_pullback' : 'range_rejection'}</h3>
+          <h3>Nhật ký paper · {view === 'trend' ? 'trend_pullback' : view === 'range' ? 'range_rejection' : 'regime_router'}</h3>
           <p>
             Theo dõi từ khi ví khởi tạo, tự chạy bù nến khi máy mở lại. Kết quả lịch sử ở tab
             Backtest; không cần backtest có lãi mới được chạy paper.
@@ -800,12 +809,12 @@ function ForexReplayControl({ onComplete }: { onComplete?: (data: ResearchApiRes
     <div className="panel prose" style={{ marginTop: '1rem' }}>
       <h3>Thử ngay trên nến Exness đã lưu</h3>
       <p>
-        Replay cả 3 chiến lược trên toàn bộ nến M15 trong cơ sở dữ liệu. Mỗi chiến lược một ví
+        Replay cả 4 chiến lược trên toàn bộ nến M15 trong cơ sở dữ liệu. Mỗi chiến lược một ví
         $10,000 độc lập, cùng spread Bid/Ask và trượt giá 0/1/2 bps. Không gọi API sàn, không sửa ví
         paper đang chạy.
       </p>
       <button type="button" disabled={running} onClick={() => void runReplay()}>
-        {running ? 'Đang replay 3 chiến lược…' : 'Chạy replay 3 chiến lược'}
+        {running ? 'Đang replay 4 chiến lược…' : 'Chạy replay 4 chiến lược'}
       </button>
       {running && <p role="status">Đang tính các nến đã đóng; có thể mất 10–30 giây.</p>}
       {error && (
@@ -875,7 +884,7 @@ export function ForexResearchPage({ revision }: { revision: number }) {
         <div>
           <h2>Nghiên cứu Replay Lịch sử · XAUUSD</h2>
           <p>
-            So sánh ví lịch sử cho 3 chiến lược; báo cáo mẫu tín hiệu Breakout + Retest giữ riêng.
+            So sánh ví lịch sử cho 4 chiến lược; báo cáo mẫu tín hiệu Breakout + Retest giữ riêng.
             Khớp nến Bid/Ask, vào ở open M15 kế tiếp. Không gửi lệnh lên sàn.
           </p>
         </div>
@@ -926,6 +935,7 @@ export function ForexResearchPage({ revision }: { revision: number }) {
                       breakout_retest: 'Breakout + Retest',
                       trend_pullback: 'Trend Pullback',
                       range_rejection: 'Range Rejection',
+                      regime_router: 'Regime Router (gộp)',
                     }[row.strategy] ?? row.strategy}
                   </td>
                   <td>{row.slippage_bps}</td>

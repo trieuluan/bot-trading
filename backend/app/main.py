@@ -58,7 +58,7 @@ app.include_router(observation_router)
 app.include_router(quotes_router)
 
 @app.get("/api/workspaces/exness_forex/paper/trades.csv")
-def forex_journal(channel: Literal["live", "replay", "trend", "range"] = "live"):
+def forex_journal(channel: Literal["live", "replay", "trend", "range", "router"] = "live"):
     return StreamingResponse(journal_csv(channel), media_type="text/csv", headers={
         "Content-Disposition": f'attachment; filename="exness-paper-{channel}.csv"',
         "Cache-Control": "no-store",
@@ -223,7 +223,7 @@ def exness_research():
             identities = set()
             for row in comparison["results"]:
                 identity = (row["strategy"], row["slippage_bps"])
-                if (identity in identities or identity[0] not in ("breakout_retest", "trend_pullback", "range_rejection")
+                if (identity in identities or identity[0] not in ("breakout_retest", "trend_pullback", "range_rejection", "regime_router")
                         or type(identity[1]) is not int or identity[1] not in (0, 1, 2)
                         or row["status"] not in ("blocked", "open", "complete")
                         or type(row["equity_verified"]) is not bool):
@@ -250,7 +250,7 @@ def exness_research():
                                for key in ("after", "before", "missing_intervals"))
                         or gap.get("classification") not in ("unverified_gap", "bid_ask_mismatch")):
                     raise ValueError("Invalid gap details")
-            if len(identities) != 9:
+            if len(identities) != 12:
                 raise ValueError("Incomplete comparison")
             comparison = {key: comparison[key] for key in (
                 "version", "source", "symbol", "start", "end", "as_of", "processed_bars", "dataset_sha256", "assumptions",

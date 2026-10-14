@@ -385,7 +385,14 @@ def paper_tick(now=None):
 
 def _strategy_paper_tick(session, frames, bids, asks, now):
     hours = [row for row in frames["1h"] if row.price_type == "bid"]
+    higher = [row for row in frames.get("4h", []) if row.price_type == "bid"]
     minutes = sorted(bids.values(), key=lambda row: row.time)
+    breakouts = {row.candle_time: row.snapshot for row in session.scalars(
+        select(ForexObservation).where(
+            ForexObservation.workspace_id == WORKSPACE,
+            ForexObservation.candle_time >= minutes[0].time,
+        )
+    )}
     processed = {}
     for channel, strategy in STRATEGY_CHANNELS.items():
         account = session.get(ForexPaperAccount, (WORKSPACE, channel))
@@ -399,7 +406,8 @@ def _strategy_paper_tick(session, frames, bids, asks, now):
         pending = [row for row in minutes if row.time > account.last_candle][:96]
         for candle in pending:
             _advance_account(session, account, candle, asks[candle.time])
-            snapshot = strategy_snapshot(strategy, candle, hours, minutes)
+            snapshot = strategy_snapshot(strategy, candle, hours, minutes, higher=higher,
+                                         breakout=breakouts.get(candle.time))
             if snapshot["status"] == "confirmed":
                 _queue_trade(session, account, {
                     **snapshot, "provenance": "live" if candle.time + 1800 > now else "catch_up",
@@ -415,6 +423,10 @@ def forex_paper_summary():
         frames = load_frames(session, int(time.time()))
         hours = [row for row in frames["1h"] if row.price_type == "bid"]
         minutes = [row for row in frames["15m"] if row.price_type == "bid"]
+        higher = [row for row in frames.get("4h", []) if row.price_type == "bid"]
+        breakouts = {row.candle_time: row.snapshot for row in session.scalars(
+            select(ForexObservation).where(ForexObservation.workspace_id == WORKSPACE)
+        )}
         for channel in CHANNELS:
             account = session.get(ForexPaperAccount, (WORKSPACE, channel))
             trades = session.scalars(
@@ -458,7 +470,8 @@ def forex_paper_summary():
             uncertain = bool(account and account.blocked)
             observed = next((row for row in reversed(minutes) if account and row.time == account.last_candle), None)
             observation = (
-                strategy_snapshot(STRATEGY_CHANNELS[channel], observed, hours, minutes)
+                strategy_snapshot(STRATEGY_CHANNELS[channel], observed, hours, minutes,
+                                  higher=higher, breakout=breakouts.get(observed.time))
                 if channel in STRATEGY_CHANNELS and observed else None
             )
 

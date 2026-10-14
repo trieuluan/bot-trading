@@ -15,7 +15,7 @@ from backend.app.exness_observation import audit_frames, load_frames, observe_fo
 from backend.app.forex_paper import _step_trade
 from backend.app.exness_sessions import gap_details, regular_session_gap, session_closed_ahead
 from backend.app.forex_reporting import trade_report
-from backend.app.forex_strategies import RULES, strategy_snapshot
+from backend.app.forex_strategies import STRATEGIES, strategy_snapshot
 
 def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bars=96):
     if sample["status"] not in ("pending", "open"):
@@ -152,7 +152,7 @@ def run_replay(frames, now=None, slippage_bps=0, commission_per_unit=0):
 def portfolio(frames, strategy, balance=10000.0, risk=0.01, slippage_bps=2,
               commission_per_unit=0, now=None):
     """One wallet per strategy, using the exact forward-paper execution model."""
-    if strategy not in ("breakout_retest", *RULES):
+    if strategy not in STRATEGIES:
         raise ValueError("Unknown strategy")
     if not math.isfinite(balance) or balance <= 0 or not math.isfinite(risk) or not 0 < risk <= 1:
         raise ValueError("Invalid balance or risk fraction")
@@ -182,6 +182,11 @@ def portfolio(frames, strategy, balance=10000.0, risk=0.01, slippage_bps=2,
         if strategy == "breakout_retest":
             snapshot = observe_forex(candle, bids["1h"], bids["4h"], previous)
             previous = snapshot
+        elif strategy == "regime_router":
+            breakout = observe_forex(candle, bids["1h"], bids["4h"], previous)
+            previous = breakout
+            snapshot = strategy_snapshot(strategy, candle, bids["1h"], bids["15m"][max(0, index - 60):index],
+                                         higher=bids["4h"], breakout=breakout)
         else:
             snapshot = strategy_snapshot(strategy, candle, bids["1h"], bids["15m"][max(0, index - 60):index])
         states[snapshot["status"]] += 1
@@ -246,7 +251,7 @@ def run_comparison(frames, now=None, commission_per_unit=0):
         },
         "results": [portfolio(frames, strategy, slippage_bps=bps,
                               commission_per_unit=commission_per_unit, now=now)
-                    for strategy in ("breakout_retest", *RULES) for bps in (0, 1, 2)],
+                    for strategy in STRATEGIES for bps in (0, 1, 2)],
     }
 
 def main():

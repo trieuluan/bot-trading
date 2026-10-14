@@ -35,7 +35,7 @@ def test_shadow_wallets_start_without_trades_and_do_not_touch_live():
     asks = bids
     with Session.begin() as session:
         out = _strategy_paper_tick(session, {"1h": []}, bids, asks, 2000)
-        assert out == {"trend": 0, "range": 0}
+        assert out == {"trend": 0, "range": 0, "router": 0}
         assert session.get(ForexPaperAccount, (WORKSPACE, "trend")).balance == 10000
         assert session.get(ForexPaperAccount, (WORKSPACE, "live")) is None
 
@@ -69,7 +69,7 @@ def test_shadow_wallet_catchup_is_idempotent_and_keeps_strategies_isolated(monke
     from backend.app.db import ForexPaperAccount, ForexPaperTrade, Session
     from backend.app.exness_feed import WORKSPACE
 
-    def signal(strategy, candle, hours, minutes):
+    def signal(strategy, candle, hours, minutes, **_):
         return {"strategy": strategy, "candle_time": candle.time, "status": "confirmed",
                 "reason": "test", "side": "long", "stop": 98}
 
@@ -79,9 +79,9 @@ def test_shadow_wallet_catchup_is_idempotent_and_keeps_strategies_isolated(monke
         forex_paper._strategy_paper_tick(session, {"1h": []}, bids, bids, 900)
         bids[900] = bar(900, 100, 101, 99, 100)
         bids[1800] = bar(1800, 100, 101, 99, 100)
-        assert forex_paper._strategy_paper_tick(session, {"1h": []}, bids, bids, 4000) == {"trend": 2, "range": 2}
-        assert forex_paper._strategy_paper_tick(session, {"1h": []}, bids, bids, 4000) == {"trend": 0, "range": 0}
-        for channel in ("trend", "range"):
+        assert forex_paper._strategy_paper_tick(session, {"1h": []}, bids, bids, 4000) == {"trend": 2, "range": 2, "router": 2}
+        assert forex_paper._strategy_paper_tick(session, {"1h": []}, bids, bids, 4000) == {"trend": 0, "range": 0, "router": 0}
+        for channel in ("trend", "range", "router"):
             rows = session.scalars(select(ForexPaperTrade).where(ForexPaperTrade.channel == channel)
                                    .order_by(ForexPaperTrade.confirm_time)).all()
             assert [row.snapshot["status"] for row in rows] == ["open", "skipped"]

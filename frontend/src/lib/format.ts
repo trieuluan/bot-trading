@@ -7,6 +7,8 @@ export const observationStatusLabels: Record<string, string> = {
   waiting_confirm: 'Đã retest 15m · Chờ nến xác nhận giữ vùng',
   waiting_pullback: 'Chờ M15 pullback chạm EMA20',
   waiting_range_rejection: 'Chờ M15 từ chối biên range',
+  waiting_regime_setup: 'Chờ setup theo trạng thái thị trường',
+  conflicting_signals: 'Tín hiệu ngược chiều; bỏ qua',
   confirmed: 'Đã xác nhận giữ vùng (chỉ quan sát)',
   cancelled: 'Đã hủy setup',
   expired: 'Hết hạn thời gian chờ',

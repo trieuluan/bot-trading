@@ -369,7 +369,7 @@ def test_api_exposes_separate_paper_and_never_broker_execution():
 
     result = TestClient(app).get("/api/workspaces/exness_forex/dashboard").json()
     assert result["execution_enabled"] is False
-    assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay", "trend", "range"]
+    assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay", "trend", "range", "router"]
 
 
 @pytest.mark.parametrize("outcome", ["stop", "target"])

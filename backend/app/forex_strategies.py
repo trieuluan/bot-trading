@@ -1,6 +1,6 @@
 """Experimental closed-candle signals shared by replay and forward paper."""
 
-STRATEGY_CHANNELS = {"trend": "trend_pullback", "range": "range_rejection"}
+STRATEGY_CHANNELS = {"trend": "trend_pullback", "range": "range_rejection", "router": "regime_router"}
 
 def ema(values, period):
     out = values[0]
@@ -44,9 +44,83 @@ def range_rejection(candle, hours, minutes):
     return None
 
 RULES = {"trend_pullback": trend_pullback, "range_rejection": range_rejection}
+STRATEGIES = ("breakout_retest", *RULES, "regime_router")
 
 
-def strategy_snapshot(strategy, candle, hours, minutes):
+def router_snapshot(candle, hours, minutes, higher=(), breakout=None):
+    """Fixed experimental rules; all inputs filtered at the decision's availability time."""
+    available = candle.time + 900
+    hours = _closed_hours(candle, hours)
+    minutes = [row for row in minutes if row.time < candle.time][-60:]
+    higher = [row for row in higher if row.time + 14400 <= available][-60:]
+    snapshot = {
+        "strategy": "regime_router", "candle_time": candle.time, "available_at": available,
+        "price_type": "bid", "status": "warming_up", "regime": "unknown",
+        "reason": "Chờ 50 nến H4/H1 và 20 nến M15 đã đóng",
+        "parameters": {"version": 1, "target_r": 2, "ema_h4": 50, "ema_h1": [20, 50],
+                       "trend_separation_atr": 0.5, "range_efficiency_max": 0.3},
+    }
+    if len(hours) < 50 or len(higher) < 50 or len(minutes) < 20:
+        return snapshot
+    if (minutes[-1].time != candle.time - 900 or hours[-1].time + 7200 <= available
+            or higher[-1].time + 28800 <= available):
+        return {**snapshot, "status": "data_paused", "reason": "Khung dữ liệu chưa đồng bộ; không vào lệnh"}
+    closes = [row.close for row in hours]
+    fast, slow = ema(closes, 20), ema(closes, 50)
+    ema_h4 = ema([row.close for row in higher], 50)
+    direction_h4 = 1 if higher[-1].close > ema_h4 else -1 if higher[-1].close < ema_h4 else 0
+    direction_h1 = 1 if fast > slow and closes[-1] > fast else -1 if fast < slow and closes[-1] < fast else 0
+    atr = sum(max(hours[index].high - hours[index].low,
+                  abs(hours[index].high - hours[index - 1].close),
+                  abs(hours[index].low - hours[index - 1].close)) for index in range(-14, 0)) / 14
+    path = sum(abs(closes[index] - closes[index - 1]) for index in range(-19, 0))
+    efficiency = abs(closes[-1] - closes[-20]) / path if path else 0
+    separation = abs(fast - slow) / atr if atr > 0 else 0
+    trending = direction_h4 == direction_h1 != 0 and separation >= 0.5
+    sideways = atr > 0 and separation < 0.5 and efficiency <= 0.3
+    snapshot.update(status="waiting_regime_setup", regime="trend" if trending else "range" if sideways else "unclear",
+                    trend="up" if direction_h4 == 1 else "down" if direction_h4 == -1 else "flat",
+                    ema_4h=ema_h4, closed_4h_time=higher[-1].time,
+                    ema_h1_fast=fast, ema_h1_slow=slow, atr_h1=atr,
+                    separation_atr=separation, efficiency_h1=efficiency,
+                    reason="Trạng thái chưa rõ; không vào lệnh")
+    if (not breakout or breakout.get("candle_time") != candle.time
+            or breakout.get("available_at", available) > available):
+        return {**snapshot, "status": "data_paused", "reason": "Chờ quan sát breakout đúng nến, không dùng tín hiệu cũ/tương lai"}
+    components = [strategy_snapshot(name, candle, hours, minutes) for name in RULES]
+    candidates = [row for row in [breakout, *components] if row.get("status") == "confirmed"]
+    snapshot["component_signals"] = [{"strategy": "breakout_retest" if row is breakout else row["strategy"],
+                                      "side": row["side"]} for row in candidates]
+    if len({row["side"] for row in candidates}) > 1:
+        return {**snapshot, "status": "conflicting_signals", "reason": "Các chiến lược báo ngược chiều; không vào lệnh"}
+    same_direction = breakout.get("side") == ("long" if direction_h4 == 1 else "short") and direction_h1 == direction_h4 != 0
+    if breakout.get("status") == "confirmed" and same_direction:
+        selected, name = breakout, "breakout_retest"
+        snapshot["regime"] = "breakout"
+    elif trending:
+        selected, name = components[0], "trend_pullback"
+    elif sideways and breakout.get("status") not in ("waiting_retest", "waiting_confirm", "confirmed"):
+        selected, name = components[1], "range_rejection"
+    else:
+        return snapshot
+    snapshot.update(selected_strategy=name, reason=f"Chọn {name}: {selected['reason']}")
+    for key in ("range_high", "range_low", "range_start", "range_end", "level", "ema_m15"):
+        if key in selected:
+            snapshot[key] = selected[key]
+    if selected.get("status") != "confirmed":
+        return snapshot
+    direction = 1 if selected["side"] == "long" else -1
+    risk = direction * (candle.close - selected["stop"])
+    if risk <= 0:
+        return {**snapshot, "status": "invalid", "reason": "SL không đúng phía giá xác nhận"}
+    return {**snapshot, "status": "confirmed", "side": selected["side"], "stop": selected["stop"],
+            "reference_entry": candle.close, "target": candle.close + direction * 2 * risk,
+            "confirm_time": candle.time, "confluence": len(candidates)}
+
+
+def strategy_snapshot(strategy, candle, hours, minutes, *, higher=(), breakout=None):
+    if strategy == "regime_router":
+        return router_snapshot(candle, hours, minutes, higher, breakout)
     if strategy not in RULES:
         raise ValueError("Unknown forex strategy")
     hours = _closed_hours(candle, hours)
@@ -57,8 +131,8 @@ def strategy_snapshot(strategy, candle, hours, minutes):
         "parameters": {"target_r": 2, "ema_1h": [20, 50], "ema_m15": 20}
         if strategy == "trend_pullback" else {"target_r": 2, "lookback_1h": 20, "edge_fraction": 0.1},
     }
-    needed = 50 if strategy == "trend_pullback" else 20
-    if len(hours) < needed or len(minutes) < (20 if strategy == "trend_pullback" else 1):
+    needed = 20 if strategy == "range_rejection" else 50
+    if len(hours) < needed or len(minutes) < (1 if strategy == "range_rejection" else 20):
         return snapshot
     if minutes[-1].time != candle.time - 900 or hours[-1].time + 7200 <= snapshot["available_at"]:
         return {**snapshot, "status": "data_paused", "reason": "Khoảng trống dữ liệu; chưa xác nhận tín hiệu"}
@@ -95,5 +169,7 @@ def strategy_snapshot(strategy, candle, hours, minutes):
         return {**snapshot, **signal, "status": "confirmed", "reference_entry": candle.close,
                 "stop": stop, "target": target, "confirm_time": candle.time}
     return {
-        **snapshot, "status": "waiting_pullback" if strategy == "trend_pullback" else "waiting_range_rejection",
+        **snapshot,
+        "status": "waiting_pullback" if strategy == "trend_pullback" else
+                  "waiting_range_rejection" if strategy == "range_rejection" else "waiting_regime_setup",
     }

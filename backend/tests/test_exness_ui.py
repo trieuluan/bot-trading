@@ -58,7 +58,7 @@ def comparison_report():
             "return_pct": 0, "profit_factor": None, "max_drawdown_pct": 0, "mean_r": None,
             "status": "complete", "blocked_at": None, "equity_verified": True,
             "rejection_reasons": {}, "samples": [{"private_field": "do not expose"}],
-        } for strategy in ("breakout_retest", "trend_pullback", "range_rejection") for bps in (0, 1, 2)],
+        } for strategy in ("breakout_retest", "trend_pullback", "range_rejection", "regime_router") for bps in (0, 1, 2)],
     }
 
 
@@ -66,7 +66,7 @@ def test_comparison_only_report_projects_metrics_without_trades(tmp_path, monkey
     monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
     (tmp_path / "exness-strategy-compare.json").write_text(json.dumps(comparison_report()))
     data = TestClient(main.app).get("/api/workspaces/exness_forex/research").json()
-    assert data["available"] and len(data["comparison"]["results"]) == 9
+    assert data["available"] and len(data["comparison"]["results"]) == 12
     assert data["reports"] == []
     assert "do not expose" not in json.dumps(data)
 
@@ -102,7 +102,7 @@ def test_research_replay_saves_atomic_report_without_touching_paper(tmp_path, mo
     assert response.status_code == 200
     data = response.json()
     assert data["available"] is True
-    assert len(data["comparison"]["results"]) == 9
+    assert len(data["comparison"]["results"]) == 12
     assert (tmp_path / "exness-strategy-compare.json").exists()
     assert not list(tmp_path.glob("*.tmp"))
     with Session() as session:

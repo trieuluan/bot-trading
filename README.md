@@ -549,7 +549,7 @@ docker compose run --rm --no-deps \
   -v "$PWD/research-output:/app/research-output" \
   exness-feed python -m scripts.exness_mtf_replay
 
-# So sánh danh mục 1 ví ($10,000, 1% risk, max 1 vị thế) cho 3 chiến lược:
+# So sánh danh mục 1 ví ($10,000, 1% risk, max 1 vị thế) cho 4 chiến lược (gồm regime_router):
 docker compose exec api python -m scripts.exness_mtf_replay --compare
 ```
 

@@ -90,7 +90,7 @@ export interface ForexPaperSummary {
     } | null;
   };
   portfolios?: {
-    channel: 'live' | 'replay' | 'trend' | 'range';
+    channel: 'live' | 'replay' | 'trend' | 'range' | 'router';
     strategy?: string;
     observation?:
       | (Partial<ObservationChartSnapshot> & {
@@ -158,7 +158,7 @@ const date = (stamp?: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toISOString().slice(0, 16).replace('T', ' ');
 
 export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; paused: boolean }) {
-  const [channel, setChannel] = useState<'live' | 'replay' | 'trend' | 'range'>('live');
+  const [channel, setChannel] = useState<'live' | 'replay' | 'trend' | 'range' | 'router'>('live');
   const account = paper.portfolios?.find((row) => row.channel === channel);
   const costs = paper.assumptions;
   const report = account?.report;
@@ -319,9 +319,16 @@ export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; pa
         >
           Thử nghiệm · Range Rejection
         </button>
+        <button
+          className="secondary"
+          aria-pressed={channel === 'router'}
+          onClick={() => setChannel('router')}
+        >
+          Thử nghiệm · Regime Router
+        </button>
       </div>
       <p>
-        {channel === 'trend' || channel === 'range'
+        {channel === 'trend' || channel === 'range' || channel === 'router'
           ? 'Ví thử nghiệm riêng, theo dõi tiến tới từ lúc worker khởi tạo; chưa chứng minh lợi thế. Khớp theo nến M15 đã đóng, không gửi lệnh tới sàn.'
           : channel === 'live'
             ? 'Chỉ tín hiệu và giá vào xử lý kịp lúc. Vị thế đã mở vẫn đối soát SL/TP lịch sử khi máy hoạt động lại.'

@@ -15,7 +15,7 @@ def test_workspaces_seeded_without_changing_mexc_wallet():
         assert forex["workspace"]["symbol"] == "XAUUSD"
         assert forex["mode"] == "demo_read_only"
         assert forex["paper"]["status"] == "not_started"
-        assert [row["channel"] for row in forex["paper"]["portfolios"]] == ["live", "replay", "trend", "range"]
+        assert [row["channel"] for row in forex["paper"]["portfolios"]] == ["live", "replay", "trend", "range", "router"]
         assert "signals" not in forex
         assert client.get("/api/workspaces/mexc_futures/dashboard").json()["bot"]["enabled"] is False
     with Session() as session:
