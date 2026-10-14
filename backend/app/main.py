@@ -2,7 +2,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
 import math
+import tempfile
+import time
 from pathlib import Path
+from threading import Lock
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -55,7 +58,7 @@ app.include_router(observation_router)
 app.include_router(quotes_router)
 
 @app.get("/api/workspaces/exness_forex/paper/trades.csv")
-def forex_journal(channel: Literal["live", "replay"] = "live"):
+def forex_journal(channel: Literal["live", "replay", "trend", "range"] = "live"):
     return StreamingResponse(journal_csv(channel), media_type="text/csv", headers={
         "Content-Disposition": f'attachment; filename="exness-paper-{channel}.csv"',
         "Cache-Control": "no-store",
@@ -96,6 +99,7 @@ def workspace_candles(
     timeframe: Literal["1m", "15m", "1h", "4h"] = "15m",
     price_type: Literal["last", "bid", "ask"] | None = None,
     limit: int = Query(1000, ge=1, le=5000),
+    before: int | None = Query(None, ge=1),
 ):
     with Session() as session:
         workspace = session.get(Workspace, workspace_id)
@@ -115,10 +119,15 @@ def workspace_candles(
                 WorkspaceCandle.price_type == price_type,
             )
             model = WorkspaceCandle
+        if before is not None:
+            query = query.where(model.time < before)
         rows = session.scalars(query.where(
             model.symbol == workspace.symbol, model.timeframe == timeframe,
-        ).order_by(model.time.desc()).limit(limit)).all()
+        ).order_by(model.time.desc()).limit(limit + 1)).all()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         return {"workspace": workspace_values(workspace), "timeframe": timeframe,
+                "has_more": has_more, "next_before": rows[-1].time if has_more else None,
                 "price_type": price_type, "candles": [
                     {field: getattr(row, field) for field in (
                         ("time", "open", "high", "low", "close", "volume")
@@ -160,10 +169,102 @@ def workspace_dashboard(workspace_id: str):
 
 
 RESEARCH_DIRECTORY = Path(__file__).resolve().parents[2] / "research-output"
+FOREX_REPLAY_LOCK = Lock()
+
+
+@app.post("/api/workspaces/exness_forex/research/replay")
+def replay_forex_strategies():
+    if not FOREX_REPLAY_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "Replay đang chạy; chờ kết quả, không gửi lại")
+    temporary = None
+    try:
+        from .exness_observation import load_frames
+        from scripts.exness_mtf_replay import run_comparison
+
+        now = int(time.time())
+        with Session() as session:
+            report = run_comparison(load_frames(session, now), now)
+        RESEARCH_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=RESEARCH_DIRECTORY,
+                                         prefix="exness-compare-", suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            json.dump(report, output, ensure_ascii=False, allow_nan=False)
+        temporary.replace(RESEARCH_DIRECTORY / "exness-strategy-compare.json")
+        return exness_research()
+    except ValueError as exc:
+        raise HTTPException(422, "Dữ liệu chưa đủ hoặc không hợp lệ để replay; báo cáo cũ được giữ nguyên") from exc
+    except OSError as exc:
+        raise HTTPException(503, "Không lưu được báo cáo replay; kiểm tra thư mục research-output") from exc
+    finally:
+        try:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        finally:
+            FOREX_REPLAY_LOCK.release()
 
 @app.get("/api/workspaces/exness_forex/research")
 def exness_research():
     results = []
+    compare_path = RESEARCH_DIRECTORY / "exness-strategy-compare.json"
+    comparison = None
+    comparison_error = None
+    if compare_path.exists():
+        try:
+            if compare_path.stat().st_size > 8 * 1024 * 1024:
+                raise ValueError("Oversized comparison")
+            comparison = json.loads(compare_path.read_text(encoding="utf-8"))
+            if (comparison["version"] != "exness_portfolio_compare_v1"
+                    or comparison["source"] != "exness_forex" or comparison["symbol"] != "XAUUSD"
+                    or not isinstance(comparison["assumptions"], dict)):
+                raise ValueError("Wrong comparison source")
+            for key in ("start", "end", "as_of", "processed_bars"):
+                if type(comparison[key]) is not int or comparison[key] < 0:
+                    raise ValueError("Invalid comparison time or count")
+            identities = set()
+            for row in comparison["results"]:
+                identity = (row["strategy"], row["slippage_bps"])
+                if (identity in identities or identity[0] not in ("breakout_retest", "trend_pullback", "range_rejection")
+                        or type(identity[1]) is not int or identity[1] not in (0, 1, 2)
+                        or row["status"] not in ("blocked", "open", "complete")
+                        or type(row["equity_verified"]) is not bool):
+                    raise ValueError("Invalid comparison row")
+                identities.add(identity)
+                for key in ("signals", "accepted", "skipped_busy", "trades", "win_rate", "final_balance",
+                            "return_pct", "profit_factor", "max_drawdown_pct", "mean_r"):
+                    value = row[key]
+                    if value is None and key in ("win_rate", "profit_factor", "mean_r"):
+                        continue
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                        raise ValueError("Invalid comparison metric")
+                if (not isinstance(row["rejection_reasons"], dict)
+                        or any(not isinstance(key, str) or type(value) is not int or value < 0
+                               for key, value in row["rejection_reasons"].items())
+                        or row["blocked_at"] is not None and (type(row["blocked_at"]) is not int or row["blocked_at"] < 0)):
+                    raise ValueError("Invalid rejection counts or gap timestamp")
+                if any(type(row.get(key, 0)) is not int or row.get(key, 0) < 0
+                       for key in ("excluded_trades", "session_closes")):
+                    raise ValueError("Invalid exclusion counts")
+                gap = row.get("blocked_gap")
+                if gap is not None and (not isinstance(gap, dict)
+                        or any(type(gap.get(key)) is not int or gap[key] < 0
+                               for key in ("after", "before", "missing_intervals"))
+                        or gap.get("classification") not in ("unverified_gap", "bid_ask_mismatch")):
+                    raise ValueError("Invalid gap details")
+            if len(identities) != 9:
+                raise ValueError("Incomplete comparison")
+            comparison = {key: comparison[key] for key in (
+                "version", "source", "symbol", "start", "end", "as_of", "processed_bars", "dataset_sha256", "assumptions",
+            )} | {"results": [{key: row[key] for key in (
+                "strategy", "slippage_bps", "signals", "accepted", "skipped_busy", "trades", "win_rate",
+                "final_balance", "return_pct", "profit_factor", "max_drawdown_pct", "mean_r", "status",
+                "blocked_at", "equity_verified", "rejection_reasons",
+            )} | {"blocked_gap": row.get("blocked_gap"),
+                  "excluded_trades": row.get("excluded_trades", 0),
+                  "session_closes": row.get("session_closes", 0)}
+                for row in comparison["results"]]}
+        except (OSError, UnicodeError, ValueError, TypeError, KeyError):
+            comparison = None
+            comparison_error = "Báo cáo so sánh không hợp lệ; chạy lại replay --compare"
     for filename in ("exness-mtf-replay.json", "exness-mtf-replay-slip-1bps.json", "exness-mtf-replay-slip-2bps.json"):
         path = RESEARCH_DIRECTORY / filename
         if not path.exists():
@@ -200,7 +301,11 @@ def exness_research():
             )})
         except (OSError, UnicodeError, ValueError, TypeError, KeyError):
             return {"available": False, "reports": [], "error": "Báo cáo Exness không hợp lệ; cần chạy lại replay"}
-    return {"available": bool(results), "reports": results, "error": None}
+    from .exness_gaps import gap_audits
+    with Session() as session:
+        audits = gap_audits(session)
+    return {"available": bool(results or comparison), "reports": results, "comparison": comparison,
+            "gap_audits": audits, "error": comparison_error}
 
 @app.get("/api/health")
 def health():

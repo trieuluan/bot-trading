@@ -36,7 +36,7 @@ def test_open_gap_slippage_and_no_fill_across_unknown_gap():
     assert trade["exit"] < 98
     missing = sample()
     advance(missing, bar(1800), bar(1800))
-    assert missing["status"] == "censored"
+    assert missing["status"] == "excluded"
     assert "entry" not in missing
 
 def test_invalid_next_open_and_timeout():

@@ -11,12 +11,14 @@ from backend.app.exness_feed import (
     connect_exness,
     record_connection_failure,
     sync_page,
+    feed_retry_delay,
     worker_heartbeat,
 )
 from backend.app.settings import validate_mode
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_paper import paper_tick
 from backend.app.forex_costs import sync_specs
+from backend.app.exness_gaps import recheck_gap
 
 
 def main():
@@ -32,6 +34,10 @@ def main():
             try:
                 worker_heartbeat(enabled)
                 if enabled:
+                    cooldown = feed_retry_delay()
+                    if cooldown > 0:
+                        stop.wait(min(cooldown, 15))
+                        continue
                     if api is None:
                         api = connect_exness()
                     sync_specs(api)
@@ -45,23 +51,24 @@ def main():
                             delay = exc.retry_after
                             break
                     try:
+                        recheck_gap(api)
                         observation_tick()
                         paper_tick()
                     except Exception:
                         logging.exception("Exness observation/paper unavailable; no broker orders sent")
                 else:
                     delay = 60
-            except Exception:
+            except Exception as exc:
                 logging.warning("Exness feed unavailable; retrying without changing trading state")
+                delay = exc.retry_after if isinstance(exc, ExnessError) else 60
                 try:
-                    record_connection_failure()
+                    record_connection_failure(delay)
                 except Exception:
                     logging.warning("Cannot persist Exness failure; database unavailable")
-                delay = 60
                 if api:
                     api.client.close()
                     api = None
-            stop.wait(delay)
+            stop.wait(min(delay, 15))
     finally:
         if api:
             api.client.close()

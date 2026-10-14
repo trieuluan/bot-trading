@@ -198,7 +198,7 @@ def test_signed_read_only_stream_ignores_older_tick_and_stops_on_error(monkeypat
         async def __aiter__(self):
             yield json.dumps(tick())
             yield json.dumps(tick(timestamp="2026-10-13T23:59:00Z", bid=3990))
-            yield json.dumps({"error": {"code": "REQUEST_RATE_LIMIT"}})
+            yield json.dumps({"error": {"code": "FORBIDDEN"}})
 
     def connect(url, **kwargs):
         import base64
@@ -222,7 +222,7 @@ def test_signed_read_only_stream_ignores_older_tick_and_stops_on_error(monkeypat
     stream = QuoteStream()
     asyncio.run(stream.run())
     assert stream.quote["bid"] == 4000.5
-    assert stream.status == "rate_limited"
+    assert stream.status == "rejected"
     assert len(sent) == 1
     assert len(paper_quotes) == 1
     assert paper_quotes[0][0]["bid"] == 4000.5
@@ -252,7 +252,7 @@ def test_paper_write_failure_keeps_chart_live_and_marks_gap(monkeypatch):
         async def __aiter__(self):
             for second in range(3):
                 yield json.dumps(tick(timestamp=f"2026-10-14T00:00:0{second}Z"))
-            yield json.dumps({"error": {"code": "REQUEST_RATE_LIMIT"}})
+            yield json.dumps({"error": {"code": "FORBIDDEN"}})
 
     def paper_quote(quote, gap):
         calls.append(gap)
@@ -268,7 +268,7 @@ def test_paper_write_failure_keeps_chart_live_and_marks_gap(monkeypatch):
     asyncio.run(stream.run())
     assert calls == [True, True, False]
     assert stream.quote["time"] == NOW + 2
-    assert stream.status == "rate_limited"
+    assert stream.status == "rejected"
 
 
 def test_start_disabled_and_stop_cleanly(monkeypatch):
@@ -279,14 +279,104 @@ def test_start_disabled_and_stop_cleanly(monkeypatch):
     asyncio.run(stream.stop())
 
 
-def test_rate_limit_does_not_reconnect_loop(monkeypatch):
-    def unavailable():
-        raise ExnessError("Exness rate limit; waiting before retry")
+def test_rate_limit_backs_off_and_reconnects(monkeypatch):
+    attempts = []
+    waits = []
 
-    monkeypatch.setattr(exness_quotes.ExnessReadOnly, "from_env", unavailable)
+    class API:
+        account_id = "123"
+        api_key = "test-key"
+        key = load_private_key("00" * 32)
+        base_url = "https://test.exness.com"
+        client = type("Client", (), {"close": lambda self: None})()
+
+    class Socket:
+        async def __aenter__(self):
+            attempts.append(True)
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def send(self, message):
+            pass
+
+        async def __aiter__(self):
+            yield json.dumps({"error": {"code": "REQUEST_RATE_LIMIT"}})
+
+    async def sleep(seconds):
+        waits.append(seconds)
+        if len(waits) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(exness_quotes.ExnessReadOnly, "from_env", lambda: API())
+    monkeypatch.setattr(exness_quotes, "stream_config", lambda api: (10, "{}"))
+    monkeypatch.setattr(exness_quotes, "connect", lambda *args, **kwargs: Socket())
+    monkeypatch.setattr(exness_quotes.asyncio, "sleep", sleep)
     stream = QuoteStream()
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(stream.run())
+    assert len(attempts) == 2
+    assert waits == [60, 120]
+
+@pytest.mark.parametrize("phase", ["setup", "handshake"])
+def test_rate_limit_recovers_to_ticks_after_retry_after(monkeypatch, phase):
+    from types import SimpleNamespace
+    from websockets.exceptions import InvalidStatus
+
+    attempts, waits = [], []
+    stream = QuoteStream()
+
+    class API:
+        account_id = "123"
+        api_key = "test-key"
+        key = load_private_key("00" * 32)
+        base_url = "https://test.exness.com"
+        client = type("Client", (), {"close": lambda self: None})()
+
+    class Socket:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def send(self, message):
+            pass
+
+        async def __aiter__(self):
+            yield json.dumps(tick())
+            yield json.dumps({"error": {"code": "FORBIDDEN"}})
+
+    def configure(api):
+        if phase == "setup":
+            attempts.append(True)
+            if len(attempts) == 1:
+                raise ExnessError("Exness rate limit; waiting before retry", 120, rate_limited=True)
+        return 5, "{}"
+
+    def connect(*args, **kwargs):
+        if phase == "handshake":
+            attempts.append(True)
+            if len(attempts) == 1:
+                raise InvalidStatus(SimpleNamespace(status_code=429, headers={"Retry-After": "120"}))
+        return Socket()
+
+    async def sleep(seconds):
+        assert stream.status == "rate_limited"
+        waits.append(seconds)
+
+    monkeypatch.setattr(exness_quotes.ExnessReadOnly, "from_env", lambda: API())
+    monkeypatch.setattr(exness_quotes, "stream_config", configure)
+    monkeypatch.setattr(exness_quotes, "connect", connect)
+    monkeypatch.setattr(exness_quotes, "sync_paper_quote", lambda *args: None)
+    monkeypatch.setattr(exness_quotes.asyncio, "sleep", sleep)
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: NOW)
     asyncio.run(stream.run())
-    assert stream.status == "rate_limited"
+    assert len(attempts) == 2
+    assert waits == [120]
+    assert stream.quote["bid"] == 4000.5
+    assert stream.status == "rejected"
 
 
 def test_network_drop_backs_off_and_can_be_cancelled(monkeypatch):

@@ -15,7 +15,7 @@ def test_workspaces_seeded_without_changing_mexc_wallet():
         assert forex["workspace"]["symbol"] == "XAUUSD"
         assert forex["mode"] == "demo_read_only"
         assert forex["paper"]["status"] == "not_started"
-        assert [row["channel"] for row in forex["paper"]["portfolios"]] == ["live", "replay"]
+        assert [row["channel"] for row in forex["paper"]["portfolios"]] == ["live", "replay", "trend", "range"]
         assert "signals" not in forex
         assert client.get("/api/workspaces/mexc_futures/dashboard").json()["bot"]["enabled"] is False
     with Session() as session:
@@ -42,6 +42,20 @@ def test_workspace_candles_isolate_venue_symbol_and_price_side():
             assert [row["close"] for row in response.json()["candles"]] == [price]
             assert "volume" not in response.json()["candles"][0]
         assert client.get("/api/workspaces/exness_forex/candles?timeframe=1h").json()["candles"] == []
+        for timestamp in range(1800, 1800 + 3 * 900, 900):
+            with Session.begin() as session:
+                session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD",
+                                     timeframe="15m", price_type="bid", time=timestamp,
+                                     open=2000, high=2000, low=2000, close=2000))
+        first = client.get("/api/workspaces/exness_forex/candles?price_type=bid&limit=2").json()
+        assert [bar["time"] for bar in first["candles"]] == [2700, 3600]
+        assert first["has_more"] is True
+        assert first["next_before"] == 2700
+        second = client.get(f"/api/workspaces/exness_forex/candles?price_type=bid&limit=2&before={first['next_before']}").json()
+        assert [bar["time"] for bar in second["candles"]] == [900, 1800]
+        assert second["has_more"] is False
+        assert second["next_before"] is None
+        assert client.get("/api/workspaces/exness_forex/candles?before=900").json()["candles"] == []
 
 
 @pytest.mark.parametrize("path", [
@@ -57,6 +71,7 @@ def test_unknown_workspace_is_not_mexc_fallback(path):
     "/api/workspaces/mexc_futures/candles?price_type=ask",
     "/api/workspaces/exness_forex/candles?limit=0",
     "/api/workspaces/exness_forex/candles?timeframe=5m",
+    "/api/workspaces/exness_forex/candles?before=0",
 ])
 def test_invalid_workspace_candle_request_rejected(path):
     with TestClient(app) as client:

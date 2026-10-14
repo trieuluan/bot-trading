@@ -287,7 +287,7 @@ def test_live_pending_entry_missed_during_sleep_routes_to_replay():
     assert replay["provenance"] == "catch_up"
 
 
-def test_unknown_session_gap_censors_open_position_and_blocks_new_trades():
+def test_unknown_gap_excludes_trade_without_blocking_wallet():
     seed([NOW - 900])
     paper_tick(NOW)
     seed([NOW], [(NOW, "live")])
@@ -296,12 +296,10 @@ def test_unknown_session_gap_censors_open_position_and_blocks_new_trades():
     paper_tick(NOW + 1800)
     seed([NOW + 2700], [(NOW + 2700, "live")])
     paper_tick(NOW + 3600)
-    assert trades()[0]["status"] == "censored"
-    assert trades()[1]["reason"] == "unresolved_gap"
+    assert trades()[0]["status"] == "excluded"
+    assert trades()[0]["reason"] == "data_gap"
     live = forex_paper_summary()["portfolios"][0]
-    assert live["status"] == "blocked" and live["equity"] is None
-    assert live["balance"] == 10000
-
+    assert live["status"] == "tracking" and live["balance"] == 10000
 
 def test_unpaired_feed_prevents_progress():
     seed([NOW - 900])
@@ -371,7 +369,7 @@ def test_api_exposes_separate_paper_and_never_broker_execution():
 
     result = TestClient(app).get("/api/workspaces/exness_forex/dashboard").json()
     assert result["execution_enabled"] is False
-    assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay"]
+    assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay", "trend", "range"]
 
 
 @pytest.mark.parametrize("outcome", ["stop", "target"])

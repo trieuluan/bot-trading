@@ -12,6 +12,8 @@ from backend.app.exness_feed import (
     connect_exness,
     feed_summary,
     normalize_rows,
+    record_connection_failure,
+    feed_retry_delay,
     sync_page,
 )
 from backend.app.main import app
@@ -84,12 +86,40 @@ def test_overlap_is_idempotent_and_updates_revised_closed_bars():
     sync_page(api, "15m", days=1, now=NOW)
     assert sync_page(api, "15m", days=1, now=NOW)["bars"] == 0
     assert len(api.calls) == 1
+    assert sync_page(api, "15m", days=1, now=NOW + 61)["bars"] == 0
+    assert len(api.calls) == 1
     correction = FakeApi(rows=[candle(NOW - 900, price=4010)])
-    sync_page(correction, "15m", days=1, now=NOW + 61)
+    sync_page(correction, "15m", days=1, now=NOW + 900)
     with Session() as session:
         assert session.query(WorkspaceCandle).count() == 192
         saved = session.get(WorkspaceCandle, (WORKSPACE, "XAUUSD", "15m", "bid", NOW - 900))
         assert saved.open == 4010
+
+@pytest.mark.parametrize("frame", FRAMES)
+def test_synced_frame_waits_for_next_closed_candle(frame):
+    api = FakeApi()
+    sync_page(api, frame, days=1, now=NOW)
+    for elapsed in (61, FRAMES[frame][1] - 1):
+        assert sync_page(api, frame, days=1, now=NOW + elapsed)["bars"] == 0
+    assert len(api.calls) == 1
+
+def test_rate_limit_cooldown_covers_all_frames_after_restart():
+    bad = FakeApi(error=ExnessError("Exness rate limit; waiting before retry", 120, rate_limited=True))
+    with pytest.raises(ExnessError):
+        sync_page(bad, "15m", days=1, now=NOW)
+    restarted = FakeApi()
+    for frame in FRAMES:
+        assert sync_page(restarted, frame, days=1, now=NOW + 119)["status"] == "cooldown"
+    assert not restarted.calls
+    assert sync_page(restarted, "15m", days=1, now=NOW + 121)["status"] == "current"
+
+def test_small_page_limit_still_advances_incremental_cursor():
+    api = FakeApi()
+    sync_page(api, "15m", days=1, now=NOW)
+    api.candle_limit = 1
+    result = sync_page(api, "15m", days=1, now=NOW + 900)
+    assert result["status"] == "current"
+    assert api.calls[-1][2:] == (NOW, NOW + 900)
 
 
 def test_invalid_ask_rolls_back_whole_page_then_retries_from_same_boundary():
@@ -162,7 +192,28 @@ def test_http_rate_limit_sanitized_and_retry_header_used(monkeypatch):
     with pytest.raises(ExnessError) as error:
         api.get("/v1/test")
     assert error.value.retry_after == 120
+    assert error.value.rate_limited
     assert "DO_NOT_LEAK_RESPONSE" not in str(error.value)
+    client.close()
+
+def test_client_does_not_send_more_requests_during_rate_limit(monkeypatch):
+    clock = [100.0]
+    calls = []
+    monkeypatch.setattr("backend.app.exness.time.monotonic", lambda: clock[0])
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": "120"})
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    api = ExnessReadOnly("key", "00" * 32, "123", "https://api.exness.com", client=client)
+    for path in ("/v1/test", "/v1/other"):
+        with pytest.raises(ExnessError) as error:
+            api.get(path)
+        assert error.value.rate_limited
+    assert len(calls) == 1
+    clock[0] += 121
+    with pytest.raises(ExnessError):
+        api.get("/v1/test")
+    assert len(calls) == 2
     client.close()
 
 
@@ -213,3 +264,52 @@ def test_connect_uses_account_specific_candle_limits(monkeypatch):
 
 def test_feed_summary_never_labels_disconnected_worker_as_online():
     assert all(not row["worker_online"] for row in feed_summary())
+
+def test_connection_cooldown_respects_retry_after_and_never_shortens(monkeypatch):
+    monkeypatch.setattr("backend.app.exness_feed.utcnow", lambda: datetime.fromtimestamp(NOW, timezone.utc))
+    record_connection_failure(120)
+    assert feed_retry_delay() == 120
+    record_connection_failure(60)
+    assert feed_retry_delay() == 120
+
+def test_worker_keeps_heartbeat_without_api_calls_during_cooldown(monkeypatch):
+    from bot import exness_worker
+
+    waits, heartbeats, connections = [], [], []
+
+    class Stop:
+        def is_set(self):
+            return len(waits) >= 2
+
+        def wait(self, seconds):
+            waits.append(seconds)
+
+    monkeypatch.setenv("EXNESS_DATA_ENABLED", "true")
+    monkeypatch.setattr(exness_worker.threading, "Event", Stop)
+    monkeypatch.setattr(exness_worker.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(exness_worker, "validate_mode", lambda: None)
+    monkeypatch.setattr(exness_worker, "worker_heartbeat", heartbeats.append)
+    monkeypatch.setattr(exness_worker, "feed_retry_delay", lambda: 120)
+    monkeypatch.setattr(exness_worker, "connect_exness", lambda: connections.append(True))
+    exness_worker.main()
+    assert waits == [15, 15]
+    assert heartbeats == [True, True, False]
+    assert connections == []
+
+def test_recheck_gap_persists_empty_response_without_faking_closure(monkeypatch):
+    from backend.app.exness_gaps import recheck_gap, gap_audits
+    from backend.app.db import WorkspaceCandle
+    # Seed 2 candles with a 4-hour gap mid-week
+    start = 1791892800  # Wednesday
+    with Session.begin() as session:
+        for offset in (0, 14400):
+            session.add(WorkspaceCandle(workspace_id=WORKSPACE, symbol="XAUUSD", timeframe="15m",
+                                       price_type="bid", time=start + offset, open=4000, high=4001,
+                                       low=3999, close=4000))
+    api = FakeApi(rows=[])
+    res = recheck_gap(api, now=start + 28800)
+    assert res["status"] == "no_bars_returned"
+    with Session() as session:
+        audits = gap_audits(session)
+        assert len(audits) == 1
+        assert audits[0]["status"] == "no_bars_returned"

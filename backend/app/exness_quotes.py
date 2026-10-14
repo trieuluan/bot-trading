@@ -142,7 +142,17 @@ class QuoteStream:
             ):
                 raise ValueError("Demo XAUUSD only")
             api = ExnessReadOnly.from_env()
-            minimum_delay, subscription = await asyncio.to_thread(stream_config, api)
+            setup_delay = 60
+            while True:
+                try:
+                    minimum_delay, subscription = await asyncio.to_thread(stream_config, api)
+                    break
+                except ExnessError as exc:
+                    if not exc.rate_limited:
+                        raise
+                    self.status = "rate_limited"
+                    await asyncio.sleep(max(setup_delay, exc.retry_after))
+                    setup_delay = min(setup_delay * 2, 300)
             delay = minimum_delay
             path = TICKS_PATH.format(account_id=api.account_id)
             while True:
@@ -171,9 +181,9 @@ class QuoteStream:
                             if isinstance(message, dict) and message.get("error"):
                                 error = message["error"]
                                 code = error.get("code") if isinstance(error, dict) else error
-                                self.status = (
-                                    "rate_limited" if code == "REQUEST_RATE_LIMIT" else "rejected"
-                                )
+                                if code == "REQUEST_RATE_LIMIT":
+                                    raise ExnessError("Exness rate limit; waiting before retry", max(60, delay), rate_limited=True)
+                                self.status = "rejected"
                                 return
                             quote = parse_quote(message, time.time())
                             if quote and (
@@ -189,17 +199,31 @@ class QuoteStream:
                                 delay = minimum_delay
                 except InvalidStatus as exc:
                     if exc.response.status_code < 500:
-                        self.status = (
-                            "rate_limited" if exc.response.status_code == 429 else "rejected"
-                        )
-                        return
+                        if exc.response.status_code == 429:
+                            self.status = "rate_limited"
+                            try:
+                                retry_after = float(exc.response.headers.get("Retry-After", "60"))
+                                if not math.isfinite(retry_after):
+                                    raise ValueError
+                            except (ValueError, TypeError):
+                                retry_after = 60
+                            delay = max(delay, 60, min(retry_after, 3600))
+                        else:
+                            self.status = "rejected"
+                            return
                 except ConnectionClosed as exc:
                     if exc.rcvd and exc.rcvd.code not in (1000, 1001, 1006, 1011, 1012, 1013):
                         self.status = "rejected"
                         return
                 except (OSError, TimeoutError):
                     pass
-                self.status = "reconnecting"
+                except ExnessError as exc:
+                    if not exc.rate_limited:
+                        raise
+                    self.status = "rate_limited"
+                    delay = max(delay, exc.retry_after)
+                if self.status != "rate_limited":
+                    self.status = "reconnecting"
                 await asyncio.sleep(delay)
                 delay = max(minimum_delay, min(delay * 2, 300))
         except ExnessError as exc:

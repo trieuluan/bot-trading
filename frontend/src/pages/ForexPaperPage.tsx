@@ -1,3 +1,4 @@
+import type { ObservationChartSnapshot } from '../components/MtfObservationChart';
 import { useState } from 'react';
 
 interface Trade {
@@ -89,7 +90,20 @@ export interface ForexPaperSummary {
     } | null;
   };
   portfolios?: {
-    channel: 'live' | 'replay';
+    channel: 'live' | 'replay' | 'trend' | 'range';
+    strategy?: string;
+    observation?:
+      | (Partial<ObservationChartSnapshot> & {
+          candle_time: number;
+          status: string;
+          reason: string;
+          available_at?: number;
+          provenance?: string;
+        })
+      | null;
+    confirmed_count?: number;
+    accepted_count?: number;
+    rejection_reasons?: Record<string, number>;
     status: string;
     balance: number;
     equity: number | null;
@@ -117,6 +131,10 @@ const labels: Record<string, string> = {
   target_at_open: 'TP tại mở nến',
   unverified_session_gap: 'Thiếu đường giá / nghỉ phiên chưa xác minh',
   unresolved_gap: 'Ví bị chặn do vị thế chưa xác định',
+  excluded: 'Loại khỏi thống kê (thiếu nến)',
+  data_gap: 'Khoảng trống dữ liệu',
+  session_close: 'Đóng trước nghỉ phiên',
+  session_close_near: 'Gần giờ nghỉ phiên; không vào',
   insufficient_balance: 'Không đủ vốn',
   position_already_active: 'Đã có vị thế',
   missed_entry_while_offline: 'Bỏ lỡ giá vào khi máy ngủ',
@@ -140,7 +158,7 @@ const date = (stamp?: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toISOString().slice(0, 16).replace('T', ' ');
 
 export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; paused: boolean }) {
-  const [channel, setChannel] = useState<'live' | 'replay'>('live');
+  const [channel, setChannel] = useState<'live' | 'replay' | 'trend' | 'range'>('live');
   const account = paper.portfolios?.find((row) => row.channel === channel);
   const costs = paper.assumptions;
   const report = account?.report;
@@ -219,15 +237,19 @@ export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; pa
                     <summary>Nhật ký tín hiệu / chi phí</summary>
                     {row.journal_version === 2 ? (
                       <>
-                        <p>
-                          H4: {row.signal?.trend ?? '—'} · EMA {amount(row.signal?.ema_4h)} · nến{' '}
-                          {date(row.signal?.closed_4h_time)} UTC.
-                        </p>
-                        <p>
-                          H1 breakout: {date(row.signal?.breakout_time)} · vùng{' '}
-                          {amount(row.signal?.level)}. M15 retest: {date(row.signal?.touch_time)}{' '}
-                          UTC.
-                        </p>
+                        {(channel === 'live' || channel === 'replay') && (
+                          <>
+                            <p>
+                              H4: {row.signal?.trend ?? '—'} · EMA {amount(row.signal?.ema_4h)} ·
+                              nến {date(row.signal?.closed_4h_time)} UTC.
+                            </p>
+                            <p>
+                              H1 breakout: {date(row.signal?.breakout_time)} · vùng{' '}
+                              {amount(row.signal?.level)}. M15 retest:{' '}
+                              {date(row.signal?.touch_time)} UTC.
+                            </p>
+                          </>
+                        )}
                         <p>{row.signal?.reason ?? 'Không có lý do xác nhận trong snapshot.'}</p>
                         <p>
                           Bid / Ask vào: {amount(row.entry_bid)} / {amount(row.entry_ask)}. Spread
@@ -264,7 +286,7 @@ export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; pa
       <div className="section-head">
         <div>
           <h2>Ví mô phỏng Exness · XAUUSD</h2>
-          <p>Hai ví độc lập $10,000; không gửi lệnh tới tài khoản Demo sàn.</p>
+          <p>Bốn ví độc lập $10,000; không gửi lệnh tới tài khoản Demo sàn.</p>
         </div>
         <span className="pill amber">PAPER · CỤC BỘ</span>
       </div>
@@ -283,12 +305,47 @@ export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; pa
         >
           Replay · tín hiệu bỏ lỡ
         </button>
+        <button
+          className="secondary"
+          aria-pressed={channel === 'trend'}
+          onClick={() => setChannel('trend')}
+        >
+          Thử nghiệm · Trend Pullback
+        </button>
+        <button
+          className="secondary"
+          aria-pressed={channel === 'range'}
+          onClick={() => setChannel('range')}
+        >
+          Thử nghiệm · Range Rejection
+        </button>
       </div>
       <p>
-        {channel === 'live'
-          ? 'Chỉ tín hiệu và giá vào xử lý kịp lúc. Vị thế đã mở vẫn đối soát SL/TP lịch sử khi máy hoạt động lại.'
-          : 'Chỉ mô phỏng tín hiệu bỏ lỡ và giá vào bị trễ. Không gộp kết quả này vào ví Live; không phải lệnh chạy trực tiếp.'}
+        {channel === 'trend' || channel === 'range'
+          ? 'Ví thử nghiệm riêng, theo dõi tiến tới từ lúc worker khởi tạo; chưa chứng minh lợi thế. Khớp theo nến M15 đã đóng, không gửi lệnh tới sàn.'
+          : channel === 'live'
+            ? 'Chỉ tín hiệu và giá vào xử lý kịp lúc. Vị thế đã mở vẫn đối soát SL/TP lịch sử khi máy hoạt động lại.'
+            : 'Mô phỏng tín hiệu xử lý chạy bù từ khi ví khởi tạo, vào theo giá mở nến kế tiếp trong lịch sử, không theo giá hiện tại. Không gộp vào ví Live. Replay toàn bộ kho nến nằm ở tab Backtest.'}
       </p>
+      {account && (
+        <div role="status">
+          <p>
+            Setup xác nhận: {account.confirmed_count ?? 0} · Được duyệt:{' '}
+            {account.accepted_count ?? 0}. Được duyệt chưa đồng nghĩa đã khớp.
+          </p>
+          {account.observation && (
+            <p>
+              Quan sát M15 lúc {date(account.observation.candle_time)} UTC:{' '}
+              {account.observation.reason}
+            </p>
+          )}
+          {Object.entries(account.rejection_reasons ?? {}).map(([reason, count]) => (
+            <p key={reason}>
+              {labels[reason] ?? reason}: {count}
+            </p>
+          ))}
+        </div>
+      )}
       {paused && (
         <p role="status" className="negative">
           Worker/API hoặc dữ liệu chưa sẵn sàng. Số liệu là trạng thái lưu gần nhất.

@@ -15,9 +15,10 @@ EMPTY_BODY_HASH = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
 
 
 class ExnessError(RuntimeError):
-    def __init__(self, message, retry_after=60):
+    def __init__(self, message, retry_after=60, rate_limited=False):
         super().__init__(message)
         self.retry_after = retry_after
+        self.rate_limited = rate_limited
 
 
 def validate_host(base_url):
@@ -78,6 +79,7 @@ class ExnessReadOnly:
         self.client = client or httpx.Client(base_url=base_url, timeout=10)
         self.request_interval = 0.55
         self.next_request = 0
+        self.rate_limit_until = 0
 
     @classmethod
     def from_env(cls):
@@ -91,6 +93,9 @@ class ExnessReadOnly:
     def get(self, path, params=None):
         if not path.startswith("/v1/") or "?" in path or "#" in path:
             raise ExnessError("Only relative /v1/ GET paths are allowed")
+        cooldown = self.rate_limit_until - time.monotonic()
+        if cooldown > 0:
+            raise ExnessError("Exness rate limit; waiting before retry", math.ceil(cooldown), rate_limited=True)
         query = urlencode(params or {})
         target = httpx.URL(f"{path}?{query}" if query else path).raw_path.decode("ascii")
         delay = self.next_request - time.monotonic()
@@ -112,7 +117,9 @@ class ExnessReadOnly:
                     raise ValueError
             except ValueError:
                 cooldown = 60
-            raise ExnessError("Exness rate limit; waiting before retry", max(2, min(cooldown, 3600)))
+            cooldown = max(2, min(cooldown, 3600))
+            self.rate_limit_until = time.monotonic() + cooldown
+            raise ExnessError("Exness rate limit; waiting before retry", cooldown, rate_limited=True)
         if response.status_code != 200:
             raise ExnessError(f"Exness HTTP {response.status_code}")
         try:

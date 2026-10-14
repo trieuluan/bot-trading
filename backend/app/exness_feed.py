@@ -104,10 +104,12 @@ def sync_page(api, frame, days=90, now=None):
             cursor = state.checked_until if state.checked_until is not None else state.started_at
             if cursor > end:
                 raise ExnessError("Clock behind persisted Exness cursor")
-            if cursor == end and state.last_sync and (current - state.last_sync.replace(tzinfo=timezone.utc)).total_seconds() < 60:
+            if cursor == end and state.error is None:
                 return {"status": "current", "frame": frame, "remaining_intervals": 0, "bars": 0}
             start = cursor if cursor < end else max(state.started_at, end - 2 * step)
             cap = api.candle_limit
+            if state.checked_until is not None and 0 < end - cursor <= step and cap > 2:
+                start = max(state.started_at, cursor - 2 * step)
             batch_end = min(end, start + cap * step)
             raw = api.candles("XAUUSD", code, start, batch_end, now=now)
             if len(raw) > cap:
@@ -133,7 +135,20 @@ def sync_page(api, frame, days=90, now=None):
             if state:
                 state.error = str(exc)[:200]
                 state.retry_at = current + timedelta(seconds=exc.retry_after)
+            if exc.rate_limited:
+                for feed in session.scalars(select(WorkspaceFeedState).where(WorkspaceFeedState.workspace_id == WORKSPACE)):
+                    retry_at = current + timedelta(seconds=exc.retry_after)
+                    if feed.retry_at is None or feed.retry_at.replace(tzinfo=timezone.utc) < retry_at:
+                        feed.retry_at = retry_at
         raise
+
+def feed_retry_delay():
+    now = utcnow()
+    with Session() as session:
+        retry_at = session.scalar(select(func.max(WorkspaceFeedState.retry_at)).where(
+            WorkspaceFeedState.workspace_id == WORKSPACE,
+        ))
+        return max(0, (retry_at.replace(tzinfo=timezone.utc) - now).total_seconds()) if retry_at else 0
 
 
 def worker_heartbeat(enabled):
@@ -143,11 +158,13 @@ def worker_heartbeat(enabled):
             state.worker_heartbeat = utcnow()
 
 
-def record_connection_failure():
+def record_connection_failure(retry_after=60):
     with Session.begin() as session:
         for state in session.scalars(select(WorkspaceFeedState).where(WorkspaceFeedState.workspace_id == WORKSPACE)):
             state.error = "Exness connection/configuration unavailable; retrying"
-            state.retry_at = utcnow() + timedelta(seconds=60)
+            retry_at = utcnow() + timedelta(seconds=retry_after)
+            if state.retry_at is None or state.retry_at.replace(tzinfo=timezone.utc) < retry_at:
+                state.retry_at = retry_at
 
 
 def feed_summary():

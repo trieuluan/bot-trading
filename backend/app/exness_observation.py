@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from .db import ForexObservation, Session, Workspace, WorkspaceCandle, WorkspaceFeedState
 from .exness_feed import FRAMES, WORKSPACE
+from .exness_sessions import gap_details
 
 ACTIVE = ("waiting_retest", "waiting_confirm")
 
@@ -38,7 +39,7 @@ def audit_frames(frames):
         crossed = sum(any(getattr(asks[stamp], field) < getattr(bids[stamp], field)
                           for field in ("open", "high", "low", "close")) for stamp in paired)
         spreads = [asks[stamp].close - bids[stamp].close for stamp in paired]
-        gaps = [{"after": before, "before": after, "missing_intervals": (after - before) // step - 1}
+        gaps = [gap_details(before, after, step)
                 for before, after in zip(paired, paired[1:]) if after - before > step]
         reports.append({
             "timeframe": frame, "paired_bars": len(paired), "invalid_bars": invalid,
@@ -46,12 +47,14 @@ def audit_frames(frames):
             "close_spread_mean": sum(spreads) / len(spreads) if spreads else None,
             "close_spread_max": max(spreads) if spreads else None,
             "gap_count": len(gaps), "recent_gaps": gaps[-5:],
+            "regular_session_breaks": sum(gap["classification"] == "regular_session_break" for gap in gaps),
+            "unverified_gaps": [gap for gap in gaps if gap["classification"] != "regular_session_break"],
         })
     blocked = any(row["invalid_bars"] or row["unpaired_bars"] or row["crossed_bars"]
                   or not row["paired_bars"] for row in reports)
     return {"status": "blocked" if blocked else "checked", "frames": reports,
             "session_calendar_verified": False,
-            "message": "Khoảng trống chưa đối chiếu lịch phiên; không tự coi là mất dữ liệu hay lấp nến. Spread là chênh lệch close ask/bid, không phải chi phí khớp lệnh."}
+            "message": "Đã phân loại nghỉ phiên XAUUSD thường lệ theo DST Mỹ; chưa xác minh lịch lễ/ngoại lệ. Gap ngoài lịch vẫn chưa xác minh, không lấp nến. Spread là chênh lệch close ask/bid."}
 
 def observe_forex(candle, hours, higher, previous=None):
     available = candle.time + 900

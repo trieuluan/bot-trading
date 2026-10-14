@@ -548,6 +548,9 @@ docker compose run --rm --no-deps \
   -v "$PWD/scripts:/app/scripts:ro" \
   -v "$PWD/research-output:/app/research-output" \
   exness-feed python -m scripts.exness_mtf_replay
+
+# So sánh danh mục 1 ví ($10,000, 1% risk, max 1 vị thế) cho 3 chiến lược:
+docker compose exec api python -m scripts.exness_mtf_replay --compare
 ```
 
 - Tín hiệu chỉ từ nến đã đóng; vào giả định ở open M15 kế tiếp: long mua ask, short bán bid.
@@ -564,6 +567,36 @@ docker compose run --rm --no-deps \
   giả định, chuyển trạng thái, từng mẫu, thống kê theo chiều và tháng UTC.
   Mẫu có thể chồng lấn: tổng R/drawdown chỉ là thống kê mẫu đóng, không phải đường vốn tài khoản.
 - Đây là replay mô tả trên dữ liệu đã có, chưa out-of-sample hoặc chứng minh hiệu quả.
+
+### Giá trực tiếp Exness
+
+### So sánh chiến lược và ví thử nghiệm Exness
+
+`--compare` xuất `research-output/exness-strategy-compare.json`, hiển thị ở **Backtest**.
+Ba chiến lược dùng cùng bộ nến Bid/Ask, cùng mô hình khớp với paper và ba mức trượt giá
+0/1/2 bps mỗi chiều. Mỗi lượt có một ví $10,000 độc lập, risk tối đa 1%, notional tối đa
+1 lần vốn, chỉ một vị thế, không dùng leverage. Vào ở open M15 kế tiếp, TP 2R, không timeout.
+Chỉ nến đóng được dùng; `--as-of` và SHA256 ghi lại thời điểm/bộ dữ liệu. Chưa kiểm định ngoài mẫu.
+
+- `breakout_retest`: giữ luật H4/H1/M15 hiện có, SL theo cấu trúc retest.
+- `trend_pullback`: H1 EMA20 trên/dưới EMA50, close cùng phía EMA20; M15 chạm EMA20
+  của 60 nến M15 trước đó rồi đóng cùng chiều. SL lấy cực trị nến xác nhận và nến trước.
+- `range_rejection`: range 20 H1 đã đóng trước nến tín hiệu; độ dịch chuyển close đầu/cuối
+  không quá 50% chiều rộng range; M15 chạm vùng 10% sát biên rồi đóng trở lại phía trong.
+  SL tại cực trị nến từ chối. Đây là luật thử nghiệm, không khẳng định có lợi thế.
+
+Số dư, return và drawdown chỉ tính **lệnh đã đóng**, không phải equity cuối kỳ. Vị thế gặp
+gap chưa xác minh giữ nhãn `censored` và **chặn ví**, không xóa lệnh để tiếp tục với vốn
+giả định còn nguyên. UI hiện thời điểm chặn và số setup bị từ chối. Báo cáo bị chặn chỉ là
+kết quả từng phần, không dùng để xếp hạng chiến lược. Commission chưa xác minh, swap,
+lot và margin thực chưa được hiệu chỉnh; không coi P&L mô hình là lợi nhuận ròng thực tế.
+
+**Ví mô phỏng** giữ nguyên `live`/`replay` cho Breakout + Retest và thêm `trend`/`range`.
+Hai ví mới khởi tạo tại nến mới nhất khi worker chạy, không nhập lịch sử vào số dư forward.
+Máy mở lại thì chạy bù tối đa 96 nến mỗi lượt, theo đúng thứ tự; gọi lại không tạo lệnh trùng.
+Hai ví thử nghiệm dùng nến đóng, không dùng tick để thoát; UI có trạng thái chờ, lý do,
+số setup xác nhận/được duyệt, lý do bỏ qua, drawdown và CSV riêng từng ví.
+Không thay đổi ví MEXC, không gửi lệnh Demo hay tiền thật tới Exness.
 
 ### Giá trực tiếp Exness
 
@@ -606,6 +639,7 @@ docker compose run --rm --no-deps \
   Mất tick không có nghĩa chắc chắn mất dữ liệu; chính sách này cố ý bảo thủ.
   Ví Replay, tín hiệu MTF, giá vào và trạng thái ví MEXC không đổi; không gửi lệnh broker.
 - Khoảng trống M15 chưa xác minh khi có vị thế: ghi `censored`, khóa mở lệnh mới, equity chưa xác định.
+- Nghỉ phiên XAUUSD thường lệ được phân loại theo giờ New York (DST Mỹ), chỉ chấp nhận khi toàn bộ nến thiếu nằm trong giờ đóng cửa. Giữ vị thế mở qua phiên, xét SL/TP bằng giá mở cửa Bid/Ask kế tiếp; hủy tín hiệu pending, không vào muộn. Báo cáo ghi thời điểm/số nến thiếu nếu còn gap bất thường. Chưa có lịch lễ/ngoại lệ đầy đủ; không tự lấp nến hoặc mở khóa ví đã bị chặn từ lần chạy cũ.
   Không bịa P&L hoặc giả định đã thoát. Chưa tự mở khóa; cần đối soát dữ liệu trước khi bổ sung xử lý phiên.
 - Kiểm thử `backend/tests/test_forex_paper.py` dùng SQLite riêng: SL/TP Long/Short, spread,
   gap, ngủ máy, rollback, idempotency, chạy bù nhiều batch và không thay đổi ví MEXC.

@@ -27,6 +27,9 @@ export function MtfObservationChart({
   snapshot,
   livePrice = null,
   liveCandles = [],
+  onLoadOlder,
+  trendLabel = 'Xu hướng 4h',
+  levelLabel = 'Mức breakout',
   title = 'BTC_USDT perpetual · 15m (vùng tham chiếu từ 1h) · Chỉ quan sát, không gửi lệnh',
 }: {
   candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
@@ -34,6 +37,9 @@ export function MtfObservationChart({
   title?: string;
   livePrice?: { price: number; label: string } | null;
   liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
+  onLoadOlder?: () => void;
+  trendLabel?: string;
+  levelLabel?: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -42,6 +48,9 @@ export function MtfObservationChart({
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
   const fitted = useRef(false);
+  const loadOlder = useRef(onLoadOlder);
+  loadOlder.current = onLoadOlder;
+  const previousTimes = useRef<number[]>([]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -66,6 +75,9 @@ export function MtfObservationChart({
       borderVisible: false,
     });
     markers.current = createSeriesMarkers(series.current, []);
+    chart.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (range && range.from < 30) loadOlder.current?.();
+    });
     return () => {
       chart.current?.remove();
       chart.current = null;
@@ -74,6 +86,7 @@ export function MtfObservationChart({
       lines.current = [];
       ranges.current = [];
       fitted.current = false;
+      previousTimes.current = [];
     };
   }, []);
 
@@ -95,12 +108,22 @@ export function MtfObservationChart({
 
   useEffect(() => {
     if (!series.current) return;
+    const visible = chart.current?.timeScale().getVisibleLogicalRange();
+    const oldFirst = previousTimes.current[0];
+    const added = oldFirst === undefined ? 0 : candles.findIndex((bar) => bar.time === oldFirst);
     series.current.setData(
       [
         ...candles,
         ...liveCandles.filter((candle) => candle.time > (candles.at(-1)?.time ?? -1)),
       ].map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
     );
+    previousTimes.current = candles.map((bar) => bar.time);
+    if (visible && added > 0) {
+      chart.current?.timeScale().setVisibleLogicalRange({
+        from: visible.from + added,
+        to: visible.to + added,
+      });
+    }
     if (!fitted.current && candles.length) {
       chart.current?.timeScale().fitContent();
       fitted.current = true;
@@ -148,7 +171,10 @@ export function MtfObservationChart({
           lineWidth: 1,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: true,
-          title: `VÙNG PHÁ (${snapshot.side?.toUpperCase()})`,
+          title:
+            levelLabel === 'Mức breakout'
+              ? `VÙNG PHÁ (${snapshot.side?.toUpperCase() ?? 'CHỜ'})`
+              : levelLabel,
         }),
       );
     }
@@ -213,7 +239,7 @@ export function MtfObservationChart({
       }
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
-  }, [snapshot, candles]);
+  }, [snapshot, candles, levelLabel]);
 
   return (
     <div className="trade-chart-wrap">
@@ -227,14 +253,21 @@ export function MtfObservationChart({
       <div className="chart-legend">
         {snapshot && (
           <strong>
-            Xu hướng 4h: {snapshot.trend ? (snapshot.trend === 'up' ? 'Tăng' : 'Giảm') : '—'} ·{' '}
-            {observationStatusLabels[snapshot.status] ?? snapshot.status} · Vùng{' '}
+            {trendLabel}:{' '}
+            {snapshot.trend === 'up'
+              ? 'Tăng'
+              : snapshot.trend === 'down'
+                ? 'Giảm'
+                : snapshot.trend === 'sideway'
+                  ? 'Đi ngang'
+                  : 'Chưa rõ'}{' '}
+            · {observationStatusLabels[snapshot.status] ?? snapshot.status} · Vùng{' '}
             {snapshot.level ? formatPrice(snapshot.level) : '—'}
           </strong>
         )}
         <span className="breakout-legend">— Vùng 1h tham chiếu</span>
         {snapshot && snapshot.level !== null && (
-          <span className="entry-legend">— Mức breakout</span>
+          <span className="entry-legend">— {levelLabel}</span>
         )}
         {snapshot && snapshot.stop !== null && <span className="stop-legend">— SL tham chiếu</span>}
         {snapshot && snapshot.target !== null && (

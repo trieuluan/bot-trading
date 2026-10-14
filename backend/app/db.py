@@ -69,6 +69,15 @@ class ForexObservation(Base):
     candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
 
+class ForexGapAudit(Base):
+    __tablename__ = "forex_gap_audits"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    after: Mapped[int] = mapped_column(Integer, primary_key=True)
+    before: Mapped[int] = mapped_column(Integer, primary_key=True)
+    checked_at: Mapped[int] = mapped_column(Integer)
+    retry_at: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
 class ForexInstrumentState(Base):
     __tablename__ = "forex_instrument_state"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)

@@ -38,11 +38,13 @@ def database():
         ForexPaperTrade,
         ForexPaperAccount,
         ForexInstrumentState,
+        ForexGapAudit,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
     with Session.begin() as session:
         for model in (
+            ForexGapAudit,
             ForexPaperTrade,
             ForexPaperAccount,
             ForexInstrumentState,

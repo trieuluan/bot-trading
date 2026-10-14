@@ -1,4 +1,4 @@
-"""Read-only Exness MTF replay; independent hypothetical trades, not a portfolio."""
+"""Read-only Exness replay: legacy event study or isolated single-wallet comparisons."""
 
 import argparse
 import hashlib
@@ -12,18 +12,28 @@ from pathlib import Path
 from backend.app.db import Session
 from backend.app.exness_feed import FRAMES
 from backend.app.exness_observation import audit_frames, load_frames, observe_forex
+from backend.app.forex_paper import _step_trade
+from backend.app.exness_sessions import gap_details, regular_session_gap, session_closed_ahead
+from backend.app.forex_reporting import trade_report
+from backend.app.forex_strategies import RULES, strategy_snapshot
 
 def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bars=96):
     if sample["status"] not in ("pending", "open"):
         return
     if bid.time != ask.time or bid.time != sample["last_candle"] + 900:
-        sample.update(status="censored", reason="unverified_session_gap")
+        if sample["status"] == "pending" and bid.time == ask.time and regular_session_gap(sample["last_candle"], bid.time):
+            sample.update(status="skipped", reason="session_close_near")
+            return
+        sample.update(status="excluded", reason="data_gap", gap=gap_details(sample["last_candle"], bid.time))
         return
     sample["last_candle"] = bid.time
     direction = 1 if sample["side"] == "long" else -1
     slip = slippage_bps / 10000
     exit_bar = bid if direction == 1 else ask
     if sample["status"] == "pending":
+        if session_closed_ahead(bid.time, 4):
+            sample.update(status="skipped", reason="session_close_near")
+            return
         entry = (ask.open if direction == 1 else bid.open) * (1 + direction * slip)
         risk = direction * (entry - sample["stop"])
         target = entry + direction * 2 * risk
@@ -45,13 +55,15 @@ def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bar
         sample["ambiguous_bar"] = target_hit
     elif target_hit:
         price, outcome = target, "target"
+    elif session_closed_ahead(bid.time, 2):
+        price, outcome = exit_bar.close, "session_close"
     elif sample["bars"] >= horizon_bars:
         price, outcome = exit_bar.close, "timeout"
     else:
         return
     price *= 1 - direction * slip
     pnl = direction * (price - sample["entry"]) - commission_per_unit
-    sample.update(status="resolved", outcome=outcome, exit=price, exit_time=bid.time,
+    sample.update(status="resolved", outcome=outcome, exit=price, exit_time=bid.time + (900 if outcome == "session_close" else 0),
                   label_available_at=bid.time + 900, pnl_per_unit_ex_swap=pnl,
                   net_r_ex_swap=pnl / sample["risk"])
 
@@ -125,7 +137,8 @@ def run_replay(frames, now=None, slippage_bps=0, commission_per_unit=0):
                             "exit": "bid OHLC for long, ask OHLC for short",
                             "target": "2R from executable next-open entry; stop from bid retest structure",
                             "same_bar_policy": "open first, then stop before target",
-                            "unknown_session_gap": "censor open/pending sample, cancel active setup",
+                            "unknown_session_gap": "exclude open/pending sample from stats",
+                            "session_close": "flat on last candle before scheduled closure (US DST); no entry within 4 bars of closure",
                             "slippage_bps_each_side": slippage_bps,
                             "round_trip_commission_per_unit": commission_per_unit,
                             "swap_included": False, "costs_calibrated": False,
@@ -136,11 +149,112 @@ def run_replay(frames, now=None, slippage_bps=0, commission_per_unit=0):
             "by_month": {month: summarize([row for row in samples if datetime.fromtimestamp(row["confirm_time"], timezone.utc).strftime("%Y-%m") == month]) for month in months},
             "events": events, "samples": samples}
 
+def portfolio(frames, strategy, balance=10000.0, risk=0.01, slippage_bps=2,
+              commission_per_unit=0, now=None):
+    """One wallet per strategy, using the exact forward-paper execution model."""
+    if strategy not in ("breakout_retest", *RULES):
+        raise ValueError("Unknown strategy")
+    if not math.isfinite(balance) or balance <= 0 or not math.isfinite(risk) or not 0 < risk <= 1:
+        raise ValueError("Invalid balance or risk fraction")
+    if not all(math.isfinite(value) and value >= 0 for value in (slippage_bps, commission_per_unit)) or slippage_bps >= 10000:
+        raise ValueError("Invalid costs")
+    now = int(time.time()) if now is None else now
+    frames = {frame: sorted((row for row in frames[frame] if row.time + step <= now),
+                            key=lambda row: (row.time, row.price_type))
+              for frame, (_, step) in FRAMES.items()}
+    if any(len({(row.time, row.price_type) for row in rows}) != len(rows) for rows in frames.values()):
+        raise ValueError("Duplicate candles")
+    if audit_frames(frames)["status"] == "blocked":
+        raise ValueError("Invalid or incomplete bid/ask history")
+    bids = {frame: [row for row in rows if row.price_type == "bid"] for frame, rows in frames.items()}
+    asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
+    starting_balance = balance
+    samples, states = [], Counter()
+    active = previous = blocked_at = None
+    for index, candle in enumerate(bids["15m"]):
+        if active:
+            _step_trade(active, candle, asks[candle.time])
+            if active["status"] == "resolved":
+                balance += active["pnl"]
+                active["balance_after"] = balance
+            if active["status"] not in ("pending", "open"):
+                active = None
+        if strategy == "breakout_retest":
+            snapshot = observe_forex(candle, bids["1h"], bids["4h"], previous)
+            previous = snapshot
+        else:
+            snapshot = strategy_snapshot(strategy, candle, bids["1h"], bids["15m"][max(0, index - 60):index])
+        states[snapshot["status"]] += 1
+        if snapshot["status"] != "confirmed":
+            continue
+        reason = ("position_already_active" if active else
+                  "insufficient_balance" if balance <= 0 else None)
+        sample = {
+            "status": "skipped" if reason else "pending", "side": snapshot["side"],
+            "confirm_time": candle.time, "last_candle": candle.time, "stop": snapshot["stop"],
+            "capital": max(0, balance), "allocated_risk": max(0, balance) * risk,
+            "slippage_bps": slippage_bps, "commission_per_unit": commission_per_unit,
+            "signal": snapshot, "swap_included": False,
+        }
+        if reason:
+            sample["reason"] = reason
+        else:
+            active = sample
+        samples.append(sample)
+    if not any(count for status, count in states.items() if status != "warming_up"):
+        raise ValueError("Insufficient closed warmup history")
+    report = trade_report(samples, starting_balance)
+    resolved = [row for row in samples if row["status"] == "resolved"]
+    return {
+        "strategy": strategy, "slippage_bps": slippage_bps, "signals": len(samples),
+        "accepted": sum(row["status"] != "skipped" for row in samples),
+        "skipped_busy": sum(row.get("reason") == "position_already_active" for row in samples),
+        "rejection_reasons": dict(Counter(row["reason"] for row in samples if "reason" in row)),
+        "observation_states": dict(states), "trades": len(resolved),
+        "win_rate": sum(row["pnl"] > 0 for row in resolved) / len(resolved) if resolved else None,
+        "final_balance": round(balance, 2), "return_pct": (balance / starting_balance - 1) * 100,
+        "profit_factor": report["profit_factor"], "max_drawdown_pct": report["max_closed_drawdown_percent"],
+        "mean_r": report["expectancy_r"], "report": report,
+        "status": "blocked" if blocked_at is not None else "open" if active else "complete",
+        "blocked_at": blocked_at, "equity_verified": blocked_at is None and not active and not any(row["status"] == "excluded" for row in samples),
+        "blocked_gap": None,
+        "excluded_trades": sum(row["status"] == "excluded" for row in samples),
+        "session_closes": sum(row.get("outcome") == "session_close" for row in resolved),
+        "samples": samples,
+    }
+
+
+def run_comparison(frames, now=None, commission_per_unit=0):
+    now = int(time.time()) if now is None else now
+    baseline = run_replay(frames, now, commission_per_unit=commission_per_unit)
+    return {
+        "version": "exness_portfolio_compare_v1", "policy_version": "flat_before_session_v2", "source": "exness_forex", "symbol": "XAUUSD",
+        "as_of": now, "start": baseline["start"], "end": baseline["end"],
+        "processed_bars": baseline["processed_bars"], "dataset_sha256": baseline["dataset_sha256"],
+        "quality": baseline["quality"], "observation_only": True,
+        "assumptions": {
+            "starting_balance": 10000, "risk_fraction": 0.01, "max_notional_equity": 1,
+            "max_open_positions": 1, "target_r": 2, "portfolio_simulation": True,
+            "entry": "next_closed_m15_open_bid_ask", "same_bar_policy": "stop_first",
+            "unknown_gap": "exclude_trade_from_stats; wallet not blocked",
+            "session_close": "flat on last candle before scheduled closure (US DST); no entry within 4 bars of closure",
+            "balance_and_drawdown": "closed_trades_only; unverified gaps and open positions excluded",
+            "excluded_trade_pnl": "unknown, not zero; balance and returns conditional on included samples",
+            "swap_included": False, "costs_calibrated": False, "lot_constraints_verified": False,
+            "round_trip_commission_per_unit": commission_per_unit, "out_of_sample": False,
+            "timeout": None,
+        },
+        "results": [portfolio(frames, strategy, slippage_bps=bps,
+                              commission_per_unit=commission_per_unit, now=now)
+                    for strategy in ("breakout_retest", *RULES) for bps in (0, 1, 2)],
+    }
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("research-output/exness-mtf-replay.json"))
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--slippage-bps", type=float, default=0)
     parser.add_argument("--commission-per-unit", type=float, default=0)
+    parser.add_argument("--compare", action="store_true", help="single-wallet comparison of all strategies")
     parser.add_argument("--as-of", type=int, help="UTC epoch seconds; replay only candles closed by this instant")
     args = parser.parse_args()
     now = int(time.time()) if args.as_of is None else args.as_of
@@ -148,13 +262,23 @@ def main():
         parser.error("--as-of must be positive")
     with Session() as session:
         frames = load_frames(session, now)
-        report = run_replay(frames, now, args.slippage_bps, args.commission_per_unit)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = args.output.with_suffix(args.output.suffix + ".tmp")
+        if args.compare:
+            report = run_comparison(frames, now, args.commission_per_unit)
+        else:
+            report = run_replay(frames, now, args.slippage_bps, args.commission_per_unit)
+    output = args.output or Path("research-output/exness-strategy-compare.json" if args.compare
+                                 else "research-output/exness-mtf-replay.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding="utf-8")
-    temporary.replace(args.output)
-    print(json.dumps({"output": str(args.output), "summary": report["summary"],
-                      "by_side": report["by_side"], "assumptions": report["assumptions"]}, ensure_ascii=False))
+    temporary.replace(output)
+    result = {"output": str(output), "assumptions": report["assumptions"]}
+    if args.compare:
+        result["results"] = [{key: value for key, value in row.items() if key not in ("samples", "report")}
+                             for row in report["results"]]
+    else:
+        result.update(summary=report["summary"], by_side=report["by_side"])
+    print(json.dumps(result, ensure_ascii=False, allow_nan=False))
 
 if __name__ == "__main__":
     main()

@@ -5,6 +5,7 @@ Never sends orders to Exness. Completely isolated from MEXC paper state.
 
 import math
 import time
+from collections import Counter
 
 from sqlalchemy import select
 
@@ -19,13 +20,16 @@ from .db import (
 )
 from .exness_feed import FRAMES, WORKSPACE
 from .exness_observation import audit_frames, load_frames
+from .exness_sessions import gap_details, regular_session_gap, session_closed_ahead
 from .forex_costs import lot_size, spec_summary
 from .forex_reporting import trade_report
+from .forex_strategies import STRATEGY_CHANNELS, strategy_snapshot
 
 STARTING_BALANCE = 10000.0
 RISK_FRACTION = 0.01
 SLIPPAGE_BPS = 2
 COMMISSION_PER_UNIT = 0.0
+CHANNELS = ("live", "replay", *STRATEGY_CHANNELS)
 
 def _resolve_trade(trade, price, outcome, stamp, source):
     direction = 1 if trade["side"] == "long" else -1
@@ -59,13 +63,20 @@ def _step_trade(trade, bid, ask):
     if trade["status"] not in ("pending", "open"):
         return
     if bid.time != ask.time or bid.time != trade["last_candle"] + 900:
-        trade.update(status="censored", reason="unverified_session_gap", last_candle=bid.time)
+        trade["gap"] = gap_details(trade["last_candle"], bid.time)
+        if trade["status"] == "pending" and bid.time == ask.time and regular_session_gap(trade["last_candle"], bid.time):
+            trade.update(status="skipped", reason="session_close_near", last_candle=bid.time)
+            return
+        trade.update(status="excluded", reason="data_gap", last_candle=bid.time)
         return
     trade["last_candle"] = bid.time
     direction = 1 if trade["side"] == "long" else -1
     slip = trade["slippage_bps"] / 10000
     exit_bar = bid if direction == 1 else ask
     if trade["status"] == "pending":
+        if session_closed_ahead(bid.time, 4):
+            trade.update(status="skipped", reason="session_close_near")
+            return
         raw_open = ask.open if direction == 1 else bid.open
         entry = raw_open * (1 + direction * slip)
         risk_per_unit = direction * (entry - trade["stop"])
@@ -114,9 +125,11 @@ def _step_trade(trade, bid, ask):
         trade["ambiguous_bar"] = target_hit
     elif target_hit:
         price, outcome = target, "target"
+    elif session_closed_ahead(bid.time, 2):
+        price, outcome = exit_bar.close, "session_close"
     else:
         return
-    _resolve_trade(trade, price, outcome, bid.time, "closed_candle")
+    _resolve_trade(trade, price, outcome, bid.time + (900 if outcome == "session_close" else 0), "closed_candle")
     if outcome in ("stop_gap", "target_at_open"):
         trade["exit_bid"], trade["exit_ask"] = bid.open, ask.open
         trade["exit_spread"] = ask.open - bid.open
@@ -192,6 +205,9 @@ def _advance_account(session, account, bid, ask):
         .order_by(ForexPaperTrade.confirm_time)
     ).all()
 
+    for row in rows:
+        if row.snapshot.get("status") == "censored" and row.snapshot.get("reason") == "unverified_session_gap":
+            row.snapshot = {**row.snapshot, "status": "excluded", "reason": "data_gap"}
     active = [row for row in rows if row.snapshot.get("status") in ("pending", "open")]
     for row in active:
         data = dict(row.snapshot)
@@ -199,8 +215,7 @@ def _advance_account(session, account, bid, ask):
         row.snapshot = data
         if data["status"] == "resolved":
             account.balance += data["pnl"]
-        if data["status"] == "censored" and "entry" in data:
-            account.blocked = True
+    account.blocked = any(row.snapshot.get("status") == "censored" and "entry" in row.snapshot for row in rows)
     account.last_candle = bid.time
 
 
@@ -365,13 +380,42 @@ def paper_tick(now=None):
                     now=now,
                 )
             session.flush()
-        return {"status": "tracking", "processed": len(pending)}
+        shadow = _strategy_paper_tick(session, frames, bids, asks, now)
+        return {"status": "tracking", "processed": len(pending), "strategy_processed": shadow}
+
+def _strategy_paper_tick(session, frames, bids, asks, now):
+    hours = [row for row in frames["1h"] if row.price_type == "bid"]
+    minutes = sorted(bids.values(), key=lambda row: row.time)
+    processed = {}
+    for channel, strategy in STRATEGY_CHANNELS.items():
+        account = session.get(ForexPaperAccount, (WORKSPACE, channel))
+        if account is None:
+            account = ForexPaperAccount(
+                workspace_id=WORKSPACE, channel=channel, started_at=now,
+                last_candle=minutes[-1].time, balance=STARTING_BALANCE, blocked=False,
+            )
+            session.add(account)
+            session.flush()
+        pending = [row for row in minutes if row.time > account.last_candle][:96]
+        for candle in pending:
+            _advance_account(session, account, candle, asks[candle.time])
+            snapshot = strategy_snapshot(strategy, candle, hours, minutes)
+            if snapshot["status"] == "confirmed":
+                _queue_trade(session, account, {
+                    **snapshot, "provenance": "live" if candle.time + 1800 > now else "catch_up",
+                }, now=now)
+            session.flush()
+        processed[channel] = len(pending)
+    return processed
 
 
 def forex_paper_summary():
     portfolios = []
     with Session() as session:
-        for channel in ("live", "replay"):
+        frames = load_frames(session, int(time.time()))
+        hours = [row for row in frames["1h"] if row.price_type == "bid"]
+        minutes = [row for row in frames["15m"] if row.price_type == "bid"]
+        for channel in CHANNELS:
             account = session.get(ForexPaperAccount, (WORKSPACE, channel))
             trades = session.scalars(
                 select(ForexPaperTrade)
@@ -388,8 +432,6 @@ def forex_paper_summary():
                 trade
                 for trade in raw_list
                 if trade.get("status") in ("pending", "open")
-                or trade.get("status") == "censored"
-                and "entry" in trade
             ]
             pnls = [trade.get("pnl", 0.0) for trade in resolved]
             wins = sum(pnl > 0 for pnl in pnls)
@@ -414,10 +456,20 @@ def forex_paper_summary():
                             direction * (exit_price - trade["entry"]) - trade["commission_per_unit"]
                         ) * trade["units"]
             uncertain = bool(account and account.blocked)
+            observed = next((row for row in reversed(minutes) if account and row.time == account.last_candle), None)
+            observation = (
+                strategy_snapshot(STRATEGY_CHANNELS[channel], observed, hours, minutes)
+                if channel in STRATEGY_CHANNELS and observed else None
+            )
 
             portfolios.append(
                 {
                     "channel": channel,
+                    "strategy": STRATEGY_CHANNELS.get(channel, "breakout_retest"),
+                    "observation": observation,
+                    "confirmed_count": len(raw_list),
+                    "accepted_count": sum(row["status"] != "skipped" for row in raw_list),
+                    "rejection_reasons": dict(Counter(row["reason"] for row in raw_list if row.get("reason"))),
                     "status": "blocked"
                     if account and account.blocked
                     else "tracking"
@@ -432,10 +484,12 @@ def forex_paper_summary():
                     "starting_balance": STARTING_BALANCE,
                     "last_candle": account.last_candle if account else None,
                     "total_trades": sum(
-                        row["status"] not in ("invalid", "skipped") for row in raw_list
+                        row["status"] not in ("invalid", "skipped", "excluded") for row in raw_list
                     ),
                     "open_trades_count": len(open_trades),
                     "resolved_count": len(resolved),
+                    "excluded_count": sum(row.get("status") == "excluded" for row in raw_list),
+                    "balance_basis": "included_trades_only; excluded trades have unknown PnL",
                     "win_rate": (wins / len(resolved)) if resolved else None,
                     "total_pnl": round(sum(pnls), 2),
                     "report": trade_report(raw_list, STARTING_BALANCE),
@@ -448,7 +502,7 @@ def forex_paper_summary():
         "status": "tracking"
         if any(row["started_at"] is not None for row in portfolios)
         else "not_started",
-        "message": "Hai ví paper riêng Exness; không gửi lệnh Demo, không dùng ví MEXC",
+        "message": "Bốn ví paper riêng Exness; hai ví chiến lược thử nghiệm khớp theo nến đóng, không gửi lệnh Demo",
         "calibration": calibration,
         "assumptions": {
             "risk_percent": RISK_FRACTION * 100,
