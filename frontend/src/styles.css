@@ -1908,6 +1908,29 @@ footer {
   flex-direction: column;
   gap: 16px;
 }
+.execution-desk [hidden] {
+  display: none !important;
+}
+.execution-desk .execution-tab-content:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 4px;
+}
+@media (max-width: 600px) {
+  .execution-desk .section-head,
+  .execution-desk .execution-selection,
+  .execution-desk .decision-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .execution-desk .filter-pills {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .execution-desk .pulse-dot {
+    animation: none;
+  }
+}
 .execution-tabs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
