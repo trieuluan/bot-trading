@@ -219,7 +219,7 @@ def evaluate(session, now):
     hours = [row for row in frames["1h"] if row.price_type == "bid"]
     signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None)
     if signal:
-        signal["stop_buffer"] = structure_stop_buffer(minutes)
+        signal["stop_buffer"] = structure_stop_buffer(minutes, multiplier=Decimal(str(signal.get("sl_buffer_k", 0.25))))
         signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])
     return signal
 
@@ -488,6 +488,9 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                 position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
                     signal_time=intent.signal_time, reason=data.get("reason"),
                     role=leg_info.get("role", "runner"),
+                    exit_variant=data.get("signal", {}).get("exit_variant"),
+                    exit_variant_mode=data.get("signal", {}).get("exit_variant_mode"),
+                    sl_buffer_k=data.get("signal", {}).get("sl_buffer_k"),
                     tp_reason="Chốt một phần tại 1R" if leg_info.get("role") == "tp1" else leg_info.get("tp_reason", data.get("signal", {}).get("tp_reason")),
                     management_stage=mgmt.get("stage"),
                     management_status=mgmt.get("status"),

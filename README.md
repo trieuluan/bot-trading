@@ -687,6 +687,15 @@ Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không
   Bỏ qua nếu mức lỗ dự kiến tới SL vượt $25; đây không phải bảo đảm mức lỗ tối đa khi gap/slippage.
 - SL/TP đặt tại Exness, tiếp tục có hiệu lực khi Mac ngủ. Đóng trước kỳ nghỉ theo lịch chuẩn
   cần worker đang hoạt động; không bảo đảm đóng trước ngày lễ bất thường hoặc lúc máy offline.
+- Learner thử 16 biến thể SL/TP: đệm SL `k ∈ {0, 0.25, 0.5, 1.0}` × TP cấu trúc / 1.5R / 2R / 3R.
+  Chiến lược tự sinh giữ ATR stop sẵn có và chỉ học TP. Mẫu thoát lệnh tách khỏi mẫu chọn chiến lược.
+  Mỗi bối cảnh (chiến lược, chiều lệnh, xu hướng H1, phiên UTC) chỉ mở một nhóm mô phỏng tại một thời điểm.
+  Dùng open nến kế tiếp, Bid/Ask, commission, slippage, lot theo ngân sách, TP1, hòa vốn, trailing và thoát sớm.
+  Cùng nến chạm SL/TP ưu tiên SL; gap và mẫu chưa đóng sau 96 nến bị loại, không coi là lợi nhuận đã chốt.
+  Chọn ứng viên trên train, yêu cầu ít nhất 30 cặp mẫu train và 30 cặp validation đã đóng, lợi nhuận và chênh lệch
+  so với mặc định đều có cận dưới dương. Chưa xác minh commission/slippage thì chỉ khuyến nghị, không tự đổi lệnh demo.
+  Mặc định `k0.25_structural` giữ nguyên khi thiếu bằng chứng; lệnh đang mở không thay chính sách.
+  Đây là mô phỏng OHLC M15, không tái dựng tick/độ trễ gửi hai phần lệnh; chưa tính swap hoặc xác nhận lợi nhuận thật.
 - Ghi intent trước HTTP, idempotency key theo tín hiệu; ACK không đồng nghĩa đã khớp.
   Đối soát operation/order/deal/position ID. Kết quả chưa rõ chặn lệnh mới, không tự gửi lại.
 - Dùng khóa theo tài khoản để chặn executor trùng và không chạy đồng thời probe calibration.

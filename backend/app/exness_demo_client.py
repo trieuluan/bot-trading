@@ -11,7 +11,7 @@ import httpx
 
 from .exness import ExnessError, b64url
 from .exness_management import max_lot, risk_budget, size_lot
-from .exness_targets import structural_target
+from .forex_buffer_study import exit_target
 
 
 def positive_decimal(value):
@@ -164,7 +164,7 @@ class ExnessDemoClient:
             raise ExnessError("Invalid structure stop or planned risk out of bounds")
         target = (entry + (2 if long else -2) * risk_distance).quantize(tick)
         if signal.get("target_context") is not None:
-            target, signal["tp_reason"] = structural_target(signal["side"], entry, stop, signal["target_context"], tick)
+            target, signal["tp_reason"] = exit_target(signal, entry, stop, tick)
         positive_decimal(target)
         return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "take_profit_price": format(target, "f"),

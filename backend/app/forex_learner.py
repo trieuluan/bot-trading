@@ -15,13 +15,15 @@ from sqlalchemy import select
 
 from .db import ExnessDeal, ExnessExecutionTrade, ForexInstrumentState, Session
 from .exness_feed import WORKSPACE
+from .forex_buffer_study import advance_variant, build_buffer_model, context_key, new_variants, select_buffer
+from .exness import ExnessError
 from .exness_observation import audit_frames, load_frames, observe_forex
 from .forex_strategies import RULES, _closed_hours, ema, strategy_snapshot
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/learning")
 REPORT = Path(__file__).resolve().parents[2] / "research-output/exness-learning.json"
 POLICY = REPORT.with_name("exness-learning-policy.json")
-VERSION = "contextual_r_v2"
+VERSION = "contextual_r_v3"
 def slippage_estimate():
     path = REPORT.with_name("exness-slippage-report.json")
     if not path.exists():
@@ -152,17 +154,19 @@ def live_signal(candle, hours, minutes, ask, breakout):
     policy = json.loads(POLICY.read_text())
     if policy.get("version") != VERSION:
         return None
+    features = context(candle, hours, ask)
     candidates = gather(candle, hours, minutes[-61:-1] if minutes and minutes[-1].time == candle.time else minutes[-60:],
                         breakout or {"status": "none"}, policy["population"])
-    signal, mode, scored = choose(candidates, context(candle, hours, ask), policy["model"], explore=True)
+    signal, mode, scored = choose(candidates, features, policy["model"], explore=True)
     if not signal:
         return None
-    return {**signal, "status": "confirmed", "candle_time": candle.time, "available_at": candle.time + 900,
+    exit_choice = select_buffer(signal, features, policy.get("exit_model", {}))
+    return {**signal, **exit_choice, "status": "confirmed", "candle_time": candle.time, "available_at": candle.time + 900,
             "policy_mode": mode, "policy_updated_at": policy["updated_at"],
-            "policy_features": context(candle, hours, ask),
+            "policy_features": features,
             "reason": f"{mode}: {signal['strategy']} · {signal['reason']}"}
 
-def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None):
+def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None, condition=None):
     from scripts.exness_mtf_replay import advance
     slippage = slippage or slippage_estimate()
 
@@ -183,6 +187,8 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
     previous = existing["breakout_state"] if existing else None
     model = existing["model"] if existing else None
     population = existing["population"] if existing else (population or SEEDS)
+    exit_samples = existing.get("exit_study_samples", []) if existing else []
+    exit_active = [row for row in exit_samples if row["status"] in ("pending", "open")]
     for index, candle in enumerate(minutes):
         if existing and candle.time <= existing["latest"]["time"]:
             continue
@@ -190,6 +196,9 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
             advance(sample, candle, asks[candle.time], slippage_bps=slippage["bps"],
                     commission_per_unit=commission_per_unit or 0)
         active = [sample for sample in active if sample["status"] in ("open", "pending")]
+        for row in exit_active:
+            advance_variant(row, candle, asks[candle.time], minutes[max(0, index - 59):index + 1], slippage["bps"] / 10000, commission_per_unit or 0)
+        exit_active = [row for row in exit_active if row["status"] in ("open", "pending")]
         breakout = observe_forex(candle, bids["1h"], bids["4h"], previous)
         previous = breakout
         history = minutes[max(0, index - 60):index]
@@ -203,7 +212,15 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
         indices = {}
         if baseline["status"] == "confirmed":
             candidates.append(baseline)
+        occupied = {row["context"] for row in exit_active}
         for signal in candidates:
+            if condition and signal["strategy"] != "regime_router" and context_key(signal, features) not in occupied:
+                try:
+                    rows = new_variants(signal, history + [candle], bids["1h"], bids["4h"], features, candle, condition)
+                except ExnessError:
+                    rows = []
+                exit_samples.extend(rows)
+                exit_active.extend(rows)
             name = signal["strategy"]
             indices[name] = len(samples)
             sample = {"strategy": name, "status": "pending", "side": signal["side"],
@@ -239,6 +256,10 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
     latest = minutes[-1]
     latest_candidates = [row["signal"] for row in samples if row["confirm_time"] == latest.time and row["strategy"] != "regime_router"]
     selected, live_mode, scored = choose(latest_candidates, context(latest, bids["1h"], asks[latest.time]), model or {}, explore=True)
+    for row in exit_samples:
+        if row["status"] not in ("pending", "open"):
+            for key in ("signal", "condition", "atr", "legs"):
+                row.pop(key, None)
     return {"version": VERSION, "updated_at": now, "fitted_at": existing["fitted_at"] if existing else now,
             "processed_bars": len(minutes), "train_before": cutoff, "breakout_state": previous,
             "mode": "live_demo", "execution_enabled": True, "validation": validation,
@@ -256,7 +277,7 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
                        "excluded": sum(row["strategy"] == name and row["status"] == "excluded" for row in samples)}
                 for name in ["breakout_retest", *RULES, "regime_router", *(genome_name(g) for g in population)]},
             "latest": {"time": latest.time, "selected": selected["strategy"] if selected else None, "mode": live_mode, "scores": scored},
-            "samples": samples, "decisions": decisions}
+            "samples": samples, "decisions": decisions, "exit_study_samples": exit_samples}
 
 def broker_labels(session, account):
     """Actual demo profit/initial price risk, separate provenance from simulated labels."""
@@ -297,6 +318,8 @@ def broker_labels(session, account):
             available = max(available, max(deal["event_time"] for deal in exits))
         if valid and total_risk > 0:
             policy_bucket = bucket(signal, signal["policy_features"])
+            if signal.get("exit_variant"):
+                policy_bucket += ":exit:" + signal["exit_variant"]
             if data.get("exit_policy") == "structural_tp_v1":
                 policy_bucket += ":structural_tp_v1"
             labels.append({"status": "resolved", "bucket": policy_bucket,
@@ -311,7 +334,7 @@ def summary():
     if not REPORT.exists():
         return {"mode": "warming_up", "reason": "Waiting for first learning pass"}
     report = json.loads(REPORT.read_text())
-    return {key: value for key, value in report.items() if key not in ("samples", "model", "decisions", "breakout_state")}
+    return {key: value for key, value in report.items() if key not in ("samples", "model", "decisions", "breakout_state", "exit_study_samples")}
 
 def learning_tick(now=None, force=False):
     now = int(time.time()) if now is None else now
@@ -329,7 +352,10 @@ def learning_tick(now=None, force=False):
         with Session() as session:
             frames = load_frames(session, now)
             specs = session.get(ForexInstrumentState, WORKSPACE)
-            commission = (specs.snapshot or {}).get("commission_per_unit") if specs else None
+            condition = dict(specs.snapshot) if specs and specs.snapshot else None
+            commission = (condition or {}).get("commission_per_unit")
+            if condition and any(condition.get(key) is None for key in ("volume_min", "volume_max", "volume_step", "contract_size", "point_digits")):
+                condition = None
             import os
             actual = broker_labels(session, os.getenv("EXNESS_ACCOUNT_ID", ""))
         slippage = slippage_estimate()
@@ -338,11 +364,16 @@ def learning_tick(now=None, force=False):
                                   or existing["assumptions"]["slippage_bps_each_side"] != slippage["bps"])):
             existing = None
         report = train(frames, now, commission, existing,
-                       population=(previous or {}).get("next_population"), slippage=slippage)
+                       population=(previous or {}).get("next_population"), slippage=slippage, condition=condition)
         report["broker_learning"] = {"closed_labels": len(actual), "fees_included": False,
                                       "note": "Broker profit labels; commission/swap not included"}
+        costs_verified = commission is not None and slippage["measured"]
+        exit_model = build_buffer_model(report.get("exit_study_samples", []), report["train_before"], now, costs_verified)
+        report["exit_learning"] = {"default_variant": "k0.25_structural", "costs_verified": costs_verified,
+                                   "sample_count": len(report.get("exit_study_samples", [])), "contexts": exit_model,
+                                   "assumptions": "Closed M15 simulation; stop-first; partial TP, BE, trailing, early exit; no swap; overlapping contexts"}
         policy = {"version": VERSION, "updated_at": now, "model": fit(report["samples"] + actual, now),
-                  "population": report["population"]}
+                  "exit_model": exit_model, "population": report["population"]}
         policy_tmp = POLICY.with_suffix(".tmp")
         policy_tmp.write_text(json.dumps(policy, allow_nan=False))
         policy_tmp.replace(POLICY)

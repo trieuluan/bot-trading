@@ -229,6 +229,16 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 học từ sàn: {data.learning?.broker_learning?.closed_labels ?? 0} lệnh. Bảng dưới là
                 mô phỏng chồng lấn, không phải lợi nhuận ví; lệnh thăm dò chưa có bằng chứng lãi.
               </p>
+              {data.learning?.exit_learning && (
+                <p className="micro">
+                  SL/TP học: {data.learning.exit_learning.sample_count} mẫu mô phỏng ·{' '}
+                  {Object.values(data.learning.exit_learning.contexts).filter((row) => row.eligible).length}{' '}
+                  bối cảnh đã đủ điều kiện dùng lệnh demo · mặc định {data.learning.exit_learning.default_variant}.
+                  {data.learning.exit_learning.costs_verified
+                    ? ''
+                    : ' Chưa đủ phí/trượt giá đã đo nên chỉ hiện khuyến nghị, chưa tự đổi lệnh.'}
+                </p>
+              )}
               <div className="table-wrap">
                 <table className="learner-grid-table">
                   <thead>
@@ -503,7 +513,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </h3>
                 <p>
                   {chartPosition
-                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}`
+                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}${chartPosition.exit_variant ? ` · SL/TP ${chartPosition.exit_variant} (${chartPosition.exit_variant_mode === 'validated' ? 'đã kiểm chứng mô phỏng' : 'mặc định'})` : ''}`
                     : 'Chart chỉ hiển thị vị thế đang mở. Lịch sử lệnh đã đóng nằm ở tab Lệnh trên sàn.'}
                 </p>
               </div>

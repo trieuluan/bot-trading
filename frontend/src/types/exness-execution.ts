@@ -13,6 +13,9 @@ export interface BrokerPosition {
   signal_time?: number;
   reason?: string;
   tp_reason?: string;
+  exit_variant?: string;
+  exit_variant_mode?: string;
+  sl_buffer_k?: number;
   close_requested?: boolean;
   pnl: number | null;
   role?: 'tp1' | 'runner';
@@ -36,6 +39,12 @@ export interface BrokerPosition {
 
 export interface ExnessExecution {
   learning?: {
+    exit_learning?: {
+      default_variant: string;
+      costs_verified: boolean;
+      sample_count: number;
+      contexts: Record<string, { selected: string; recommended: string; eligible: boolean }>;
+    };
     mode: string;
     reason: string;
     updated_at?: number;

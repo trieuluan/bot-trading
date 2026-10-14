@@ -25,16 +25,19 @@ def risk_budget():
     return bounded_setting("EXNESS_DEMO_RISK_PER_TRADE_USD", "25", "25")
 
 
-def structure_stop_buffer(rows):
+def structure_stop_buffer(rows, multiplier=Decimal("0.25")):
     if len(rows) < 15:
         raise ExnessError("Need 15 closed M15 candles for SL buffer")
+    factor = Decimal(str(multiplier))
+    if not factor.is_finite() or factor < 0 or factor > Decimal("1.5") or isinstance(multiplier, bool):
+        raise ExnessError("Invalid SL buffer multiplier; must be in [0, 1.5]")
     ranges = []
     for previous, row in zip(rows[-15:-1], rows[-14:]):
         high, low, close = (Decimal(str(value)) for value in (row.high, row.low, previous.close))
         if not all(value.is_finite() and value > 0 for value in (high, low, close)) or high < low:
             raise ExnessError("Invalid M15 prices for SL buffer")
         ranges.append(max(high - low, abs(high - close), abs(low - close)))
-    return float(sum(ranges) / 14 * Decimal("0.25"))  # ponytail: k=0.25 untuned, replay before changing
+    return float(sum(ranges) / 14 * factor)
 
 def size_lot(distance, condition):
     minimum = max(Decimal("0.01"), Decimal(condition["volume_min"]))
