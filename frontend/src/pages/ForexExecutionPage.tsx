@@ -503,7 +503,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </h3>
                 <p>
                   {chartPosition
-                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}`
+                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}`
                     : 'Chart chỉ hiển thị vị thế đang mở. Lịch sử lệnh đã đóng nằm ở tab Lệnh trên sàn.'}
                 </p>
               </div>

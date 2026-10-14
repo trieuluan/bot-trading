@@ -28,6 +28,7 @@ from .exness_management import (max_lot, risk_budget, split_bodies, closed_minut
                                 exit_reason, protective_stop)
 from decimal import Decimal
 from .forex_learner import live_signal, summary as learning_summary
+from .exness_targets import target_context
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -214,8 +215,11 @@ def evaluate(session, now):
     ask = next((row for row in frames["15m"] if row.price_type == "ask" and row.time == candle.time), None)
     if ask is None:
         return None
-    return live_signal(candle, [row for row in frames["1h"] if row.price_type == "bid"], minutes,
-                       ask, breakout.snapshot if breakout else None)
+    hours = [row for row in frames["1h"] if row.price_type == "bid"]
+    signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None)
+    if signal:
+        signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])
+    return signal
 
 
 def execution_tick(api, now=None):
@@ -362,7 +366,7 @@ def _execution_tick(api, now=None):
                  "contract_size": condition["contract_size"]} for index, part in enumerate(bodies)]
         record = {"key": key, "recorded_at": now, "status": "planned", "signal": signal,
                   "signal_time": stamp, "side": signal["side"], "reason": signal["reason"],
-                  "legs": legs, "exit_policy": "split_1r_2r_be_trail_early_v1"}
+                  "legs": legs, "exit_policy": "structural_tp_v1" if signal.get("target_context") else "split_1r_2r_be_trail_early_v1"}
         if len(legs) == 1:
             record = {**record, **legs[0]}
             record.pop("legs")
@@ -481,6 +485,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                 position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
                     signal_time=intent.signal_time, reason=data.get("reason"),
                     role=leg_info.get("role", "runner"),
+                    tp_reason="Chot mot phan tai 1R" if leg_info.get("role") == "tp1" else data.get("signal", {}).get("tp_reason"),
                     management_stage=mgmt.get("stage"),
                     management_status=mgmt.get("status"),
                     management_error=mgmt.get("error"),

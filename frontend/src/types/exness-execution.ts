@@ -12,6 +12,7 @@ export interface BrokerPosition {
   source: string;
   signal_time?: number;
   reason?: string;
+  tp_reason?: string;
   close_requested?: boolean;
   pnl: number | null;
   role?: 'tp1' | 'runner';
