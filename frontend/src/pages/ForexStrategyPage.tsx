@@ -675,33 +675,47 @@ export function ForexStrategyPage({
           )}
         </div>
       ) : (
-        <div className="forex-chart-controls">
-          <label>
-            Khung nến{' '}
-            <select value={frame} onChange={(event) => setFrame(event.target.value)}>
-              <option value="15m">15 phút · Xác nhận</option>
-              <option value="1h">1 giờ · Breakout</option>
-              <option value="4h">4 giờ · Xu hướng</option>
-            </select>
-          </label>
-          <label>
-            Phía giá{' '}
-            <select value={side} onChange={(event) => setSide(event.target.value)}>
-              <option value="bid">Bid</option>
-              <option value="ask">Ask</option>
-            </select>
-          </label>
-          <span role="status" className="micro">
+        <div className="mtf-toolbar">
+          <div className="mtf-seg" role="group" aria-label="Khung nến">
+            {[
+              ['15m', '15m · Xác nhận'],
+              ['1h', '1h · Breakout'],
+              ['4h', '4h · Xu hướng'],
+            ].map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={frame === value}
+                onClick={() => setFrame(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mtf-seg" role="group" aria-label="Phía giá">
+            {['bid', 'ask'].map((value) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={side === value}
+                onClick={() => setSide(value)}
+              >
+                {value.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <span role="status" className="mtf-toolbar-note">
             {candles.length.toLocaleString()} nến ·{' '}
             {loadingOlder
               ? 'Đang tải lịch sử...'
               : hasMore
                 ? 'Kéo trái để tải thêm'
-                : 'Đã hết lịch sử lưu trong DB'}
+                : 'Hết lịch sử lưu trong DB'}
           </span>
           {(hasMore || chartError) && (
             <button
               type="button"
+              className="mtf-toolbar-action"
               disabled={loading || loadingOlder}
               onClick={() =>
                 hasMore ? historyActions.current.older() : historyActions.current.refresh()
@@ -714,29 +728,24 @@ export function ForexStrategyPage({
       )}
       {chartError && <p role="alert">{chartError}</p>}
       {!executionOnly && (
-        <div className="research-metrics" aria-label="Giá Exness trực tiếp">
-          <div>
-            <span className="muted">Stream XAUUSD</span>
-            <strong>
-              {quoteStatusLabels[
-                quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
-              ] ?? 'Stream chưa sẵn sàng'}
-            </strong>
-          </div>
-          <div>
-            <span className="muted">Bid · USD/oz</span>
-            <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
-          </div>
-          <div>
-            <span className="muted">Ask · USD/oz</span>
-            <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
-          </div>
-          <div>
-            <span className="muted">Spread · USD/oz</span>
+        <div className="mtf-quote-strip" aria-label="Giá Exness trực tiếp">
+          <span className={`mtf-quote-state ${quoteLive ? 'is-live' : ''}`}>
+            {quoteStatusLabels[
+              quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
+            ] ?? 'Stream chưa sẵn sàng'}
+          </span>
+          <span>
+            BID <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
+          </span>
+          <span>
+            ASK <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
+          </span>
+          <span>
+            SPREAD{' '}
             <strong>
               {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
             </strong>
-          </div>
+          </span>
         </div>
       )}
       {!executionOnly && (

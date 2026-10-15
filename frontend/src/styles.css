@@ -2643,3 +2643,81 @@ footer {
   color: #a33a32;
   background: #fff0ee;
 }
+.mtf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+.mtf-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #eef1ea;
+  border-radius: 9px;
+}
+.mtf-seg button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #52675a;
+  font-size: 13px;
+}
+.mtf-seg button[aria-pressed='true'] {
+  background: #fff;
+  color: #1e5b47;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+}
+.mtf-seg button:focus-visible,
+.mtf-toolbar-action:focus-visible {
+  outline: 2px solid #2c856c;
+  outline-offset: 2px;
+}
+.mtf-toolbar-note {
+  margin-left: auto;
+  color: #52675a;
+  font-size: 12px;
+}
+.mtf-toolbar-action {
+  padding: 6px 12px;
+  border: 1px solid #d5dad0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+}
+.mtf-quote-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  border: 1px solid #e7e9e2;
+  border-radius: 10px;
+  background: #fafbf8;
+  font-size: 12px;
+  color: #52675a;
+}
+.mtf-quote-strip strong {
+  margin-left: 4px;
+  font-size: 16px;
+  color: #1e2b24;
+}
+.mtf-quote-state {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f6e3e0;
+  color: #a33a32;
+  font-weight: 600;
+}
+.mtf-quote-state.is-live {
+  background: #dff1e6;
+  color: #1e6b45;
+}
+.mtf-observation > p.micro {
+  text-align: left;
+  font-size: 12px;
+}
