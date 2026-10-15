@@ -1,6 +1,6 @@
 export interface BrokerPosition {
   position_id: string;
-  side: "buy" | "sell" | null;
+  side: 'buy' | 'sell' | null;
   volume: number | null;
   open_time: number | null;
   open_price: number | null;
@@ -18,7 +18,7 @@ export interface BrokerPosition {
   sl_buffer_k?: number;
   close_requested?: boolean;
   pnl: number | null;
-  role?: "tp1" | "runner";
+  role?: 'tp1' | 'runner';
   management_stage?: string;
   management_status?: string;
   management_error?: string;
@@ -43,10 +43,7 @@ export interface ExnessExecution {
       default_variant: string;
       costs_verified: boolean;
       sample_count: number;
-      contexts: Record<
-        string,
-        { selected: string; recommended: string; eligible: boolean }
-      >;
+      contexts: Record<string, { selected: string; recommended: string; eligible: boolean }>;
     };
     mode: string;
     reason: string;
@@ -133,7 +130,7 @@ export interface LearnerAnalysis {
     m15_ema20: number | null;
     h1_ema20: number | null;
     h1_ema50: number | null;
-    barriers: { price: number; side: "long" | "short"; reason: string }[];
+    barriers: { price: number; side: 'long' | 'short'; reason: string }[];
   };
   strategies: Record<
     string,
@@ -147,15 +144,23 @@ export interface LearnerAnalysis {
   >;
   selected_signal: {
     strategy: string;
-    side: "long" | "short";
+    side: 'long' | 'short';
     reason: string;
     stop: number;
-    projected_entry: number;
-    projected_tp: number;
+    projected_entry: number | null;
+    projected_stop: number | null;
+    projected_tp: number | null;
     tp_reason?: string;
     exit_variant?: string;
     sl_buffer_k?: number;
     tp_mode?: string;
+    projection_error?: string | null;
   } | null;
   policy_mode: string;
+  status: 'ready' | 'stale';
+  source: string;
+  issues: string[];
+  available_at: number;
+  policy_updated_at: number | null;
+  scores: unknown[];
 }
