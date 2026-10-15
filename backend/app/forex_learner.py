@@ -21,12 +21,12 @@ from .exness import ExnessError
 from .exness_targets import target_context
 from .exness_management import structure_stop_buffer
 from .exness_observation import audit_frames, load_frames, observe_forex
-from .forex_strategies import RULES, _closed_hours, ema, strategy_snapshot
+from .forex_strategies import RULES, _closed_hours, ema, rsi, strategy_snapshot
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/learning")
 REPORT = Path(__file__).resolve().parents[2] / "research-output/exness-learning.json"
 POLICY = REPORT.with_name("exness-learning-policy.json")
-VERSION = "contextual_r_v3"
+VERSION = "contextual_r_v5"
 def slippage_estimate():
     path = REPORT.with_name("exness-slippage-report.json")
     if not path.exists():
@@ -37,70 +37,277 @@ def slippage_estimate():
         raise ValueError("Invalid slippage measurement")
     return {"bps": min(100, max(0, value)), "measured": True,
             "fills": audit["fills"], "measured_at": audit["as_of"]}
-SEEDS = [{"mode": mode, "lookback": n, "stop_atr": 1.5, "trend": trend}
-         for mode in ("breakout", "fade") for n in (20, 40) for trend in (True, False)]
+FAMILIES = ("channel", "rsi", "fvg", "session", "squeeze", "sweep", "pullback", "range", "retest", "router")
+CAP = 40
+SEEDS = [
+    {"family": "channel", "mode": mode, "lookback": n, "stop_atr": 1.5, "trend": trend}
+    for mode in ("breakout", "fade") for n in (20, 40) for trend in (True, False)
+] + [
+    {"family": "rsi", "period": 14, "oversold": 30, "overbought": 70, "stop_atr": 1.0, "trend": False},
+    {"family": "rsi", "period": 9, "oversold": 25, "overbought": 75, "stop_atr": 1.5, "trend": True},
+    {"family": "fvg", "min_gap": 0.0, "stop_atr": 1.0, "trend": True},
+    {"family": "fvg", "min_gap": 0.3, "stop_atr": 1.5, "trend": False},
+    {"family": "session", "start_hour": 7, "end_hour": 12, "stop_atr": 1.5, "trend": True},
+    {"family": "session", "start_hour": 8, "end_hour": 12, "stop_atr": 1.0, "trend": False},
+    {"family": "squeeze", "lookback": 40, "bars": 10, "ratio": 3.0, "stop_atr": 1.2, "trend": True},
+    {"family": "sweep", "lookback": 20, "stop_atr": 1.0, "trend": False},
+    {"family": "pullback", "entry_ema": 20, "fast_ema": 20, "stop_atr": 1.5, "trend": True},
+    {"family": "range", "lookback": 20, "edge": 0.1, "efficiency": 0.5, "stop_atr": 1.5, "trend": False},
+    {"family": "retest", "lookback": 20, "wait_hours": 12, "stop_atr": 1.5, "trend": True},
+    {"family": "router", "separation": 0.5, "stop_atr": 1.5, "trend": False},
+]
 
 def genome_name(g):
-    return f"gen_{g['mode']}_n{g['lookback']}_k{g['stop_atr']}_{'trend' if g['trend'] else 'free'}"
+    tag = "trend" if g["trend"] else "free"
+    family = g.get("family", "channel")
+    if family == "channel":
+        return f"gen_{g['mode']}_n{g['lookback']}_k{g['stop_atr']}_{tag}"
+    params = "_".join(f"{key}{g[key]}" for key in sorted(g) if key not in ("family", "stop_atr", "trend", "generation", "parents"))
+    return f"gen_{family}_{params}_k{g['stop_atr']}_{tag}"
 
-def genome_signal(g, candle, hours, minutes):
-    """Parametric channel rule: breakout or fade of the last N M15 bars, ATR stop."""
-    history = [row for row in minutes if row.time < candle.time][-g["lookback"]:]
+def genome_signal(g, candle, hours, minutes, higher=()):
+    """Parametric closed-bar rule per family; ATR stop; trend=True requires H1 EMA20/50 agreement."""
+    family = g.get("family", "channel")
+    validate_genome(g)
+    history = [row for row in minutes if row.time < candle.time][-96:]
     closed = _closed_hours(candle, hours)
-    if len(history) < g["lookback"] or len(closed) < 50 or history[-1].time != candle.time - 900:
+    if (len(history) < 20 or len(closed) < 50 or history[-1].time != candle.time - 900
+            or closed[-1].time + 7200 <= candle.time + 900):
         return None
-    high, low = max(row.high for row in history), min(row.low for row in history)
-    atr = sum(row.high - row.low for row in history[-14:]) / min(14, len(history))
+    needed = g.get("lookback", 20) if family in ("channel", "sweep", "squeeze") else 20
+    if any(after.time - before.time != 900 for before, after in zip(history[-needed:], history[-needed + 1:])):
+        return None
+    atr = sum(row.high - row.low for row in history[-14:]) / 14
     if atr <= 0:
         return None
-    up = ema([row.close for row in closed], 20) > ema([row.close for row in closed], 50)
     side = None
-    if g["mode"] == "breakout":
-        side = "long" if candle.close > high else "short" if candle.close < low else None
-    elif candle.low < low < candle.close:
-        side = "long"
-    elif candle.high > high > candle.close:
-        side = "short"
-    if side is None or (g["trend"] and (side == "long") != up):
+    if family in ("channel", "sweep"):
+        window = history[-g["lookback"]:]
+        if len(window) < g["lookback"]:
+            return None
+        high, low = max(row.high for row in window), min(row.low for row in window)
+        if family == "channel" and g["mode"] == "breakout":
+            side = "long" if candle.close > high else "short" if candle.close < low else None
+        elif candle.low < low < candle.close:
+            side = "long"
+        elif candle.high > high > candle.close:
+            side = "short"
+        if family == "sweep" and (
+                side == "long" and (candle.close <= candle.open or candle.high > high)
+                or side == "short" and (candle.close >= candle.open or candle.low < low)):
+            side = None
+    elif family == "rsi":
+        value = rsi([row.close for row in history], g["period"])
+        if value < g["oversold"] and candle.close > candle.open and candle.close > history[-1].close:
+            side = "long"
+        elif value > g["overbought"] and candle.close < candle.open and candle.close < history[-1].close:
+            side = "short"
+    elif family == "fvg":
+        first, middle, last = history[-3:]
+        if (last.low - first.high >= g["min_gap"] * atr and last.low > first.high and middle.close > middle.open
+                and candle.low <= last.low < candle.close and candle.close > candle.open):
+            side = "long"
+        elif (first.low - last.high >= g["min_gap"] * atr and last.high < first.low and middle.close < middle.open
+                and candle.high >= last.high > candle.close and candle.close < candle.open):
+            side = "short"
+    elif family == "session":
+        stamp = datetime.fromtimestamp(candle.time, timezone.utc)
+        if not g["start_hour"] <= stamp.hour < g["end_hour"]:
+            return None
+        day = int(datetime(stamp.year, stamp.month, stamp.day, tzinfo=timezone.utc).timestamp())
+        asian = [row for row in history if day <= row.time < day + g["start_hour"] * 3600]
+        if [row.time for row in asian] != list(range(day, day + g["start_hour"] * 3600, 900)):
+            return None
+        high, low = max(row.high for row in asian), min(row.low for row in asian)
+        if any(row.close > high or row.close < low for row in history if row.time >= day + g["start_hour"] * 3600):
+            return None
+        side = "long" if candle.close > high and candle.close > candle.open else \
+               "short" if candle.close < low and candle.close < candle.open else None
+    elif family == "squeeze":
+        window = history[-g["lookback"]:]
+        if len(window) < g["lookback"]:
+            return None
+        recent, prior = window[-g["bars"]:], window[:-g["bars"]]
+        typical = sum(row.high - row.low for row in prior) / len(prior)
+        high, low = max(row.high for row in recent), min(row.low for row in recent)
+        if typical > 0 and high - low <= g["ratio"] * typical:
+            side = "long" if candle.close > high else "short" if candle.close < low else None
+    elif family == "pullback":
+        fast, slow = ema([row.close for row in closed], g["fast_ema"]), ema([row.close for row in closed], 50)
+        level = ema([row.close for row in history[-60:]], g["entry_ema"])
+        if fast > slow and closed[-1].close > fast and candle.low <= level < candle.close and candle.close > candle.open:
+            side = "long"
+        elif fast < slow and closed[-1].close < fast and candle.high >= level > candle.close and candle.close < candle.open:
+            side = "short"
+    elif family == "range":
+        window = [row for row in closed if row.time + 3600 <= candle.time][-g["lookback"]:]
+        if len(window) < g["lookback"]:
+            return None
+        high, low = max(row.high for row in window), min(row.low for row in window)
+        width = high - low
+        if width <= 0 or abs(window[-1].close - window[0].close) > g["efficiency"] * width:
+            return None
+        if candle.high >= high - g["edge"] * width > candle.close and candle.close < candle.open:
+            side = "short"
+        elif candle.low <= low + g["edge"] * width < candle.close and candle.close > candle.open:
+            side = "long"
+    elif family == "retest":
+        closed_h4 = [row for row in higher if row.time + 14400 <= candle.time + 900]
+        if len(closed_h4) < 50 or closed_h4[-1].time + 28800 <= candle.time + 900:
+            return None
+        h4_ema = ema([row.close for row in closed_h4], 50)
+        direction = 1 if closed_h4[-1].close > h4_ema else -1 if closed_h4[-1].close < h4_ema else 0
+        for index in range(len(closed) - 1, g["lookback"] - 1, -1):
+            breakout = closed[index]
+            available = breakout.time + 3600
+            if candle.time < available or candle.time + 900 - available > g["wait_hours"] * 3600:
+                continue
+            window = closed[index - g["lookback"]:index]
+            level = max(row.high for row in window) if direction == 1 else min(row.low for row in window)
+            if not direction or direction * (breakout.close - level) <= 0:
+                continue
+            since = [row for row in history if row.time >= available]
+            if candle.time != available and (not since or since[0].time != available):
+                return None
+            if any(direction * (row.close - level) < 0 for row in since):
+                return None
+            if any(row.low <= level < row.close if direction == 1 else row.high >= level > row.close for row in since):
+                return None
+            if candle.low <= level < candle.close and direction == 1 and candle.close > candle.open:
+                side = "long"
+            elif candle.high >= level > candle.close and direction == -1 and candle.close < candle.open:
+                side = "short"
+            break
+    elif family == "router":
+        closes = [row.close for row in closed]
+        fast, slow = ema(closes, 20), ema(closes, 50)
+        h1_range = sum(row.high - row.low for row in closed[-14:]) / 14
+        rule = "trend_pullback" if abs(fast - slow) > g["separation"] * h1_range else "range_rejection"
+        signal = RULES[rule](candle, closed, history)
+        side = signal["side"] if signal else None
+    fast, slow = ema([row.close for row in closed], 20), ema([row.close for row in closed], 50)
+    if side is None or (g["trend"] and (fast == slow or (side == "long") != (fast > slow))):
         return None
     stop = candle.close - g["stop_atr"] * atr if side == "long" else candle.close + g["stop_atr"] * atr
     return {"strategy": genome_name(g), "status": "confirmed", "side": side, "stop": stop,
             "candle_time": candle.time, "available_at": candle.time + 900, "generated": True,
+            "family": family, "generation": g.get("generation", 0), "parents": g.get("parents", []),
             "reason": f"Chiến lược tự sinh {genome_name(g)}"}
 
+# (key, step, low, high) per family; every child stays inside these bounds.
+BOUNDS = {
+    "channel": (("lookback", 5, 8, 60),),
+    "sweep": (("lookback", 5, 10, 40),),
+    "squeeze": (("lookback", 10, 20, 60), ("bars", 2, 5, 15), ("ratio", 0.1, 1.0, 5.0)),
+    "rsi": (("period", 1, 7, 21), ("oversold", 5, 20, 35), ("overbought", 5, 65, 80)),
+    "fvg": (("min_gap", 0.1, 0.0, 1.0),),
+    "session": (("start_hour", 1, 6, 9), ("end_hour", 1, 11, 15)),
+    "pullback": (("entry_ema", 5, 10, 40), ("fast_ema", 5, 10, 30)),
+    "range": (("lookback", 5, 10, 40), ("edge", 0.05, 0.05, 0.25), ("efficiency", 0.1, 0.2, 0.6)),
+    "retest": (("lookback", 5, 10, 40), ("wait_hours", 2, 2, 12)),
+    "router": (("separation", 0.1, 0.2, 1.0),),
+}
+
+def validate_genome(g):
+    family = g.get("family", "channel")
+    if family not in BOUNDS or type(g.get("trend")) is not bool:
+        raise ValueError("Invalid genome family/filter")
+    bounds = (*BOUNDS[family], ("stop_atr", 0.1, 0.5, 3.0))
+    for key, step, low, high in bounds:
+        value = g.get(key)
+        if (type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high
+                or isinstance(step, int) and type(value) is not int):
+            raise ValueError(f"Invalid genome parameter: {key}")
+    if family == "channel" and g.get("mode") not in ("breakout", "fade"):
+        raise ValueError("Invalid genome mode")
+    if family == "squeeze" and g["bars"] >= g["lookback"]:
+        raise ValueError("Invalid compression window")
+    if family == "session" and g["start_hour"] >= g["end_hour"]:
+        raise ValueError("Invalid session window")
+
 def mutate(g, rng):
+    validate_genome(g)
     child = dict(g)
-    child["lookback"] = min(80, max(8, g["lookback"] + rng.choice((-10, -5, 5, 10))))
+    family = g.get("family", "channel")
+    child["family"] = family
+    for key, step, low, high in BOUNDS[family]:
+        value = g[key] + rng.choice((-2, -1, 0, 1, 2)) * step
+        child[key] = round(min(high, max(low, value)), 1) if isinstance(step, float) else int(min(high, max(low, value)))
     child["stop_atr"] = min(3.0, max(0.5, round(g["stop_atr"] + rng.choice((-0.5, 0, 0.5)), 1)))
     if rng.random() < 0.2:
         child["trend"] = not g["trend"]
-    if rng.random() < 0.15:
+    if family == "channel" and rng.random() < 0.15:
         child["mode"] = "fade" if g["mode"] == "breakout" else "breakout"
+    child["generation"] = g.get("generation", 0) + 1
+    child["parents"] = [genome_name(g)]
+    validate_genome(child)
     return child
 
-def evolve(samples, population, cutoff, seed):
-    """Keep best genomes by pre-cutoff mean R, refill with mutations plus two fresh seeds."""
+def crossover(a, b):
+    """Signal parameters from a; trend filter and stop width from b."""
+    validate_genome(a)
+    validate_genome(b)
+    return {**a, "family": a.get("family", "channel"), "trend": b["trend"], "stop_atr": b["stop_atr"],
+            "generation": max(a.get("generation", 0), b.get("generation", 0)) + 1,
+            "parents": [genome_name(a), genome_name(b)]}
+
+def evolve(samples, population, cutoff, seed, retired=()):
+    """Use training labels only; reserve two slots per family and cap each at four."""
     rng = random.Random(seed)
     scores = {}
     for sample in samples:
-        if sample["status"] == "resolved" and sample["label_available_at"] < cutoff:
+        if (sample["status"] == "resolved" and sample["label_available_at"] < cutoff
+                and math.isfinite(sample["net_r_ex_swap"])):
             scores.setdefault(sample["strategy"], []).append(sample["net_r_ex_swap"])
-    ranked = sorted((g for g in population if len(scores.get(genome_name(g), ())) >= 20),
-                    key=lambda g: mean(scores[genome_name(g)]), reverse=True)
-    survivors = ranked[:6] or population[:6]
-    nxt = list(survivors)
-    for g in survivors * 3:
-        if len(nxt) >= 10:
-            break
-        child = mutate(g, rng)
-        if genome_name(child) not in {genome_name(x) for x in nxt}:
-            nxt.append(child)
-    for g in rng.sample(SEEDS, len(SEEDS)):
-        if len(nxt) >= 12:
-            break
-        if genome_name(g) not in {genome_name(x) for x in nxt}:
-            nxt.append(g)
+    def value(g):
+        return mean(scores[genome_name(g)]) if genome_name(g) in scores else -math.inf
+    retired = set(retired) | {name for name, values in scores.items() if len(values) >= 40 and mean(values) < 0}
+    alive = []
+    for g in population:
+        validate_genome(g)
+        if genome_name(g) not in retired:
+            alive.append(g)
+    nxt, names = [], set()
+    for family in FAMILIES:
+        members = [g for g in alive if g.get("family", "channel") == family]
+        ranked = sorted(members, key=value, reverse=True)
+        seeds = [g for g in SEEDS if g["family"] == family]
+        group = []
+        for g in ranked[:2] + seeds:
+            name = genome_name(g)
+            if name not in names and name not in retired and len(group) < 2:
+                group.append(g)
+                names.add(name)
+        for _ in range(128):
+            if len(group) >= 4 or len(nxt) + len(group) >= CAP:
+                break
+            parent = rng.choice(group or seeds)
+            mate = rng.choice(alive or SEEDS)
+            crossed = rng.random() < 0.3
+            child = mutate(crossover(parent, mate) if crossed else parent, rng)
+            if crossed:
+                child["parents"] = [genome_name(parent), genome_name(mate)]
+            name = genome_name(child)
+            if name not in names and name not in retired:
+                group.append(child)
+                names.add(name)
+        nxt.extend(group)
     return nxt
+
+def promoted_names(samples, cutoff, now):
+    """Generated strategies may trade only with positive lower-bound R on train AND validation (30+ each)."""
+    groups = defaultdict(lambda: ([], []))
+    for sample in samples:
+        if (sample["status"] != "resolved" or not sample["strategy"].startswith("gen_")
+                or sample["label_available_at"] >= now or not math.isfinite(sample["net_r_ex_swap"])):
+            continue
+        if sample["confirm_time"] + 900 < cutoff and sample["label_available_at"] < cutoff:
+            groups[sample["strategy"]][0].append(sample["net_r_ex_swap"])
+        elif sample["confirm_time"] + 900 >= cutoff:
+            groups[sample["strategy"]][1].append(sample["net_r_ex_swap"])
+    def lower(values):
+        return mean(values) - 1.96 * stdev(values) / math.sqrt(len(values)) if len(values) >= 30 else -1
+    return sorted(name for name, (train, val) in groups.items() if lower(train) > 0 and lower(val) > 0)
 
 def context(candle, hours, ask):
     closed = [row for row in hours if row.time + 3600 <= candle.time + 900][-60:]
@@ -127,40 +334,48 @@ def fit(samples, cutoff):
                   if len(values) > 1 else -1}
             for key, values in groups.items()}
 
-def choose(candidates, features, model, explore=False):
-    """Exploit buckets with positive lower bound; optionally explore by UCB on demo."""
+def choose(candidates, features, model, explore=False, promoted=()):
+    """Unapproved genomes stay shadow-only, including when demo exploration is enabled."""
     scored = []
     for signal in candidates:
         stats = model.get(bucket(signal, features), {"count": 0, "mean_r": 0, "sd": 0, "lower_r": -1})
         n = stats["count"]
         ucb = 99 if n < 5 else stats["mean_r"] + stats.get("sd", 0) / math.sqrt(n)
-        scored.append({"strategy": signal["strategy"], "side": signal["side"], "ucb": ucb, **stats})
-    eligible = [row for row in scored if row["count"] >= 30 and row["lower_r"] > 0]
+        shadow = (signal.get("generated") or signal["strategy"].startswith("gen_")) and signal["strategy"] not in promoted
+        scored.append({"strategy": signal["strategy"], "side": signal["side"], "ucb": ucb, **stats,
+                       "shadow_only": bool(shadow)})
+    eligible = [row for row in scored if not row["shadow_only"] and row["count"] >= 30 and row["lower_r"] > 0]
     best = max(eligible, key=lambda row: row["lower_r"], default=None)
     mode = "exploit"
-    if best is None and explore and scored:
-        best, mode = max(scored, key=lambda row: row["ucb"]), "explore"
+    exploratory = [row for row in scored if not row["shadow_only"]]
+    if best is None and explore and exploratory:
+        best, mode = max(exploratory, key=lambda row: row["ucb"]), "explore"
     signal = next((row for row in candidates if best and row["strategy"] == best["strategy"]
                    and row["side"] == best["side"]), None)
     return signal, mode if signal else "abstain", scored
 
-def gather(candle, hours, history, breakout, population, include_waiting=False):
+def gather(candle, hours, history, breakout, population, higher=(), include_waiting=False):
+    hours = _closed_hours(candle, hours)
+    higher = [row for row in higher if row.time + 14400 <= candle.time + 900][-60:]
     found = [strategy_snapshot(name, candle, hours, history) for name in RULES]
     found.append({**breakout, "strategy": "breakout_retest"})
-    found += [genome_signal(g, candle, hours, history) or {
+    found += [genome_signal(g, candle, hours, history, higher=higher) or {
         "strategy": genome_name(g), "status": "waiting_regime_setup",
-        "reason": f"Chưa có tín hiệu {g['mode']} trên {g['lookback']} nến M15",
+        "reason": f"Chưa có tín hiệu {genome_name(g)}",
     } for g in population]
     return found if include_waiting else [row for row in found if row["status"] == "confirmed"]
 
-def learner_decision(candle, hours, minutes, ask, breakout, policy):
+def learner_decision(candle, hours, minutes, ask, breakout, policy, higher=()):
+    if len(policy["population"]) > CAP:
+        raise ValueError("Genome population exceeds limit")
     features = context(candle, hours, ask)
     observations = gather(candle, hours,
-                          minutes[-61:-1] if minutes and minutes[-1].time == candle.time else minutes[-60:],
+                          [row for row in minutes if row.time < candle.time][-96:],
                           breakout or {"status": "none", "reason": "Chờ quan sát breakout đúng nến"},
-                          policy["population"], include_waiting=True)
+                          policy["population"], higher=higher, include_waiting=True)
     candidates = [row for row in observations if row["status"] == "confirmed"]
-    signal, mode, scored = choose(candidates, features, policy["model"], explore=True)
+    signal, mode, scored = choose(candidates, features, policy["model"], explore=True,
+                                  promoted=set(policy.get("promoted", ())))
     if signal:
         signal = {**signal, **select_buffer(signal, features, policy.get("exit_model", {})),
                   "status": "confirmed", "candle_time": candle.time, "available_at": candle.time + 900,
@@ -168,16 +383,16 @@ def learner_decision(candle, hours, minutes, ask, breakout, policy):
                   "reason": f"{mode}: {signal['strategy']} · {signal['reason']}"}
     return signal, mode, scored, observations
 
-def live_signal(candle, hours, minutes, ask, breakout):
+def live_signal(candle, hours, minutes, ask, breakout, higher=()):
     """Decision for the executor at candle close. Policy comes from the last training pass."""
     if not POLICY.exists():
         return None
     policy = json.loads(POLICY.read_text())
     if policy.get("version") != VERSION:
         return None
-    return learner_decision(candle, hours, minutes, ask, breakout, policy)[0]
+    return learner_decision(candle, hours, minutes, ask, breakout, policy, higher=higher)[0]
 
-def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None, condition=None):
+def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None, condition=None, retired=()):
     from scripts.exness_mtf_replay import advance
     slippage = slippage or slippage_estimate()
 
@@ -198,6 +413,10 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
     previous = existing["breakout_state"] if existing else None
     model = existing["model"] if existing else None
     population = existing["population"] if existing else (population or SEEDS)
+    if len(population) > CAP:
+        raise ValueError("Genome population exceeds limit")
+    for genome in population:
+        validate_genome(genome)
     exit_samples = existing.get("exit_study_samples", []) if existing else []
     exit_active = [row for row in exit_samples if row["status"] in ("pending", "open")]
     for index, candle in enumerate(minutes):
@@ -212,10 +431,10 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
         exit_active = [row for row in exit_active if row["status"] in ("open", "pending")]
         breakout = observe_forex(candle, bids["1h"], bids["4h"], previous)
         previous = breakout
-        history = minutes[max(0, index - 60):index]
+        history = minutes[max(0, index - 96):index]
         baseline = strategy_snapshot("regime_router", candle, bids["1h"], history,
                                      higher=bids["4h"], breakout=breakout)
-        candidates = gather(candle, bids["1h"], history, breakout, population)
+        candidates = gather(candle, bids["1h"], history, breakout, population, higher=bids["4h"])
         features = context(candle, bids["1h"], asks[candle.time])
         if model is None and candle.time >= cutoff:
             model = fit(samples, cutoff)
@@ -265,8 +484,17 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
                   "baseline_mean_r": mean(baseline_returns) if baseline_returns else None,
                   "paired_lower_r": edge, "eligible": len(selected_returns) >= 50 and len(baseline_returns) >= 30 and edge > 0}
     latest = minutes[-1]
+    training_results = defaultdict(list)
+    for sample in samples:
+        if (sample["status"] == "resolved" and sample["strategy"].startswith("gen_")
+                and sample["label_available_at"] < cutoff and math.isfinite(sample["net_r_ex_swap"])):
+            training_results[sample["strategy"]].append(sample["net_r_ex_swap"])
+    retired = sorted(set(retired) | set((existing or {}).get("retired_genomes", ())) | {
+        name for name, values in training_results.items() if len(values) >= 40 and mean(values) < 0})
+    costs_verified = commission_per_unit is not None and slippage.get("measured", False)
+    promoted = [name for name in promoted_names(samples, cutoff, now) if name not in retired] if costs_verified else []
     latest_candidates = [row["signal"] for row in samples if row["confirm_time"] == latest.time and row["strategy"] != "regime_router"]
-    selected, live_mode, scored = choose(latest_candidates, context(latest, bids["1h"], asks[latest.time]), model or {}, explore=True)
+    selected, live_mode, scored = choose(latest_candidates, context(latest, bids["1h"], asks[latest.time]), model or {}, explore=True, promoted=set(promoted))
     for row in exit_samples:
         if row["status"] not in ("pending", "open"):
             for key in ("signal", "condition", "atr", "legs"):
@@ -274,12 +502,17 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
     return {"version": VERSION, "updated_at": now, "fitted_at": existing["fitted_at"] if existing else now,
             "processed_bars": len(minutes), "train_before": cutoff, "breakout_state": previous,
             "mode": "live_demo", "execution_enabled": True, "validation": validation,
-            "reason": "Bộ học điều khiển lệnh demo: khai thác bucket đã có bằng chứng, thăm dò khi chưa đủ dữ liệu; số liệu replay là mô phỏng",
+            "reason": "Chiến lược gốc có thể thăm dò demo; gen mới chạy shadow đến khi đủ 30 mẫu train và 30 validation, lower-bound R dương cả hai; replay là mô phỏng",
             "assumptions": {"slippage_bps_each_side": slippage["bps"], "slippage_measurement": slippage, "commission_per_unit": commission_per_unit,
                             "commission_known": commission_per_unit is not None, "swap_included": False,
                             "overlapping_samples": True, "entry": "next M15 executable open", "stop_first": True},
             "model": model or {}, "population": population,
-            "next_population": evolve(samples, population, cutoff, now // 21600) if not existing else existing.get("next_population", population),
+            "promoted": promoted, "retired_genomes": retired,
+            "evolution": {"cap": CAP, "families": {family: sum(g.get("family", "channel") == family for g in population) for family in FAMILIES},
+                          "shadow": sum(genome_name(g) not in promoted for g in population),
+                          "costs_verified": costs_verified,
+                          "gate": "30 train + 30 validation, positive lower R in both, measured costs; boundary-crossing trades excluded; simulation only"},
+            "next_population": evolve(samples, population, cutoff, now // 21600, retired=retired) if not existing else existing.get("next_population", population),
             "strategy_summary": {
                 name: {"signals": sum(row["strategy"] == name for row in samples),
                        "closed": sum(row["strategy"] == name and row["status"] == "resolved" for row in samples),
@@ -375,7 +608,8 @@ def learning_tick(now=None, force=False):
                                   or existing["assumptions"]["slippage_bps_each_side"] != slippage["bps"])):
             existing = None
         report = train(frames, now, commission, existing,
-                       population=(previous or {}).get("next_population"), slippage=slippage, condition=condition)
+                       population=(previous or {}).get("next_population"), slippage=slippage, condition=condition,
+                       retired=(previous or {}).get("retired_genomes", ()))
         report["broker_learning"] = {"closed_labels": len(actual), "fees_included": False,
                                       "note": "Broker profit labels; commission/swap not included"}
         costs_verified = commission is not None and slippage["measured"]
@@ -384,7 +618,8 @@ def learning_tick(now=None, force=False):
                                    "sample_count": len(report.get("exit_study_samples", [])), "contexts": exit_model,
                                    "assumptions": "Closed M15 simulation; stop-first; partial TP, BE, trailing, early exit; no swap; overlapping contexts"}
         policy = {"version": VERSION, "updated_at": now, "model": fit(report["samples"] + actual, now),
-                  "exit_model": exit_model, "population": report["population"]}
+                  "exit_model": exit_model, "population": report["population"],
+                  "promoted": report["promoted"]}
         policy_tmp = POLICY.with_suffix(".tmp")
         policy_tmp.write_text(json.dumps(policy, allow_nan=False))
         policy_tmp.replace(POLICY)
@@ -468,7 +703,7 @@ def current_analysis(now=None):
             if policy.get("version") == VERSION:
                 policy_updated_at = policy["updated_at"]
                 signal, mode, scored, observations = learner_decision(
-                    candle, hours, minutes, ask, breakout_snap, policy)
+                    candle, hours, minutes, ask, breakout_snap, policy, higher=higher)
                 policy_mode = mode
                 for row in observations:
                     name = row.get("strategy", "")

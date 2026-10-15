@@ -696,6 +696,13 @@ Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không
   so với mặc định đều có cận dưới dương. Chưa xác minh commission/slippage thì chỉ khuyến nghị, không tự đổi lệnh demo.
   Mặc định `k0.25_structural` giữ nguyên khi thiếu bằng chứng; lệnh đang mở không thay chính sách.
   Đây là mô phỏng OHLC M15, không tái dựng tick/độ trễ gửi hai phần lệnh; chưa tính swap hoặc xác nhận lợi nhuận thật.
+- Quần thể tự sinh mở rộng từ 10 họ chiến lược: `channel`, `rsi`, `fvg`, `session`, `squeeze`, `sweep`,
+  `pullback`, `range`, `retest`, `router` (tối đa 40 cá thể, 2–4 cá thể/họ để tránh một họ lấn át).
+  Mỗi cá thể có bộ gen tham số, bộ lọc xu hướng H1, thế hệ (`generation`) và danh sách cha mẹ (`parents`).
+  Tiến hóa chỉ dùng nhãn đóng trước cutoff huấn luyện; cá thể có R âm sau 40 mẫu bị loại, đột biến và lai chéo
+  sinh biến thể con cho thế hệ sau. Toàn bộ gen tự sinh chỉ chạy shadow trên mô phỏng M15.
+  Để được duyệt vào lệnh demo, gen phải đạt ít nhất 30 mẫu train và 30 mẫu validation, cận dưới R dương
+  ở cả hai tập, chi phí sàn đã được đo; không chuyển đổi tự động khi thiếu bằng chứng.
 - Ghi intent trước HTTP, idempotency key theo tín hiệu; ACK không đồng nghĩa đã khớp.
   Đối soát operation/order/deal/position ID. Kết quả chưa rõ chặn lệnh mới, không tự gửi lại.
 - Dùng khóa theo tài khoản để chặn executor trùng và không chạy đồng thời probe calibration.

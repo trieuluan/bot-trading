@@ -147,3 +147,16 @@ def test_shadow_wallet_catchup_is_idempotent_and_keeps_strategies_isolated(monke
             assert rows[-1].snapshot["reason"] == "position_already_active"
             assert session.get(ForexPaperAccount, (WORKSPACE, channel)).last_candle == 1800
         assert session.get(ForexPaperAccount, (WORKSPACE, "live")) is None
+
+def test_new_rules_signal_and_use_closed_bars_only():
+    from backend.app.forex_strategies import STRATEGIES, fvg_retest, rsi_reversion, session_breakout
+    assert {"session_breakout", "fvg_retest", "rsi_reversion"} <= set(STRATEGIES)
+    day = 20 * 86400
+    asian = [bar(day + 900 * i, 100, 101, 99, 100) for i in range(28)]
+    t = day + 8 * 3600
+    assert session_breakout(bar(t, 100.5, 103, 100.4, 102), [], asian)["side"] == "long"
+    assert session_breakout(bar(t, 100.5, 103, 100.4, 102), [], asian + [bar(t - 900, 100, 105, 100, 104)]) is None
+    gap = [bar(0, 100, 101, 99, 100), bar(900, 100, 106, 100, 105), bar(1800, 105, 107, 103, 106)]
+    assert fvg_retest(bar(2700, 104, 106, 102, 105), [], gap)["side"] == "long"
+    drop = [bar(900 * i, 200 - i, 200 - i, 199 - i, 199 - i) for i in range(40)]
+    assert rsi_reversion(bar(36000, 160, 163, 159, 162), [], drop)["side"] == "long"

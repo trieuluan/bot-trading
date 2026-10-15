@@ -223,6 +223,32 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   {date(data.learning?.updated_at ?? null)}
                 </span>
               </div>
+              {data.learning?.evolution && (
+                <div className="mtf-source-strip" style={{ margin: '8px 0 14px' }}>
+                  <span>
+                    Quần thể:{' '}
+                    {Object.values(data.learning.evolution.families).reduce((a, b) => a + b, 0)}/
+                    {data.learning.evolution.cap} cá thể
+                  </span>
+                  <span>
+                    {Object.keys(data.learning.evolution.families).length} họ:{' '}
+                    {Object.entries(data.learning.evolution.families)
+                      .map(([k, v]) => `${k} (${v})`)
+                      .join(' · ')}
+                  </span>
+                  <span>{data.learning.evolution.shadow} gen shadow</span>
+                  <span className={data.learning.promoted?.length ? 'positive' : ''}>
+                    {data.learning.promoted?.length ?? 0} gen được duyệt demo
+                  </span>
+                </div>
+              )}
+              {data.learning?.evolution && (
+                <p className="micro">
+                  Gen mới chỉ chạy shadow. Để được duyệt demo cần ít nhất 30 mẫu train và 30
+                  validation, lower-bound R dương ở cả hai tập, phí và trượt giá đã xác minh. Đây là
+                  kiểm định mô phỏng, không đảm bảo lợi nhuận tương lai.
+                </p>
+              )}
               <p className="micro">
                 Trượt giá giả lập {data.learning?.assumptions?.slippage_bps_each_side ?? 0} bps (đo
                 từ {data.learning?.assumptions?.slippage_measurement?.fills ?? 0} fill demo). Nhãn

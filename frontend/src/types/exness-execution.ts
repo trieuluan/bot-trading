@@ -49,6 +49,14 @@ export interface ExnessExecution {
     reason: string;
     updated_at?: number;
     processed_bars?: number;
+    evolution?: {
+      cap: number;
+      families: Record<string, number>;
+      shadow: number;
+      gate: string;
+    };
+    promoted?: string[];
+    retired_genomes?: string[];
     strategy_summary?: Record<
       string,
       {

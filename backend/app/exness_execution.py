@@ -217,7 +217,8 @@ def evaluate(session, now):
     if ask is None:
         return None
     hours = [row for row in frames["1h"] if row.price_type == "bid"]
-    signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None)
+    higher = [row for row in frames["4h"] if row.price_type == "bid"]
+    signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None, higher=higher)
     if signal:
         signal["stop_buffer"] = structure_stop_buffer(minutes, multiplier=Decimal(str(signal.get("sl_buffer_k", 0.25))))
         signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])

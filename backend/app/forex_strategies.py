@@ -1,4 +1,5 @@
 """Experimental closed-candle signals shared by replay and forward paper."""
+from datetime import datetime, timezone
 
 STRATEGY_CHANNELS = {"trend": "trend_pullback", "range": "range_rejection", "router": "regime_router"}
 
@@ -82,9 +83,63 @@ def squeeze_breakout(candle, hours, minutes):
         return {"side": "short", "stop": max(row.high for row in recent), "reason": "M15 10-bar compression breaks downward"}
     return None
 
+def session_breakout(candle, hours, minutes):
+    """M15 closes beyond the Asian range (00-07 UTC) during 07-12 UTC; first break of the day only."""
+    dt = datetime.fromtimestamp(candle.time, timezone.utc)
+    if not 7 <= dt.hour < 12:
+        return None
+    start = int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
+    asian = [row for row in minutes if start <= row.time < start + 25200]
+    if len(asian) < 24:
+        return None
+    high, low = max(row.high for row in asian), min(row.low for row in asian)
+    if any(row.close > high or row.close < low for row in minutes if start + 25200 <= row.time < candle.time):
+        return None
+    if candle.close > high and candle.close > candle.open:
+        return {"side": "long", "stop": low, "reason": "M15 phá đỉnh phiên Á trong phiên London"}
+    if candle.close < low and candle.close < candle.open:
+        return {"side": "short", "stop": high, "reason": "M15 phá đáy phiên Á trong phiên London"}
+    return None
+
+def fvg_retest(candle, hours, minutes):
+    """Bullish/bearish 3-bar M15 gap; candle dips into the gap and closes back with the impulse."""
+    history = [row for row in minutes if row.time < candle.time][-3:]
+    if len(history) < 3 or history[-1].time != candle.time - 900:
+        return None
+    first, middle, last = history
+    if last.low > first.high and middle.close > middle.open and candle.low <= last.low and candle.close > last.low and candle.close > candle.open:
+        return {"side": "long", "stop": min(candle.low, first.high), "reason": "M15 hồi về lấp FVG tăng rồi đóng xanh"}
+    if last.high < first.low and middle.close < middle.open and candle.high >= last.high and candle.close < last.high and candle.close < candle.open:
+        return {"side": "short", "stop": max(candle.high, first.low), "reason": "M15 hồi về lấp FVG giảm rồi đóng đỏ"}
+    return None
+
+def rsi(closes, period=14):
+    if len(closes) <= period:
+        return 50.0
+    deltas = [b - a for a, b in zip(closes, closes[1:])]
+    gain = sum(max(d, 0) for d in deltas[:period]) / period
+    loss = sum(max(-d, 0) for d in deltas[:period]) / period
+    for d in deltas[period:]:
+        gain = (gain * (period - 1) + max(d, 0)) / period
+        loss = (loss * (period - 1) + max(-d, 0)) / period
+    return 100.0 if loss == 0 else 100 - 100 / (1 + gain / loss)
+
+def rsi_reversion(candle, hours, minutes):
+    """Prior-bar RSI14 extreme (<30 / >70) followed by a rejecting candle."""
+    history = [row for row in minutes if row.time < candle.time][-60:]
+    if len(history) < 30 or history[-1].time != candle.time - 900:
+        return None
+    value, prev = rsi([row.close for row in history]), history[-1]
+    if value < 30 and candle.close > candle.open and candle.close > prev.close:
+        return {"side": "long", "stop": min(candle.low, prev.low), "reason": f"M15 RSI {value:.0f} quá bán, nến đóng xanh"}
+    if value > 70 and candle.close < candle.open and candle.close < prev.close:
+        return {"side": "short", "stop": max(candle.high, prev.high), "reason": f"M15 RSI {value:.0f} quá mua, nến đóng đỏ"}
+    return None
+
 RULES = {"trend_pullback": trend_pullback, "range_rejection": range_rejection,
          "donchian_breakout": donchian_breakout, "liquidity_sweep": liquidity_sweep,
-         "squeeze_breakout": squeeze_breakout}
+         "squeeze_breakout": squeeze_breakout, "session_breakout": session_breakout,
+         "fvg_retest": fvg_retest, "rsi_reversion": rsi_reversion}
 STRATEGIES = ("breakout_retest", *RULES, "regime_router")
 
 
