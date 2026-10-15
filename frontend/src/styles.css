@@ -2566,6 +2566,10 @@ footer {
   box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
   font-weight: 600;
 }
+.mtf-observation .forex-paper-switch button:focus-visible {
+  outline: 2px solid #2c856c;
+  outline-offset: 2px;
+}
 .mtf-observation .research-metrics {
   gap: 12px;
 }
@@ -2634,4 +2638,8 @@ footer {
   background: #eef1ea;
   color: #52675a;
   font-size: 12px;
+}
+.mtf-source-strip .negative {
+  color: #a33a32;
+  background: #fff0ee;
 }
