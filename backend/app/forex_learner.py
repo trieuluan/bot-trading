@@ -7,16 +7,19 @@ import random
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 from statistics import mean, stdev
 
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from .db import ExnessDeal, ExnessExecutionTrade, ForexInstrumentState, Session
-from .exness_feed import WORKSPACE
-from .forex_buffer_study import advance_variant, build_buffer_model, context_key, new_variants, select_buffer
+from .db import ExnessDeal, ExnessExecutionTrade, ForexInstrumentState, ForexObservation, Session, WorkspaceCandle
+from .exness_feed import FRAMES, WORKSPACE
+from .forex_buffer_study import advance_variant, build_buffer_model, exit_target, new_variants, select_buffer, slot_key
 from .exness import ExnessError
+from .exness_targets import target_context
+from .exness_management import structure_stop_buffer
 from .exness_observation import audit_frames, load_frames, observe_forex
 from .forex_strategies import RULES, _closed_hours, ema, strategy_snapshot
 
@@ -141,11 +144,29 @@ def choose(candidates, features, model, explore=False):
                    and row["side"] == best["side"]), None)
     return signal, mode if signal else "abstain", scored
 
-def gather(candle, hours, history, breakout, population):
+def gather(candle, hours, history, breakout, population, include_waiting=False):
     found = [strategy_snapshot(name, candle, hours, history) for name in RULES]
     found.append({**breakout, "strategy": "breakout_retest"})
-    found += [genome_signal(g, candle, hours, history) or {"status": "none"} for g in population]
-    return [row for row in found if row["status"] == "confirmed"]
+    found += [genome_signal(g, candle, hours, history) or {
+        "strategy": genome_name(g), "status": "waiting_regime_setup",
+        "reason": f"Chưa có tín hiệu {g['mode']} trên {g['lookback']} nến M15",
+    } for g in population]
+    return found if include_waiting else [row for row in found if row["status"] == "confirmed"]
+
+def learner_decision(candle, hours, minutes, ask, breakout, policy):
+    features = context(candle, hours, ask)
+    observations = gather(candle, hours,
+                          minutes[-61:-1] if minutes and minutes[-1].time == candle.time else minutes[-60:],
+                          breakout or {"status": "none", "reason": "Chờ quan sát breakout đúng nến"},
+                          policy["population"], include_waiting=True)
+    candidates = [row for row in observations if row["status"] == "confirmed"]
+    signal, mode, scored = choose(candidates, features, policy["model"], explore=True)
+    if signal:
+        signal = {**signal, **select_buffer(signal, features, policy.get("exit_model", {})),
+                  "status": "confirmed", "candle_time": candle.time, "available_at": candle.time + 900,
+                  "policy_mode": mode, "policy_updated_at": policy["updated_at"], "policy_features": features,
+                  "reason": f"{mode}: {signal['strategy']} · {signal['reason']}"}
+    return signal, mode, scored, observations
 
 def live_signal(candle, hours, minutes, ask, breakout):
     """Decision for the executor at candle close. Policy comes from the last training pass."""
@@ -154,17 +175,7 @@ def live_signal(candle, hours, minutes, ask, breakout):
     policy = json.loads(POLICY.read_text())
     if policy.get("version") != VERSION:
         return None
-    features = context(candle, hours, ask)
-    candidates = gather(candle, hours, minutes[-61:-1] if minutes and minutes[-1].time == candle.time else minutes[-60:],
-                        breakout or {"status": "none"}, policy["population"])
-    signal, mode, scored = choose(candidates, features, policy["model"], explore=True)
-    if not signal:
-        return None
-    exit_choice = select_buffer(signal, features, policy.get("exit_model", {}))
-    return {**signal, **exit_choice, "status": "confirmed", "candle_time": candle.time, "available_at": candle.time + 900,
-            "policy_mode": mode, "policy_updated_at": policy["updated_at"],
-            "policy_features": features,
-            "reason": f"{mode}: {signal['strategy']} · {signal['reason']}"}
+    return learner_decision(candle, hours, minutes, ask, breakout, policy)[0]
 
 def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None, condition=None):
     from scripts.exness_mtf_replay import advance
@@ -212,9 +223,9 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
         indices = {}
         if baseline["status"] == "confirmed":
             candidates.append(baseline)
-        occupied = {row["context"] for row in exit_active}
+        occupied = {row.get("slot", row["context"]) for row in exit_active}
         for signal in candidates:
-            if condition and signal["strategy"] != "regime_router" and context_key(signal, features) not in occupied:
+            if condition and signal["strategy"] != "regime_router" and slot_key(signal, features) not in occupied:
                 try:
                     rows = new_variants(signal, history + [candle], bids["1h"], bids["4h"], features, candle, condition)
                 except ExnessError:
@@ -381,3 +392,132 @@ def learning_tick(now=None, force=False):
         temporary.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False))
         temporary.replace(REPORT)
         return "trained"
+
+
+def current_analysis(now=None):
+    """Read-only snapshot of what the learner sees at the latest closed M15 bar."""
+    now = int(time.time()) if now is None else now
+    with Session() as session:
+        frames = {
+            frame: list(reversed(session.scalars(select(WorkspaceCandle).where(
+                WorkspaceCandle.workspace_id == WORKSPACE,
+                WorkspaceCandle.symbol == "XAUUSD", WorkspaceCandle.timeframe == frame,
+                WorkspaceCandle.time + step <= now,
+            ).order_by(WorkspaceCandle.time.desc(), WorkspaceCandle.price_type).limit(162)).all()))
+            for frame, (_, step) in FRAMES.items()
+        }
+        specs = session.get(ForexInstrumentState, WORKSPACE)
+        condition = dict(specs.snapshot) if specs and specs.snapshot else None
+        obs_row = None
+        minutes_bid = [row for row in frames["15m"] if row.price_type == "bid"]
+        if minutes_bid:
+            obs_row = session.get(ForexObservation, (WORKSPACE, minutes_bid[-1].time))
+    bids = {frame: [row for row in frames[frame] if row.price_type == "bid"] for frame in frames}
+    minutes = bids["15m"]
+    if not minutes:
+        return None
+    candle = minutes[-1]
+    asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
+    ask = asks.get(candle.time)
+    if ask is None:
+        return None
+    hours, higher = bids["1h"], bids["4h"]
+    features = context(candle, hours, ask)
+    breakout_snap = obs_row.snapshot if obs_row else None
+
+    history = [row for row in minutes if row.time < candle.time][-20:]
+    m15_donchian = {"high": max(row.high for row in history), "low": min(row.low for row in history)} if len(history) >= 20 else None
+    ema_history = [row for row in minutes if row.time < candle.time][-60:]
+    m15_ema20 = ema([row.close for row in ema_history], 20) if len(ema_history) >= 20 else None
+    closed_hours = [row for row in hours if row.time + 3600 <= candle.time + 900][-60:]
+    h1_ema20 = h1_ema50 = None
+    if len(closed_hours) >= 50:
+        closes = [row.close for row in closed_hours]
+        h1_ema20, h1_ema50 = ema(closes, 20), ema(closes, 50)
+    barriers = []
+    tc = None
+    issues = []
+    try:
+        tc = target_context(candle, hours, higher)
+        barriers = tc.get("barriers", [])
+    except ExnessError as exc:
+        issues.append(str(exc))
+
+    strategies = {}
+    for name in RULES:
+        snap = strategy_snapshot(name, candle, hours, minutes)
+        strategies[name] = {"status": snap["status"], "side": snap.get("side"),
+                            "reason": snap.get("reason"),
+                            "stop": snap.get("stop") if snap.get("status") == "confirmed" else None,
+                            "level": snap.get("level")}
+    strategies["breakout_retest"] = {
+        "status": breakout_snap.get("status", "not_started") if breakout_snap else "not_started",
+        "side": breakout_snap.get("side") if breakout_snap else None,
+        "reason": breakout_snap.get("reason") if breakout_snap else None,
+        "stop": breakout_snap.get("stop") if breakout_snap and breakout_snap.get("status") == "confirmed" else None,
+        "level": breakout_snap.get("level") if breakout_snap else None,
+    }
+
+    selected_signal = None
+    policy_mode = "warming_up"
+    policy_updated_at = None
+    scored = []
+    if POLICY.exists():
+        try:
+            policy = json.loads(POLICY.read_text())
+            if policy.get("version") == VERSION:
+                policy_updated_at = policy["updated_at"]
+                signal, mode, scored, observations = learner_decision(
+                    candle, hours, minutes, ask, breakout_snap, policy)
+                policy_mode = mode
+                for row in observations:
+                    name = row.get("strategy", "")
+                    strategies[name] = {**row, "selected": bool(signal and name == signal["strategy"])}
+                if signal:
+                    selected_signal = {**signal, "projected_entry": None, "projected_tp": None,
+                                       "projected_stop": None, "projection_error": None}
+                    direction = 1 if signal["side"] == "long" else -1
+                    entry_price = ask.close if direction == 1 else candle.close
+                    stop_raw = signal["stop"]
+                    if not condition or condition.get("point_digits") is None:
+                        raise ExnessError("Chưa có thông số sàn để tính SL/TP dự kiến")
+                    k = signal.get("sl_buffer_k", 0.25)
+                    pad = structure_stop_buffer(minutes, multiplier=Decimal(str(k))) if not signal.get("generated") else 0
+                    pad = max(Decimal(str(pad)), Decimal(str(ask.close - candle.close))) if not signal.get("generated") else Decimal(0)
+                    tick = Decimal(1).scaleb(-condition["point_digits"])
+                    if direction * (entry_price - stop_raw) <= 0:
+                        raise ExnessError("Invalid structure stop")
+                    buffered_stop = Decimal(str(stop_raw)) + (-pad if direction == 1 else pad)
+                    buffered_stop = buffered_stop.quantize(tick, rounding=ROUND_FLOOR if direction == 1 else ROUND_CEILING)
+                    if buffered_stop <= 0 or (direction == 1 and buffered_stop >= Decimal(str(candle.close))) or (
+                            direction == -1 and buffered_stop <= Decimal(str(ask.close))):
+                        raise ExnessError("stop_inside_spread")
+                    tp, reason = exit_target({**signal, "target_context": tc},
+                                             Decimal(str(entry_price)), buffered_stop, tick)
+                    selected_signal.update(projected_stop=float(buffered_stop), projected_entry=entry_price,
+                                           projected_tp=float(tp), tp_reason=reason)
+            else:
+                issues.append("Phiên bản policy chưa tương thích")
+        except (ExnessError, ValueError, KeyError, OSError) as exc:
+            issues.append(str(exc))
+            if selected_signal:
+                selected_signal["projection_error"] = str(exc)
+
+    return {
+        "candle_time": candle.time, "available_at": candle.time + 900, "features": features,
+        "status": "stale" if now - (candle.time + 900) >= 900 else "ready",
+        "source": "closed_candle_policy_preview", "policy_updated_at": policy_updated_at,
+        "issues": issues, "scores": scored,
+        "levels": {"m15_donchian": m15_donchian, "m15_ema20": m15_ema20,
+                   "h1_ema20": h1_ema20, "h1_ema50": h1_ema50,
+                   "barriers": [{"price": b["price"], "side": b["side"], "reason": b["reason"]} for b in barriers]},
+        "strategies": strategies, "selected_signal": selected_signal, "policy_mode": policy_mode,
+    }
+
+
+@router.get("/analysis")
+def analysis_endpoint():
+    result = current_analysis()
+    if result is None:
+        return {"status": "unavailable", "reason": "Chưa đủ dữ liệu nến M15"}
+    return result

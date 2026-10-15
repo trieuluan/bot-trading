@@ -96,3 +96,29 @@ def test_failed_refresh_preserves_profile_but_marks_it_unusable():
         assert result["profile"]["observed_at"] == 1000
         assert "credential-not-to-leak" not in str(result)
         assert session.get(ForexInstrumentState, WORKSPACE).retry_at == 9200
+
+def test_operator_override_only_when_api_omits_commission(monkeypatch):
+    monkeypatch.setenv("EXNESS_COMMISSION_PER_LOT_USD", "0")
+    profile = normalize_specs(account(), specification(), 1000)
+    assert profile["commission_per_unit"] == 0.0 and profile["commission_source"] == "operator_override"
+    condition = specification()
+    condition["commission_settings"] = {"commission_type": "per_lot_per_side", "commission_value": {"amount": "3.5", "currency": "USD"}}
+    assert normalize_specs(account(), condition, 1000)["commission_per_unit"] == 0.07
+    monkeypatch.delenv("EXNESS_COMMISSION_PER_LOT_USD")
+    assert normalize_specs(account(), specification(), 1000)["commission_per_unit"] is None
+
+@pytest.mark.parametrize("fee", ["-1", "NaN", "Infinity", "invalid"])
+def test_invalid_commission_override_rejected(monkeypatch, fee):
+    monkeypatch.setenv("EXNESS_COMMISSION_PER_LOT_USD", fee)
+    with pytest.raises(ValueError):
+        normalize_specs(account(), specification(), 1000)
+
+def test_nonzero_override_is_round_turn_and_preserves_currency_guard(monkeypatch):
+    monkeypatch.setenv("EXNESS_COMMISSION_PER_LOT_USD", "7")
+    assert normalize_specs(account(), specification(), 1000)["commission_per_unit"] == 0.07
+    data = account()
+    data["settings"]["currency"] = "EUR"
+    assert normalize_specs(data, specification(), 1000)["commission_per_unit"] is None
+    condition = specification()
+    condition["commission_settings"] = {"commission_type": "unsupported"}
+    assert normalize_specs(account(), condition, 1000)["commission_per_unit"] is None

@@ -1,5 +1,6 @@
 """Read-only, timestamped XAUUSD specification audit. Never assumes missing fees are zero."""
 
+import os
 import time
 from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 
@@ -54,6 +55,15 @@ def normalize_specs(account, condition, now):
             raise ValueError("Invalid commission")
         commission_per_unit = float(amount * (2 if commission_type == "per_lot_per_side" else 1)
                                     / Decimal(numbers["contract_size"]))
+    source = "api" if commission_per_unit is not None else None
+    override = os.getenv("EXNESS_COMMISSION_PER_LOT_USD", "").strip()
+    # ponytail: operator override only when API omits commission_settings; demo-only, never guessed.
+    if commission_per_unit is None and not condition.get("commission_settings") and override and currencies_valid:
+        fee = decimal_value(override)
+        if fee < 0:
+            raise ValueError("Invalid commission override")
+        commission_per_unit = float(fee / Decimal(numbers["contract_size"]))
+        commission_type, source = "operator_override_round_turn", "operator_override"
     return {
         "version": "exness_specs_v1", "observed_at": now, "instrument": "XAUUSD",
         "account_currency": settings.get("currency"), "quote_currency": condition.get("quote_currency"),
@@ -62,7 +72,7 @@ def normalize_specs(account, condition, now):
         "margin_percent": str(decimal_value(condition.get("margin_percent"), positive=True)),
         "calc_mode": condition.get("calc_mode"), "margin_currency": condition.get("margin_currency"),
         "commission_type": commission_type,
-        "commission_per_unit": commission_per_unit,
+        "commission_per_unit": commission_per_unit, "commission_source": source,
         "swap_long": str(decimal_value(condition.get("swap_long"))),
         "swap_short": str(decimal_value(condition.get("swap_short"))),
         "swap_multipliers": multipliers,

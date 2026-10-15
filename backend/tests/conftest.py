@@ -12,6 +12,7 @@ os.environ["TRADING_MODE"] = "paper"
 
 @pytest.fixture(autouse=True)
 def database(monkeypatch):
+    monkeypatch.delenv("EXNESS_COMMISSION_PER_LOT_USD", raising=False)
     monkeypatch.setenv("EXNESS_DEMO_EXECUTION_ENABLED", "false")
     monkeypatch.setenv("EXNESS_DEMO_ORDERS_ENABLED", "false")
     from alembic import command

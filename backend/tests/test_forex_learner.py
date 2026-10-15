@@ -57,3 +57,28 @@ def test_evolution_keeps_population_bounded_and_unique():
     assert 6 <= len(population) <= 12
     assert len({genome_name(g) for g in population}) == len(population)
     assert SEEDS[0] in population
+
+def test_analysis_endpoint_without_candles_is_unavailable():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+    assert TestClient(app).get("/api/workspaces/exness_forex/learning/analysis").json()["status"] == "unavailable"
+
+def test_current_analysis_returns_preview_of_learner_state(monkeypatch):
+    from backend.app.forex_learner import current_analysis
+    from backend.app.db import Session, WorkspaceCandle
+    from backend.app.exness_feed import WORKSPACE
+    with Session.begin() as session:
+        base = 200 * 14400
+        for frame, step, count in (("4h", 14400, 60), ("1h", 3600, 60), ("15m", 900, 60)):
+            for i in range(count):
+                t = base - step * (count - 1 - i)
+                for side, shift in (("bid", 0), ("ask", 0.3)):
+                    session.add(WorkspaceCandle(workspace_id=WORKSPACE, symbol="XAUUSD", timeframe=frame,
+                                                price_type=side, time=t, open=2600.0 + shift,
+                                                high=2610.0 + shift, low=2590.0 + shift, close=2605.0 + shift))
+    analysis = current_analysis(base + 900)
+    assert analysis is not None
+    assert analysis["source"] == "closed_candle_policy_preview"
+    assert "m15_donchian" in analysis["levels"]
+    assert "barriers" in analysis["levels"]
+    assert "strategies" in analysis

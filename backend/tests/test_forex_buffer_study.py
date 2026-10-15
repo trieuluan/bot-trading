@@ -51,7 +51,7 @@ def test_variants_enter_next_open_and_manage_partial(monkeypatch):
     assert runner["open"] and runner["stop_loss_price"] == "2600.000"
 
 def resolved(variant, stamp, value):
-    return {"status": "resolved", "variant": variant, "context": "trend_pullback:long:up:1",
+    return {"status": "resolved", "variant": variant, "context": "trend_pullback:long:up",
             "confirm_time": stamp, "resolved_at": stamp + 900, "net_r": value}
 
 def paired_records(edge):
@@ -65,7 +65,7 @@ def paired_records(edge):
 
 def test_promotion_needs_paired_edge_validation_and_verified_costs():
     records, cutoff = paired_records(1.0)
-    key = "trend_pullback:long:up:1"
+    key = "trend_pullback:long:up"
     unverified = build_buffer_model(records, cutoff, 999999, costs_verified=False)
     assert unverified[key]["recommended"] == "k0.5_2r" and unverified[key]["selected"] == DEFAULT_VARIANT
     assert select_buffer(SIGNAL, FEATURES, unverified)["exit_variant"] == DEFAULT_VARIANT
@@ -89,7 +89,7 @@ def test_validation_failure_keeps_default_and_does_not_pick_runner_up():
             row["net_r"] = -1
     model = build_buffer_model(records, cutoff, 999999, costs_verified=True)
     assert select_buffer(SIGNAL, FEATURES, model)["exit_variant"] == DEFAULT_VARIANT
-    assert model["trend_pullback:long:up:1"]["recommended"] == "k0.5_2r"
+    assert model["trend_pullback:long:up"]["recommended"] == "k0.5_2r"
 
 
 def test_train_boundary_uses_resolution_time_not_confirmation_time():
@@ -99,7 +99,7 @@ def test_train_boundary_uses_resolution_time_not_confirmation_time():
             row["resolved_at"] = cutoff + 1
     model = build_buffer_model(records, cutoff, 999999, costs_verified=True)
     assert select_buffer(SIGNAL, FEATURES, model)["exit_variant"] == DEFAULT_VARIANT
-    assert all(score["train_count"] == 0 for score in model["trend_pullback:long:up:1"]["scores"])
+    assert all(score["train_count"] == 0 for score in model["trend_pullback:long:up"]["scores"])
 
 
 def test_contexts_are_not_pooled_across_strategies_or_directions():
@@ -139,3 +139,19 @@ def test_live_body_uses_selected_variant_and_checks_new_risk(monkeypatch):
     assert target == entry + 3 * (entry - stop)
     assert signal["tp_reason"] == "fixed_3r"
     assert Decimal(body["volume"]) * Decimal("100") * (entry - stop) <= 25
+
+def test_old_session_suffixed_samples_pool_into_coarse_context():
+    records, cutoff = paired_records(1.0)
+    for index, row in enumerate(records):
+        row["context"] += f":{index // 2 % 4}"
+    model = build_buffer_model(records, cutoff, 999999, costs_verified=True)
+    assert select_buffer(SIGNAL, FEATURES, model)["exit_variant"] == "k0.5_2r"
+    assert select_buffer(SIGNAL, {**FEATURES, "utc_session": 3}, model)["exit_variant"] == "k0.5_2r"
+    assert len(model) == 1
+
+def test_new_samples_share_learning_context_but_keep_session_slots():
+    minutes, hours, higher = make_rows()
+    first = new_variants(SIGNAL, minutes, hours, higher, FEATURES, minutes[-1], COND)[0]
+    second = new_variants(SIGNAL, minutes, hours, higher, {**FEATURES, "utc_session": 3}, minutes[-1], COND)[0]
+    assert first["context"] == second["context"] == "trend_pullback:long:up"
+    assert first["slot"] != second["slot"]

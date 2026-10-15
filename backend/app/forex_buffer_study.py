@@ -36,14 +36,20 @@ def exit_target(signal, entry, stop, tick):
 
 
 def context_key(signal, features):
-    return f"{signal['strategy']}:{signal['side']}:{features['trend']}:{features['utc_session']}"
+    return f"{signal['strategy']}:{signal['side']}:{features['trend']}"
+
+def slot_key(signal, features):
+    return f"{context_key(signal, features)}:{features['utc_session']}"
+
+def coarse(key):
+    return ":".join(key.split(":")[:3])
 
 
 def new_variants(signal, minutes, hours, higher, features, candle, condition):
     atr = structure_stop_buffer(minutes, multiplier=1)
     targets = target_context(candle, hours, higher)
     key = context_key(signal, features)
-    return [{"status": "pending", "variant": name, "context": key,
+    return [{"status": "pending", "variant": name, "context": key, "slot": slot_key(signal, features),
              "confirm_time": candle.time, "last_candle": candle.time,
              "signal": {**signal, "exit_variant": name, "target_context": targets},
              "atr": atr, "condition": condition}
@@ -144,7 +150,7 @@ def build_buffer_model(records, cutoff, now, costs_verified=False):
     groups = defaultdict(lambda: defaultdict(dict))
     for row in records:
         if row["status"] == "resolved" and row["resolved_at"] < now:
-            groups[row["context"]][row["variant"]][row["confirm_time"]] = row
+            groups[coarse(row["context"])][row["variant"]][row["confirm_time"]] = row
     model = {}
     for key, variants in groups.items():
         baseline = variants.get(DEFAULT_VARIANT, {})
