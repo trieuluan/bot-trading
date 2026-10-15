@@ -13,6 +13,13 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+const exnessNavigation = [
+  { label: 'Tổng quan', icon: LayoutDashboard },
+  { label: 'Bot', icon: Bot },
+  { label: 'Nghiên cứu', icon: FlaskConical },
+  { label: 'Kết nối sàn', icon: Link2 },
+];
+
 const navigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
   { label: 'Bot của bạn', icon: Bot },
@@ -31,6 +38,7 @@ interface SidebarProps {
   workspacePicker?: ReactNode;
   allowedPages?: string[];
   botCount?: number;
+  exness?: boolean;
 }
 
 export function Sidebar({
@@ -41,6 +49,7 @@ export function Sidebar({
   workspacePicker,
   allowedPages,
   botCount = 1,
+  exness = false,
 }: SidebarProps) {
   return (
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
@@ -71,7 +80,7 @@ export function Sidebar({
       )}
       <p className="nav-label">WORKSPACE</p>
       <nav>
-        {navigation.map(({ label, icon: Icon }) => {
+        {(exness ? exnessNavigation : navigation).map(({ label, icon: Icon }) => {
           return (
             <button
               className={page === label ? 'nav active' : 'nav'}
@@ -86,7 +95,9 @@ export function Sidebar({
             >
               <Icon size={18} />
               {label}
-              {label === 'Bot của bạn' && <span className="nav-count">{botCount}</span>}
+              {(label === 'Bot của bạn' || label === 'Bot') && (
+                <span className="nav-count">{botCount}</span>
+              )}
             </button>
           );
         })}

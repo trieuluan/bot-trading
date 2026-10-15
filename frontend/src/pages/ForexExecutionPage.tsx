@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
-import { ForexReplayControl, ForexStrategyPage } from './ForexStrategyPage';
+import { ForexStrategyPage } from './ForexStrategyPage';
 
 const url = '/api/workspaces/exness_forex/execution';
 const amount = (value: number | string | null | undefined) =>
@@ -9,12 +9,12 @@ const amount = (value: number | string | null | undefined) =>
 const date = (stamp: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
 
-type Panel = 'orders' | 'chart' | 'learning' | 'replay';
+type Panel = 'chart' | 'orders' | 'learning' | 'strategies';
 const panels: [Panel, string, string][] = [
-  ['orders', 'Lệnh trên sàn', 'Vị thế và lịch sử khớp lệnh'],
-  ['chart', 'Chart giao dịch', 'Giá khớp, SL và TP trên chart'],
-  ['learning', 'Bộ học', 'Giả thuyết, mẫu và kết quả học'],
-  ['replay', 'Phòng thử nghiệm', 'So sánh trên nến đã lưu'],
+  ['chart', 'Chart & Quan sát', 'Biểu đồ, cản H1/H4 và phân tích bot'],
+  ['orders', 'Lệnh trên sàn', 'Vị thế mở và lịch sử deal khớp'],
+  ['learning', 'Bộ học & Thích ứng', 'Giả thuyết, bối cảnh SL/TP và R thực tế'],
+  ['strategies', 'Chiến lược MTF', 'Chi tiết điều kiện 4h/1h/15m từng chiến lược'],
 ];
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
@@ -27,7 +27,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [panel, setPanel] = useState<Panel>('orders');
+  const [panel, setPanel] = useState<Panel>('chart');
   const [filter, setFilter] = useState<Filter>('all');
   useEffect(() => {
     const controller = new AbortController();
@@ -106,8 +106,8 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           <div>
             <h2>Bot Exness Demo</h2>
             <p>
-              Tài khoản {data?.account ?? '—'} · {data?.lot ?? '0.01'} lot · tối đa {data?.max_concurrent ?? 1} vị
-              thế cùng lúc
+              Tài khoản {data?.account ?? '—'} · {data?.lot ?? '0.01'} lot · tối đa{' '}
+              {data?.max_concurrent ?? 1} vị thế cùng lúc
             </p>
           </div>
           <button
@@ -232,8 +232,13 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               {data.learning?.exit_learning && (
                 <p className="micro">
                   SL/TP học: {data.learning.exit_learning.sample_count} mẫu mô phỏng ·{' '}
-                  {Object.values(data.learning.exit_learning.contexts).filter((row) => row.eligible).length}{' '}
-                  bối cảnh đã đủ điều kiện dùng lệnh demo · mặc định {data.learning.exit_learning.default_variant}.
+                  {
+                    Object.values(data.learning.exit_learning.contexts).filter(
+                      (row) => row.eligible,
+                    ).length
+                  }{' '}
+                  bối cảnh đã đủ điều kiện dùng lệnh demo · mặc định{' '}
+                  {data.learning.exit_learning.default_variant}.
                   {data.learning.exit_learning.costs_verified
                     ? ''
                     : ' Chưa đủ phí/trượt giá đã đo nên chỉ hiện khuyến nghị, chưa tự đổi lệnh.'}
@@ -400,7 +405,10 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                                     `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
                                   )
                                 )
-                                  void action(`/trades/${position.signal_time}/close?position_id=${position.position_id}`, 'POST');
+                                  void action(
+                                    `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
+                                    'POST',
+                                  );
                               }}
                             >
                               {position.close_requested ? 'Đã yêu cầu đóng' : 'Đóng vị thế'}
@@ -536,26 +544,38 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   data.worker_online &&
                   window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
                 )
-                  void action(`/trades/${position.signal_time}/close?position_id=${position.position_id}`, 'POST');
+                  void action(
+                    `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
+                    'POST',
+                  );
               }}
             />
           </section>
           <section
-            hidden={panel !== 'replay'}
-            id="execution-panel-replay"
+            hidden={panel !== 'strategies'}
+            id="execution-panel-strategies"
             role="tabpanel"
-            aria-labelledby="execution-tab-replay"
+            aria-labelledby="execution-tab-strategies"
             tabIndex={0}
-            className="execution-tab-content execution-replay-panel"
+            className="execution-tab-content"
           >
             <div className="execution-selection">
               <div>
-                <span className="execution-eyebrow">NGHIÊN CỨU / KHÔNG GỬI LỆNH</span>
-                <h3>Phòng thử nghiệm chiến lược</h3>
-                <p>Replay tách biệt tài khoản demo. Kết quả mô phỏng không thay thế fill từ sàn.</p>
+                <span className="execution-eyebrow">QUAN SÁT PRICE ACTION</span>
+                <h3>Phân tích đa khung 4h · 1h · 15m</h3>
+                <p>
+                  Theo dõi trực tiếp điều kiện kích hoạt Breakout + Retest, Trend Pullback, Range
+                  Rejection.
+                </p>
               </div>
             </div>
-            <ForexReplayControl />
+            {panel === 'strategies' && (
+              <ForexStrategyPage
+                dashboard={dashboard}
+                disconnected={!!error}
+                includeReplay={false}
+              />
+            )}
           </section>
         </>
       )}

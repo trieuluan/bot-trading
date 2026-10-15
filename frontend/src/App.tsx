@@ -13,7 +13,6 @@ import { PaperTradingPage } from './pages/PaperTradingPage';
 import { BacktestPage } from './pages/BacktestPage';
 import { ActivityPage } from './pages/ActivityPage';
 import {
-  ForexStrategyPage,
   ForexObservationLog,
   ForexResearchPage,
   ForexCatchupStatus,
@@ -21,6 +20,7 @@ import {
 import type { ObservationChartSnapshot } from './components/MtfObservationChart';
 import { ForexPaperPage, type ForexPaperSummary } from './pages/ForexPaperPage';
 import { ForexExecutionPage } from './pages/ForexExecutionPage';
+import type { ExnessExecution } from './types/exness-execution';
 
 interface Workspace {
   id: string;
@@ -134,6 +134,241 @@ export default function App() {
   );
 }
 
+function ForexOverviewPage({
+  dashboard,
+  disconnected,
+  onNavigate,
+}: {
+  dashboard: ForexDashboard;
+  disconnected: boolean;
+  onNavigate: (page: string) => void;
+}) {
+  const [execution, setExecution] = useState<ExnessExecution | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    let inflight = false;
+    const refresh = async () => {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const response = await fetch('/api/workspaces/exness_forex/execution?limit=1', {
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+        });
+        if (!response.ok) throw new Error();
+        const data: ExnessExecution = await response.json();
+        if (!controller.signal.aborted) {
+          setExecution(data);
+          setError('');
+        }
+      } catch {
+        if (!controller.signal.aborted)
+          setError('Không tải được trạng thái lệnh sàn. Số liệu có thể đã cũ.');
+      } finally {
+        inflight = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, []);
+  const amount = (value: number | string | null | undefined) =>
+    value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+  const verified = !error && !disconnected;
+  const data = verified ? execution : null;
+  const workerOnline = verified && dashboard.market.worker_online;
+  const selected = data?.learning?.latest?.selected;
+  return (
+    <div className="forex-overview-desk">
+      {error && (
+        <p role="status" className="feedback">
+          {error}
+        </p>
+      )}
+      <section className="forex-overview-lead" aria-label="Trạng thái vận hành">
+        <div>
+          <span className="execution-eyebrow">XAUUSD / EXNESS DEMO</span>
+          <h2>
+            {!verified || !data
+              ? 'Chưa xác minh trạng thái bot'
+              : !data.configured
+                ? 'Chưa cấu hình thực thi'
+                : data.enabled
+                  ? 'Bot đang được bật'
+                  : 'Bot đang tạm dừng mở lệnh'}
+          </h2>
+          <p>
+            {data?.decision ??
+              'Theo dõi tín hiệu, quản lý vị thế và kiểm chứng trong cùng workspace.'}
+          </p>
+        </div>
+        <button type="button" className="primary" onClick={() => onNavigate('Bot')}>
+          Mở không gian Bot
+        </button>
+      </section>
+      <div className="forex-exec-hero" aria-label="Số liệu tài khoản sàn demo">
+        <div className="forex-exec-card">
+          <span className="label">Vị thế đang mở</span>
+          <strong className="val">{amount(data?.open_count)}</strong>
+          <span className="sub">Lệnh demo trên sàn · không gồm paper</span>
+        </div>
+        <div className="forex-exec-card">
+          <span className="label">Balance / Equity · USD</span>
+          <strong className="val">
+            {amount(data?.account_state?.balance)} / {amount(data?.account_state?.equity)}
+          </strong>
+          <span className="sub">Margin đã dùng: {amount(data?.account_state?.used_margin)}</span>
+        </div>
+        <div className="forex-exec-card">
+          <span className="label">Profit deal sàn · USD</span>
+          <strong
+            className={`val ${data ? (data.broker_profit >= 0 ? 'positive' : 'negative') : ''}`}
+          >
+            {amount(data?.broker_profit)}
+          </strong>
+          <span className="sub">Chưa xác minh toàn bộ phí và swap</span>
+        </div>
+        <div className="forex-exec-card">
+          <span className="label">Worker dữ liệu</span>
+          <strong className="val">
+            {disconnected ? 'Chưa xác minh' : workerOnline ? 'Có heartbeat' : 'Chưa có heartbeat'}
+          </strong>
+          <span className="sub">
+            {dashboard.market.last_sync
+              ? `Đồng bộ ${new Date(dashboard.market.last_sync).toLocaleString('vi-VN', { timeZone: 'UTC' })} UTC`
+              : 'Chưa đồng bộ'}
+          </span>
+        </div>
+      </div>
+      <div className="forex-overview-grid">
+        <section className="forex-overview-panel">
+          <span className="execution-eyebrow">01 / VẬN HÀNH</span>
+          <h2>Bot & Phân tích</h2>
+          <p>
+            Chart giá, lệnh sàn, bộ học và chi tiết chiến lược nằm trong một không gian. Chỉ hiện
+            lệnh đang mở trên chart.
+          </p>
+          <dl className="forex-summary-list">
+            <div>
+              <dt>Tín hiệu được chọn gần nhất</dt>
+              <dd>{selected ?? 'Chưa có tín hiệu được chọn'}</dd>
+            </div>
+            <div>
+              <dt>Mẫu SL/TP mô phỏng</dt>
+              <dd>{amount(data?.learning?.exit_learning?.sample_count)}</dd>
+            </div>
+            <div>
+              <dt>Xu hướng H4 quan sát</dt>
+              <dd>
+                {({ up: 'Tăng', down: 'Giảm', sideway: 'Đi ngang' } as Record<string, string>)[
+                  dashboard.observation.snapshot?.trend ?? ''
+                ] ?? 'Chưa xác định'}
+              </dd>
+            </div>
+          </dl>
+          <button type="button" className="secondary" onClick={() => onNavigate('Bot')}>
+            Xem chart, lệnh & phân tích
+          </button>
+        </section>
+        <section className="forex-overview-panel">
+          <span className="execution-eyebrow">02 / KIỂM CHỨNG</span>
+          <h2>Nghiên cứu</h2>
+          <p>
+            Replay trên nến Exness đã lưu, đối chiếu ví mô phỏng nội bộ và kiểm tra nhật ký quan
+            sát. Không gửi lệnh lên sàn.
+          </p>
+          <dl className="forex-summary-list">
+            <div>
+              <dt>Replay</dt>
+              <dd>So sánh chiến lược và giả định chi phí</dd>
+            </div>
+            <div>
+              <dt>Ví mô phỏng</dt>
+              <dd>Tách biệt số dư tài khoản demo Exness</dd>
+            </div>
+            <div>
+              <dt>Nhật ký</dt>
+              <dd>Truy vết tín hiệu theo nến đã đóng</dd>
+            </div>
+          </dl>
+          <button type="button" className="secondary" onClick={() => onNavigate('Nghiên cứu')}>
+            Mở phòng nghiên cứu
+          </button>
+        </section>
+      </div>
+      <section className="panel forex-status">
+        <div className="section-head">
+          <div>
+            <h2>Dữ liệu nến Exness</h2>
+            <p>{dashboard.market.message}</p>
+          </div>
+          <button type="button" className="secondary" onClick={() => onNavigate('Kết nối sàn')}>
+            Kiểm tra kết nối
+          </button>
+        </div>
+        <div className="forex-frame-grid">
+          {(dashboard.frames ?? []).map((frame) => (
+            <div key={frame.timeframe} className="forex-frame-card">
+              <strong>{frame.timeframe.toUpperCase()}</strong>
+              <span>{frame.bars_per_side.toLocaleString('vi-VN')} nến mỗi phía Bid/Ask</span>
+              <small>
+                {frame.last_candle
+                  ? `${new Date(frame.last_candle * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+                  : 'Chưa có nến'}
+              </small>
+              {frame.error && <small className="negative">{frame.error}</small>}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ForexResearchWorkspace({
+  dashboard,
+  disconnected,
+  revision,
+}: {
+  dashboard: ForexDashboard;
+  disconnected: boolean;
+  revision: number;
+}) {
+  const [tab, setTab] = useState<'backtest' | 'paper' | 'log'>('backtest');
+  const tabs: [typeof tab, string, string][] = [
+    ['backtest', 'Backtest & Replay', 'Đối chiếu 4 chiến lược trên nến cũ XAUUSD'],
+    ['paper', 'Ví mô phỏng nội bộ', 'Đối chiếu lệnh paper không gửi lên sàn'],
+    ['log', 'Nhật ký quan sát', 'Lịch sử trigger từng nến M15 đã lưu'],
+  ];
+  return (
+    <div className="execution-desk">
+      <nav className="execution-tabs" role="tablist" aria-label="Nghiên cứu">
+        {tabs.map(([key, label, sub]) => (
+          <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)}>
+            <span>{label}</span>
+            <small>{sub}</small>
+          </button>
+        ))}
+      </nav>
+      {tab === 'backtest' && <ForexResearchPage revision={revision} />}
+      {tab === 'paper' && (
+        <ForexPaperPage
+          paper={dashboard.paper}
+          paused={
+            disconnected ||
+            !dashboard.market.worker_online ||
+            dashboard.observation.status === 'data_paused'
+          }
+        />
+      )}
+      {tab === 'log' && <ForexObservationLog events={dashboard.observation.recent ?? []} />}
+    </div>
+  );
+}
+
 function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [page, setPage] = useState('Tổng quan');
   const [menu, setMenu] = useState(false);
@@ -175,22 +410,15 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     };
   }, [revision]);
   return (
-    <div className="shell">
+    <div className="shell forex-shell">
       {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
       <Sidebar
         page={page}
         menu={menu}
         workspacePicker={workspacePicker}
         botCount={dashboard?.execution_enabled ? 1 : 0}
-        allowedPages={[
-          'Tổng quan',
-          'Bot của bạn',
-          'Chiến lược',
-          'Ví mô phỏng',
-          'Backtest',
-          'Nhật ký',
-          'Kết nối sàn',
-        ]}
+        exness
+        allowedPages={['Tổng quan', 'Bot', 'Nghiên cứu', 'Kết nối sàn']}
         onNavigate={(next) => {
           setPage(next);
           setMenu(false);
@@ -207,7 +435,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             >
               <Menu size={20} />
             </button>
-            <span>Exness</span>
+            <span>Exness XAUUSD</span>
             <span>/</span>
             <strong>{page}</strong>
           </div>
@@ -218,7 +446,13 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         <main>
           <div className="page-heading">
             <div>
-              <h1>Exness · Forex Demo</h1>
+              <h1>
+                {page === 'Bot'
+                  ? 'Bot Demo · XAUUSD'
+                  : page === 'Nghiên cứu'
+                    ? 'Nghiên cứu chiến lược'
+                    : 'Exness · Forex Demo'}
+              </h1>
               <p>XAUUSD · Workspace riêng, không dùng ví hoặc tín hiệu MEXC.</p>
             </div>
             <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
@@ -229,7 +463,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <FlaskConical size={17} />
             <span>
               {dashboard?.execution_enabled
-                ? 'Bot regime_router được phép gửi lệnh Exness Demo. Xem lệnh và chart tại Bot của bạn. Không dùng tiền thật hoặc ví MEXC.'
+                ? 'Thực thi Demo đã được cấu hình. Trạng thái bật/tạm dừng và lệnh sàn xem tại Bot. Ví mô phỏng nằm riêng trong Nghiên cứu.'
                 : 'MTF XAUUSD + paper cục bộ. Dữ liệu và ví riêng Exness; không gửi lệnh Demo sàn, không dùng ví MEXC.'}
             </span>
           </div>
@@ -240,27 +474,20 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           )}
           {!dashboard && !error && <p role="status">Đang tải workspace Exness...</p>}
           {dashboard && <ForexCatchupStatus dashboard={dashboard} disconnected={!!error} />}
-          {dashboard && page === 'Chiến lược' && (
-            <ForexStrategyPage dashboard={dashboard} disconnected={!!error} />
-          )}
-          {dashboard && page === 'Bot của bạn' && <ForexExecutionPage dashboard={dashboard} />}
-          {dashboard && page === 'Ví mô phỏng' && (
-            <ForexPaperPage
-              paper={dashboard.paper}
-              paused={
-                !!error ||
-                !dashboard.market.worker_online ||
-                dashboard.observation.status === 'data_paused'
-              }
+          {dashboard && page === 'Bot' && <ForexExecutionPage dashboard={dashboard} />}
+          {dashboard && page === 'Nghiên cứu' && (
+            <ForexResearchWorkspace
+              dashboard={dashboard}
+              disconnected={!!error}
+              revision={revision}
             />
           )}
-          {dashboard && page === 'Nhật ký' && (
-            <ForexObservationLog events={dashboard.observation.recent ?? []} />
+          {dashboard && page === 'Tổng quan' && (
+            <ForexOverviewPage dashboard={dashboard} disconnected={!!error} onNavigate={setPage} />
           )}
-          {page === 'Backtest' && <ForexResearchPage revision={revision} />}
-          {dashboard && ['Tổng quan', 'Kết nối sàn'].includes(page) && (
+          {dashboard && page === 'Kết nối sàn' && (
             <section className="panel forex-status">
-              <h2>{page === 'Kết nối sàn' ? 'Kết nối Exness' : 'Trạng thái workspace'}</h2>
+              <h2>Kết nối Exness</h2>
               <p>
                 <strong>Thị trường:</strong> {dashboard.market.message}
               </p>

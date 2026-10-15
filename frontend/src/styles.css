@@ -2387,3 +2387,160 @@ footer {
   outline: 2px solid #8dbde2;
   outline-offset: -2px;
 }
+
+/* Forex Overview enhancements */
+.forex-overview-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.forex-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+.forex-overview-panel {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.forex-overview-panel .section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.forex-overview-panel .section-head h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: #1e5b47;
+}
+.forex-overview-panel .section-head p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.forex-overview-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.forex-overview-action-list .action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #edf0e8;
+  border-radius: 8px;
+  background: #fbfcf9;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.forex-overview-action-list .action-row:hover {
+  background: #f4f6f0;
+  border-color: #d8dfd0;
+}
+.forex-overview-action-list .action-row strong {
+  display: block;
+  font-size: 13px;
+  color: #263d35;
+}
+.forex-overview-action-list .action-row p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.forex-overview-action-list .action-row span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e5b47;
+  white-space: nowrap;
+}
+
+/* Forex redesign: lead banner, summary lists, frame grid */
+.forex-shell .sidebar .nav-count {
+  background: var(--green);
+}
+.forex-overview-lead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+.forex-overview-lead h2 {
+  margin: 4px 0;
+  font-size: 18px;
+}
+.forex-overview-lead p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+.forex-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 16px;
+  padding: 0;
+}
+.forex-summary-list div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f0f2eb;
+}
+.forex-summary-list dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+.forex-summary-list dd {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  color: #263d35;
+}
+.forex-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.forex-frame-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: #fbfcf9;
+  border: 1px solid #edf0e8;
+  border-radius: 8px;
+}
+.forex-frame-card strong {
+  font-size: 14px;
+  color: #1e5b47;
+}
+.forex-frame-card span {
+  font-size: 12px;
+  color: #263d35;
+}
+.forex-frame-card small {
+  font-size: 11px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .forex-overview-lead {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
