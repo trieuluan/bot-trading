@@ -550,15 +550,13 @@ export function ForexStrategyPage({
           theo cấu trúc, TP 2R. Mô phỏng cục bộ, không gửi lệnh Demo.
         </p>
       )}
-      <p className="micro">
-        Khung nến M15/H1/H4 lấy trực tiếp từ Exness Demo, không ghép nến MEXC.
-        {disconnected && ' · Mất kết nối API; hiển thị trạng thái lưu gần nhất.'}
-      </p>
-      {snap?.['available_at'] && (
-        <p className="micro">
-          Snapshot theo nến đóng: {new Date(snap?.available_at * 1000).toISOString()} · USD/oz
-        </p>
-      )}
+      <div className="mtf-source-strip">
+        <span>Nến M15/H1/H4 Exness Demo</span>
+        {snap?.['available_at'] && (
+          <span>Snapshot {new Date(snap.available_at * 1000).toISOString().slice(0, 16)} UTC</span>
+        )}
+        {disconnected && <span className="negative">Mất kết nối API · dữ liệu lưu gần nhất</span>}
+      </div>
       {(!dashboard.market.worker_online || currentStatus === 'data_paused') && (
         <p role="status" className="negative">
           Worker hoặc dữ liệu chưa sẵn sàng. Chart và setup là dữ liệu đã lưu, không phải tín hiệu
@@ -982,9 +980,9 @@ export function ForexStrategyPage({
         </div>
       )}
       {!executionOnly && view === 'mtf' && (
-        <div style={{ marginTop: 24 }}>
+        <div className="mtf-rules-wrap">
           <h3>Quy tắc Breakout + Retest XAUUSD</h3>
-          <ul>
+          <ol className="mtf-rules">
             <li>
               <strong>Vào setup:</strong> Nến H1 đóng vượt đỉnh/đáy của 20 nến H1 trước đó theo xu
               hướng EMA50 khung H4.
@@ -1001,7 +999,7 @@ export function ForexStrategyPage({
               <strong>Khớp lệnh thực tế:</strong> Cần tính spread bid/ask và trượt giá; mức TP/SL
               trên chart chỉ là tham chiếu.
             </li>
-          </ul>
+          </ol>
         </div>
       )}
       {includeReplay && <ForexReplayControl />}

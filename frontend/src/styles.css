@@ -2544,3 +2544,94 @@ footer {
     align-items: stretch;
   }
 }
+
+/* MTF strategy tab polish */
+.mtf-observation .forex-paper-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: #eef1ea;
+  border-radius: 10px;
+}
+.mtf-observation .forex-paper-switch button {
+  border: 0;
+  background: transparent;
+  padding: 8px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.mtf-observation .forex-paper-switch [aria-pressed='true'] {
+  outline: 0;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+  font-weight: 600;
+}
+.mtf-observation .research-metrics {
+  gap: 12px;
+}
+.mtf-observation .research-metrics > div {
+  padding: 14px 16px;
+  background: #fafbf8;
+}
+.mtf-observation .research-metrics span {
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+.mtf-rules-wrap {
+  margin-top: 24px;
+}
+.mtf-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: rule;
+}
+.mtf-rules li {
+  position: relative;
+  padding: 14px 16px 14px 48px;
+  border: 1px solid #e7e9e2;
+  border-radius: 10px;
+  background: #fafbf8;
+  font-size: 13px;
+  line-height: 1.5;
+  counter-increment: rule;
+}
+.mtf-rules li::before {
+  content: counter(rule);
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2c856c;
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+  line-height: 22px;
+}
+.mtf-rules strong {
+  display: block;
+}
+@media (max-width: 800px) {
+  .mtf-rules {
+    grid-template-columns: 1fr;
+  }
+}
+.mtf-source-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.mtf-source-strip span {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eef1ea;
+  color: #52675a;
+  font-size: 12px;
+}
