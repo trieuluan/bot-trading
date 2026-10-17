@@ -124,3 +124,10 @@ its existing position refresh. Learning cards identify the exit policy and expla
 its thresholds. Fees are simulation settings, not a verified exchange-account rate.
 Breakeven is an estimate: gaps, spread and future funding can still produce a loss.
 These policies are experimental; no improvement in real-market returns is claimed.
+
+## Ví dùng chung đa cặp (Unified Cross-Symbol Paper Wallet)
+- Số dư tiền mặt thực tế tập trung tại `paper_wallet` id = 1 (Master Cash Ledger).
+- Các dòng id = 2..10 lưu trữ `quote`, `contract`, `funding_cursor` đặc thù của từng cặp.
+- Ký quỹ dùng (`used_margin`) và lợi nhuận chưa chốt (`unrealized_pnl`): tổng hợp trên toàn bộ vị thế mở của 10 cặp theo giá mark thời gian thực của từng cặp.
+- Sức mua khả dụng: `available = max(0, master.balance - total_used_margin)`.
+- Giới hạn lỗ ngày `daily_loss_percent` được kiểm soát theo biến động equity của ví chung.

@@ -11,9 +11,11 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 
 from .backtest import BacktestConfig, simulate
-from .db import AutoPaperState, FuturesLearningState, MarketState, Session
+from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, MarketState, PaperTrade,
+                 Session)
 from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles
 from .futures_exits import protective_stop
@@ -454,7 +456,26 @@ def select_for_auto(session, candle_time, now):
     return True, Setup(**decision["setup"]), decision["selected"]
 
 
-def summary(state, now):
+def open_paper_by_strategy(session):
+    """Open paper positions of the current pair, keyed by the strategy that opened them."""
+    rows = session.execute(
+        select(PaperTrade.id, PaperTrade.side, PaperTrade.entry, PaperTrade.quantity,
+               AutoPaperDecision.parameters)
+        .join(AutoPaperDecision, AutoPaperDecision.trade_id == PaperTrade.id)
+        .where(PaperTrade.symbol == current_symbol(), PaperTrade.exit_time.is_(None),
+               AutoPaperDecision.symbol == PaperTrade.symbol)
+        .order_by(PaperTrade.id)
+    ).all()
+    result = {}
+    for trade_id, side, entry, quantity, parameters in rows:
+        name = ((parameters or {}).get("audit") or {}).get("strategy")
+        if name:
+            result.setdefault(name, []).append(
+                {"id": trade_id, "side": side, "entry": entry, "quantity": quantity})
+    return result
+
+def summary(state, now, open_trades=None):
+    open_trades = open_trades or {}
     rows, results = [], performance(state, now)
     for name, candidate in state["candidates"].items():
         samples = [sample for sample in state["samples"] if sample["strategy"] == name]
@@ -467,6 +488,7 @@ def summary(state, now):
                      "rule_text": (describe_rule(candidate["genome"]["rule"])
                                    if is_rule_tree(candidate["genome"]) else None),
                      "complexity": complexity(candidate["genome"]),
+                     "open_trades": open_trades.get(name, []),
                      "origin": "seed" if not candidate["parents"] else "child",
                      "learned_samples": count, "learned_mean_r": average,
                      "qualification": qualification(candidate)})
@@ -486,7 +508,7 @@ def summary(state, now):
 def get_learning():
     now = int(time.time())
     with Session() as session:
-        return summary(read_state(session, now), now)
+        return summary(read_state(session, now), now, open_paper_by_strategy(session))
 
 
 class LearningConfig(BaseModel):
@@ -512,7 +534,7 @@ def configure_learning(payload: LearningConfig):
                     sample.update(status="excluded", reason="learning_paused")
         state.update(enabled=payload.enabled, auto_mode=payload.auto_mode, last_decision=None)
         save_state(session, state)
-        return summary(state, now)
+        return summary(state, now, open_paper_by_strategy(session))
 
 
 class Promotion(BaseModel):
@@ -535,5 +557,5 @@ def promote(payload: Promotion):
         candidate["promoted"] = payload.promoted
         state["last_decision"] = None
         save_state(session, state)
-        return summary(state, now)
+        return summary(state, now, open_paper_by_strategy(session))
 

@@ -100,27 +100,31 @@ class MexcFuturesAdapter:
             raise MarketDataError("Invalid MEXC server time") from exc
 
     def history(
-        self, start: int, end: int, server_time: int | None = None, fair: bool = False
+        self, start: int, end: int, server_time: int | None = None, fair: bool = False,
+        interval: str = "Min15",
     ) -> list[Candle]:
         """Fetch [start, end), UTC seconds; exclude the still-open candle."""
+        if interval not in ("Min1", "Min15"):
+            raise MarketDataError("Unsupported history interval")
+        step = 60 if interval == "Min1" else INTERVAL_SECONDS
         now = self.server_time() if server_time is None else server_time
-        start = ((start + INTERVAL_SECONDS - 1) // INTERVAL_SECONDS) * INTERVAL_SECONDS
-        end = min(end // INTERVAL_SECONDS * INTERVAL_SECONDS, now // 900 * 900)
-        if end <= start or (end - start) // 900 > 10_000:
+        start = ((start + step - 1) // step) * step
+        end = min(end // step * step, now // step * step)
+        if end <= start or (end - start) // step > 10_000:
             raise MarketDataError("Choose a nonempty range of at most 10,000 closed candles")
         result: dict[int, Candle] = {}
         cursor = start
         while cursor < end:
-            page_end = min(end, cursor + 2000 * INTERVAL_SECONDS)
+            page_end = min(end, cursor + 2000 * step)
             path = "/api/v1/contract/kline/" + ("fair_price/" if fair else "") + self.symbol
-            data = self._get(path, {"interval": "Min15", "start": cursor, "end": page_end - 1})
+            data = self._get(path, {"interval": interval, "start": cursor, "end": page_end - 1})
             try:
                 keys = ("time", "open", "high", "low", "close", "vol")
                 if len({len(data[key]) for key in keys}) != 1:
                     raise ValueError("Unequal OHLCV arrays")
                 for row in zip(*(data[key] for key in keys)):
                     candle = Candle(int(row[0]), *(float(value) for value in row[1:]))
-                    if cursor <= candle.time < page_end and candle.time + 900 <= now:
+                    if cursor <= candle.time < page_end and candle.time + step <= now:
                         if candle.time in result and result[candle.time] != candle:
                             raise MarketDataError("Conflicting duplicate candles")
                         result[candle.time] = candle
@@ -130,8 +134,8 @@ class MexcFuturesAdapter:
             if cursor < end:
                 self.sleep(0.1)
         candles = sorted(result.values(), key=lambda candle: candle.time)
-        validate_candles(candles)
-        if not candles or candles[0].time != start or candles[-1].time != end - 900:
+        validate_candles(candles, step=step)
+        if not candles or candles[0].time != start or candles[-1].time != end - step:
             raise MarketDataError("MEXC history is incomplete; retry to backfill missing candles")
         return candles
 

@@ -1,6 +1,6 @@
 import { futuresHeaders } from '../lib/futures-symbol';
 import { useEffect, useState } from 'react';
-import { Brain, Dna, Power } from 'lucide-react';
+import { Activity, Brain, Dna, Power } from 'lucide-react';
 import {
   exitLabel,
   riskText,
@@ -34,6 +34,7 @@ type Row = {
   rule_text?: string | null;
   complexity?: number;
   signals: number;
+  open_trades?: { id: number; side: 'long' | 'short'; entry: number; quantity: number }[];
   resolved: number;
   mean_r: number | null;
   profit_factor: number | null;
@@ -79,6 +80,7 @@ export function FuturesLearningPage() {
   const [family, setFamily] = useState('all');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
+  const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
 
   useEffect(() => {
@@ -108,6 +110,7 @@ export function FuturesLearningPage() {
 
   const all = data?.strategies ?? [];
   const families = [...new Set(all.map((row) => row.genome.family))].sort();
+  const generations = [...new Set(all.map((row) => row.generation))].sort((a, b) => a - b);
   const needles = searchText(query).trim().split(/\s+/).filter(Boolean);
   const selected = data?.last_decision?.selected;
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
@@ -116,7 +119,10 @@ export function FuturesLearningPage() {
   const rows = all.filter(
     (row) =>
       (family === 'all' || row.genome.family === family) &&
+      (status === 'all' ? !row.paused || (row.open_trades?.length ?? 0) > 0 : true) &&
       (status === 'all' ||
+        status === 'all_with_paused' ||
+        (status === 'holding' && (row.open_trades?.length ?? 0) > 0) ||
         (status === 'active' && !row.paused) ||
         (status === 'paused' && row.paused) ||
         (status === 'promoted' && row.promoted) ||
@@ -135,6 +141,7 @@ export function FuturesLearningPage() {
           ].join(' '),
         ).includes(needle),
       ) &&
+      (gen === 'all' || row.generation === Number(gen)) &&
       (filter === 'all' ||
         (filter === 'seed' && row.generation === 0) ||
         (filter === 'child' && row.generation > 0) ||
@@ -274,13 +281,31 @@ export function FuturesLearningPage() {
               />
             </label>
             <label>
+              Thế hệ
+              <select
+                aria-label="Lọc theo thế hệ"
+                value={gen}
+                onChange={(event) => setGen(event.target.value)}
+              >
+                <option value="all">Tất cả thế hệ</option>
+                {generations.map((g) => (
+                  <option key={g} value={String(g)}>
+                    G{g}
+                    {g === 0 ? ' · gốc' : ''} ({all.filter((row) => row.generation === g).length})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               Trạng thái
               <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="all">Tất cả trạng thái</option>
+                <option value="all">Đang dùng (ẩn ngừng thử)</option>
+                <option value="all_with_paused">Tất cả kể cả ngừng thử</option>
                 <option value="active">Đang thử</option>
-                <option value="selected">Bot đang chọn</option>
+                <option value="holding">Có lệnh đang mở</option>
+                <option value="selected">Được chọn gần nhất</option>
                 <option value="promoted">Đã duyệt</option>
-                <option value="paused">Đã ngừng thử</option>
+                <option value="paused">Chỉ nhóm ngừng thử</option>
               </select>
             </label>
             <label>
@@ -300,6 +325,7 @@ export function FuturesLearningPage() {
             {(family !== 'all' ||
               query ||
               status !== 'all' ||
+              gen !== 'all' ||
               filter !== 'all' ||
               sort !== 'score') && (
               <button
@@ -307,6 +333,7 @@ export function FuturesLearningPage() {
                   setFamily('all');
                   setQuery('');
                   setStatus('all');
+                  setGen('all');
                   setFilter('all');
                   setSort('score');
                 }}
@@ -323,10 +350,11 @@ export function FuturesLearningPage() {
               const learned = row.learned_mean_r;
               const tone = learned === null ? '' : learned > 0 ? 'good' : 'bad';
               const info = strategyInfo(row.genome);
+              const openTrades = row.open_trades ?? [];
               return (
                 <article
                   key={row.strategy}
-                  className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''}`}
+                  className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''}`}
                 >
                   <div className="evo-card-top">
                     <div>
@@ -338,8 +366,28 @@ export function FuturesLearningPage() {
                     </span>
                   </div>
                   <p className="evo-basis">
-                    {row.strategy === selected && <span className="pill green">Bot đang chọn</span>}
-                    {row.paused && <span className="pill">Đã ngừng thử · giữ lịch sử</span>}
+                    {openTrades.length > 0 && (
+                      <span
+                        className="pill evo-open-trades"
+                        title={openTrades.map((position) => `#${position.id} ${position.side.toUpperCase()}`).join(' · ')}
+                      >
+                        <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length} lệnh Paper
+                      </span>
+                    )}
+                    {row.strategy === selected && (
+                      <span
+                        className="pill green"
+                        title="Được bộ chọn ưu tiên ở nến gần nhất; không xác nhận đã mở lệnh."
+                      >
+                        Được chọn gần nhất
+                      </span>
+                    )}
+                    {row.paused && <span
+                        className="pill"
+                        title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
+                      >
+                        Ngừng thử · chính sách thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
+                      </span>}
                     {row.rule_text && (
                       <span className="pill">
                         Cây luật · {row.shadow_only ? 'shadow' : 'thử Paper'}

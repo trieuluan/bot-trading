@@ -110,7 +110,6 @@ export function PaperChart({
               ['target', open.target],
             ] as const
           ).flatMap(([kind, price]) => {
-            if (kind !== 'entry' && open.id !== trade?.id) return [];
             const y = priceSeries.priceToCoordinate(price);
             return y === null ? [] : [{ id: open.id, kind, y: Math.round(y) }];
           }),
@@ -224,14 +223,30 @@ export function PaperChart({
     const allLevels: { title: string; price: number; color: string; lineStyle?: LineStyle }[] = [];
     for (const position of positions) {
       if (position.id !== trade?.id) {
-        allLevels.push({ title: `#${position.id} ENTRY`, price: position.entry, color: '#557fa1' });
+        const label = `#${position.id} ${position.side.toUpperCase()}`;
+        allLevels.push(
+          { title: `${label} ENTRY`, price: position.entry, color: '#557fa1' },
+          { title: `${label} SL`, price: position.stop, color: '#bd7164' },
+          { title: `${label} TP`, price: position.target, color: '#2c856c' },
+        );
+        const entryTime = Math.floor(position.entry_time / 900) * 900;
+        if (candles.some((candle) => candle.time === entryTime)) {
+          points.push({
+            time: entryTime as UTCTimestamp,
+            position: position.side === 'long' ? 'belowBar' : 'aboveBar',
+            color: position.side === 'long' ? '#2c856c' : '#bd7164',
+            shape: position.side === 'long' ? 'arrowUp' : 'arrowDown',
+            text: `${label} ENTRY`,
+          });
+        }
       }
     }
     if (trade) {
+      const label = `#${trade.id} ${trade.side.toUpperCase()}`;
       allLevels.push(
-        { title: `#${trade.id} ENTRY`, price: trade.entry, color: '#557fa1' },
-        { title: 'SL', price: trade.stop, color: '#bd7164' },
-        { title: 'TP', price: trade.target, color: '#2c856c' },
+        { title: `${label} ENTRY`, price: trade.entry, color: '#557fa1' },
+        { title: `${label} SL`, price: trade.stop, color: '#bd7164' },
+        { title: `${label} TP`, price: trade.target, color: '#2c856c' },
         ...(trade.exit === null
           ? []
           : [
@@ -289,7 +304,7 @@ export function PaperChart({
     for (const observation of observations) {
       const color = strategyColor(observation.strategy);
       const title = observation.strategy.replace(':', ' · ').slice(0, 32);
-      const heldByTrade = trade?.exit === null && trade.audit?.strategy === observation.strategy;
+      const heldByTrade = openTrades.some((open) => open.audit?.strategy === observation.strategy);
       if (observation.setup && !heldByTrade) {
         const family = observation.strategy.split(':')[0].replace(/_/g, ' ');
         allLevels.push(
@@ -379,7 +394,7 @@ export function PaperChart({
         price: level.price,
         color: level.color,
         lineWidth: 1,
-        lineStyle: level.lineStyle ?? LineStyle.Dashed,
+        lineStyle: level.lineStyle ?? LineStyle.Solid,
         axisLabelVisible: true,
       }),
     );
@@ -449,10 +464,10 @@ export function PaperChart({
             const net = estimatedPaperPnl(open, price, feeBps);
             const label =
               tag.kind === 'entry'
-                ? `#${open.id} HIỆN TẠI`
+                ? 'HIỆN TẠI'
                 : tag.kind === 'stop'
-                  ? 'CHẠM SL'
-                  : 'CHẠM TP';
+                  ? 'NẾU SL'
+                  : 'NẾU TP';
             const sign = open.side === 'long' ? 1 : -1;
             const fmt = (n: number | null, d = 2) =>
               n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
@@ -462,17 +477,24 @@ export function PaperChart({
             return (
               <div key={tagKey}>
                 <div
-                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} is-selected`}
+                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${open.id === trade?.id ? 'is-selected' : ''}`}
                   style={{ top: tag.displayY, left }}
                   onMouseEnter={() => setHover(tagKey)}
                   tabIndex={0}
                   onFocus={() => setHover(tagKey)}
                   onBlur={() => setHover(null)}
                   onClick={() => onSelectPosition?.(open.id)}
+                  role="button"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelectPosition?.(open.id);
+                    }
+                  }}
                   onMouseLeave={() => setHover(null)}
                 >
                   <span>
-                    {label}
+                    #{open.id} {open.side.toUpperCase()} {label}
                     {tag.kind === 'entry' && markStale ? ' · GIÁ CŨ' : ''}
                   </span>
                   <strong>

@@ -244,3 +244,28 @@ def test_unbounded_positions_and_all_stops_execute_once():
     assert wallet["balance"] == pytest.approx(10000 + sum(t["net_pnl"] for t in wallet["trades"]))
     sync_paper_quote(Market(125))
     assert client.get("/api/paper/wallet").json()["balance"] == wallet["balance"]
+
+
+def test_double_cross_uses_m1_order_else_stop_first(monkeypatch):
+    from backend.app import paper
+    trade = type("T", (), {"side": "long", "stop": 90, "target": 120, "symbol": "BTC_USDT"})
+    candle = Candle(0, 100, 125, 85, 100, 1)
+    bars = [Candle(0, 100, 101, 99, 100, 1), Candle(60, 100, 121, 99, 120, 1),
+            Candle(120, 120, 120, 85, 90, 1)]
+
+    class Adapter:
+        def __init__(self, symbol=None): pass
+        def history(self, *a, **k): return bars
+        def close(self): pass
+
+    monkeypatch.setattr(paper, "MexcFuturesAdapter", Adapter)
+    kind, bar, ambiguous = paper.resolve_with_m1(trade, candle)
+    assert (kind, bar.time, ambiguous) == ("target", 60, False)
+    bars[1] = Candle(60, 100, 121, 85, 100, 1)
+    assert paper.resolve_with_m1(trade, candle)[::2] == ("stop", True)
+
+    class Down(Adapter):
+        def history(self, *a, **k): raise MarketDataError("down")
+
+    monkeypatch.setattr(paper, "MexcFuturesAdapter", Down)
+    assert paper.resolve_with_m1(trade, candle) is None

@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import suppress
 import json
 import math
 import tempfile
@@ -13,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
+from .alerts import watchdog
 from .auto_paper import router as auto_router
 from .db import (
     AutoPaperState,
@@ -51,9 +54,13 @@ from .settings import validate_mode
 async def lifespan(app):
     validate_mode()
     quotes.start()
+    alert_task = asyncio.create_task(watchdog())
     try:
         yield
     finally:
+        alert_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await alert_task
         await quotes.stop()
 
 

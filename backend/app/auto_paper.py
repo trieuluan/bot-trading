@@ -19,13 +19,19 @@ from .feed import load_candles, save_market_signal
 from .futures_learner import read_state, select_for_auto
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .paper import (
+    MAX_ORDER_MARGIN_PERCENT,
+    MAX_PORTFOLIO_RISK_PERCENT,
     create_position,
     execution_price,
     fresh_quote,
+    leverage_limits,
     lock_wallet,
+    master,
     open_positions,
-    unrealized_pnl,
-    used_margin,
+    portfolio,
+    portfolio_risk_limits,
+    stop_risk_per_unit,
+    validate_leverage,
 )
 from .strategy import breakout
 
@@ -36,6 +42,7 @@ MAX_SIGNAL_AGE = 60
 class AutoConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     risk_percent: float = Field(default=1, gt=0, le=5)
+    leverage: int | None = Field(default=None, ge=1, strict=True)
     max_daily_trades: int = Field(default=100, ge=1, le=100)
     daily_loss_percent: float = Field(default=3, gt=0, le=20)
 
@@ -46,16 +53,18 @@ class AutoControl(BaseModel):
 
 
 def equity(session, wallet):
-    mark = wallet.quote["fairPrice"] if wallet.quote else None
-    return wallet.balance + unrealized_pnl(open_positions(session), mark)
+    cash, unrealized, _ = portfolio(session)
+    return cash + unrealized
 
 
 def roll_day(session, wallet, state, now):
     day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
-    if state.day != day:
-        state.day = day
-        # First observed equity of the UTC day, not an invented midnight quote.
-        state.day_start_equity = equity(session, wallet)
+    account = session.get(AutoPaperState, 1)
+    if account.day != day:
+        account.day = day
+        account.day_start_equity = equity(session, wallet)
+    state.day = account.day
+    state.day_start_equity = account.day_start_equity
 
 
 def daily_limits(session, wallet, state, now):
@@ -65,17 +74,19 @@ def daily_limits(session, wallet, state, now):
         .select_from(PaperTrade)
         .where(PaperTrade.symbol == current_symbol(), PaperTrade.origin == "auto", PaperTrade.entry_time >= midnight)
     )
-    loss = max(0, state.day_start_equity - equity(session, wallet))
-    percent = loss / state.day_start_equity * 100 if state.day_start_equity > 0 else 100
+    baseline = session.get(AutoPaperState, 1).day_start_equity
+    loss = max(0, baseline - equity(session, wallet))
+    percent = loss / baseline * 100 if baseline > 0 else 100
     return count, loss, percent
 
 
 def limit_reason(session, wallet, state, now):
     count, _, percent = daily_limits(session, wallet, state, now)
-    if wallet.balance <= 0:
+    if master(session).balance <= 0:
         return "Ví ảo không còn số dư khả dụng"
-    if percent >= state.daily_loss_percent:
-        return f"Đạt giới hạn lỗ ngày {state.daily_loss_percent:g}% (equity, UTC)"
+    cap = session.get(AutoPaperState, 1).daily_loss_percent
+    if percent >= cap:
+        return f"Đạt giới hạn lỗ ngày ví chung {cap:g}% (equity, UTC)"
     if count >= state.max_daily_trades:
         return f"Đạt giới hạn {state.max_daily_trades} lệnh auto trong ngày UTC"
     return None
@@ -149,6 +160,7 @@ def auto_tick(now=None):
             return
         try:
             quote = fresh_quote(wallet, now)
+            portfolio(session, require_fresh=True, now=now)
         except HTTPException as exc:
             set_status(session, state, exc.detail)
             return
@@ -216,16 +228,32 @@ def auto_tick(now=None):
                 session, state, candle_time, "skipped", "Khoảng cách SL không hợp lệ", setup
             )
             return
-        # Fees/slippage remain outside the nominal SL-risk budget, as in backtest.
         _, daily_loss, _ = daily_limits(session, wallet, state, now)
         remaining_budget = max(
-            0, state.day_start_equity * state.daily_loss_percent / 100 - daily_loss
+            0, state.day_start_equity * session.get(AutoPaperState, 1).daily_loss_percent / 100 - daily_loss
         )
+        capital, used_risk = portfolio_risk_limits(session)
+        headroom = max(0.0, capital * MAX_PORTFOLIO_RISK_PERCENT / 100 - used_risk)
         risk_cash = min(
-            max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget
+            max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget, headroom
         )
-        free = wallet.balance - used_margin(positions)
-        requested_notional = min(risk_cash / distance * entry, free / (1 + wallet.fee_bps / 10000))
+        if risk_cash <= 0:
+            record_decision(
+                session, state, candle_time, "skipped",
+                f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {MAX_PORTFOLIO_RISK_PERCENT}% ví chung",
+                setup,
+            )
+            return
+        cash, _, margin = portfolio(session)
+        free = cash - margin
+        fee_rate = wallet.fee_bps / 10000
+        max_order_notional = capital * (MAX_ORDER_MARGIN_PERCENT / 100) * state.leverage
+        unit_risk = stop_risk_per_unit(setup.side, entry, setup.stop, wallet.fee_bps, wallet.slippage_bps)
+        requested_notional = min(
+            risk_cash / unit_risk * entry,
+            free / (1 / state.leverage + fee_rate),
+            max_order_notional,
+        )
         try:
             trade = create_position(
                 session,
@@ -238,6 +266,7 @@ def auto_tick(now=None):
                 signal_time=candle_time,
                 exit_policy=(learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
                              if learning else "fixed"),
+                leverage=state.leverage,
             )
         except HTTPException as exc:
             record_decision(session, state, candle_time, "skipped", exc.detail, setup)
@@ -268,6 +297,8 @@ def auto_tick(now=None):
                     "regime": learning_decision.get("regime"),
                 }),
                 "risk_percent": state.risk_percent,
+                "leverage": state.leverage,
+                "margin_mode": "cross",
                 "risk_budget": risk_cash,
                 "exit_policy": (learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
                                 if learning else "fixed"),
@@ -276,6 +307,7 @@ def auto_tick(now=None):
 
 
 def state_response(session, wallet, state, now):
+    account = session.get(AutoPaperState, 1)
     learning = read_state(session, int(now))
     count, loss, percent = daily_limits(session, wallet, state, now)
     decisions = session.scalars(
@@ -290,11 +322,15 @@ def state_response(session, wallet, state, now):
         learner_error=learning["error"],
         learner_decision=learning["last_decision"],
         risk_percent=state.risk_percent,
+        leverage=state.leverage,
+        min_leverage=leverage_limits(wallet)[0],
+        max_leverage=leverage_limits(wallet)[1],
+        margin_mode="cross",
         max_daily_trades=state.max_daily_trades,
-        daily_loss_percent=state.daily_loss_percent,
+        daily_loss_percent=account.daily_loss_percent,
         last_candle=state.last_candle,
-        day=state.day,
-        day_start_equity=state.day_start_equity,
+        day=account.day,
+        day_start_equity=account.day_start_equity,
         daily_trades=count,
         daily_loss=loss,
         daily_loss_used_percent=percent,
@@ -327,6 +363,7 @@ def get_auto_state():
         # Monitoring may initialize a new UTC day's baseline, but never enables trading.
         try:
             fresh_quote(wallet, now)
+            portfolio(session, require_fresh=True, now=now)
         except HTTPException:
             pass
         else:
@@ -343,7 +380,14 @@ def configure_auto(payload: AutoConfig):
             raise HTTPException(503, "Run migrations")
         if state.enabled:
             raise HTTPException(409, "Dừng Auto Paper trước khi đổi thông số")
-        for key, value in payload.model_dump().items():
+        validate_leverage(wallet, state.leverage if payload.leverage is None else payload.leverage)
+        account = session.get(AutoPaperState, 1)
+        if payload.daily_loss_percent != account.daily_loss_percent:
+            if session.scalar(select(AutoPaperState.id).where(AutoPaperState.enabled.is_(True)).limit(1)):
+                raise HTTPException(409, "Dừng Auto Paper trên mọi cặp trước khi đổi giới hạn lỗ ví chung")
+            for pair in session.scalars(select(AutoPaperState)):
+                pair.daily_loss_percent = payload.daily_loss_percent
+        for key, value in payload.model_dump(exclude_none=True).items():
             setattr(state, key, value)
         session.add(Event(kind="auto_paper", message="Đã lưu thông số Auto Paper"))
         return state_response(session, wallet, state, time.time())
@@ -358,7 +402,9 @@ def control_auto(payload: AutoControl):
         if state is None:
             raise HTTPException(503, "Run migrations")
         if payload.enabled and not state.enabled:
+            validate_leverage(wallet, state.leverage)
             fresh_quote(wallet, now)
+            portfolio(session, require_fresh=True, now=now)
             market_ready(session, now)
             if not wallet.contract or wallet.funding_error:
                 raise HTTPException(409, "Chờ metadata hợp đồng và funding đồng bộ")

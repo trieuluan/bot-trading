@@ -335,32 +335,32 @@ export function PaperTradingPage({
           </div>
           <div className="mexc-wallet-strip" aria-label="Ví Paper">
             <div>
-              <span className="muted">Số dư</span>
+              <span className="muted">Số dư ví chung</span>
               <strong>{wallet ? formatPrice(wallet.balance) : '—'}</strong>
             </div>
             <div>
-              <span className="muted">Equity</span>
+              <span className="muted">Equity chung</span>
               <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
             </div>
             <div>
-              <span className="muted">PnL chưa chốt</span>
-              <strong
-                className={
-                  typeof wallet?.unrealized_pnl === 'number'
-                    ? wallet.unrealized_pnl < 0
-                      ? 'negative'
-                      : 'positive'
-                    : undefined
-                }
-              >
-                {typeof wallet?.unrealized_pnl === 'number'
-                  ? formatPrice(wallet.unrealized_pnl)
-                  : '—'}{' '}
-                <small>USDT</small>
-              </strong>
+              <span className="muted">PnL chưa chốt (chung / cặp)</span>
+              {typeof wallet?.unrealized_pnl === 'number' ? (
+                <strong>
+                  <span className={wallet.unrealized_pnl < 0 ? 'negative' : 'positive'}>
+                    {formatPrice(wallet.unrealized_pnl)}
+                  </span>
+                  {' / '}
+                  <span className={(wallet.pair_unrealized_pnl ?? 0) < 0 ? 'negative' : 'positive'}>
+                    {formatPrice(wallet.pair_unrealized_pnl ?? 0)}
+                  </span>{' '}
+                  <small>USDT</small>
+                </strong>
+              ) : (
+                <strong>—</strong>
+              )}
             </div>
             <div>
-              <span className="muted">Khả dụng</span>
+              <span className="muted">Khả dụng chung</span>
               <strong>{wallet ? formatPrice(wallet.available) : '—'}</strong>
             </div>
           </div>
@@ -372,6 +372,11 @@ export function PaperTradingPage({
             )}
             {wallet?.funding_error && (
               <span className="negative">Funding chờ đồng bộ: {wallet.funding_error}.</span>
+            )}
+            {Boolean(wallet?.portfolio_stale_symbols?.length) && (
+              <span className="negative">
+                Vị thế chưa có giá mark mới: {wallet?.portfolio_stale_symbols?.join(', ')}. Tạm dừng mở thêm lệnh.
+              </span>
             )}
             {error && <span className="negative">{error}</span>}
             {message && <span className="positive">{message}</span>}

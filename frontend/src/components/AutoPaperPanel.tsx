@@ -18,6 +18,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
   const [risk, setRisk] = useState('1');
   const [maxTrades, setMaxTrades] = useState('5');
   const [maxLoss, setMaxLoss] = useState('3');
+  const [leverage, setLeverage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -26,13 +27,24 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
       setRisk(String(state.risk_percent));
       setMaxTrades(String(state.max_daily_trades));
       setMaxLoss(String(state.daily_loss_percent));
+      setLeverage(state.leverage);
     }
-  }, [state?.risk_percent, state?.max_daily_trades, state?.daily_loss_percent]);
+  }, [state?.risk_percent, state?.max_daily_trades, state?.daily_loss_percent, state?.leverage]);
+  const minLeverage = state?.min_leverage ?? 1;
+  const maxLeverage = state?.max_leverage ?? 1;
+  const setClamped = (value: number) =>
+    setLeverage(Math.min(maxLeverage, Math.max(minLeverage, Math.round(value) || minLeverage)));
+  const ticks = [
+    minLeverage,
+    ...[1, 2, 3, 4].map((i) => Math.round((maxLeverage * i) / 5)),
+    maxLeverage,
+  ];
   const dirty =
     !!state &&
     (Number(risk) !== state.risk_percent ||
       Number(maxTrades) !== state.max_daily_trades ||
-      Number(maxLoss) !== state.daily_loss_percent);
+      Number(maxLoss) !== state.daily_loss_percent ||
+      leverage !== state.leverage);
   async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -41,6 +53,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
     try {
       await configureAutoPaper({
         risk_percent: Number(risk),
+        leverage,
         max_daily_trades: Number(maxTrades),
         daily_loss_percent: Number(maxLoss),
       });
@@ -104,6 +117,69 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
       )}
       <form className="research-form auto-paper-form" onSubmit={(event) => void save(event)}>
         <h3>Giới hạn giao dịch</h3>
+        <fieldset
+          className="leverage-box"
+          disabled={busy || !!state?.enabled || !state?.max_leverage}
+        >
+          <legend>
+            Đòn bẩy · <b>Cross</b> (không dùng Isolated)
+          </legend>
+          <div className="leverage-stepper">
+            <button
+              type="button"
+              aria-label="Giảm đòn bẩy"
+              onClick={() => setClamped(leverage - 1)}
+            >
+              −
+            </button>
+            <input
+              type="number"
+              aria-label="Đòn bẩy"
+              min={minLeverage}
+              max={maxLeverage}
+              step="1"
+              value={leverage}
+              onChange={(e) => setClamped(Number(e.target.value))}
+            />
+            <span>X</span>
+            <button
+              type="button"
+              aria-label="Tăng đòn bẩy"
+              onClick={() => setClamped(leverage + 1)}
+            >
+              +
+            </button>
+          </div>
+          <div className="leverage-presets">
+            {[10, 20, 50, 100, 200]
+              .filter((value) => value <= maxLeverage)
+              .map((value) => (
+                <button type="button" key={value} onClick={() => setClamped(value)}>
+                  {value}x
+                </button>
+              ))}
+          </div>
+          <input
+            className="leverage-slider"
+            type="range"
+            aria-label="Thanh trượt đòn bẩy"
+            min={minLeverage}
+            max={maxLeverage}
+            step="1"
+            value={leverage}
+            onChange={(e) => setClamped(Number(e.target.value))}
+          />
+          <div className="leverage-ticks" aria-hidden="true">
+            {ticks.map((tick, index) => (
+              <span key={`${tick}-${index}`}>{tick}x</span>
+            ))}
+          </div>
+          <p className="micro">
+            {state?.max_leverage
+              ? `Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}. Ký quỹ = giá trị lệnh ÷ ${leverage}; thanh lý Cross giả lập toàn ví chung.`
+              : 'Chờ MEXC trả thông số đòn bẩy của cặp này.'}
+          </p>
+        </fieldset>
         <label>
           Rủi ro / lệnh (%)
           <input
@@ -216,7 +292,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
             ? 'Nến đóng vượt đỉnh/đáy 20 nến → Long/Short. SL theo 5 nến trước, TP tham chiếu 2R từ giá tín hiệu.'
             : 'Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto.'}{' '}
           Vào bằng bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP
-          hoặc đang có vị thế. Khối lượng theo rủi ro còn lại, giới hạn 1× vốn và bước hợp đồng
+          hoặc đang có vị thế. Khối lượng theo rủi ro còn lại; tự động chặn nếu ký quỹ lệnh vượt 10% hoặc tổng rủi ro SL danh mục vượt 5% vốn ví chung. Bước hợp đồng
           MEXC. Phí/trượt giá có thể khiến lỗ vượt ngân sách SL dự kiến.
         </p>
         <p>

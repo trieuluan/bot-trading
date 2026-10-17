@@ -41,14 +41,23 @@ export type PaperTrade = {
   exit_reason: string | null;
   funding_cost: number;
   net_pnl: number | null;
+  leverage?: number;
+  margin_mode?: 'cross';
+  initial_margin?: number;
 };
 export type PaperWallet = {
   initial_balance: number;
   balance: number;
   equity: number;
   unrealized_pnl: number;
+  pair_unrealized_pnl: number;
+  portfolio_stale_symbols?: string[];
+  wallet_scope?: 'shared';
   used_margin: number;
   available: number;
+  min_leverage?: number;
+  max_leverage?: number | null;
+  margin_mode?: 'cross';
   fee_bps: number;
   slippage_bps: number;
   quote: {
@@ -71,6 +80,7 @@ export type PaperWallet = {
 
 export type AutoPaperConfig = {
   risk_percent: number;
+  leverage: number;
   max_daily_trades: number;
   daily_loss_percent: number;
 };
@@ -100,6 +110,9 @@ export type FuturesStrategyObservation = {
 };
 export type AutoPaperState = AutoPaperConfig & {
   auto_mode: 'legacy' | 'learner' | 'paper_learning';
+  min_leverage?: number;
+  max_leverage?: number | null;
+  margin_mode?: 'cross';
   learner_enabled: boolean;
   learner_error: string | null;
   learner_decision: {

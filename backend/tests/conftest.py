@@ -103,6 +103,7 @@ def database(monkeypatch):
 
         auto = session.get(AutoPaperState, 1)
         auto.enabled = False
+        auto.leverage = 1
         auto.risk_percent = 1
         auto.max_daily_trades = 5
         auto.daily_loss_percent = 3

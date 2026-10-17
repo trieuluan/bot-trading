@@ -100,6 +100,10 @@ export function PositionsTable({
             const toSl = mark ? (Math.abs(mark - p.stop) / mark) * 100 : null;
             const toTp = mark ? (Math.abs(p.target - mark) / mark) * 100 : null;
             const notional = p.entry * p.quantity;
+            const lev = p.leverage ?? 1;
+            const margin = notional / lev;
+            const slLoss = Math.abs(p.entry - p.stop) * p.quantity;
+            const unit = s.replace('_USDT', '');
             return (
               <tr key={`${s}${p.id}`}>
                 <td>
@@ -117,11 +121,14 @@ export function PositionsTable({
                     : 'Thủ công'}
                   <small>{p.audit?.reason ?? p.entry_reason ?? ''}</small>
                 </td>
-                <td>
-                  {formatPrice(notional)} USDT
+                <td
+                  title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatPrice(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
+                >
+                  {formatPrice(margin)} × {lev}x = {formatPrice(notional)} USDT
                   <small>
-                    {p.contracts} hợp đồng · {p.quantity}
+                    {p.quantity} {unit} · {p.contracts} hợp đồng · Cross
                   </small>
+                  <small className="negative">Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)</small>
                 </td>
                 <td>
                   {formatPrice(p.entry)} → {mark ? formatPrice(mark) : '—'}
@@ -172,7 +179,7 @@ export function PairStrip({
             type="button"
             aria-pressed={s === symbol}
             onClick={() => onSelect(s)}
-            title={`${s.replace('_', ' / ')} · Equity ${w ? formatPrice(w.equity) : '—'}`}
+            title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'}`}
           >
             <strong>{short(s)}</strong>
             <small>{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</small>
@@ -207,16 +214,16 @@ export function AllPairsPanel({
   const trades = FUTURES_SYMBOLS.flatMap((s) =>
     (board[s].wallet?.trades ?? []).filter((t) => t.exit_time !== null).map((t) => ({ s, t })),
   ).sort((a, b) => (b.t.exit_time ?? 0) - (a.t.exit_time ?? 0));
-  const total = (f: (w: PaperWallet) => number) =>
-    FUTURES_SYMBOLS.reduce((sum, s) => sum + (board[s].wallet ? f(board[s].wallet!) : 0), 0);
+  // One shared wallet: every pair reports the same account figures, so read it once.
+  const account = FUTURES_SYMBOLS.map((s) => board[s].wallet).find(Boolean) ?? null;
   return (
     <section className="panel prose desk-activity-panel">
       <div className="section-head">
         <h2>Tổng quan 10 cặp</h2>
         <span className="muted">
-          Equity {formatPrice(total((w) => w.equity))} · PnL chưa chốt{' '}
-          <span className={sign(total((w) => w.unrealized_pnl))}>
-            {formatPrice(total((w) => w.unrealized_pnl))}
+          Ví chung · Equity {account ? formatPrice(account.equity) : '—'} · PnL chưa chốt{' '}
+          <span className={sign(account?.unrealized_pnl ?? 0)}>
+            {account ? formatPrice(account.unrealized_pnl) : '—'}
           </span>{' '}
           USDT
         </span>
@@ -228,7 +235,6 @@ export function AllPairsPanel({
               <tr>
                 <th>Cặp</th>
                 <th>Giá</th>
-                <th>Equity</th>
                 <th>PnL chưa chốt</th>
                 <th>Vị thế</th>
                 <th>Auto</th>
@@ -247,9 +253,8 @@ export function AllPairsPanel({
                       </button>
                     </td>
                     <td>{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</td>
-                    <td>{w ? formatPrice(w.equity) : '—'}</td>
-                    <td className={w ? sign(w.unrealized_pnl) : undefined}>
-                      {w ? formatPrice(w.unrealized_pnl) : '—'}
+                    <td className={w ? sign(w.pair_unrealized_pnl) : undefined}>
+                      {w ? formatPrice(w.pair_unrealized_pnl) : '—'}
                     </td>
                     <td>{w?.positions.length ?? '—'}</td>
                     <td>

@@ -123,7 +123,7 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
     with Session() as session:
         trade = session.get(PaperTrade, 1)
         assert trade.exit_time is None
-        assert trade.monitoring == dict(next_bar=cursor, status="history_pending")
+        assert {k: v for k, v in trade.monitoring.items() if k != "maintenance_margin_rate"} == dict(next_bar=cursor, status="history_pending")
         assert "đối soát" in session.get(AutoPaperState, 1).status
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])

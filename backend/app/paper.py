@@ -27,13 +27,33 @@ from .db import (
     Session,
     utcnow,
 )
-from .futures_symbols import current_symbol, state_id
+from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
 from .futures_exits import EXIT_POLICIES, protective_stop
 from .feed import load_candles
 from .mexc import MarketDataError, MexcFuturesAdapter
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
 QUOTE_TTL = 20
+MAX_PORTFOLIO_RISK_PERCENT = 5
+MAX_ORDER_MARGIN_PERCENT = 10
+
+def stop_risk_per_unit(side, entry, stop, fee_bps, slippage_bps):
+    direction = 1 if side == "long" else -1
+    fill = stop * (1 - direction * slippage_bps / 10000)
+    return max(0, direction * (entry - fill) + (entry + fill) * fee_bps / 10000)
+
+def portfolio_risk_limits(session):
+    cash, unrealized, _ = portfolio(session)
+    capital = max(0, min(cash, cash + unrealized))
+    used = 0.0
+    for position in session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))):
+        market = session.get(PaperWallet, SYMBOLS.index(position.symbol) + 1)
+        direction = 1 if position.side == "long" else -1
+        fill = position.stop * (1 - direction * market.slippage_bps / 10000)
+        used += max(0, direction * (position.entry - fill) * position.quantity
+                    + position.entry_fee + fill * position.quantity * market.fee_bps / 10000
+                    + position.funding_cost)
+    return capital, used
 
 
 class OpenOrder(BaseModel):
@@ -50,10 +70,51 @@ class CloseOrder(BaseModel):
     request_id: UUID
 
 
+def master(session):
+    """Single shared cash ledger (row 1); other rows keep only per-pair quote/contract/funding cursor."""
+    wallet = session.get(PaperWallet, 1)
+    if wallet is None:
+        raise HTTPException(503, "Chạy migration để khởi tạo ví chung mô phỏng")
+    return wallet
+
+def portfolio_stale_symbols(session, now=None):
+    symbols = set(session.scalars(select(PaperTrade.symbol).where(PaperTrade.exit_time.is_(None))))
+    stale = []
+    for symbol in sorted(symbols):
+        wallet = session.get(PaperWallet, SYMBOLS.index(symbol) + 1)
+        try:
+            if wallet is None:
+                raise HTTPException(409, "Missing market state")
+            fresh_quote(wallet, now)
+        except HTTPException:
+            stale.append(symbol)
+    return stale
+
+def portfolio(session, require_fresh=False, now=None):
+    """(cash, unrealized, margin) across all pairs."""
+    if require_fresh:
+        stale = portfolio_stale_symbols(session, now)
+        if stale:
+            raise HTTPException(409, "Ví chung chờ giá vị thế: " + ", ".join(stale))
+    positions = session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))).all()
+    marks = {
+        SYMBOLS[w.id - 1]: w.quote["fairPrice"]
+        for w in session.scalars(select(PaperWallet)) if w.quote and 1 <= w.id <= len(SYMBOLS)
+    }
+    unrealized = sum(
+        direction(t) * t.quantity * (marks[t.symbol] - t.entry) for t in positions if t.symbol in marks
+    )
+    return master(session).balance, unrealized, used_margin(positions)
+
 def lock_wallet(session):
+    account = session.scalar(select(PaperWallet).where(PaperWallet.id == 1).with_for_update())
+    if account is None:
+        raise HTTPException(503, "Chạy migration để khởi tạo ví chung mô phỏng")
     wallet = session.scalar(select(PaperWallet).where(PaperWallet.id == state_id()).with_for_update())
     if wallet is None:
         raise HTTPException(503, "Chạy migration để khởi tạo ví mô phỏng")
+    wallet.fee_bps = account.fee_bps
+    wallet.slippage_bps = account.slippage_bps
     return wallet
 
 
@@ -79,7 +140,59 @@ def unrealized_pnl(positions, mark):
     return sum(direction(t) * t.quantity * (mark - t.entry) for t in positions) if mark else 0
 
 def used_margin(positions):
-    return sum(t.entry * t.quantity for t in positions)
+    return sum(t.entry * t.quantity / (t.leverage or 1) for t in positions)
+
+def leverage_limits(wallet):
+    info = wallet.contract or {}
+    try:
+        minimum = int(info.get("minLeverage", 1))
+        maximum = int(info["maxLeverage"])
+        country_maximum = int(info.get("countryConfigContractMaxLeverage") or 0)
+        if country_maximum > 0:
+            maximum = min(maximum, country_maximum)
+        if not 1 <= minimum <= maximum:
+            raise ValueError("Invalid leverage range")
+        return minimum, maximum
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return 1, None
+
+def validate_leverage(wallet, leverage):
+    minimum, maximum = leverage_limits(wallet)
+    if type(leverage) is not int or leverage < minimum or leverage > (maximum or 1):
+        raise HTTPException(422, f"Đòn bẩy phải là số nguyên {minimum}–{maximum or 1}x theo cặp")
+    if leverage > 1:
+        try:
+            rate = float(wallet.contract["maintenanceMarginRate"])
+            if not 0 < rate < 1 / leverage:
+                raise ValueError("Invalid maintenance margin rate")
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise HTTPException(409, "Chờ thông số ký quỹ duy trì trước khi dùng đòn bẩy") from exc
+
+def liquidate_cross(session, now):
+    """Conservative full-portfolio paper liquidation on fresh sampled marks, not exchange execution."""
+    positions = session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))).all()
+    if not any((trade.leverage or 1) > 1 for trade in positions):
+        return
+    if portfolio_stale_symbols(session, now):
+        return
+    maintenance = 0.0
+    for trade in positions:
+        market = session.get(PaperWallet, SYMBOLS.index(trade.symbol) + 1)
+        rate = (trade.monitoring or {}).get("maintenance_margin_rate")
+        if rate is None:
+            rate = float((market.contract or {}).get("maintenanceMarginRate") or 0)
+        maintenance += trade.quantity * market.quote["fairPrice"] * (rate + master(session).fee_bps / 10000)
+    cash, unrealized, _ = portfolio(session)
+    if cash + unrealized > maintenance:
+        return
+    for trade in positions:
+        with symbol_scope(trade.symbol):
+            market = lock_wallet(session)
+            close_position(session, market, trade, "liquidation", now)
+    for state in session.scalars(select(AutoPaperState)):
+        state.enabled = False
+        state.status = "Đã dừng Auto Paper: thanh lý Cross giả lập; kiểm tra ví chung"
+    session.add(Event(kind="paper", message="Thanh lý Cross giả lập toàn danh mục theo giá mark lấy mẫu"))
 
 
 def direction(trade):
@@ -100,7 +213,8 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
     trade.exit_reason = reason
     trade.exit_fee = round(price * trade.quantity * wallet.fee_bps / 10000, 8)
     gross = direction(trade) * trade.quantity * (price - trade.entry)
-    wallet.balance = round(wallet.balance + gross - trade.exit_fee, 8)
+    cash = master(session)
+    cash.balance = round(cash.balance + gross - trade.exit_fee, 8)
     trade.net_pnl = round(gross - trade.entry_fee - trade.exit_fee - trade.funding_cost, 8)
     session.add(
         Event(
@@ -125,6 +239,27 @@ def apply_stops(session, wallet, now):
         if stopped or targeted:
             close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
 
+def resolve_with_m1(trade, candle):
+    """Order a 15m candle that crossed both SL and TP using 1m bars; None keeps the SL-first rule.
+
+    ponytail: blocking REST call under the wallet lock; only on rare double-cross, 15 bars.
+    Upgrade path: persist 1m bars or fetch outside the transaction.
+    """
+    try:
+        adapter = MexcFuturesAdapter(symbol=trade.symbol)
+        try:
+            bars = adapter.history(candle.time, candle.time + 900, interval="Min1")
+        finally:
+            adapter.close()
+    except (MarketDataError, ValueError):
+        return None
+    for bar in bars:
+        stop = bar.low <= trade.stop if trade.side == "long" else bar.high >= trade.stop
+        target = bar.high >= trade.target if trade.side == "long" else bar.low <= trade.target
+        if stop or target:
+            return ("stop" if stop else "target"), bar, stop and target
+    return None
+
 def reconcile_stops(session, wallet, trade, now):
     """Simulated candle crossing closes conservatively at historical SL/TP, not present quote."""
     monitoring = trade.monitoring or {}
@@ -136,26 +271,33 @@ def reconcile_stops(session, wallet, trade, now):
         stopped = candle.low <= trade.stop if trade.side == "long" else candle.high >= trade.stop
         targeted = candle.high >= trade.target if trade.side == "long" else candle.low <= trade.target
         if stopped or targeted:
+            hit, span, ambiguous, resolution = candle, 899, bool(stopped and targeted), "15m"
+            if stopped and targeted:
+                found = resolve_with_m1(trade, candle)
+                if found:
+                    kind, hit, ambiguous = found
+                    stopped, targeted, span, resolution = kind == "stop", kind == "target", 59, "1m"
             reason = "recovered_stop_loss" if stopped else "recovered_take_profit"
             level = trade.stop if stopped else trade.target
-            gap = stopped and (candle.open <= level if trade.side == "long" else candle.open >= level)
-            base = candle.open if gap else level
+            gap = stopped and (hit.open <= level if trade.side == "long" else hit.open >= level)
+            base = hit.open if gap else level
             fill = base * (1 + (-1 if trade.side == "long" else 1) * wallet.slippage_bps / 10000)
-            exit_time = candle.time if gap else candle.time + 899
+            exit_time = hit.time if gap else hit.time + span
             reversed_funding = []
             for funding in session.scalars(select(PaperFunding).where(
                 PaperFunding.trade_id == trade.id, PaperFunding.time > exit_time,
             )):
                 reversed_funding.append(dict(time=funding.time, cost=funding.cost))
-                wallet.balance = round(wallet.balance + funding.cost, 8)
+                master(session).balance = round(master(session).balance + funding.cost, 8)
                 trade.funding_cost = round(trade.funding_cost - funding.cost, 8)
                 funding.cost = 0
             trade.monitoring = {
                 **monitoring,
                 "next_bar": cursor,
                 "status": "recovered",
-                "trigger_bar": candle.time,
-                "ambiguous": bool(stopped and targeted),
+                "trigger_bar": hit.time,
+                "ambiguous": ambiguous,
+                "resolution": resolution,
                 "fill_basis": "gap_open" if gap else "level",
                 "execution_model": "historical_levels_v1",
                 "recovered_at": int(now),
@@ -168,9 +310,9 @@ def reconcile_stops(session, wallet, trade, now):
                 state.enabled = False
                 state.status = "Đã dừng Auto Paper: đối soát SL/TP lịch sử; kiểm tra ví trước khi bật lại"
             session.add(Event(kind="paper", message=(
-                f"PAPER #{trade.id}: nến {candle.time} chạm {'SL' if stopped else 'TP'}; "
+                f"PAPER #{trade.id}: nến {resolution} {hit.time} chạm {'SL' if stopped else 'TP'}; "
                 f"khớp giả lập {fill:.2f} USDT; thời gian trong nến là ước lượng. "
-                "Cả hai chạm thì ưu tiên SL. Auto Paper đã dừng."
+                "Nếu vẫn cùng chạm cả SL và TP thì ưu tiên SL. Auto Paper đã dừng."
             )))
             return
         policy = monitoring.get("exit_policy", "fixed")
@@ -233,6 +375,7 @@ def sync_paper_quote(adapter=None):
                 wallet.contract = contract
             wallet.error = None
             wallet.retry_at = None
+            liquidate_cross(session, time.time())
             apply_stops(session, wallet, time.time())
     except MarketDataError as exc:
         with Session.begin() as session:
@@ -296,7 +439,7 @@ def sync_paper_funding(adapter=None, now=None):
                         continue
                     price = prices[timestamp]
                     cost = round(direction(trade) * trade.quantity * price * rate, 8)
-                    wallet.balance = round(wallet.balance - cost, 8)
+                    master(session).balance = round(master(session).balance - cost, 8)
                     trade.funding_cost = round(trade.funding_cost + cost, 8)
                     if trade.net_pnl is not None:
                         trade.net_pnl = round(trade.net_pnl - cost, 8)
@@ -334,6 +477,7 @@ def serialize_trade(trade, decision=None):
             "entry",
             "quantity",
             "contracts",
+            "leverage",
             "stop",
             "target",
             "entry_fee",
@@ -348,6 +492,8 @@ def serialize_trade(trade, decision=None):
     }
 
     result["audit"] = decision.parameters.get("audit") if decision else None
+    result["margin_mode"] = "cross"
+    result["initial_margin"] = round(trade.entry * trade.quantity / (trade.leverage or 1), 8)
     result["entry_reason"] = decision.setup.get("reason") if decision and decision.setup else None
     return result
 
@@ -396,8 +542,8 @@ def get_wallet():
         }
         quote = wallet.quote
         mark = quote["fairPrice"] if quote else None
-        unrealized = unrealized_pnl(positions, mark)
-        margin = used_margin(positions)
+        cash, unrealized, margin = portfolio(session)
+        pair_unrealized = unrealized_pnl(positions, mark)
         try:
             fresh_quote(wallet)
             stale = False
@@ -408,12 +554,18 @@ def get_wallet():
             candles.append(quote["bar"])
         return dict(
             symbol=current_symbol(),
-            initial_balance=wallet.initial_balance,
-            balance=wallet.balance,
-            equity=wallet.balance + unrealized,
+            initial_balance=master(session).initial_balance,
+            balance=cash,
+            equity=cash + unrealized,
             unrealized_pnl=unrealized,
+            pair_unrealized_pnl=pair_unrealized,
+            portfolio_stale_symbols=portfolio_stale_symbols(session),
+            wallet_scope="shared",
+            margin_mode="cross",
+            min_leverage=leverage_limits(wallet)[0],
+            max_leverage=leverage_limits(wallet)[1],
             used_margin=margin,
-            available=max(0, wallet.balance - margin),
+            available=max(0, cash - margin),
             fee_bps=wallet.fee_bps,
             slippage_bps=wallet.slippage_bps,
             quote=quote,
@@ -441,7 +593,7 @@ def replay_command(session, request_id, payload):
 
 def create_position(
     session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None,
-    exit_policy="fixed",
+    exit_policy="fixed", leverage=1,
 ):
     """Shared sizing/fill/accounting for manual and automatic paper entries.
 
@@ -449,8 +601,9 @@ def create_position(
     """
     if exit_policy not in EXIT_POLICIES:
         raise HTTPException(422, "Invalid futures exit policy")
+    validate_leverage(wallet, leverage)
     fresh_quote(wallet)
-    positions = open_positions(session)
+    cash, _, margin = portfolio(session, require_fresh=True)
     if not wallet.contract:
         raise HTTPException(409, "Đang chờ thông số hợp đồng MEXC")
     price = execution_price(wallet, side, opening=True)
@@ -467,9 +620,17 @@ def create_position(
     quantity = float(contracts * size)
     notional = quantity * price
     fee = round(notional * wallet.fee_bps / 10000, 8)
-    free = wallet.balance - used_margin(positions)
-    if requested_notional > free or notional + fee > free:
-        raise HTTPException(422, "Không đủ USDT ảo; tổng notional + phí tối đa 1× số dư")
+    free = cash - margin
+    needed = notional / leverage + fee
+    if needed > free:
+        raise HTTPException(422, f"Không đủ ký quỹ khả dụng: cần {needed:.2f}, còn {free:.2f} USDT")
+    if origin == "auto":
+        capital, used_risk = portfolio_risk_limits(session)
+        if notional / leverage > capital * MAX_ORDER_MARGIN_PERCENT / 100 + 1e-8:
+            raise HTTPException(422, "Ký quỹ mỗi lệnh Auto Paper vượt 10% vốn ví chung")
+        risk = quantity * stop_risk_per_unit(side, price, stop, wallet.fee_bps, wallet.slippage_bps)
+        if used_risk + risk > capital * MAX_PORTFOLIO_RISK_PERCENT / 100 + 1e-8:
+            raise HTTPException(422, "Tổng rủi ro tới SL vượt 5% vốn ví chung; bỏ lệnh mới")
     trade = PaperTrade(
         symbol=current_symbol(),
         side=side,
@@ -477,6 +638,7 @@ def create_position(
         monitoring=dict(
             next_bar=(int(time.time()) // 900 + 1) * 900,
             status="watching",
+            maintenance_margin_rate=float(info.get("maintenanceMarginRate") or 0),
             **({} if exit_policy == "fixed" else {"exit_policy": exit_policy, "risk": abs(price - stop)}),
         ),
         origin=origin,
@@ -484,13 +646,14 @@ def create_position(
         entry=price,
         quantity=quantity,
         contracts=float(contracts),
+        leverage=leverage,
         stop=stop,
         target=target,
         entry_fee=fee,
         exit_fee=0,
         funding_cost=0,
     )
-    wallet.balance = round(wallet.balance - fee, 8)
+    master(session).balance = round(cash - fee, 8)
     session.add(trade)
     session.flush()
     return trade
