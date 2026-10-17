@@ -1,7 +1,7 @@
 from dataclasses import replace
 
+from backend.app import futures_rules as research
 from backend.app.market import Candle
-from scripts import futures_hypotheses as research
 
 
 def bars(count, rising=False):

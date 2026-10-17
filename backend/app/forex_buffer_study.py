@@ -2,11 +2,17 @@
 
 import math
 from collections import defaultdict
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from statistics import mean, stdev
 
 from .exness import ExnessError
-from .exness_management import exit_reason, protective_stop, size_lot, split_bodies, structure_stop_buffer
+from .exness_management import (
+    exit_reason,
+    protective_stop,
+    size_lot,
+    split_bodies,
+    structure_stop_buffer,
+)
 from .exness_sessions import regular_session_gap, session_closed_ahead
 from .exness_targets import structural_target, target_context
 
@@ -24,6 +30,16 @@ def variant_settings(name):
 
 def exit_target(signal, entry, stop, tick):
     mode = variant_settings(signal.get("exit_variant", DEFAULT_VARIANT))["tp_mode"]
+    if signal.get("generated") and "target_r" in signal:
+        direction = Decimal(1) if signal["side"] == "long" else Decimal(-1)
+        risk = direction * (entry - stop)
+        if risk <= 0:
+            raise ExnessError("Invalid structure stop")
+        value = signal["target_r"]
+        if type(value) not in (int, float) or not math.isfinite(value) or not 1.5 <= value <= 3.0:
+            raise ExnessError("Invalid genome target_r")
+        multiple = Decimal(str(value))
+        return (entry + direction * multiple * risk).quantize(tick), f"gen_fixed_{multiple}r"
     if mode == "structural":
         if signal.get("target_context") is None:
             raise ExnessError("Missing closed-candle TP context")
@@ -53,7 +69,8 @@ def new_variants(signal, minutes, hours, higher, features, candle, condition):
              "confirm_time": candle.time, "last_candle": candle.time,
              "signal": {**signal, "exit_variant": name, "target_context": targets},
              "atr": atr, "condition": condition}
-            for name in VARIANTS if not signal.get("generated") or name.startswith("k0.25_")]
+            for name in VARIANTS if not signal.get("generated") or (
+                name == "k0.25_2r" if "target_r" in signal else name.startswith("k0.25_"))]
 
 
 def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96):
@@ -94,14 +111,15 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96):
             return
         body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
                 "stop_loss_price": str(stop), "take_profit_price": str(target)}
-        legs = split_bodies(body, condition, entry)
+        legs = split_bodies(body, condition, entry, partial_be=signal.get("partial_be", True))
         for leg in legs:
             leg["weight"] = float(Decimal(leg["volume"]) / volume)
             leg["open"] = True
         row.update(status="open", entry=float(entry), entry_time=bid.time, risk=float(risk),
                    initial_stop=str(stop), legs=legs, bars=0, net_r=0.0, tp_reason=reason)
     row["bars"] += 1
-    management_rows = minutes if len(minutes) >= 21 else []
+    management_rows = minutes if len(minutes) >= 21 and all(
+        after.time - before.time == 900 for before, after in zip(minutes, minutes[1:])) else []
     early = exit_reason("buy" if direction == 1 else "sell", row["entry_time"], management_rows)
     for leg in row["legs"]:
         if not leg["open"]:
@@ -129,6 +147,8 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96):
         return
     if row["bars"] >= horizon:
         row.update(status="excluded", reason="unresolved_horizon")
+        return
+    if signal.get("partial_be") is False:
         return
     partial_done = any(leg["role"] == "tp1" and leg.get("outcome") == "target" for leg in row["legs"])
     for leg in row["legs"]:
@@ -178,6 +198,9 @@ def build_buffer_model(records, cutoff, now, costs_verified=False):
 
 
 def select_buffer(signal, features, model):
+    if signal.get("generated") and "target_r" in signal:
+        return {"exit_variant": "k0.25_2r", "sl_buffer_k": 0.0,
+                "tp_mode": "genome", "exit_variant_mode": "genome"}
     context = model.get(context_key(signal, features), {})
     name = context.get("selected", DEFAULT_VARIANT) if context.get("eligible") is True else DEFAULT_VARIANT
     settings = variant_settings(name)

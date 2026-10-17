@@ -1,3 +1,5 @@
+import { PairStrip, useFuturesBoard } from './components/FuturesBoard';
+import { getFuturesSymbol, setFuturesSymbol, type FuturesSymbol } from './lib/futures-symbol';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Bell, FlaskConical, Menu, RefreshCw, X } from 'lucide-react';
@@ -6,7 +8,8 @@ import { HelpDialog } from './components/HelpDialog';
 import { useTradingDashboard } from './hooks/useTradingDashboard';
 import { BotControlPanel } from './components/BotControlPanel';
 import { OverviewPage } from './pages/OverviewPage';
-import { BotsPage } from './pages/BotsPage';
+import { SignalsTable } from './components/SignalsTable';
+import { FuturesLearningPage } from './pages/FuturesLearningPage';
 import { StrategyPage } from './pages/StrategyPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
 import { PaperTradingPage } from './pages/PaperTradingPage';
@@ -608,12 +611,21 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
 }
 
 function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
-  const [page, setPage] = useState('Tổng quan');
+  const [symbol, setSymbol] = useState(getFuturesSymbol);
+  const [chartTrade, setChartTrade] = useState<number | null>(null);
+  const selectSymbol = (next: FuturesSymbol, tradeId: number | null = null) => {
+    setFuturesSymbol(next);
+    setSymbol(next);
+    setChartTrade(tradeId);
+  };
+  const [page, setPage] = useState('Giao dịch & Bot');
+  const [researchTab, setResearchTab] = useState('Chiến lược');
   const [menu, setMenu] = useState(false);
   const [filter, setFilter] = useState('all');
   const [notice, setNotice] = useState(false);
   const [help, setHelp] = useState(false);
   const { snapshot, connected, busy, message, setMessage, refresh, toggle } = useTradingDashboard();
+  const board = useFuturesBoard(page !== 'Cài đặt & Kết nối');
   const navigate = (nextPage: string) => {
     setPage(nextPage);
     setMenu(false);
@@ -674,31 +686,23 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         <main>
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
-                <span /> YOUR EDGE, IN FOCUS
-              </div>
-              <h1>{page === 'Tổng quan' ? 'Không gian giao dịch' : page}</h1>
-              <p>Theo dõi thị trường. Kiểm chứng chiến lược. Làm chủ từng quyết định.</p>
+              <h1>
+                {page}{' '}
+                <span className="banner-tag">
+                  {snapshot.data_source === 'mexc_futures' ? 'MEXC LIVE DATA' : 'DEMO DATA'}
+                </span>
+              </h1>
+              <p>
+                {page === 'Giao dịch & Bot'
+                  ? `${symbol} perpetual · Lệnh mô phỏng nội bộ, không gửi tới sàn.`
+                  : page === 'Nghiên cứu'
+                    ? 'Chiến lược, tín hiệu và backtest. Kết quả nghiên cứu không tự bật bot.'
+                    : 'Nguồn dữ liệu, trạng thái worker và nhật ký hệ thống.'}
+              </p>
             </div>
             <button className="secondary" onClick={() => void refresh()}>
               <RefreshCw size={15} /> Làm mới
             </button>
-          </div>
-          <div className="demo-banner">
-            <FlaskConical size={17} />
-            <span>
-              <strong>
-                {snapshot.data_source === 'mexc_futures'
-                  ? 'Dữ liệu MEXC Futures thật.'
-                  : 'Dữ liệu tổng hợp.'}
-              </strong>{' '}
-              {snapshot.data_source === 'mexc_futures'
-                ? 'BTC_USDT perpetual · lệnh mô phỏng nội bộ; không gửi lệnh tới sàn.'
-                : 'Replay để thử giao diện và pipeline; không phải giá thị trường.'}
-            </span>
-            <span className="banner-tag">
-              {snapshot.data_source === 'mexc_futures' ? 'PUBLIC MARKET DATA' : 'DEMO DATA'}
-            </span>
           </div>
           {snapshot.data_source === 'mexc_futures' &&
             (snapshot.market.stale || snapshot.market.error || !connected) && (
@@ -720,29 +724,80 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </button>
             </div>
           )}
-          {page === 'Tổng quan' && (
-            <OverviewPage
-              snapshot={snapshot}
-              botPanel={botPanel}
-              filter={filter}
-              setFilter={setFilter}
-              onOpenStrategy={() => navigate('Chiến lược')}
-            />
+          {page === 'Nghiên cứu' && snapshot.data_source === 'mexc_futures' && (
+            <PairStrip board={board} symbol={symbol} onSelect={selectSymbol} />
           )}
-          {page === 'Bot của bạn' && (
-            <BotsPage
-              snapshot={snapshot}
-              botPanel={botPanel}
-              onOpenPaper={() => navigate('Ví mô phỏng')}
-            />
+          {page === 'Giao dịch & Bot' &&
+            (snapshot.data_source === 'mexc_futures' ? (
+              <PaperTradingPage
+                key={symbol}
+                board={board}
+                onSelect={selectSymbol}
+                chartTrade={chartTrade}
+              />
+            ) : (
+              <OverviewPage
+                snapshot={snapshot}
+                botPanel={botPanel}
+                filter={filter}
+                setFilter={setFilter}
+                onOpenStrategy={() => navigate('Nghiên cứu')}
+              />
+            ))}
+          {page === 'Nghiên cứu' && (
+            <>
+              <div className="period-tabs" role="group" aria-label="Nội dung nghiên cứu Futures">
+                {['Chiến lược', 'Bot học', 'Backtest', 'Tín hiệu'].map((tab) => (
+                  <button
+                    key={tab}
+                    className={researchTab === tab ? 'active' : ''}
+                    aria-pressed={researchTab === tab}
+                    onClick={() => setResearchTab(tab)}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {researchTab === 'Chiến lược' && <StrategyPage />}
+              {researchTab === 'Bot học' && <FuturesLearningPage key={symbol} />}
+              {researchTab === 'Backtest' && <BacktestPage connected={connected} />}
+              {researchTab === 'Tín hiệu' && (
+                <>
+                  {botPanel}
+                  <SignalsTable
+                    entries={snapshot.signals.filter(
+                      (signal) => filter === 'all' || signal.side === filter,
+                    )}
+                    filter={filter}
+                    setFilter={setFilter}
+                  />
+                </>
+              )}
+            </>
           )}
-          {page === 'Chiến lược' && <StrategyPage />}
-          {page === 'Kết nối sàn' && (
-            <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />
+          {page === 'Cài đặt & Kết nối' && (
+            <>
+              <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />
+              <section className="panel prose">
+                <h2>Worker & dữ liệu nến</h2>
+                <p>
+                  API: {connected ? 'Kết nối' : 'Mất kết nối'} · Worker:{' '}
+                  {connected && snapshot.bot.online ? 'Có heartbeat' : 'Chưa xác minh heartbeat'}
+                </p>
+                <p>
+                  Nến đóng gần nhất:{' '}
+                  {snapshot.market.last_closed_time
+                    ? new Date(snapshot.market.last_closed_time * 1000).toLocaleString('vi-VN')
+                    : 'Chưa có dữ liệu'}
+                </p>
+                <p>
+                  WebSocket chart chạy khi mở Giao dịch & Bot. Worker Paper vẫn lấy REST khoảng 5
+                  giây/lần; đóng trình duyệt không dừng bot.
+                </p>
+              </section>
+              <ActivityPage snapshot={snapshot} />
+            </>
           )}
-          {page === 'Ví mô phỏng' && <PaperTradingPage />}
-          {page === 'Backtest' && <BacktestPage connected={connected} />}
-          {page === 'Nhật ký' && <ActivityPage snapshot={snapshot} />}
           <footer>
             <span>
               <span className="footer-logo">✳</span> SIGNAL DESK{' '}

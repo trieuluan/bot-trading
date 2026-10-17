@@ -24,6 +24,15 @@ def database(monkeypatch):
         BacktestRun,
         BotState,
         Event,
+        ExnessDeal,
+        FuturesLearningState,
+        ExnessExecutionState,
+        ExnessExecutionTrade,
+        ForexGapAudit,
+        ForexInstrumentState,
+        ForexObservation,
+        ForexPaperAccount,
+        ForexPaperTrade,
         MarketCandle,
         MarketState,
         MtfObservationEvent,
@@ -37,14 +46,6 @@ def database(monkeypatch):
         Signal,
         WorkspaceCandle,
         WorkspaceFeedState,
-        ForexObservation,
-        ForexPaperTrade,
-        ForexPaperAccount,
-        ForexInstrumentState,
-        ForexGapAudit,
-        ExnessExecutionState,
-        ExnessExecutionTrade,
-        ExnessDeal,
     )
 
     command.upgrade(Config("alembic.ini"), "head")
@@ -71,6 +72,7 @@ def database(monkeypatch):
             BacktestRun,
         ):
             session.query(model).delete()
+        session.get(FuturesLearningState, 1).payload = {}
         observer = session.get(MtfObservationState, 1)
         observer.started_at = observer.last_candle = observer.snapshot = None
         observer.error = observer.retry_at = None

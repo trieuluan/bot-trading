@@ -84,7 +84,7 @@ def test_auto_entries_share_fills_risk_sizing_and_bar_deduplication(ready, side)
     auto_tick()
     with Session() as session:
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
-        decision = session.get(AutoPaperDecision, last)
+        decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
         assert decision.action == "opened" and decision.trade_id == trade["id"]
         assert not session.get(BotState, 1).enabled  # Independent from signal-only monitoring.
 
@@ -116,12 +116,12 @@ def test_stale_quote_waits_then_expired_signal_is_skipped(ready):
         wallet.quote = {**wallet.quote, "received_at": clock[0] - 21}
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last) is None
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     clock[0] += 65
     seed()  # Fresh quote, but already outside the entry window.
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last).action == "skipped"
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "skipped"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
 
 
@@ -130,12 +130,12 @@ def test_no_setup_and_gap_beyond_target_never_create_trades(ready):
     last = seed("none")
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last).action == "no_setup"
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "no_setup"
     clock[0] += 900
     last = seed("long", price=140)
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last).action == "skipped"
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "skipped"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
         assert session.get(PaperWallet, 1).balance == 10000
 
@@ -228,14 +228,14 @@ def test_waits_for_quote_after_close_and_contiguous_fresh_candles(ready):
         wallet.quote = {**wallet.quote, "time": last + 899}
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last) is None
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     seed()
     with Session.begin() as session:
         market = session.get(MarketState, 1)
         market.last_sync = datetime.fromtimestamp(clock[0] - 61, timezone.utc)
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last) is None
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     seed()
     auto_tick()
     assert client.get("/api/paper/wallet").json()["position"] is not None
@@ -271,14 +271,14 @@ def test_daily_baseline_does_not_roll_on_stale_price(ready):
     assert state["daily_loss"] == 0 and not state["enabled"]
 
 
-def test_occupied_wallet_and_funding_error_are_visible_skips(ready):
+def test_auto_opens_second_position_after_funding_recovers(ready):
     clock, seed = ready
     last = seed()
     with Session.begin() as session:
         session.get(PaperWallet, 1).funding_error = "Waiting for settlement history"
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last) is None
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     with Session.begin() as session:
         session.get(PaperWallet, 1).funding_error = None
     auto_tick()
@@ -286,9 +286,8 @@ def test_occupied_wallet_and_funding_error_are_visible_skips(ready):
     last = seed()
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, last).action == "skipped"
-        assert "vị thế" in session.get(AutoPaperDecision, last).reason
-        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
 
 
 def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(ready):
@@ -322,8 +321,22 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
     last = seed()
     auto_tick()
     with Session.begin() as session:
-        decision = session.get(AutoPaperDecision, last)
+        decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
         decision.parameters = {"risk_percent": 1}
     trade = client.get("/api/paper/wallet").json()["position"]
     assert trade["audit"] is None
     assert "20" in trade["entry_reason"]
+
+
+def test_auto_enters_same_strategy_repeatedly_without_cap(ready):
+    clock, seed = ready
+    for i in range(4):
+        last = seed("long")
+        auto_tick()
+        clock[0] += 900
+    with Session() as session:
+        trades = session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))).all()
+        assert len(trades) == 4
+        assert len({t.id for t in trades}) == 4
+        # All entered under the same breakout strategy
+        assert all(t.origin == "auto" for t in trades)

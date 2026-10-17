@@ -39,6 +39,31 @@ export interface BrokerPosition {
 
 export interface ExnessExecution {
   learning?: {
+    scalping?: {
+      status: string;
+      strategy?: string;
+      rule?: string;
+      executor?: string;
+      replay?: {
+        candles: number;
+        from: number | null;
+        to: number | null;
+        train: ScalpStats;
+        validation: ScalpStats;
+        ambiguous_stop_first: number;
+      } | null;
+      forward?: ScalpStats;
+      gate?: string[];
+      train_candidate?: string | null;
+      variants?: {
+        id: string;
+        label: string;
+        train: ScalpStats;
+        validation: ScalpStats;
+        forward: ScalpStats;
+        gate: string[];
+      }[];
+    };
     exit_learning?: {
       default_variant: string;
       costs_verified: boolean;
@@ -56,7 +81,50 @@ export interface ExnessExecution {
       gate: string;
     };
     promoted?: string[];
+    shadow_details?: {
+      name: string;
+      status: 'shadow' | 'promoted' | 'retired';
+      train: number;
+      validation: number;
+      lower_r_train: number | null;
+      lower_r_validation: number | null;
+      reasons: string[];
+    }[];
     retired_genomes?: string[];
+    forward_shadow?: {
+      since: number | null;
+      updated_at?: number;
+      signals: number;
+      strategies: {
+        strategy: string;
+        version: string;
+        signals: number;
+        open: number;
+        resolved: number;
+        excluded: number;
+        costs_verified: boolean;
+        mean_r: number | null;
+        lower_r: number | null;
+      }[];
+      recent: {
+        strategy: string;
+        strategy_version: string;
+        side: string;
+        confirm_time: number;
+        status: string;
+        outcome?: string;
+        net_r_ex_swap?: number;
+        costs: { slippage_bps: number; commission_per_unit: number | null; verified: boolean };
+      }[];
+      last_capture?: {
+        time: number;
+        at: number;
+        status: string;
+        selected?: string | null;
+        mode?: string;
+        confirmed?: number;
+      };
+    };
     strategy_summary?: Record<
       string,
       {
@@ -115,6 +183,27 @@ export interface ExnessExecution {
     volume?: string;
     price?: string;
   }[];
+  journal?: {
+    time: number;
+    at: number;
+    evaluated: boolean;
+    outcome: string;
+    reason?: string;
+    mode?: string;
+    selected?: string | null;
+    confirmed: { strategy: string; side?: string; shadow?: boolean }[];
+    strategies?: { strategy: string; status: string; reason?: string }[];
+    events?: { at: number; outcome: string }[];
+  }[];
+  funnel?: {
+    candles: number;
+    evaluated: number;
+    with_signal: number;
+    selected: number;
+    orders: number;
+    outcomes: Record<string, number>;
+    by_strategy: Record<string, number>;
+  };
   intents: {
     signal_time: number;
     status: string;
@@ -122,6 +211,15 @@ export interface ExnessExecution {
     error?: string;
     ack?: { operation_id?: string };
   }[];
+}
+
+interface ScalpStats {
+  signals: number;
+  resolved: number;
+  excluded: number;
+  mean_r: number | null;
+  lower_r: number | null;
+  win_rate: number | null;
 }
 
 export interface LearnerAnalysis {
@@ -148,6 +246,20 @@ export interface LearnerAnalysis {
       reason?: string | null;
       stop?: number | null;
       level?: number | null;
+      chart?: {
+        levels: { label: string; price: number; from: number; to: number }[];
+        oscillator: {
+          label: string;
+          low: number;
+          high: number;
+          points: { time: number; value: number }[];
+        } | null;
+        note: string | null;
+        gap?: boolean;
+        parameters: Record<string, unknown>;
+        as_of: number;
+        price_type: 'bid';
+      };
     }
   >;
   selected_signal: {

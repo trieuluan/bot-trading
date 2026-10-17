@@ -7,6 +7,7 @@ from collections.abc import Callable
 import httpx
 
 from .market import Candle
+from .futures_symbols import SYMBOLS, current_symbol
 
 INTERVAL_SECONDS = 900
 SOURCE = "mexc_futures"
@@ -38,7 +39,10 @@ def validate_candles(candles: list[Candle], step: int = INTERVAL_SECONDS) -> Non
 
 
 class MexcFuturesAdapter:
-    def __init__(self, client: httpx.Client | None = None, sleep: Callable = time.sleep):
+    def __init__(self, client: httpx.Client | None = None, sleep: Callable = time.sleep, symbol: str | None = None):
+        self.symbol = symbol or current_symbol()
+        if self.symbol not in SYMBOLS:
+            raise ValueError("Unsupported Futures symbol")
         self.client = client or httpx.Client(base_url=BASE_URL, timeout=10)
         self.owns_client = client is None
         self.sleep = sleep
@@ -74,12 +78,12 @@ class MexcFuturesAdapter:
                 raise MarketDataError("MEXC rejected the request or returned invalid JSON") from exc
 
     def ticker(self) -> dict:
-        data = self._get("/api/v1/contract/ticker", {"symbol": "BTC_USDT"})
+        data = self._get("/api/v1/contract/ticker", {"symbol": self.symbol})
         try:
             quote = {key: float(data[key]) for key in ("lastPrice", "bid1", "ask1", "fairPrice")}
             timestamp = int(data["timestamp"]) / 1000
             if (
-                data["symbol"] != "BTC_USDT"
+                data["symbol"] != self.symbol
                 or any(not math.isfinite(value) or value <= 0 for value in quote.values())
                 or quote["bid1"] > quote["ask1"]
                 or abs(time.time() - timestamp) > 30
@@ -108,7 +112,7 @@ class MexcFuturesAdapter:
         cursor = start
         while cursor < end:
             page_end = min(end, cursor + 2000 * INTERVAL_SECONDS)
-            path = "/api/v1/contract/kline/" + ("fair_price/" if fair else "") + "BTC_USDT"
+            path = "/api/v1/contract/kline/" + ("fair_price/" if fair else "") + self.symbol
             data = self._get(path, {"interval": "Min15", "start": cursor, "end": page_end - 1})
             try:
                 keys = ("time", "open", "high", "low", "close", "vol")
@@ -132,10 +136,10 @@ class MexcFuturesAdapter:
         return candles
 
     def contract_info(self) -> dict:
-        data = self._get("/api/v1/contract/detail/country", {"symbol": "BTC_USDT"})
+        data = self._get("/api/v1/contract/detail/country", {"symbol": self.symbol})
         try:
             if (
-                data["symbol"] != "BTC_USDT"
+                data["symbol"] != self.symbol
                 or data["settleCoin"] != "USDT"
                 or data["futureType"] != 1
             ):
@@ -154,7 +158,7 @@ class MexcFuturesAdapter:
             data = self._get(
                 "/api/v1/contract/funding_rate/history",
                 {
-                    "symbol": "BTC_USDT",
+                    "symbol": self.symbol,
                     "page_num": page,
                     "page_size": 100,
                 },

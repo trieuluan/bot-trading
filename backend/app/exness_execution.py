@@ -4,12 +4,14 @@ Strictly demo only. Configurable position and risk caps; split TP1/runner positi
 Deals synced from Exness are the ground truth for chart markers and trade history.
 """
 
-import json
 import fcntl
 import hashlib
+import json
 import os
 import time
+from collections import Counter
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -17,19 +19,32 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy import select, text
 
-from .db import (ExnessDeal, ExnessExecutionState, ExnessExecutionTrade, engine,
-                 ForexObservation, Session, WorkspaceFeedState)
+from .db import (
+    ExnessDeal,
+    ExnessExecutionState,
+    ExnessExecutionTrade,
+    ForexObservation,
+    Session,
+    WorkspaceFeedState,
+    engine,
+)
 from .exness import ExnessError
 from .exness_demo_client import ExnessDemoClient, positive_decimal, validate_quote
 from .exness_feed import FRAMES, WORKSPACE
+from .exness_management import (
+    closed_minutes,
+    exit_reason,
+    max_lot,
+    protective_stop,
+    risk_budget,
+    split_bodies,
+    structure_stop_buffer,
+)
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
-from .exness_management import (max_lot, risk_budget, split_bodies, closed_minutes,
-                                exit_reason, protective_stop)
-from decimal import Decimal
-from .forex_learner import live_signal, summary as learning_summary
 from .exness_targets import target_context
-from .exness_management import structure_stop_buffer
+from .forex_learner import live_decision
+from .forex_learner import summary as learning_summary
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -52,6 +67,27 @@ def max_positions():
 def busy(broker):
     pending = [order for order in broker["orders"] if order.get("order_type") != "sltp"]
     return pending or len(broker["positions"]) >= max_positions()
+
+SIGNAL_WINDOW = 300
+LATE_AFTER = 120
+MAX_LATE_DRIFT_R = 0.25
+
+def late_drift_ok(signal, entry, now):
+    """Late retry only while price stays within 0.25R of the closed signal candle."""
+    age = now - signal["available_at"]
+    if not 0 <= age <= SIGNAL_WINDOW:
+        raise ExnessError("signal_expired: outside 300s entry window")
+    if age <= LATE_AFTER:
+        return
+    ref = signal.get("ref_price")
+    if ref is None:
+        raise ExnessError("price_drift: no reference price for late entry")
+    ref, stop, entry = map(positive_decimal, (ref, signal["stop"], entry))
+    if ref == stop:
+        raise ExnessError("price_drift: invalid reference risk for late entry")
+    drift = abs(entry - ref) / abs(ref - stop)
+    if drift > MAX_LATE_DRIFT_R:
+        raise ExnessError(f"price_drift: {drift:.2f}R from signal close after {now - signal['available_at']}s; skipped")
 
 def utc(stamp):
     return datetime.fromtimestamp(stamp, timezone.utc).isoformat()
@@ -127,6 +163,23 @@ def persist_leg(account, stamp, index, values):
                        if value in states), "skipped")
         row.snapshot = {**data, "legs": legs, "status": status}
 
+def operation_result(api, operation):
+    try:
+        return api.get(f"/v1/trading/accounts/{api.account_id}/operations/{operation}")
+    except ExnessError as exc:
+        if str(exc) != "Exness HTTP 404":  # expired operation id: fall back to order history
+            raise
+        return {}
+
+def beat(account, now):
+    with Session.begin() as session:
+        state = session.get(ExnessExecutionState, account)
+        if state is None:
+            state = ExnessExecutionState(account=account, enabled=True, started_at=now,
+                                         snapshot={"history_from": now - 86400})
+            session.add(state)
+        state.snapshot = {**state.snapshot, "heartbeat": now}
+
 def reconcile(api, broker, now):
     with Session() as session:
         trades = session.scalars(select(ExnessExecutionTrade).where(
@@ -143,17 +196,34 @@ def reconcile(api, broker, now):
             if not pid:
                 operation = data.get("ack", {}).get("operation_id")
                 if operation:
-                    result = api.get(f"/v1/trading/accounts/{api.account_id}/operations/{operation}")
+                    result = operation_result(api, operation)
                     if result.get("status") in ("rejected", "failed"):
                         save({"status": "rejected", "error": result.get("error_message", "Broker rejected")})
                         continue
                 start = data["recorded_at"] - 5
-                if now - start > 86400:
-                    continue
-                orders = list(history(api, "orders", start, now))
+                orders = list(history(api, "orders", start, min(now, start + 86400)))
                 matching = [item["order"] for item in orders
                             if item["order"].get("comment") == data["key"][:32]
                             and item["order"].get("instrument") == "XAUUSD"]
+                if not matching:
+                    body = data.get("body", {})
+                    submitted = data.get("submitted_at", data["recorded_at"])
+                    candidates = []
+                    for item in orders:
+                        order = item["order"]
+                        if (order.get("comment") or order.get("instrument") != body.get("instrument")
+                                or order.get("direction") != body.get("side")
+                                or order.get("order_type") != "market" or not order.get("create_time")):
+                            continue
+                        created = datetime.fromisoformat(order["create_time"].replace("Z", "+00:00")).timestamp()
+                        if submitted - 5 <= created <= submitted + 120 and all(
+                            body.get(field) is not None and order.get(field) is not None
+                            and Decimal(str(order[field])) == Decimal(str(body[field]))
+                            for field in ("volume", "stop_loss_price", "take_profit_price")
+                        ):
+                            candidates.append(order)
+                    if len(candidates) == 1:
+                        matching = candidates
                 for order in matching:
                     if order.get("state") == "rejected":
                         save({"status": "rejected"})
@@ -172,7 +242,7 @@ def reconcile(api, broker, now):
             if data["status"] == "closing" and pid in open_ids:
                 operation = data.get("close_ack", {}).get("operation_id")
                 if operation:
-                    result = api.get(f"/v1/trading/accounts/{api.account_id}/operations/{operation}")
+                    result = operation_result(api, operation)
                     if result.get("status") in ("failed", "rejected"):
                         save({"error": "Close rejected; reconcile before a new close request"})
                 status = "closing"
@@ -188,7 +258,7 @@ def reconcile(api, broker, now):
                     management = {**management, "status": "confirmed"}
                 elif management.get("ack", {}).get("operation_id"):
                     operation = management["ack"]["operation_id"]
-                    result = api.get(f"/v1/trading/accounts/{api.account_id}/operations/{operation}")
+                    result = operation_result(api, operation)
                     if result.get("status") in ("failed", "rejected"):
                         management = {**management, "status": "failed", "error": result.get("error_message", "SL update rejected")}
             exits = [deal.snapshot for deal in deals if deal.position_id == pid and deal.snapshot.get("type") == "close"]
@@ -200,6 +270,8 @@ def reconcile(api, broker, now):
                   **({"management": management} if management else {})})
 
 def evaluate(session, now):
+    detail = session.info["execution_evaluation"] = {
+        "candle_time": now // 900 * 900 - 900, "evaluated": False}
     frames = load_frames(session, now)
     feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
     if audit_frames(frames)["status"] == "blocked" or any(
@@ -207,23 +279,83 @@ def evaluate(session, now):
         or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
         for frame, state in zip(FRAMES, feeds)
     ):
+        detail["why"] = "feed_not_ready"
         return None
     minutes = [row for row in frames["15m"] if row.price_type == "bid"]
-    if not minutes or not 0 <= now - (minutes[-1].time + 900) <= 120:
+    if not minutes or not 0 <= now - (minutes[-1].time + 900) <= SIGNAL_WINDOW:
+        detail["why"] = "outside_signal_window"
         return None
     candle = minutes[-1]
     breakout = session.get(ForexObservation, (WORKSPACE, candle.time))
     ask = next((row for row in frames["15m"] if row.price_type == "ask" and row.time == candle.time), None)
     if ask is None:
+        detail["why"] = "ask_candle_missing"
         return None
     hours = [row for row in frames["1h"] if row.price_type == "bid"]
     higher = [row for row in frames["4h"] if row.price_type == "bid"]
-    signal = live_signal(candle, hours, minutes, ask, breakout.snapshot if breakout else None, higher=higher)
+    result = live_decision(candle, hours, minutes, ask, breakout.snapshot if breakout else None, higher=higher)
+    if result is None:
+        detail.update(candle_time=candle.time, why="policy_missing")
+        return None
+    signal, mode, scored, observations = result
+    shadow = {(row["strategy"], row["side"]): row["shadow_only"] for row in scored}
+    detail.update(candle_time=candle.time, evaluated=True, mode=mode,
+                     selected=signal["strategy"] if signal else None,
+                     confirmed=[{"strategy": row["strategy"], "side": row.get("side"),
+                                 "shadow": shadow.get((row["strategy"], row.get("side")), False)}
+                                for row in observations if row["status"] == "confirmed"],
+                  strategies=[{"strategy": row["strategy"], "status": row["status"], "reason": row.get("reason")}
+                              for row in observations])
     if signal:
+        signal["ref_price"] = ask.close if signal["side"] == "long" else candle.close
         signal["stop_buffer"] = structure_stop_buffer(minutes, multiplier=Decimal(str(signal.get("sl_buffer_k", 0.25))))
         signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])
     return signal
 
+
+def record_journal(state, detail, outcome, now):
+    """One row per closed M15: what the learner saw and why the executor did or did not trade."""
+    stamp = detail.get("candle_time")
+    if stamp is None:
+        return
+    rows = state.snapshot.get("journal", [])
+    old = next((row for row in rows if row["time"] == stamp), None)
+    if old and old["evaluated"] and not detail.get("evaluated"):
+        detail = {**old, **detail, "evaluated": True, "candle_time": stamp}
+    entry = {"time": stamp, "at": now, "evaluated": bool(detail.get("evaluated")), "outcome": outcome,
+             "mode": detail.get("mode"), "selected": detail.get("selected"), "confirmed": detail.get("confirmed", []),
+             "strategies": detail.get("strategies", []), "reason": detail.get("reason", (old or {}).get("reason")),
+             "events": (old or {}).get("events", [])}
+    if not old or old["outcome"] != outcome:
+        entry["events"] = (entry["events"] + [{"at": now, "outcome": outcome}])[-16:]
+    if old and ((old["outcome"] in ("order_sent", "execution_error")
+                 and outcome not in ("order_sent", "execution_error"))
+                or (old["outcome"] == "order_planned" and outcome not in ("order_sent", "execution_error", "api_rate_limited"))
+                or (old["evaluated"] and outcome.startswith("unavailable:"))
+                or (old["outcome"] in ("api_rate_limited", "worker_error") and outcome.startswith("unavailable:"))):
+        entry["outcome"] = old["outcome"]
+    rows = sorted([row for row in rows if row["time"] != stamp] + [entry], key=lambda row: row["time"])[-192:]
+    state.snapshot = {**state.snapshot, "journal": rows}
+
+def tick_outcome(reason, signal, detail):
+    if reason:
+        return "blocked:" + reason
+    if signal:
+        return "signal"
+    if not detail.get("evaluated"):
+        return "unavailable:" + detail.get("why", "unknown")
+    confirmed = detail.get("confirmed", [])
+    return "no_signal" if not confirmed else "shadow_only" if all(row["shadow"] for row in confirmed) else "not_selected"
+
+def funnel(rows):
+    evaluated = [row for row in rows if row["evaluated"]]
+    return {"candles": len(rows), "evaluated": len(evaluated),
+            "with_signal": sum(bool(row["confirmed"]) for row in evaluated),
+            "selected": sum(row["selected"] is not None for row in evaluated),
+            "orders": sum(row["outcome"] == "order_sent" for row in rows),
+            "outcomes": dict(Counter(row["outcome"] for row in rows)),
+            "since": min((row["at"] for row in rows), default=None),
+            "by_strategy": dict(Counter(item["strategy"] for row in evaluated for item in row["confirmed"]).most_common())}
 
 def execution_tick(api, now=None):
     if not enabled():
@@ -242,7 +374,16 @@ def execution_tick(api, now=None):
             if not locked:
                 return "executor_active"
             try:
-                return _execution_tick(api, now)
+                result = _execution_tick(api, now)
+                observed_at = int(time.time()) if now is None else now
+                with Session.begin() as session:
+                    state = session.get(ExnessExecutionState, api.account_id)
+                    stamp = observed_at // 900 * 900 - 900
+                    if state and not any(row["time"] == stamp for row in state.snapshot.get("journal", [])):
+                        signal = evaluate(session, observed_at)
+                        detail = session.info.get("execution_evaluation", {"candle_time": stamp})
+                        record_journal(state, detail, tick_outcome(result, signal, detail), observed_at)
+                return result
             finally:
                 if connection.dialect.name == "postgresql":
                     connection.execute(text("SELECT pg_advisory_unlock(hashtext(:name))"),
@@ -253,6 +394,7 @@ def _execution_tick(api, now=None):
     now = int(time.time()) if now is None else now
     if not enabled():
         return "disabled"
+    beat(api.account_id, now)  # worker alive even if broker API is rate limited
     client = ExnessDemoClient(api)
     condition = client.prepare(require_flat=False)
     broker = client.snapshot()
@@ -302,6 +444,8 @@ def _execution_tick(api, now=None):
             pending_management = data.get("management", {}).get("status") in ("submitting", "submitted")
             if not initial or pending_management or not client.can_modify or not protections[0].get("order_id"):
                 continue
+            if row.snapshot.get("signal", {}).get("partial_be") is False:
+                continue
             quote = live_quote()
             validate_quote(quote, now)
             action = protective_stop(position, initial, quote, protections[0], condition, minutes, partial_done)
@@ -319,6 +463,22 @@ def _execution_tick(api, now=None):
                         {"management": {**action, "status": "submitted", "key": key, "ack": ack}})
             return "managing_stop"
     for row in own:
+        retry = next(((index, data) for index, data in leg_records(row.snapshot)
+                      if data["status"] == "planned" and data.get("retryable_pre_submit")), None)
+        if retry:
+            index, data = retry
+            if now - row.snapshot["signal"]["available_at"] > SIGNAL_WINDOW or near_close:
+                for leg_index, leg in leg_records(row.snapshot):
+                    if leg["status"] == "planned":
+                        persist_leg(api.account_id, row.signal_time, leg_index,
+                                    {"status": "skipped", "error": "signal_expired: retry window closed"})
+                continue
+            result = submit_leg(client, row, index, data, condition, now)
+            if result == "submitted":
+                with Session.begin() as session:
+                    state = session.get(ExnessExecutionState, api.account_id)
+                    record_journal(state, {"candle_time": row.signal_time}, "order_sent", now)
+            return result
         if not row.snapshot.get("legs"):
             continue
         for index, data in leg_records(row.snapshot):
@@ -351,18 +511,33 @@ def _execution_tick(api, now=None):
             "position_active" if busy(broker) else
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
-        signal = evaluate(session, now) if reason is None else None
+        signal = evaluate(session, now)
+        detail = session.info.get("execution_evaluation", {
+            "candle_time": now // 900 * 900 - 900, "evaluated": False})
+        if reason:
+            signal = None
         state.snapshot = {**state.snapshot, "decision": reason or (signal or {}).get("reason", "Waiting for fresh closed M15 signal")}
+        record_journal(state, detail, tick_outcome(reason, signal, detail), now)
         if reason or not signal or signal["status"] != "confirmed":
             return reason or "waiting_signal"
         stamp = signal["candle_time"]
         if signal["available_at"] < state.snapshot.get("armed_at", state.started_at) or session.get(ExnessExecutionTrade, (api.account_id, stamp)):
+            record_journal(state, detail, "old_or_duplicate_signal", now)
             return "old_or_duplicate_signal"
         key = f"rr-{api.account_id}-{stamp}"
-        quote = live_quote()
-        body = client.strategy_body(signal, condition, quote, key)
-        bodies = split_bodies(body, condition, Decimal(str(quote["ask" if body["side"] == "buy" else "bid"])))
+        try:
+            quote = live_quote()
+            body = client.strategy_body(signal, condition, quote, key)
+            late_drift_ok(signal, quote["ask" if body["side"] == "buy" else "bid"], now)
+            bodies = split_bodies(body, condition, Decimal(str(quote["ask" if body["side"] == "buy" else "bid"])),
+                                  partial_be=signal.get("partial_be", True))
+        except ExnessError as exc:
+            detail["reason"] = str(exc)[:200]
+            record_journal(state, detail, "blocked:preflight_failed", now)
+            state.snapshot = {**state.snapshot, "decision": "preflight_failed: " + str(exc)[:160]}
+            return "preflight_failed"
         if len(broker["positions"]) + len(bodies) > max_positions():
+            record_journal(state, detail, "position_capacity_for_split", now)
             return "position_capacity_for_split"
         legs = [{"key": key + f"-{index}", "body": {name: value for name, value in part.items() if name != "role"},
                  "role": part["role"], "status": "planned", "recorded_at": now,
@@ -373,9 +548,24 @@ def _execution_tick(api, now=None):
         if len(legs) == 1:
             record = {**record, **legs[0]}
             record.pop("legs")
+        record_journal(state, detail, "order_planned", now)
         session.add(ExnessExecutionTrade(account=api.account_id, signal_time=stamp, snapshot=record))
     row = type("Intent", (), {"snapshot": record, "signal_time": stamp})()
-    return submit_leg(client, row, 0 if len(legs) > 1 else None, legs[0], condition, now)
+    try:
+        result = submit_leg(client, row, 0 if len(legs) > 1 else None, legs[0], condition, now)
+        if result == "submitted":
+            with Session.begin() as s:
+                st = s.get(ExnessExecutionState, api.account_id)
+                if st:
+                    record_journal(st, {"candle_time": stamp}, "order_sent", now)
+        return result
+    except Exception as exc:
+        with Session.begin() as s:
+            st = s.get(ExnessExecutionState, api.account_id)
+            if st:
+                outcome = "api_rate_limited" if getattr(exc, "rate_limited", False) and not client.last_submission else "execution_error"
+                record_journal(st, {"candle_time": stamp, "reason": str(exc)[:200]}, outcome, now)
+        raise
 
 def submit_leg(client, row, index, data, condition, now):
     api = client.api
@@ -391,6 +581,7 @@ def submit_leg(client, row, index, data, condition, now):
     signal = row.snapshot["signal"]
     key = data["key"]
     def build(quote):
+        late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], max(now, int(time.time())))
         full = client.strategy_body(signal, condition, quote, key)
         volume = positive_decimal(data["body"]["volume"])
         if volume > positive_decimal(full["volume"]):
@@ -424,16 +615,25 @@ def submit_leg(client, row, index, data, condition, now):
         persist_leg(api.account_id, row.signal_time, index, {"status": "submitted", "ack": ack})
         return "submitted"
     except Exception as exc:
+        if (getattr(exc, "rate_limited", False) and not client.last_submission
+                and index in (None, 0) and data["status"] == "planned"):
+            persist_leg(api.account_id, row.signal_time, index,
+                        {"status": "planned", "retryable_pre_submit": True, "error": str(exc)[:200]})
+            raise
         persist_leg(api.account_id, row.signal_time, index,
                     {"status": "uncertain" if client.last_submission else "skipped",
                      "error": type(exc).__name__ + ": " + str(exc)[:200]})
         raise
 
-def record_error(account, exc):
+def record_error(account, exc, now=None):
+    now = int(time.time()) if now is None else now
     with Session.begin() as session:
         state = session.get(ExnessExecutionState, account)
         if state:
-            state.snapshot = {**state.snapshot, "error": type(exc).__name__, "error_at": int(time.time())}
+            msg = type(exc).__name__ + ": " + str(exc)[:200]
+            label = "api_rate_limited" if getattr(exc, "rate_limited", False) else "worker_error"
+            state.snapshot = {**state.snapshot, "error": type(exc).__name__, "error_msg": msg, "error_at": now}
+            record_journal(state, {"candle_time": now // 900 * 900 - 900, "reason": msg}, label, now)
 
 
 @router.get("")
@@ -521,7 +721,8 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         "open_count": len(broker.get("positions", [])), "orders": broker.get("orders", []),
         "closed_count": sum(row["status"] == "closed" for row in rows),
         "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2),
-        "learning": learning_summary()}
+        "learning": learning_summary(),
+        "journal": list(reversed(meta.get("journal", []))), "funnel": funnel(meta.get("journal", []))}
 
 
 class ExecutionControl(BaseModel):

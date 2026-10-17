@@ -12,3 +12,5 @@ dist/
 *.tsbuildinfo
 .ruff_cache/
 research-output/
+
+.codemap/

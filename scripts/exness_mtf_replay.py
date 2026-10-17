@@ -12,31 +12,32 @@ from pathlib import Path
 from backend.app.db import Session
 from backend.app.exness_feed import FRAMES
 from backend.app.exness_observation import audit_frames, load_frames, observe_forex
-from backend.app.forex_paper import _step_trade
 from backend.app.exness_sessions import gap_details, regular_session_gap, session_closed_ahead
+from backend.app.forex_paper import _step_trade
 from backend.app.forex_reporting import trade_report
 from backend.app.forex_strategies import STRATEGIES, strategy_snapshot
 
-def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bars=96):
+
+def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bars=96, step=900, target_r=2):
     if sample["status"] not in ("pending", "open"):
         return
-    if bid.time != ask.time or bid.time != sample["last_candle"] + 900:
-        if sample["status"] == "pending" and bid.time == ask.time and regular_session_gap(sample["last_candle"], bid.time):
+    if bid.time != ask.time or bid.time != sample["last_candle"] + step:
+        if sample["status"] == "pending" and bid.time == ask.time and regular_session_gap(sample["last_candle"], bid.time, step):
             sample.update(status="skipped", reason="session_close_near")
             return
-        sample.update(status="excluded", reason="data_gap", gap=gap_details(sample["last_candle"], bid.time))
+        sample.update(status="excluded", reason="data_gap", gap=gap_details(sample["last_candle"], bid.time, step))
         return
     sample["last_candle"] = bid.time
     direction = 1 if sample["side"] == "long" else -1
     slip = slippage_bps / 10000
     exit_bar = bid if direction == 1 else ask
     if sample["status"] == "pending":
-        if session_closed_ahead(bid.time, 4):
+        if session_closed_ahead(bid.time, 4, step):
             sample.update(status="skipped", reason="session_close_near")
             return
         entry = (ask.open if direction == 1 else bid.open) * (1 + direction * slip)
         risk = direction * (entry - sample["stop"])
-        target = entry + direction * 2 * risk
+        target = entry + direction * target_r * risk
         if risk <= 0 or target <= 0:
             sample.update(status="invalid", reason="next_open_outside_stop")
             return
@@ -55,7 +56,7 @@ def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bar
         sample["ambiguous_bar"] = target_hit
     elif target_hit:
         price, outcome = target, "target"
-    elif session_closed_ahead(bid.time, 2):
+    elif session_closed_ahead(bid.time, 2, step):
         price, outcome = exit_bar.close, "session_close"
     elif sample["bars"] >= horizon_bars:
         price, outcome = exit_bar.close, "timeout"
@@ -63,8 +64,8 @@ def advance(sample, bid, ask, slippage_bps=0, commission_per_unit=0, horizon_bar
         return
     price *= 1 - direction * slip
     pnl = direction * (price - sample["entry"]) - commission_per_unit
-    sample.update(status="resolved", outcome=outcome, exit=price, exit_time=bid.time + (900 if outcome == "session_close" else 0),
-                  label_available_at=bid.time + 900, pnl_per_unit_ex_swap=pnl,
+    sample.update(status="resolved", outcome=outcome, exit=price, exit_time=bid.time + (step if outcome == "session_close" else 0),
+                  label_available_at=bid.time + step, pnl_per_unit_ex_swap=pnl,
                   net_r_ex_swap=pnl / sample["risk"])
 
 def summarize(samples):

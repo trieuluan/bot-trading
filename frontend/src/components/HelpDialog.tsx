@@ -12,13 +12,19 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
         <ol>
           <li>Chạy Docker Compose hoặc API và worker cục bộ.</li>
           <li>Chờ trạng thái API và worker kết nối.</li>
-          <li>Chọn MEXC Futures tại Kết nối sàn, rồi bật theo dõi tín hiệu.</li>
-          <li>Mở Ví mô phỏng → lưu rủi ro và giới hạn ngày → Bật Auto Paper.</li>
+          <li>Chọn workspace MEXC, mở Cài đặt & Kết nối để chọn nguồn MEXC Futures.</li>
+          <li>
+            Mở Giao dịch & Bot → lưu rủi ro và giới hạn ngày → Bật Auto Paper khi đã kiểm chứng
+            chiến lược.
+          </li>
           <li>
             Quan sát lệnh, SL/TP và nhật ký quyết định trên chart. Dừng auto ngừng vào lệnh mới.
           </li>
         </ol>
-        <p>Mở Backtest để kiểm chứng chiến lược. Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.</p>
+        <p>
+          Mở Nghiên cứu → Backtest để kiểm chứng chiến lược. Nghiên cứu → Tín hiệu điều khiển bot
+          phân tích riêng. Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.
+        </p>
         <button className="primary" onClick={onClose}>
           Đã hiểu <Check size={16} />
         </button>

@@ -26,7 +26,7 @@ def session_closed_ahead(stamp, bars=1, step=900):
     return any(_closed_bucket(stamp + step * n, step) for n in range(1, bars + 1))
 
 def regular_session_gap(after, before, step=900):
-    if (step not in (900, 3600, 14400) or after % step or before % step
+    if (step not in (60, 900, 3600, 14400) or after % step or before % step
             or not step < before - after <= 3 * 86400):
         return False
     return (not _closed_bucket(after, step) and not _closed_bucket(before, step)

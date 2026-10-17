@@ -60,7 +60,6 @@ def test_wallet_long_costs_and_idempotent_commands():
     assert wallet["available"] == pytest.approx(
         wallet["balance"] - trade["entry"] * trade["quantity"]
     )
-    assert client.post("/api/paper/orders", json=order()).status_code == 409
     sync_paper_quote(Market(105))
     close_request = {"request_id": str(uuid4())}
     path = f"/api/paper/positions/{trade['id']}/close"
@@ -97,7 +96,6 @@ def test_take_profit_stale_quotes_invalid_sizes_and_levels():
     with Session.begin() as session:
         wallet = session.get(PaperWallet, 1)
         wallet.quote = {**wallet.quote, "received_at": time.time() - 21}
-    assert client.post("/api/paper/orders", json=order()).status_code == 409
     sync_paper_quote(Market())
     assert client.post("/api/paper/orders", json=order()).status_code == 200
     sync_paper_quote(Market(125))
@@ -214,3 +212,35 @@ def test_short_receives_positive_funding_and_empty_interval_advances():
     final = client.get("/api/paper/wallet").json()
     assert final["balance"] == after["balance"]
     assert final["funding_cursor"] == settlement + 2700
+
+
+def test_multiple_positions_reserve_margin_and_close_independently():
+    sync_paper_quote(Market())
+    first = client.post("/api/paper/orders", json=order()).json()["trade_id"]
+    second = client.post("/api/paper/orders", json=order("short")).json()["trade_id"]
+    wallet = client.get("/api/paper/wallet").json()
+    assert {t["id"] for t in wallet["positions"]} == {first, second}
+    assert wallet["used_margin"] == pytest.approx(sum(t["entry"] * t["quantity"] for t in wallet["positions"]))
+    expected = sum((1 if t["side"] == "long" else -1) * t["quantity"] * (100 - t["entry"]) for t in wallet["positions"])
+    assert wallet["unrealized_pnl"] == pytest.approx(expected)
+    assert client.post("/api/paper/orders", json=order(notional=9000)).status_code == 422
+    assert client.post(f"/api/paper/positions/{first}/close", json={"request_id": str(uuid4())}).status_code == 200
+    assert [t["id"] for t in client.get("/api/paper/wallet").json()["positions"]] == [second]
+    sync_paper_quote(Market(120))
+    assert client.get("/api/paper/wallet").json()["positions"] == []
+
+
+def test_unbounded_positions_and_all_stops_execute_once():
+    sync_paper_quote(Market())
+    # Enter 8 positions with same strategy/side without cap; bounded only by free balance.
+    for _ in range(8):
+        assert client.post("/api/paper/orders", json=order(notional=500)).status_code == 200
+    wallet = client.get("/api/paper/wallet").json()
+    assert len(wallet["positions"]) == 8
+    sync_paper_quote(Market(125))
+    wallet = client.get("/api/paper/wallet").json()
+    assert wallet["positions"] == []
+    assert all(t["exit_reason"] == "take_profit" for t in wallet["trades"])
+    assert wallet["balance"] == pytest.approx(10000 + sum(t["net_pnl"] for t in wallet["trades"]))
+    sync_paper_quote(Market(125))
+    assert client.get("/api/paper/wallet").json()["balance"] == wallet["balance"]

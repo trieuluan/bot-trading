@@ -19,7 +19,7 @@ def test_workspaces_seeded_without_changing_mexc_wallet():
         assert "signals" not in forex
         assert client.get("/api/workspaces/mexc_futures/dashboard").json()["bot"]["enabled"] is False
     with Session() as session:
-        assert session.query(PaperWallet).count() == 1
+        assert session.query(PaperWallet).count() == 10
         assert session.get(PaperWallet, 1).balance == 10000
 
 
@@ -96,3 +96,9 @@ def test_workspace_candle_rejects_invalid_price_type():
         session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD",
                                      timeframe="15m", price_type="last", time=900,
                                      open=2000, high=2000, low=2000, close=2000))
+
+def test_futures_pairs_have_isolated_wallets_and_reject_unknown_symbol():
+    with TestClient(app) as client:
+        assert len(client.get("/api/workspaces/mexc_futures/symbols").json()["symbols"]) == 10
+        assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "XAU_USDT"}).status_code == 422
+        assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "ETH_USDT"}).json()["symbol"] == "ETH_USDT"

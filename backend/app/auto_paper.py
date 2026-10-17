@@ -14,15 +14,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from .db import AutoPaperDecision, AutoPaperState, BotState, Event, MarketState, PaperTrade, Session
+from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles, save_market_signal
+from .futures_learner import read_state, select_for_auto
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .paper import (
     create_position,
-    direction,
     execution_price,
     fresh_quote,
     lock_wallet,
-    open_position,
+    open_positions,
+    unrealized_pnl,
+    used_margin,
 )
 from .strategy import breakout
 
@@ -33,7 +36,7 @@ MAX_SIGNAL_AGE = 60
 class AutoConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     risk_percent: float = Field(default=1, gt=0, le=5)
-    max_daily_trades: int = Field(default=5, ge=1, le=100)
+    max_daily_trades: int = Field(default=100, ge=1, le=100)
     daily_loss_percent: float = Field(default=3, gt=0, le=20)
 
 
@@ -43,13 +46,8 @@ class AutoControl(BaseModel):
 
 
 def equity(session, wallet):
-    position = open_position(session)
     mark = wallet.quote["fairPrice"] if wallet.quote else None
-    return wallet.balance + (
-        direction(position) * position.quantity * (mark - position.entry)
-        if position and mark
-        else 0
-    )
+    return wallet.balance + unrealized_pnl(open_positions(session), mark)
 
 
 def roll_day(session, wallet, state, now):
@@ -65,7 +63,7 @@ def daily_limits(session, wallet, state, now):
     count = session.scalar(
         select(func.count())
         .select_from(PaperTrade)
-        .where(PaperTrade.origin == "auto", PaperTrade.entry_time >= midnight)
+        .where(PaperTrade.symbol == current_symbol(), PaperTrade.origin == "auto", PaperTrade.entry_time >= midnight)
     )
     loss = max(0, state.day_start_equity - equity(session, wallet))
     percent = loss / state.day_start_equity * 100 if state.day_start_equity > 0 else 100
@@ -84,7 +82,7 @@ def limit_reason(session, wallet, state, now):
 
 
 def market_ready(session, now):
-    market = session.get(MarketState, 1)
+    market = session.get(MarketState, state_id())
     if market.source != SOURCE:
         raise HTTPException(409, "Chọn nguồn MEXC Futures trước khi bật Auto Paper")
     if (
@@ -115,6 +113,7 @@ def record_decision(
     state.last_candle = candle_time
     session.add(
         AutoPaperDecision(
+            symbol=current_symbol(),
             candle_time=candle_time,
             action=action,
             reason=reason,
@@ -135,7 +134,7 @@ def baseline_auto_on_startup():
     """Run once per worker start, before any automatic entries are evaluated."""
     with Session.begin() as session:
         lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if state and state.enabled:
             state.last_candle = int(time.time()) // 900 * 900 - 900
             set_status(session, state, "Worker khởi động lại; bỏ qua nến cũ, chờ nến mới")
@@ -145,7 +144,7 @@ def auto_tick(now=None):
     now = time.time() if now is None else now
     with Session.begin() as session:
         wallet = lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if state is None or not state.enabled:
             return
         try:
@@ -154,8 +153,8 @@ def auto_tick(now=None):
             set_status(session, state, exc.detail)
             return
         roll_day(session, wallet, state, now)
-        position = open_position(session)
-        if position and (position.monitoring or {}).get("status") == "history_pending":
+        positions = open_positions(session)
+        if any((p.monitoring or {}).get("status") == "history_pending" for p in positions):
             set_status(session, state, "Vị thế đang thiếu dữ liệu đối soát SL/TP; chờ đồng bộ nến")
             return
         reason = limit_reason(session, wallet, state, now)
@@ -167,7 +166,7 @@ def auto_tick(now=None):
         if state.last_candle is not None and state.last_candle >= candle_time:
             return
         # A crash/retry cannot create a second decision or order for the same bar.
-        if session.get(AutoPaperDecision, candle_time):
+        if session.get(AutoPaperDecision, (current_symbol(), candle_time)):
             state.last_candle = candle_time
             return
         if now - (candle_time + 900) > MAX_SIGNAL_AGE:
@@ -190,23 +189,26 @@ def auto_tick(now=None):
         if wallet.funding_error:
             set_status(session, state, "Funding chưa đồng bộ; tạm dừng vào lệnh mới")
             return
-        setup = breakout(candles, allow_short=True)
+        try:
+            used_learner, setup, strat_name = select_for_auto(session, candle_time, now)
+        except HTTPException as exc:
+            set_status(session, state, exc.detail)
+            return
+        if not used_learner:
+            setup = breakout(candles, allow_short=True)
+            strat_name = "breakout_20_v1"
+            if setup is None:
+                record_decision(
+                    session, state, candle_time, "no_setup", "Nến vừa đóng chưa có breakout hợp lệ"
+                )
+                return
         if setup is None:
-            record_decision(
-                session, state, candle_time, "no_setup", "Nến vừa đóng chưa có breakout hợp lệ"
-            )
+            record_decision(session, state, candle_time, "no_setup", "Bot học chưa có tín hiệu đủ điều kiện cho chế độ đang chọn")
             return
+        learning = read_state(session, int(now)) if used_learner else None
+        learning_decision = (learning["last_decision"] or {}) if learning else {}
         save_market_signal(session, candle_time, setup)
-        if open_position(session):
-            record_decision(
-                session,
-                state,
-                candle_time,
-                "skipped",
-                "Có tín hiệu nhưng đang giữ một vị thế",
-                setup,
-            )
-            return
+# ponytail: no position cap; bounded only by available cash, risk budget and daily limits.
         entry = execution_price(wallet, setup.side, opening=True)
         distance = abs(entry - setup.stop)
         if distance <= 0:
@@ -222,9 +224,8 @@ def auto_tick(now=None):
         risk_cash = min(
             max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget
         )
-        requested_notional = min(
-            risk_cash / distance * entry, wallet.balance / (1 + wallet.fee_bps / 10000)
-        )
+        free = wallet.balance - used_margin(positions)
+        requested_notional = min(risk_cash / distance * entry, free / (1 + wallet.fee_bps / 10000))
         try:
             trade = create_position(
                 session,
@@ -235,6 +236,8 @@ def auto_tick(now=None):
                 setup.target,
                 origin="auto",
                 signal_time=candle_time,
+                exit_policy=(learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
+                             if learning else "fixed"),
             )
         except HTTPException as exc:
             record_decision(session, state, candle_time, "skipped", exc.detail, setup)
@@ -244,33 +247,48 @@ def auto_tick(now=None):
             state,
             candle_time,
             "opened",
-            f"AUTO PAPER #{trade.id}: {setup.side.upper()} · {setup.reason}",
+            f"AUTO PAPER #{trade.id}: {setup.side.upper()} · {strat_name} · {setup.reason}"
+            + (" · HỌC THỬ, CHƯA KIỂM CHỨNG" if learning and learning["auto_mode"] == "paper_learning" else ""),
             setup,
             trade,
             audit={
-                "strategy": "breakout_20_v1",
+                "strategy": strat_name,
                 "reason": setup.reason,
                 "signal_time": candle_time,
                 "signal_close": candles[-1].close,
-                "range_start": candles[-21].time,
-                "range_end": candles[-2].time,
-                "range_high": max(c.high for c in candles[-21:-1]),
-                "range_low": min(c.low for c in candles[-21:-1]),
+                **({
+                    "range_start": candles[-21].time,
+                    "range_end": candles[-2].time,
+                    "range_high": max(c.high for c in candles[-21:-1]),
+                    "range_low": min(c.low for c in candles[-21:-1]),
+                } if not used_learner else {
+                    "selector": "futures_learner", "paper_only": True,
+                    "auto_mode": learning["auto_mode"],
+                    "selection_reason": learning_decision.get("selection_reason"),
+                    "regime": learning_decision.get("regime"),
+                }),
                 "risk_percent": state.risk_percent,
                 "risk_budget": risk_cash,
+                "exit_policy": (learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
+                                if learning else "fixed"),
             },
         )
 
 
 def state_response(session, wallet, state, now):
+    learning = read_state(session, int(now))
     count, loss, percent = daily_limits(session, wallet, state, now)
     decisions = session.scalars(
-        select(AutoPaperDecision).order_by(AutoPaperDecision.candle_time.desc()).limit(12)
+        select(AutoPaperDecision).where(AutoPaperDecision.symbol == current_symbol()).order_by(AutoPaperDecision.candle_time.desc()).limit(12)
     ).all()
     beat = session.get(BotState, 1).heartbeat
     worker_online = bool(beat and now - beat.replace(tzinfo=timezone.utc).timestamp() < 30)
     return dict(
         enabled=state.enabled,
+        auto_mode=learning["auto_mode"],
+        learner_enabled=learning["enabled"],
+        learner_error=learning["error"],
+        learner_decision=learning["last_decision"],
         risk_percent=state.risk_percent,
         max_daily_trades=state.max_daily_trades,
         daily_loss_percent=state.daily_loss_percent,
@@ -303,7 +321,7 @@ def get_auto_state():
     now = time.time()
     with Session.begin() as session:
         wallet = lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if not state:
             raise HTTPException(503, "Run migrations")
         # Monitoring may initialize a new UTC day's baseline, but never enables trading.
@@ -320,7 +338,7 @@ def get_auto_state():
 def configure_auto(payload: AutoConfig):
     with Session.begin() as session:
         wallet = lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if state is None:
             raise HTTPException(503, "Run migrations")
         if state.enabled:
@@ -336,7 +354,7 @@ def control_auto(payload: AutoControl):
     now = time.time()
     with Session.begin() as session:
         wallet = lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if state is None:
             raise HTTPException(503, "Run migrations")
         if payload.enabled and not state.enabled:
@@ -366,7 +384,7 @@ def report_auto_failure():
     """Unexpected processing errors fail closed; quote/SLTP loop keeps running."""
     with Session.begin() as session:
         lock_wallet(session)
-        state = session.get(AutoPaperState, 1)
+        state = session.get(AutoPaperState, state_id())
         if state:
             state.enabled = False
             set_status(

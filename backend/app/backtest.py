@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from .market import Candle
 from .mexc import validate_candles
 from .strategy import breakout, retest
+from .futures_exits import EXIT_POLICIES, protective_stop
 
 
 @dataclass(frozen=True)
@@ -25,9 +26,12 @@ def simulate(
     warmup: int = 20,
     signal=breakout,
     window: int = 21,
+    exit_policy: str = "fixed",
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
+    if exit_policy not in EXIT_POLICIES:
+        raise ValueError("Invalid futures exit policy")
     if len(candles) <= warmup:
         raise ValueError("Not enough candles after strategy warmup")
     cash = config.initial_capital
@@ -86,6 +90,8 @@ def simulate(
                         "funding_cost": 0.0,
                         "stop": setup.stop,
                         "target": setup.target,
+                        "risk": abs(entry - setup.stop),
+                        "exit_policy": exit_policy,
                     }
         pending = None
 
@@ -123,6 +129,10 @@ def simulate(
                     }
                 )
                 position = None
+            else:
+                position["stop"] = protective_stop(
+                    position, candles[max(0, index - 14):index + 1], fee, slip,
+                )
 
         equity = cash
         if position is not None:

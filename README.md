@@ -2,7 +2,7 @@
 
 Khung ứng dụng quản lý bot đa sàn: React + TypeScript, FastAPI + Python worker, PostgreSQL, Docker Compose.
 
-**Trạng thái v0.2:** đã có dữ liệu public MEXC Futures BTC_USDT perpetual (15m), theo dõi breakout long/short và backtest lịch sử. Có thể chuyển về replay tổng hợp. Chưa có khớp lệnh paper liên tục, tài khoản sàn hoặc giao dịch thật. Không yêu cầu API key.
+**Trạng thái v0.2:** đã có dữ liệu public MEXC Futures BTC_USDT perpetual (15m), theo dõi breakout long/short và backtest lịch sử. Có thể chuyển về replay tổng hợp. Có ví Paper (khớp theo ticker, funding, SL/TP) và Auto Paper. Workspace MEXC có 3 mục: Giao dịch & Bot, Nghiên cứu, Cài đặt & Kết nối. Chart nhận nến đang chạy qua WebSocket public của MEXC (trình duyệt kết nối trực tiếp); khớp Paper, SL/TP và nến đóng vẫn dùng REST của worker. Chưa có tài khoản sàn hoặc giao dịch thật; live bị chặn. Không yêu cầu API key.
 
 ## Chạy bằng Docker
 
@@ -242,7 +242,7 @@ TradingView Lightweight Charts™ — Copyright (с) 2025 TradingView, Inc. [Tra
 
 ### Ví mô phỏng realtime
 
-Mở `http://localhost:3000` → **Ví mô phỏng**. Migration `0003` tạo ví
+Mở `http://localhost:3000` → **Giao dịch & Bot**. Migration `0003` tạo ví
 10.000 USDT ảo và sổ giao dịch riêng, giữ nguyên báo cáo backtest và tín hiệu cũ.
 Không cần API key; không gửi lệnh hoặc dùng tiền thật trên MEXC.
 
@@ -700,7 +700,8 @@ Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không
   `pullback`, `range`, `retest`, `router` (tối đa 40 cá thể, 2–4 cá thể/họ để tránh một họ lấn át).
   Mỗi cá thể có bộ gen tham số, bộ lọc xu hướng H1, thế hệ (`generation`) và danh sách cha mẹ (`parents`).
   Tiến hóa chỉ dùng nhãn đóng trước cutoff huấn luyện; cá thể có R âm sau 40 mẫu bị loại, đột biến và lai chéo
-  sinh biến thể con cho thế hệ sau. Toàn bộ gen tự sinh chỉ chạy shadow trên mô phỏng M15.
+  sinh biến thể con cho thế hệ sau. Gen tự sinh (`rule_tree`) được phép vào Auto Paper ở chế độ học thử;
+  để được thăng hạng và chạy lệnh thật vẫn cần vượt qua cổng forward (100 lệnh, PF > 1.3, DD < 10%).
   Để được duyệt vào lệnh demo, gen phải đạt ít nhất 30 mẫu train và 30 mẫu validation, cận dưới R dương
   ở cả hai tập, chi phí sàn đã được đo; không chuyển đổi tự động khi thiếu bằng chứng.
 - Ghi intent trước HTTP, idempotency key theo tín hiệu; ACK không đồng nghĩa đã khớp.

@@ -1,24 +1,55 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Wallet, RefreshCw } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { Bot, Clock3, RefreshCw, ShieldCheck } from 'lucide-react';
+import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
 import { AutoDecisionList } from '../components/AutoDecisionList';
+import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails, exitLabels } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
-import { PaperChart } from '../components/PaperChart';
+import { PaperChart, strategyColor } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
 import {
   fetchPaperWallet,
   fetchPaperTradeCandles,
+  fetchMexcCandles,
   fetchAutoPaper,
   setAutoPaperEnabled,
   openPaperOrder,
   closePaperPosition,
 } from '../lib/api';
 import type { AutoPaperState, PaperWallet } from '../types/paper';
+import { useMexcLiveCandle } from '../hooks/useMexcLiveCandle';
+import { withLiveCandle } from '../lib/mexc-stream';
+import { getFuturesSymbol, type FuturesSymbol } from '../lib/futures-symbol';
+import { AllPairsPanel, PairStrip, PositionsTable, type Board } from '../components/FuturesBoard';
+
+function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
+  const bars = new Map<number, Candle>();
+  for (const bar of [...history, ...recent]) bars.set(bar.time, bar);
+  return [...bars.values()].sort((a, b) => a.time - b.time);
+}
 
 const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
+const strategyName = (strategy: string) => strategy.replace(/_/g, ' ').replace(':', ' · ');
 
-export function PaperTradingPage() {
+export function PaperTradingPage({
+  board,
+  onSelect,
+  chartTrade,
+}: {
+  board: Board;
+  onSelect: (s: FuturesSymbol, tradeId?: number | null) => void;
+  chartTrade: number | null;
+}) {
+  const symbol = getFuturesSymbol();
+  const base = symbol.split('_')[0];
+  const [orderMode, setOrderMode] = useState<'manual' | 'auto'>('manual');
+  const [activityTab, setActivityTab] = useState('position');
+  const [allPairs, setAllPairs] = useState(true);
+  const stream = useMexcLiveCandle();
+  const [older, setOlder] = useState<Candle[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingOlder = useRef(false);
   const [auto, setAuto] = useState<AutoPaperState | null>(null);
   const [wallet, setWallet] = useState<PaperWallet | null>(null);
   const [error, setError] = useState('');
@@ -35,9 +66,12 @@ export function PaperTradingPage() {
   } | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [chartStrategies, setChartStrategies] = useState<string[]>([]);
+  const [chartAuto, setChartAuto] = useState(true);
   const [clock, setClock] = useState(Date.now());
   const latest = useRef<PaperWallet | null>(null);
   const chartSection = useRef<HTMLElement | null>(null);
+  const activitySection = useRef<HTMLDivElement | null>(null);
   function viewTrade(id: number) {
     setSelectedId(id);
     chartSection.current?.scrollIntoView({
@@ -45,6 +79,9 @@ export function PaperTradingPage() {
       block: 'start',
     });
   }
+  useEffect(() => {
+    if (chartTrade !== null) viewTrade(chartTrade);
+  }, [chartTrade]);
   // Reuse a command ID after an ambiguous timeout; the API returns its original result.
   const pending = useRef<{ key: string; id: string } | null>(null);
   function commandId(key: string) {
@@ -76,6 +113,20 @@ export function PaperTradingPage() {
       clearInterval(ticker);
     };
   }, []);
+  async function loadOlder() {
+    const before = Math.min(older[0]?.time ?? Infinity, wallet?.candles[0]?.time ?? Infinity);
+    if (loadingOlder.current || !hasMore || !Number.isFinite(before)) return;
+    loadingOlder.current = true;
+    try {
+      const page = await fetchMexcCandles(before, 50);
+      setOlder((current) => [...page.candles, ...current]);
+      setHasMore(page.has_more);
+    } catch {
+      /* retry on next pan */
+    } finally {
+      loadingOlder.current = false;
+    }
+  }
   async function refresh() {
     const [result, autoState] = await Promise.all([fetchPaperWallet(), fetchAutoPaper()]);
     latest.current = result;
@@ -116,14 +167,14 @@ export function PaperTradingPage() {
       setBusy(false);
     }
   }
-  async function close(pauseAuto = false) {
-    if (!wallet?.position) return;
+  async function close(pauseAuto = false, tradeId = wallet?.position?.id) {
+    if (tradeId === undefined) return;
     setBusy(true);
     setError('');
     setMessage('');
     try {
       if (pauseAuto) await setAutoPaperEnabled(false);
-      await closePaperPosition(wallet.position.id, commandId(`close-${wallet.position.id}`));
+      await closePaperPosition(tradeId, commandId(`close-${tradeId}`));
       pending.current = null;
       setMessage('Đã đóng vị thế mô phỏng.');
       await refresh();
@@ -133,6 +184,7 @@ export function PaperTradingPage() {
       setBusy(false);
     }
   }
+  const positions = wallet?.positions ?? [];
   const quote = wallet?.quote;
   const stale =
     !online ||
@@ -143,9 +195,40 @@ export function PaperTradingPage() {
   const selected =
     selectedId === -1
       ? null
-      : (wallet?.trades.find((trade) => trade.id === selectedId) ?? wallet?.position ?? null);
+      : (positions.find((trade) => trade.id === selectedId) ??
+        wallet?.trades.find((trade) => trade.id === selectedId) ??
+        wallet?.position ??
+        null);
   const historicalId = selected?.exit_time != null ? selected.id : null;
   const exitTime = selected?.exit_time;
+  useLayoutEffect(() => {
+    const section = chartSection.current;
+    if (!section) return;
+    function resize() {
+      const canvas = section!.querySelector<HTMLElement>('.trade-candlestick-chart');
+      if (!canvas) return;
+      const top = canvas.getBoundingClientRect().top + window.scrollY;
+      section!.style.setProperty(
+        '--chart-height',
+        `${Math.max(240, window.innerHeight - top - 72)}px`,
+      );
+    }
+    const observer = new ResizeObserver(resize);
+    for (const element of [
+      section.querySelector('.desk-chart-toolbar'),
+      section.querySelector('.chart-ohlc'),
+      section.querySelector('.desk-overlay-note'),
+      section.closest('.futures-desk')?.querySelector('.desk-sticky-header'),
+    ]) {
+      if (element) observer.observe(element);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', resize);
+    };
+  }, [historicalId, history?.id]);
   useEffect(() => {
     let active = true;
     setHistory(null);
@@ -167,124 +250,434 @@ export function PaperTradingPage() {
   }, [historicalId, exitTime]);
   const chartCandles =
     historicalId === null
-      ? (wallet?.candles ?? [])
+      ? withLiveCandle(mergeBars(older, wallet?.candles ?? []), stream.candle)
       : history?.id === historicalId
         ? history.candles
         : [];
+  const learningDecision = auto?.learner_decision;
+  const strategyRows = learningDecision?.strategies ?? [];
+  const decisionFresh =
+    learningDecision?.auto_mode === auto?.auto_mode &&
+    learningDecision?.time === Math.floor(clock / 900000) * 900 - 900;
+  const botFresh =
+    historicalId === null &&
+    online &&
+    !stale &&
+    auto?.worker_online &&
+    !auto?.learner_error &&
+    decisionFresh;
+  // Chart shows only the strategy the bot picked; others stay available in the picker.
+  const signalNames = [
+    strategyRows.find((row) => row.strategy === learningDecision?.selected) ??
+      strategyRows.find((row) => row.status === 'signal'),
+  ]
+    .filter((row) => row !== undefined)
+    .map((row) => row.strategy);
+  const positionName = wallet?.position?.audit?.strategy;
+  const watchNames = strategyRows
+    .filter(
+      (row, index, rows) =>
+        rows.findIndex((other) => other.strategy.split(':')[0] === row.strategy.split(':')[0]) ===
+        index,
+    )
+    .map((row) => row.strategy);
+  const autoNames =
+    positionName && strategyRows.some((row) => row.strategy === positionName)
+      ? [positionName]
+      : signalNames.length
+        ? signalNames
+        : watchNames;
+  const shownNames = chartAuto ? autoNames : chartStrategies;
+  const observations = botFresh
+    ? strategyRows
+        .filter((row) => shownNames.includes(row.strategy))
+        .map((row) => ({ ...row, time: learningDecision!.time }))
+    : [];
+  const nextCloseSeconds = 900 - (Math.floor(clock / 1000) % 900);
+  const modeLabel =
+    auto?.auto_mode === 'paper_learning'
+      ? 'Bot học · Paper thử nghiệm'
+      : auto?.auto_mode === 'learner'
+        ? 'Bot học · Chỉ chiến thuật đã duyệt'
+        : 'Structure Breakout';
   return (
-    <>
-      <section className="panel prose paper-intro">
-        <div className="section-head">
-          <h2>
-            <Wallet size={19} /> Ví mô phỏng
-          </h2>
-          <span className="pill amber">10.000 USDT ẢO · TỐI ĐA 1×</span>
-        </div>
-        <p>
-          Giá MEXC thật, tiền và lệnh mô phỏng nội bộ. Bật Auto Paper để chiến lược tự vào lệnh hoặc
-          dừng auto để đặt Market Long/Short thủ công.
-        </p>
-        <div className="paper-feed">
-          <span className={`status-dot ${stale ? 'stale-dot' : ''}`} />
-          <strong>{stale ? 'Giá chậm / mất kết nối' : 'Đang nhận giá MEXC'}</strong>
-          <span>{quote ? `Cập nhật ${timeLabel(quote.received_at)}` : 'Đang chờ worker'}</span>
-          <span>Lấy giá khoảng mỗi 5 giây</span>
-        </div>
-        {stale && (
-          <p role="status" className="negative">
-            Tạm khóa đặt/đóng lệnh khi giá chậm. SL/TP chỉ xử lý khi worker nhận lại giá hợp lệ.{' '}
-            {wallet?.error}
-          </p>
-        )}
-        {wallet?.funding_error && (
-          <p role="status" className="negative">
-            Funding đang chờ đồng bộ: {wallet.funding_error}. PnL hiện tại còn tạm tính.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="negative">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="positive">
-            {message}
-          </p>
-        )}
-      </section>
-      <AutoPaperPanel
-        state={auto}
-        stale={!!stale}
-        online={online}
-        clock={clock}
-        onUpdated={refresh}
-      />
-      <div className="research-metrics paper-metrics">
-        {[
-          ['Số dư ví', wallet?.balance],
-          ['Equity (theo fair price)', wallet?.equity],
-          ['PnL chưa chốt', wallet?.unrealized_pnl],
-          ['Vốn đang giữ', wallet?.used_margin],
-          ['Khả dụng', wallet?.available],
-        ].map(([label, value]) => (
-          <div key={String(label)}>
-            <span className="muted">{label}</span>
-            <strong>{typeof value === 'number' ? `${formatPrice(value)} USDT` : '—'}</strong>
+    <div className="futures-desk">
+      <div className="desk-sticky-header">
+        <PairStrip board={board} symbol={symbol} onSelect={onSelect} />
+        <div className="mexc-top-dock">
+          <div className="mexc-ticker-left">
+            <span className="desk-paper-label" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
+              <ShieldCheck size={13} /> PAPER · 1×
+            </span>
+            <span className="mexc-pair-title">
+              {symbol.replace('_', ' / ')} <small>Perp</small>
+            </span>
+            <strong className="mexc-last-price">
+              {stream.candle
+                ? formatPrice(stream.candle.close)
+                : quote
+                  ? formatPrice(quote.lastPrice)
+                  : '—'}
+            </strong>
+            <span className="mexc-fair-price">
+              Fair {quote ? formatPrice(quote.fairPrice) : '—'}
+            </span>
+            <span className={`pill ${stream.live ? 'green' : 'amber'}`}>
+              {stream.live ? 'LIVE 15m' : 'REST'}
+            </span>
+            <button
+              type="button"
+              className={`pill-btn ${auto?.enabled ? 'on' : ''}`}
+              onClick={() => setOrderMode('auto')}
+            >
+              <Bot size={13} /> {auto?.enabled ? 'Auto ON' : 'Auto OFF'}
+            </button>
           </div>
-        ))}
+          <div className="mexc-wallet-strip" aria-label="Ví Paper">
+            <div>
+              <span className="muted">Số dư</span>
+              <strong>{wallet ? formatPrice(wallet.balance) : '—'}</strong>
+            </div>
+            <div>
+              <span className="muted">Equity</span>
+              <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
+            </div>
+            <div>
+              <span className="muted">PnL chưa chốt</span>
+              <strong
+                className={
+                  typeof wallet?.unrealized_pnl === 'number'
+                    ? wallet.unrealized_pnl < 0
+                      ? 'negative'
+                      : 'positive'
+                    : undefined
+                }
+              >
+                {typeof wallet?.unrealized_pnl === 'number'
+                  ? formatPrice(wallet.unrealized_pnl)
+                  : '—'}{' '}
+                <small>USDT</small>
+              </strong>
+            </div>
+            <div>
+              <span className="muted">Khả dụng</span>
+              <strong>{wallet ? formatPrice(wallet.available) : '—'}</strong>
+            </div>
+          </div>
+        </div>
+        {(stale || wallet?.funding_error || error || message) && (
+          <div className="mexc-dock-alert" role="status">
+            {stale && (
+              <span className="negative">Giá khớp chậm / mất kết nối. {wallet?.error}</span>
+            )}
+            {wallet?.funding_error && (
+              <span className="negative">Funding chờ đồng bộ: {wallet.funding_error}.</span>
+            )}
+            {error && <span className="negative">{error}</span>}
+            {message && <span className="positive">{message}</span>}
+          </div>
+        )}
       </div>
       <div className="paper-terminal">
         <section ref={chartSection} className="panel prose paper-market">
-          <div className="section-head">
-            <div>
-              <h2>
-                BTC / USDT <span className="muted">Perpetual</span>
-              </h2>
-              <p>
-                Last {quote ? formatPrice(quote.lastPrice) : '—'} · Fair{' '}
-                {quote ? formatPrice(quote.fairPrice) : '—'}
-              </p>
-            </div>
-            <span className="pill">PAPER FILLS</span>
-          </div>
-          <div className="chart-mode-tabs" role="group" aria-label="Chế độ chart">
+          <div className="desk-chart-toolbar">
             <button
-              className={`secondary ${!selected ? 'selected' : ''}`}
-              onClick={() => setSelectedId(-1)}
+              type="button"
+              className="text-button"
+              onClick={() =>
+                activitySection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
             >
-              Giá realtime
+              Vị thế & lịch sử ↓
             </button>
-            {wallet?.position && (
+            <div className="chart-mode-tabs" role="group" aria-label="Chế độ chart">
               <button
-                className={`secondary ${selected?.id === wallet.position.id ? 'selected' : ''}`}
-                onClick={() => setSelectedId(wallet.position!.id)}
+                className={`secondary ${!selected ? 'selected' : ''}`}
+                aria-pressed={!selected}
+                onClick={() => setSelectedId(-1)}
               >
-                Vị thế đang mở #{wallet.position.id}
+                Thị trường
               </button>
-            )}
-            {historicalId !== null && (
-              <span className="pill amber">ĐANG XEM LỊCH SỬ #{historicalId} · ĐÃ ĐÓNG</span>
+              {positions.map((position) => (
+                <button
+                  key={position.id}
+                  className={`secondary ${selected?.id === position.id ? 'selected' : ''}`}
+                  aria-pressed={selected?.id === position.id}
+                  onClick={() => setSelectedId(position.id)}
+                >
+                  #{position.id} {position.side.toUpperCase()}
+                </button>
+              ))}
+              {historicalId !== null && (
+                <span className="pill amber">ĐANG XEM LỊCH SỬ #{historicalId} · ĐÃ ĐÓNG</span>
+              )}
+            </div>
+            {historicalId === null && (
+              <div className="paper-strategy-toolbar">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={chartAuto}
+                    onChange={(event) => setChartAuto(event.target.checked)}
+                  />{' '}
+                  Theo bot
+                </label>
+                <FuturesStrategyMenu
+                  rows={strategyRows}
+                  selected={shownNames}
+                  onChange={(names) => {
+                    setChartAuto(false);
+                    setChartStrategies(names);
+                  }}
+                />
+              </div>
             )}
           </div>
+          {historicalId === null && (
+            <div
+              className="desk-overlay-note"
+              title="Chỉ đổi lớp vẽ, không đổi chiến thuật bot. Vùng chờ không phải lệnh vào."
+            >
+              <span>Chỉ đổi lớp vẽ, không đổi chiến thuật bot.</span>
+              {!botFresh && <span role="status">Dữ liệu chưa sẵn sàng; chờ nến đánh giá mới.</span>}
+              <span>
+                {strategyRows.length} biến thể · {signalNames.length} có tín hiệu ·{' '}
+                {strategyRows.filter((row) => row.status === 'no_signal').length} đang chờ
+              </span>
+              {chartAuto && !signalNames.length && (
+                <span>Đang vẽ 1 đại diện mỗi họ chiến thuật; vùng chờ không phải lệnh vào.</span>
+              )}
+            </div>
+          )}
           {historicalId !== null && !history && (
             <p role="status">{historyError || 'Đang tải nến của lệnh lịch sử…'}</p>
           )}
           {(historicalId === null || history?.id === historicalId) && (
-            <PaperChart candles={chartCandles} trade={selected} />
+            <PaperChart
+              candles={chartCandles}
+              trade={selected ?? (historicalId === null ? (wallet?.position ?? null) : null)}
+              positions={historicalId === null ? positions : []}
+              onSelectPosition={setSelectedId}
+              observations={observations}
+              markPrice={wallet?.quote?.fairPrice ?? null}
+              feeBps={wallet?.fee_bps ?? 0}
+              markStale={stale}
+              onLoadOlder={historicalId === null ? () => void loadOlder() : undefined}
+            />
           )}
-          {selected ? (
-            <PaperTradeDetails trade={selected} />
-          ) : (
-            <p className="micro">
-              Chart giá realtime. Chọn một lệnh trong lịch sử để xem Entry, Exit và lý do giao dịch.
-            </p>
-          )}
+          <details className="desk-analysis-details">
+            <summary>Chi tiết bot, chiến thuật & lệnh {selected ? `#${selected.id}` : ''}</summary>
+            {observations.length > 0 && (
+              <div
+                className="futures-chart-explanations"
+                aria-label="Chú giải chiến thuật trên chart"
+              >
+                {observations.map((row) => (
+                  <article
+                    key={row.strategy}
+                    style={{ borderColor: strategyColor(row.strategy) }}
+                    title={[
+                      row.setup?.reason ?? row.note ?? '',
+                      ...(row.levels ?? []).map((l) => `${l.title}: ${formatPrice(l.price)}`),
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
+                  >
+                    <strong>{strategyName(row.strategy)}</strong>
+                    <span className="micro">
+                      {row.strategy === positionName
+                        ? 'Đang giữ vị thế'
+                        : row.strategy === learningDecision?.selected
+                          ? 'Bộ học chọn · chưa đồng nghĩa đã khớp'
+                          : row.status === 'signal'
+                            ? 'Có tín hiệu · chưa được chọn'
+                            : row.status === 'warming_up'
+                              ? 'Chờ khởi tạo'
+                              : 'Đang chờ tín hiệu'}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            )}
+            {historicalId === null && (
+              <div className="paper-bot-status" aria-label="Chiến thuật bot Futures">
+                <div className="desk-bot-heading" role="status">
+                  <div className="desk-bot-identity">
+                    <Bot size={19} />
+                    <div>
+                      <span>BỘ ĐIỀU PHỐI CHIẾN THUẬT</span>
+                      <strong>{modeLabel}</strong>
+                    </div>
+                  </div>
+                  <span
+                    className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'}`}
+                  >
+                    {!online
+                      ? 'Mất kết nối'
+                      : !auto
+                        ? 'Đang tải'
+                        : !auto.enabled
+                          ? 'Đã dừng'
+                          : !auto.worker_online
+                            ? 'Worker ngoại tuyến'
+                            : auto.learner_error
+                              ? 'Lỗi bộ học'
+                              : 'Đã bật Auto'}
+                  </span>
+                </div>
+                <div className="desk-bot-context">
+                  <span className="desk-bot-message">
+                    {!online
+                      ? 'Mất kết nối · trạng thái có thể cũ'
+                      : !auto
+                        ? 'Đang tải trạng thái bot'
+                        : !auto.enabled
+                          ? 'Đã dừng vào lệnh mới'
+                          : !auto.worker_online
+                            ? 'Worker ngoại tuyến'
+                            : auto.learner_error
+                              ? `Lỗi bộ học: ${auto.learner_error}`
+                              : auto.auto_mode !== 'legacy' && !auto.learner_enabled
+                                ? 'Bộ học đã tạm dừng'
+                                : auto.status}
+                  </span>
+                  <span>
+                    <Clock3 size={13} /> Nến kế tiếp{' '}
+                    <strong>
+                      {Math.floor(nextCloseSeconds / 60)}:
+                      {String(nextCloseSeconds % 60).padStart(2, '0')}
+                    </strong>
+                  </span>
+                </div>
+                {wallet?.position && (
+                  <div className="chart-legend">
+                    <strong>
+                      Đang giữ #{wallet.position.id} ·{' '}
+                      {wallet.position.audit?.strategy ??
+                        (wallet.position.origin === 'manual' ? 'Thủ công' : 'Auto')}{' '}
+                      · {wallet.position.side.toUpperCase()}
+                    </strong>
+                    <span>
+                      Entry {formatPrice(wallet.position.entry)} · SL{' '}
+                      {formatPrice(wallet.position.stop)} · TP {formatPrice(wallet.position.target)}
+                    </span>
+                  </div>
+                )}
+                {learningDecision ? (
+                  <details>
+                    <summary className="chart-legend">
+                      <strong>
+                        Bot quan sát · {learningDecision.candidates} chiến thuật có tín hiệu
+                      </strong>
+                      <span>
+                        {learningDecision.selected
+                          ? `Chọn ${strategyName(learningDecision.selected)} ${learningDecision.setup?.side.toUpperCase() ?? ''}`
+                          : 'Chưa có tín hiệu · đứng ngoài'}
+                      </span>
+                      <span>
+                        {(
+                          {
+                            range: 'Đi ngang',
+                            trend_up: 'Xu hướng tăng',
+                            trend_down: 'Xu hướng giảm',
+                            uptrend: 'Xu hướng tăng',
+                            downtrend: 'Xu hướng giảm',
+                          } as Record<string, string>
+                        )[learningDecision.regime] ?? learningDecision.regime}
+                      </span>
+                      <span>
+                        Nến {timeLabel(learningDecision.time)}
+                        {!decisionFresh ? ' · Dữ liệu cũ, chờ đánh giá mới' : ''}
+                      </span>
+                    </summary>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Chiến thuật</th>
+                            <th>Trạng thái tại nến đánh giá</th>
+                            <th>Hướng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(learningDecision.strategies ?? []).map((row) => (
+                            <tr
+                              key={row.strategy}
+                              className={
+                                row.strategy === learningDecision.selected
+                                  ? 'desk-strategy-selected'
+                                  : undefined
+                              }
+                            >
+                              <td title={row.strategy}>{strategyName(row.strategy)}</td>
+                              <td>
+                                <span className={`pill ${row.status === 'signal' ? 'green' : ''}`}>
+                                  {positions.some(
+                                    (position) => position.audit?.strategy === row.strategy,
+                                  )
+                                    ? 'Đang giữ vị thế'
+                                    : row.strategy === learningDecision.selected
+                                      ? learningDecision.mode === 'shadow'
+                                        ? 'Được chọn · chưa đủ điều kiện'
+                                        : 'Được bộ học chọn'
+                                      : row.status === 'signal'
+                                        ? 'Có tín hiệu · chưa được chọn'
+                                        : row.status === 'warming_up'
+                                          ? 'Chờ nến sau khởi tạo'
+                                          : 'Chờ tín hiệu'}
+                                </span>
+                              </td>
+                              <td>{row.side?.toUpperCase() ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="micro">
+                      {learningDecision.setup?.reason ?? 'Không có setup tại nến đánh giá.'}
+                    </p>
+                    <p className="micro">
+                      {learningDecision.selection_reason === 'explore_unseen_context'
+                        ? 'Bộ học đang khám phá bối cảnh chưa có mẫu.'
+                        : learningDecision.selection_reason === 'contextual_ucb'
+                          ? 'Lựa chọn theo điểm UCB của bối cảnh.'
+                          : 'Chưa chọn chiến thuật.'}
+                    </p>
+                  </details>
+                ) : (
+                  <p className="micro">
+                    {auto?.auto_mode === 'legacy'
+                      ? 'Bot dùng breakout 20 nến; chưa dùng bộ chọn chiến thuật học.'
+                      : 'Chờ bộ học đánh giá nến đóng đầu tiên.'}
+                  </p>
+                )}
+                <p className="micro">
+                  Đường THAM CHIẾU là phân tích nến đã đóng, không phải lệnh chờ hay cam kết vào
+                  lệnh. Entry/SL/TP của vị thế Paper luôn được giữ khi chọn lớp chiến thuật khác.
+                </p>
+              </div>
+            )}
+            {selected ? (
+              <PaperTradeDetails trade={selected} />
+            ) : (
+              <details className="desk-chart-notes">
+                <summary>Nguồn giá & cách khớp lệnh Paper</summary>
+                <p className="micro">
+                  {stream.live
+                    ? 'Nến đang chạy từ WebSocket MEXC.'
+                    : 'Chưa có WebSocket mới; hiển thị dữ liệu REST của worker, có thể đã cũ.'}{' '}
+                  Nến đóng đối soát qua REST. Chart live không thay giá khớp Paper hoặc SL/TP của
+                  worker. Chọn lệnh lịch sử để xem Entry, Exit và lý do giao dịch.
+                </p>
+              </details>
+            )}
+          </details>
           <div className="paper-book">
             <span>
-              Bid <strong>{quote ? formatPrice(quote.bid1) : '—'}</strong>
+              Bid (worker) <strong>{quote ? formatPrice(quote.bid1) : '—'}</strong>
             </span>
             <span>
-              Ask <strong>{quote ? formatPrice(quote.ask1) : '—'}</strong>
+              Ask (worker) <strong>{quote ? formatPrice(quote.ask1) : '—'}</strong>
             </span>
           </div>
           <p className="chart-attribution">
@@ -294,210 +687,307 @@ export function PaperTradingPage() {
             </a>
           </p>
         </section>
-        <section className="panel prose paper-order">
-          <div className="section-head">
-            <h2>Đặt lệnh thủ công</h2>
-            <span className="pill">MARKET</span>
-          </div>
-          {auto?.enabled && <p className="micro">Auto đang bật; dừng auto để mở lệnh thủ công.</p>}
-          <form onSubmit={(event) => void submit(event)}>
-            <div className="period-tabs" role="group" aria-label="Chiều lệnh">
-              <button
-                type="button"
-                className={side === 'long' ? 'secondary selected' : 'secondary'}
-                onClick={() => {
-                  setSide('long');
-                  if (stop || target) suggestLevels('long');
-                }}
-              >
-                Long
-              </button>
-              <button
-                type="button"
-                className={side === 'short' ? 'secondary selected' : 'secondary'}
-                onClick={() => {
-                  setSide('short');
-                  if (stop || target) suggestLevels('short');
-                }}
-              >
-                Short
-              </button>
-            </div>
-            <label>
-              Giá trị lệnh (USDT)
-              <input
-                type="number"
-                min="1"
-                max="100000"
-                step="0.01"
-                required
-                value={notional}
-                onChange={(e) => setNotional(e.target.value)}
-              />
-            </label>
-            <label>
-              Stop-loss (USDT)
-              <input
-                type="number"
-                min="0.1"
-                step="0.1"
-                required
-                value={stop}
-                onChange={(e) => setStop(e.target.value)}
-              />
-            </label>
-            <label>
-              Take-profit (USDT)
-              <input
-                type="number"
-                min="0.1"
-                step="0.1"
-                required
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              />
-            </label>
+        <aside className="desk-controls" aria-label="Điều khiển giao dịch Paper">
+          <div className="desk-mode-switch" role="group" aria-label="Chế độ đặt lệnh">
             <button
               type="button"
-              className="text-button"
-              disabled={stale || busy}
-              onClick={() => suggestLevels()}
+              aria-pressed={orderMode === 'manual'}
+              onClick={() => setOrderMode('manual')}
             >
-              <RefreshCw size={13} /> Điền SL 1% / TP 2% để thử
+              Thủ công
             </button>
             <button
-              type="submit"
-              className="primary"
-              disabled={stale || busy || !!wallet?.position || !!auto?.enabled}
+              type="button"
+              aria-pressed={orderMode === 'auto'}
+              onClick={() => setOrderMode('auto')}
             >
-              {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
-            </button>
-            <p className="micro">
-              Khối lượng làm tròn xuống theo hợp đồng MEXC. Phí {wallet?.fee_bps ?? 5} bps và trượt
-              giá {wallet?.slippage_bps ?? 2} bps mỗi chiều là giả định, chưa gồm độ sâu sổ lệnh.
-            </p>
-          </form>
-        </section>
-      </div>
-      <section className="panel prose">
-        <div className="section-head">
-          <h2>Vị thế đang mở</h2>
-          {wallet?.position && (
-            <div className="trade-review-buttons">
-              <button className="secondary" disabled={busy || stale} onClick={() => void close()}>
-                Đóng vị thế mô phỏng
-              </button>
-              {auto?.enabled && (
-                <button
-                  className="secondary"
-                  disabled={busy || stale}
-                  onClick={() => void close(true)}
-                >
-                  Dừng auto và đóng vị thế
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        {wallet?.position ? (
-          <div className="selected-trade-summary">
-            <strong>
-              #{wallet.position.id} {wallet.position.side.toUpperCase()}
-            </strong>
-            <span className="pill">{wallet.position.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}</span>
-            <span>
-              {wallet.position.contracts} hợp đồng · {wallet.position.quantity} BTC
-            </span>
-            <span>Entry {formatPrice(wallet.position.entry)}</span>
-            <span className="negative">SL {formatPrice(wallet.position.stop)}</span>
-            <span className="positive">TP {formatPrice(wallet.position.target)}</span>
-            {wallet.position.monitoring?.status === 'history_pending' && (
-              <span className="negative" role="status">
-                Thiếu nến đối soát SL/TP; Auto Paper chờ. SL/TP theo quote hiện tại vẫn chạy.
-              </span>
-            )}
-            <button className="text-button" onClick={() => viewTrade(wallet.position!.id)}>
-              Xem trên chart
+              Auto Paper <span className={`status-dot ${auto?.enabled ? '' : 'stale-dot'}`} />
             </button>
           </div>
-        ) : (
-          <p>
-            {auto?.enabled
-              ? 'Chưa có vị thế. Auto đang chờ tín hiệu nến đóng hợp lệ.'
-              : 'Chưa có vị thế. Bật Auto Paper hoặc đặt lệnh thủ công bằng USDT ảo.'}
-          </p>
-        )}
-        <p className="micro">
-          Số dư = vốn ban đầu + PnL đã chốt − phí − funding. Equity cộng PnL chưa chốt theo fair
-          price, chưa trừ phí đóng dự kiến. Funding thực tế được tính trễ khi nến fair-price tại kỳ
-          quyết toán đã đóng.
-        </p>
-      </section>
-      <AutoDecisionList decisions={auto?.decisions ?? []} onViewTrade={viewTrade} />
-      <section className="panel prose">
-        <div className="section-head">
-          <h2>Lịch sử lệnh mô phỏng</h2>
-          <span className="muted">100 lệnh gần nhất · click để xem mức giá</span>
-        </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Lệnh / thời gian</th>
-                <th>Chiều</th>
-                <th>Entry → Exit</th>
-                <th>Phí / Funding</th>
-                <th>Trạng thái</th>
-                <th>PnL ròng</th>
-              </tr>
-            </thead>
-            <tbody>
-              {wallet?.trades.map((trade) => (
-                <tr
-                  key={trade.id}
-                  className={selected?.id === trade.id ? 'selected-trade-row' : undefined}
+          <section hidden={orderMode !== 'manual'} className="panel prose paper-order">
+            <div className="section-head">
+              <h2>Đặt lệnh thủ công</h2>
+              <span className="pill">MARKET</span>
+            </div>
+            {auto?.enabled && (
+              <div className="auto-lock-card" role="status">
+                <div>
+                  <strong>Auto đang chạy</strong>
+                  <span className="micro">
+                    {auto.daily_trades}/{auto.max_daily_trades} lệnh hôm nay · Lỗ ngày{' '}
+                    {auto.daily_loss_used_percent.toFixed(1)}%
+                  </span>
+                  <span className="micro">
+                    {wallet?.position?.audit?.strategy
+                      ? `Đang giữ ${strategyName(wallet.position.audit.strategy)}`
+                      : auto.learner_decision?.selected
+                        ? `Chờ ${strategyName(auto.learner_decision.selected)}`
+                        : 'Đang chờ tín hiệu'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void setAutoPaperEnabled(false)
+                      .then(refresh)
+                      .catch((e) => setError(String(e?.message ?? e)))
+                      .finally(() => setBusy(false));
+                  }}
                 >
-                  <td>
-                    <button className="text-button" onClick={() => viewTrade(trade.id)}>
-                      #{trade.id} · {timeLabel(trade.entry_time)}
+                  Dừng Auto
+                </button>
+              </div>
+            )}
+            <details className="desk-manual-form" open={!auto?.enabled}>
+              <summary>Thông số lệnh thủ công</summary>
+              <form onSubmit={(event) => void submit(event)}>
+                <div className="period-tabs" role="group" aria-label="Chiều lệnh">
+                  <button
+                    type="button"
+                    className={side === 'long' ? 'secondary selected' : 'secondary'}
+                    aria-pressed={side === 'long'}
+                    onClick={() => {
+                      setSide('long');
+                      if (stop || target) suggestLevels('long');
+                    }}
+                  >
+                    Long
+                  </button>
+                  <button
+                    type="button"
+                    className={side === 'short' ? 'secondary selected' : 'secondary'}
+                    aria-pressed={side === 'short'}
+                    onClick={() => {
+                      setSide('short');
+                      if (stop || target) suggestLevels('short');
+                    }}
+                  >
+                    Short
+                  </button>
+                </div>
+                <label>
+                  Giá trị lệnh (USDT)
+                  <input
+                    type="number"
+                    min="1"
+                    max="100000"
+                    step="0.01"
+                    required
+                    value={notional}
+                    onChange={(e) => setNotional(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Stop-loss (USDT)
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    required
+                    value={stop}
+                    onChange={(e) => setStop(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Take-profit (USDT)
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    required
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={stale || busy}
+                  onClick={() => suggestLevels()}
+                >
+                  <RefreshCw size={13} /> Điền SL 1% / TP 2% để thử
+                </button>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={stale || busy || !!auto?.enabled}
+                >
+                  {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
+                </button>
+                <p className="micro">
+                  Khối lượng làm tròn xuống theo hợp đồng MEXC. Phí {wallet?.fee_bps ?? 5} bps và
+                  trượt giá {wallet?.slippage_bps ?? 2} bps mỗi chiều là giả định, chưa gồm độ sâu
+                  sổ lệnh.
+                </p>
+              </form>
+            </details>
+          </section>
+          <div hidden={orderMode !== 'auto'}>
+            <AutoPaperPanel
+              state={auto}
+              stale={!!stale}
+              online={online}
+              clock={clock}
+              onUpdated={refresh}
+            />
+          </div>
+        </aside>
+      </div>
+      <div
+        ref={activitySection}
+        className="desk-activity-tabs"
+        role="group"
+        aria-label="Theo dõi giao dịch"
+      >
+        {[
+          ['position', 'Vị thế đang mở', positions.length],
+          ['history', 'Lịch sử lệnh', wallet?.trades.length ?? 0],
+          ['decisions', 'Quyết định Auto', auto?.decisions.length ?? 0],
+          ['evolution', 'Tiến hóa', ''],
+        ].map(([key, label, count]) => (
+          <button
+            type="button"
+            key={key}
+            aria-pressed={activityTab === key}
+            onClick={() => setActivityTab(String(key))}
+          >
+            {label} <span>{count}</span>
+          </button>
+        ))}
+      </div>
+      <div className="desk-scope" role="group" aria-label="Phạm vi bảng theo dõi">
+        <button className="secondary" aria-pressed={!allPairs} onClick={() => setAllPairs(false)}>
+          {base} / USDT
+        </button>
+        <button className="secondary" aria-pressed={allPairs} onClick={() => setAllPairs(true)}>
+          Tất cả 10 cặp
+        </button>
+        <span className="micro">Phạm vi bảng độc lập với chart · bấm lệnh để xem chart</span>
+      </div>
+      {allPairs && <AllPairsPanel board={board} tab={activityTab} onSelect={onSelect} />}
+      <div hidden={allPairs}>
+        <section hidden={activityTab !== 'position'} className="panel prose desk-activity-panel">
+          <div className="section-head">
+            <h2>Vị thế đang mở ({positions.length})</h2>
+          </div>
+          {positions.some((position) => position.monitoring?.status === 'history_pending') && (
+            <p className="negative" role="status">
+              Thiếu nến đối soát SL/TP; Auto Paper chờ. SL/TP theo quote hiện tại vẫn chạy.
+            </p>
+          )}
+          {positions.length ? (
+            <PositionsTable
+              showPair={false}
+              rows={positions.map((p) => ({
+                s: symbol,
+                p,
+                mark: quote?.fairPrice ?? null,
+                feeBps: wallet?.fee_bps ?? 0,
+                stale: !!stale,
+              }))}
+              onView={({ p }) => viewTrade(p.id)}
+              actions={({ p }) => (
+                <>
+                  <button
+                    className="secondary"
+                    disabled={busy || stale}
+                    onClick={() => void close(false, p.id)}
+                  >
+                    Đóng
+                  </button>
+                  {auto?.enabled && (
+                    <button
+                      className="secondary"
+                      disabled={busy || stale}
+                      onClick={() => void close(true, p.id)}
+                    >
+                      Dừng auto + đóng
                     </button>
-                  </td>
-                  <td>
-                    {trade.side.toUpperCase()}
-                    <small className="trade-origin">
-                      {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
-                    </small>
-                  </td>
-                  <td>
-                    {formatPrice(trade.entry)} →{' '}
-                    {trade.exit === null ? '—' : formatPrice(trade.exit)}
-                  </td>
-                  <td>
-                    {formatPrice(trade.entry_fee + trade.exit_fee)} /{' '}
-                    {formatPrice(trade.funding_cost)}
-                  </td>
-                  <td>{trade.exit_reason ? exitLabels[trade.exit_reason] : 'Đang mở'}</td>
-                  <td className={(trade.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>
-                    {trade.net_pnl === null ? 'Chưa chốt' : formatPrice(trade.net_pnl)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!wallet?.trades.length && <p>Chưa có lệnh mô phỏng.</p>}
-        <details>
-          <summary>Giả định và giới hạn mô phỏng</summary>
-          <p>
-            Market fill tại bid/ask quan sát được cộng trượt giá cố định; toàn bộ khối lượng khớp
-            ngay. SL/TP kích hoạt theo bid/ask lấy mẫu khoảng 5 giây và khớp tại giá quan sát kế
-            tiếp, có thể vượt mức đặt. Không tái dựng tick bị bỏ lỡ khi mất kết nối. Chưa mô phỏng
-            lệnh Limit, khớp một phần, liquidation, margin tiers hay ADL. Một vị thế, notional + phí
-            tối đa số dư ví. Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật cả
-            lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi tới MEXC.
+                  )}
+                </>
+              )}
+            />
+          ) : (
+            <p>Chưa có vị thế. Bật Auto Paper hoặc đặt lệnh thủ công bằng USDT ảo.</p>
+          )}
+          <p className="micro">
+            Số dư = vốn ban đầu + PnL đã chốt − phí − funding. Equity cộng PnL chưa chốt theo fair
+            price, chưa trừ phí đóng dự kiến. Funding thực tế được tính trễ khi nến fair-price tại
+            kỳ quyết toán đã đóng.
           </p>
-        </details>
-      </section>
-    </>
+        </section>
+        {activityTab === 'evolution' && <FuturesLearningPage />}
+        <div hidden={activityTab !== 'decisions'} className="desk-activity-panel">
+          <AutoDecisionList decisions={auto?.decisions ?? []} onViewTrade={viewTrade} />
+        </div>
+        <section hidden={activityTab !== 'history'} className="panel prose desk-activity-panel">
+          <div className="section-head">
+            <h2>Lịch sử lệnh mô phỏng</h2>
+            <span className="muted">100 lệnh gần nhất · click để xem mức giá</span>
+          </div>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lệnh / thời gian</th>
+                  <th>Chiều</th>
+                  <th>Entry → Exit</th>
+                  <th>Phí / Funding</th>
+                  <th>Trạng thái</th>
+                  <th>PnL ròng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wallet?.trades.map((trade) => (
+                  <tr
+                    key={trade.id}
+                    className={selected?.id === trade.id ? 'selected-trade-row' : undefined}
+                  >
+                    <td>
+                      <button className="text-button" onClick={() => viewTrade(trade.id)}>
+                        #{trade.id} · {timeLabel(trade.entry_time)}
+                      </button>
+                    </td>
+                    <td>
+                      {trade.side.toUpperCase()}
+                      <small className="trade-origin">
+                        {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
+                      </small>
+                    </td>
+                    <td>
+                      {formatPrice(trade.entry)} →{' '}
+                      {trade.exit === null ? '—' : formatPrice(trade.exit)}
+                    </td>
+                    <td>
+                      {formatPrice(trade.entry_fee + trade.exit_fee)} /{' '}
+                      {formatPrice(trade.funding_cost)}
+                    </td>
+                    <td>{trade.exit_reason ? exitLabels[trade.exit_reason] : 'Đang mở'}</td>
+                    <td className={(trade.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>
+                      {trade.net_pnl === null ? 'Chưa chốt' : formatPrice(trade.net_pnl)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!wallet?.trades.length && <p>Chưa có lệnh mô phỏng.</p>}
+          <details>
+            <summary>Giả định và giới hạn mô phỏng</summary>
+            <p>
+              Market fill tại bid/ask quan sát được cộng trượt giá cố định; toàn bộ khối lượng khớp
+              ngay. SL/TP kích hoạt theo bid/ask lấy mẫu khoảng 5 giây và khớp tại giá quan sát kế
+              tiếp, có thể vượt mức đặt. Không tái dựng tick bị bỏ lỡ khi mất kết nối. Chưa mô phỏng
+              lệnh Limit, khớp một phần, liquidation, margin tiers hay ADL. Một vị thế, notional +
+              phí tối đa số dư ví. Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật
+              cả lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi tới MEXC.
+            </p>
+          </details>
+        </section>
+      </div>
+    </div>
   );
 }

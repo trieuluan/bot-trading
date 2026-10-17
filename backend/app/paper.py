@@ -27,6 +27,8 @@ from .db import (
     Session,
     utcnow,
 )
+from .futures_symbols import current_symbol, state_id
+from .futures_exits import EXIT_POLICIES, protective_stop
 from .feed import load_candles
 from .mexc import MarketDataError, MexcFuturesAdapter
 
@@ -49,7 +51,7 @@ class CloseOrder(BaseModel):
 
 
 def lock_wallet(session):
-    wallet = session.scalar(select(PaperWallet).where(PaperWallet.id == 1).with_for_update())
+    wallet = session.scalar(select(PaperWallet).where(PaperWallet.id == state_id()).with_for_update())
     if wallet is None:
         raise HTTPException(503, "Chạy migration để khởi tạo ví mô phỏng")
     return wallet
@@ -68,8 +70,16 @@ def fresh_quote(wallet, now=None):
     return quote
 
 
-def open_position(session):
-    return session.scalar(select(PaperTrade).where(PaperTrade.exit_time.is_(None)))
+def open_positions(session):
+    return session.scalars(
+        select(PaperTrade).where(PaperTrade.symbol == current_symbol(), PaperTrade.exit_time.is_(None)).order_by(PaperTrade.id)
+    ).all()
+
+def unrealized_pnl(positions, mark):
+    return sum(direction(t) * t.quantity * (mark - t.entry) for t in positions) if mark else 0
+
+def used_margin(positions):
+    return sum(t.entry * t.quantity for t in positions)
 
 
 def direction(trade):
@@ -100,20 +110,20 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
 
 
 def apply_stops(session, wallet, now):
-    trade = open_position(session)
-    if trade is None:
+    positions = open_positions(session)
+    if not positions:
         return
     quote = fresh_quote(wallet, now)
-    reconcile_stops(session, wallet, trade, now)
-    if trade.exit_time is not None:
-        return
-    # Executable side of the sampled book, not a candle high/low.
-    price = quote["bid1"] if trade.side == "long" else quote["ask1"]
-    stopped = price <= trade.stop if trade.side == "long" else price >= trade.stop
-    targeted = price >= trade.target if trade.side == "long" else price <= trade.target
-    if stopped or targeted:
-        close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
-        return
+    for trade in positions:
+        reconcile_stops(session, wallet, trade, now)
+        if trade.exit_time is not None:
+            continue
+        # Executable side of the sampled book, not a candle high/low.
+        price = quote["bid1"] if trade.side == "long" else quote["ask1"]
+        stopped = price <= trade.stop if trade.side == "long" else price >= trade.stop
+        targeted = price >= trade.target if trade.side == "long" else price <= trade.target
+        if stopped or targeted:
+            close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
 
 def reconcile_stops(session, wallet, trade, now):
     """Simulated candle crossing closes conservatively at historical SL/TP, not present quote."""
@@ -140,19 +150,20 @@ def reconcile_stops(session, wallet, trade, now):
                 wallet.balance = round(wallet.balance + funding.cost, 8)
                 trade.funding_cost = round(trade.funding_cost - funding.cost, 8)
                 funding.cost = 0
-            trade.monitoring = dict(
-                next_bar=cursor,
-                status="recovered",
-                trigger_bar=candle.time,
-                ambiguous=bool(stopped and targeted),
-                fill_basis="gap_open" if gap else "level",
-                execution_model="historical_levels_v1",
-                recovered_at=int(now),
-                time_basis="bar_open" if gap else "bar_end_proxy",
-                reversed_funding=reversed_funding,
-            )
+            trade.monitoring = {
+                **monitoring,
+                "next_bar": cursor,
+                "status": "recovered",
+                "trigger_bar": candle.time,
+                "ambiguous": bool(stopped and targeted),
+                "fill_basis": "gap_open" if gap else "level",
+                "execution_model": "historical_levels_v1",
+                "recovered_at": int(now),
+                "time_basis": "bar_open" if gap else "bar_end_proxy",
+                "reversed_funding": reversed_funding,
+            }
             close_position(session, wallet, trade, reason, now, price=fill, exit_time=exit_time)
-            state = session.get(AutoPaperState, 1)
+            state = session.get(AutoPaperState, state_id())
             if state:
                 state.enabled = False
                 state.status = "Đã dừng Auto Paper: đối soát SL/TP lịch sử; kiểm tra ví trước khi bật lại"
@@ -162,6 +173,21 @@ def reconcile_stops(session, wallet, trade, now):
                 "Cả hai chạm thì ưu tiên SL. Auto Paper đã dừng."
             )))
             return
+        policy = monitoring.get("exit_policy", "fixed")
+        if policy != "fixed":
+            history = load_candles(session, limit=15, until=candle.time + 900)
+            settled_funding = sum(session.scalars(select(PaperFunding.cost).where(
+                PaperFunding.trade_id == trade.id, PaperFunding.time <= candle.time,
+            )))
+            next_stop = protective_stop(
+                dict(side=trade.side, entry=trade.entry, risk=monitoring["risk"], stop=trade.stop,
+                     exit_policy=policy, quantity=trade.quantity, entry_fee=trade.entry_fee,
+                     funding_cost=settled_funding),
+                history, wallet.fee_bps / 10000, wallet.slippage_bps / 10000)
+            if next_stop != trade.stop:
+                monitoring = {**monitoring, "last_stop_update": candle.time + 900,
+                              "previous_stop": trade.stop}
+                trade.stop = next_stop
         cursor += 900
     status = "history_pending" if cursor < end else "watching"
     if status == "history_pending" and monitoring.get("status") != status:
@@ -169,7 +195,7 @@ def reconcile_stops(session, wallet, trade, now):
             f"PAPER #{trade.id}: thiếu nến từ {cursor}; chờ đối soát SL/TP, "
             "SL/TP theo quote hiện tại vẫn chạy"
         )))
-    trade.monitoring = dict(next_bar=cursor, status=status)
+    trade.monitoring = {**monitoring, "next_bar": cursor, "status": status}
 
 
 def sync_paper_quote(adapter=None):
@@ -177,7 +203,7 @@ def sync_paper_quote(adapter=None):
     adapter = adapter or MexcFuturesAdapter()
     try:
         with Session() as session:
-            wallet = session.get(PaperWallet, 1)
+            wallet = session.get(PaperWallet, state_id())
             if wallet is None:
                 return  # Worker can start while migrations are being applied.
             if wallet.retry_at and wallet.retry_at.replace(tzinfo=utcnow().tzinfo) > utcnow():
@@ -223,13 +249,13 @@ def sync_paper_funding(adapter=None, now=None):
     now = int(time.time()) if now is None else now
     end = now // 900 * 900
     with Session() as session:
-        wallet = session.get(PaperWallet, 1)
+        wallet = session.get(PaperWallet, state_id())
         if wallet is None or now - wallet.funding_synced_at < 60:
             return
         start = wallet.funding_cursor
         has_trades = session.scalar(
             select(PaperTrade.id)
-            .where(or_(PaperTrade.exit_time.is_(None), PaperTrade.exit_time >= start))
+            .where(PaperTrade.symbol == current_symbol(), or_(PaperTrade.exit_time.is_(None), PaperTrade.exit_time >= start))
             .limit(1)
         )
         if end <= start:
@@ -260,6 +286,7 @@ def sync_paper_funding(adapter=None, now=None):
                 timestamp, rate = record["time"], record["rate"]
                 trades = session.scalars(
                     select(PaperTrade).where(
+                        PaperTrade.symbol == current_symbol(),
                         PaperTrade.entry_time < timestamp,
                         or_(PaperTrade.exit_time.is_(None), PaperTrade.exit_time >= timestamp),
                     )
@@ -299,6 +326,7 @@ def serialize_trade(trade, decision=None):
         name: getattr(trade, name)
         for name in (
             "id",
+            "symbol",
             "origin",
             "signal_time",
             "side",
@@ -329,7 +357,7 @@ def get_trade_candles(trade_id: int):
     """Read cached history only; inspecting a trade never changes trading state."""
     with Session() as session:
         trade = session.get(PaperTrade, trade_id)
-        if not trade:
+        if not trade or trade.symbol != current_symbol():
             raise HTTPException(404, "Không tìm thấy lệnh mô phỏng")
         anchor = trade.signal_time or int(trade.entry_time) // 900 * 900
         end = int(trade.exit_time or time.time()) // 900 * 900 + 4 * 900
@@ -338,7 +366,7 @@ def get_trade_candles(trade_id: int):
             session, since=anchor - 24 * 900, until=min(end, anchor + 1976 * 900)
         )
         result = [asdict(candle) for candle in candles]
-        wallet = session.get(PaperWallet, 1)
+        wallet = session.get(PaperWallet, state_id())
         bar = wallet.quote.get("bar") if wallet and wallet.quote else None
         if (
             bar
@@ -354,26 +382,22 @@ def get_wallet():
     # Keep balance, position and ledger from the same serialized wallet state.
     with Session.begin() as session:
         wallet = lock_wallet(session)
-        trades = session.scalars(select(PaperTrade).order_by(PaperTrade.id.desc()).limit(100)).all()
-        position = open_position(session)
+        trades = session.scalars(select(PaperTrade).where(PaperTrade.symbol == current_symbol()).order_by(PaperTrade.id.desc()).limit(100)).all()
+        positions = open_positions(session)
         decisions = {
             d.trade_id: d
             for d in session.scalars(
                 select(AutoPaperDecision).where(
                     AutoPaperDecision.trade_id.in_(
-                        [t.id for t in trades] + ([position.id] if position else [])
+                        {t.id for t in trades} | {t.id for t in positions}
                     )
                 )
             )
         }
         quote = wallet.quote
         mark = quote["fairPrice"] if quote else None
-        unrealized = (
-            direction(position) * position.quantity * (mark - position.entry)
-            if position and mark
-            else 0
-        )
-        margin = position.entry * position.quantity if position else 0
+        unrealized = unrealized_pnl(positions, mark)
+        margin = used_margin(positions)
         try:
             fresh_quote(wallet)
             stale = False
@@ -383,6 +407,7 @@ def get_wallet():
         if quote and (not candles or quote["bar"]["time"] > candles[-1]["time"]):
             candles.append(quote["bar"])
         return dict(
+            symbol=current_symbol(),
             initial_balance=wallet.initial_balance,
             balance=wallet.balance,
             equity=wallet.balance + unrealized,
@@ -396,7 +421,10 @@ def get_wallet():
             error=wallet.error,
             funding_error=wallet.funding_error,
             funding_cursor=wallet.funding_cursor,
-            position=serialize_trade(position, decisions.get(position.id)) if position else None,
+            position=(
+                serialize_trade(positions[-1], decisions.get(positions[-1].id)) if positions else None
+            ),
+            positions=[serialize_trade(t, decisions.get(t.id)) for t in positions],
             trades=[serialize_trade(trade, decisions.get(trade.id)) for trade in trades],
             candles=candles,
         )
@@ -412,15 +440,17 @@ def replay_command(session, request_id, payload):
 
 
 def create_position(
-    session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None
+    session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None,
+    exit_policy="fixed",
 ):
     """Shared sizing/fill/accounting for manual and automatic paper entries.
 
     Caller holds the wallet lock. No network or independent commit is allowed here.
     """
+    if exit_policy not in EXIT_POLICIES:
+        raise HTTPException(422, "Invalid futures exit policy")
     fresh_quote(wallet)
-    if open_position(session):
-        raise HTTPException(409, "Đang có vị thế; đóng vị thế trước khi mở lệnh mới")
+    positions = open_positions(session)
     if not wallet.contract:
         raise HTTPException(409, "Đang chờ thông số hợp đồng MEXC")
     price = execution_price(wallet, side, opening=True)
@@ -437,12 +467,18 @@ def create_position(
     quantity = float(contracts * size)
     notional = quantity * price
     fee = round(notional * wallet.fee_bps / 10000, 8)
-    if requested_notional > wallet.balance or notional + fee > wallet.balance:
+    free = wallet.balance - used_margin(positions)
+    if requested_notional > free or notional + fee > free:
         raise HTTPException(422, "Không đủ USDT ảo; tổng notional + phí tối đa 1× số dư")
     trade = PaperTrade(
+        symbol=current_symbol(),
         side=side,
         entry_time=int(time.time()),
-        monitoring=dict(next_bar=(int(time.time()) // 900 + 1) * 900, status="watching"),
+        monitoring=dict(
+            next_bar=(int(time.time()) // 900 + 1) * 900,
+            status="watching",
+            **({} if exit_policy == "fixed" else {"exit_policy": exit_policy, "risk": abs(price - stop)}),
+        ),
         origin=origin,
         signal_time=signal_time,
         entry=price,
@@ -463,6 +499,8 @@ def create_position(
 @router.post("/orders")
 def open_order(payload: OpenOrder):
     command = payload.model_dump(mode="json")
+    if current_symbol() != "BTC_USDT":
+        command["symbol"] = current_symbol()
     with Session.begin() as session:
         wallet = lock_wallet(session)
         previous = replay_command(session, payload.request_id, command)
@@ -470,7 +508,7 @@ def open_order(payload: OpenOrder):
             return previous
         fresh_quote(wallet)
         apply_stops(session, wallet, time.time())
-        auto = session.get(AutoPaperState, 1)
+        auto = session.get(AutoPaperState, state_id())
         if auto and auto.enabled:
             raise HTTPException(409, "Dừng Auto Paper trước khi mở lệnh thủ công")
         trade = create_position(
@@ -490,6 +528,8 @@ def open_order(payload: OpenOrder):
 @router.post("/positions/{trade_id}/close")
 def close_order(trade_id: int, payload: CloseOrder):
     command = {"action": "close", "trade_id": trade_id, **payload.model_dump(mode="json")}
+    if current_symbol() != "BTC_USDT":
+        command["symbol"] = current_symbol()
     with Session.begin() as session:
         wallet = lock_wallet(session)
         previous = replay_command(session, payload.request_id, command)
@@ -497,7 +537,7 @@ def close_order(trade_id: int, payload: CloseOrder):
             return previous
         fresh_quote(wallet)
         trade = session.get(PaperTrade, trade_id)
-        if trade is None:
+        if trade is None or trade.symbol != current_symbol():
             raise HTTPException(404, "Không tìm thấy vị thế")
         if trade.exit_time is None:
             apply_stops(session, wallet, time.time())

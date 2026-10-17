@@ -7,11 +7,11 @@ import {
   FlaskConical,
   LayoutDashboard,
   Link2,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
-  Terminal,
-  Wallet,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 const exnessNavigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
@@ -21,13 +21,9 @@ const exnessNavigation = [
 ];
 
 const navigation = [
-  { label: 'Tổng quan', icon: LayoutDashboard },
-  { label: 'Bot của bạn', icon: Bot },
-  { label: 'Chiến lược', icon: FlaskConical },
-  { label: 'Ví mô phỏng', icon: Wallet },
-  { label: 'Backtest', icon: FlaskConical },
-  { label: 'Kết nối sàn', icon: Link2 },
-  { label: 'Nhật ký', icon: Terminal },
+  { label: 'Giao dịch & Bot', icon: LayoutDashboard },
+  { label: 'Nghiên cứu', icon: FlaskConical },
+  { label: 'Cài đặt & Kết nối', icon: Link2 },
 ];
 
 interface SidebarProps {
@@ -51,14 +47,37 @@ export function Sidebar({
   botCount = 1,
   exness = false,
 }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('sidebar') === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.sidebar = collapsed ? 'collapsed' : 'open';
+    try {
+      localStorage.setItem('sidebar', collapsed ? 'collapsed' : 'open');
+    } catch {}
+  }, [collapsed]);
   return (
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
+      <button
+        type="button"
+        className="sidebar-toggle"
+        aria-label={collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+        aria-expanded={!collapsed}
+        title={collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+        onClick={() => setCollapsed((value) => !value)}
+      >
+        {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+      </button>
       <a
         className="brand"
         href="#"
         onClick={(e) => {
           e.preventDefault();
-          onNavigate('Tổng quan');
+          onNavigate(exness ? 'Tổng quan' : 'Giao dịch & Bot');
         }}
       >
         <div className="brand-mark">
@@ -84,17 +103,21 @@ export function Sidebar({
           return (
             <button
               className={page === label ? 'nav active' : 'nav'}
+              aria-current={page === label ? 'page' : undefined}
+              aria-label={label}
               key={label}
               onClick={() => onNavigate(label)}
               disabled={allowedPages !== undefined && !allowedPages.includes(label)}
               title={
                 allowedPages !== undefined && !allowedPages.includes(label)
                   ? 'Chưa hỗ trợ trong workspace này'
-                  : undefined
+                  : collapsed
+                    ? label
+                    : undefined
               }
             >
               <Icon size={18} />
-              {label}
+              <span className="nav-text">{label}</span>
               {(label === 'Bot của bạn' || label === 'Bot') && (
                 <span className="nav-count">{botCount}</span>
               )}
@@ -115,9 +138,14 @@ export function Sidebar({
             Chế độ mô phỏng <ArrowUpRight size={14} />
           </span>
         </div>
-        <button className="nav" onClick={onOpenHelp}>
+        <button
+          className="nav"
+          onClick={onOpenHelp}
+          title="Hướng dẫn sử dụng"
+          aria-label="Hướng dẫn sử dụng"
+        >
           <CircleHelp size={18} />
-          Hướng dẫn sử dụng
+          <span className="nav-text">Hướng dẫn sử dụng</span>
         </button>
         <div className="profile">
           <div className="avatar pale">LT</div>

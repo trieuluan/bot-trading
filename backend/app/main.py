@@ -1,23 +1,19 @@
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 import json
 import math
 import tempfile
 import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
 from .auto_paper import router as auto_router
-from .exness_execution import router as execution_router, enabled as demo_execution_enabled
-from .forex_learner import router as learning_router
-from .forex_strategies import STRATEGIES
 from .db import (
     AutoPaperState,
     BotState,
@@ -29,12 +25,20 @@ from .db import (
     Workspace,
     WorkspaceCandle,
 )
+from .exness_execution import enabled as demo_execution_enabled
+from .exness_execution import router as execution_router
 from .exness_feed import feed_summary
 from .exness_observation import observation_summary
-from .exness_quotes import quotes, router as quotes_router
+from .exness_quotes import quotes
+from .exness_quotes import router as quotes_router
+from .feed import load_candles
+from .forex_learner import router as learning_router
 from .forex_paper import forex_paper_summary
 from .forex_reporting import journal_csv
-from .feed import load_candles
+from .forex_strategies import STRATEGIES
+from .futures_symbols import SYMBOLS, market_symbol, symbol_scope
+from .futures_learner import router as futures_learning_router
+from .futures_history import router as futures_history_router
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME
 from .observation import router as observation_router
@@ -58,6 +62,8 @@ app.include_router(research_router)
 app.include_router(paper_router)
 app.include_router(execution_router)
 app.include_router(learning_router)
+app.include_router(futures_learning_router)
+app.include_router(futures_history_router)
 app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
@@ -68,6 +74,18 @@ def forex_journal(channel: Literal["live", "replay", "trend", "range", "router"]
         "Content-Disposition": f'attachment; filename="exness-paper-{channel}.csv"',
         "Cache-Control": "no-store",
     })
+
+@app.middleware("http")
+async def futures_symbol_scope(request, call_next):
+    symbol = request.query_params.get("symbol") or request.headers.get("X-Futures-Symbol") or SYMBOLS[0]
+    if symbol not in SYMBOLS:
+        return JSONResponse(status_code=422, content={"detail": "Unsupported Futures symbol"})
+    with symbol_scope(symbol):
+        return await call_next(request)
+
+@app.get("/api/workspaces/mexc_futures/symbols")
+def futures_symbols():
+    return {"symbols": list(SYMBOLS)}
 
 @app.middleware("http")
 async def legacy_workspace_guard(request, call_next):
@@ -127,7 +145,7 @@ def workspace_candles(
         if before is not None:
             query = query.where(model.time < before)
         rows = session.scalars(query.where(
-            model.symbol == workspace.symbol, model.timeframe == timeframe,
+            model.symbol == (market_symbol() if workspace.venue == SOURCE else workspace.symbol), model.timeframe == timeframe,
         ).order_by(model.time.desc()).limit(limit + 1)).all()
         has_more = len(rows) > limit
         rows = rows[:limit]
@@ -154,7 +172,8 @@ def workspace_dashboard(workspace_id: str):
     bars = m15["bars_per_side"] if m15 else 0
     last_sync = m15["last_sync"] if m15 else None
     worker_online = bool(m15 and m15["worker_online"])
-    pending = any(item["remaining_intervals"] is None or item["remaining_intervals"] > 0 for item in frames)
+    pending = any(item["remaining_intervals"] is None or item["remaining_intervals"] > 0
+                  for item in frames if item["timeframe"] != "1m")
     status = ("backfill" if pending else "synced") if bars else "waiting"
     if any(item["error"] for item in frames):
         status = "error"
@@ -183,8 +202,9 @@ def replay_forex_strategies():
         raise HTTPException(409, "Replay đang chạy; chờ kết quả, không gửi lại")
     temporary = None
     try:
-        from .exness_observation import load_frames
         from scripts.exness_mtf_replay import run_comparison
+
+        from .exness_observation import load_frames
 
         now = int(time.time())
         with Session() as session:

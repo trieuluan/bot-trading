@@ -230,6 +230,7 @@ class PaperWallet(Base):
 
 class PaperTrade(Base):
     __tablename__ = "paper_trades"
+    symbol: Mapped[str] = mapped_column(String(30), default="BTC_USDT", index=True)
     monitoring: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     origin: Mapped[str] = mapped_column(String(10), default="manual")
     signal_time: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -266,6 +267,11 @@ class PaperFunding(Base):
     cost: Mapped[float] = mapped_column(Float)
 
 
+class FuturesLearningState(Base):
+    __tablename__ = "futures_learning_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
 class AutoPaperState(Base):
     __tablename__ = "auto_paper_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -281,6 +287,7 @@ class AutoPaperState(Base):
 
 class AutoPaperDecision(Base):
     __tablename__ = "auto_paper_decisions"
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="BTC_USDT")
     candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     action: Mapped[str] = mapped_column(String(20))

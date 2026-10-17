@@ -7,26 +7,41 @@ import random
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 from statistics import mean, stdev
 
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from .db import ExnessDeal, ExnessExecutionTrade, ForexInstrumentState, ForexObservation, Session, WorkspaceCandle
-from .exness_feed import FRAMES, WORKSPACE
-from .forex_buffer_study import advance_variant, build_buffer_model, exit_target, new_variants, select_buffer, slot_key
+from .db import (
+    ExnessDeal,
+    ExnessExecutionTrade,
+    ForexInstrumentState,
+    ForexObservation,
+    Session,
+    WorkspaceCandle,
+)
 from .exness import ExnessError
-from .exness_targets import target_context
+from .exness_feed import FRAMES, WORKSPACE
 from .exness_management import structure_stop_buffer
 from .exness_observation import audit_frames, load_frames, observe_forex
+from .exness_targets import target_context
+from .forex_buffer_study import (
+    advance_variant,
+    build_buffer_model,
+    exit_target,
+    new_variants,
+    select_buffer,
+    slot_key,
+)
+from .forex_chart_analysis import BUILT_INS, chart_analysis
 from .forex_strategies import RULES, _closed_hours, ema, rsi, strategy_snapshot
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/learning")
 REPORT = Path(__file__).resolve().parents[2] / "research-output/exness-learning.json"
 POLICY = REPORT.with_name("exness-learning-policy.json")
-VERSION = "contextual_r_v5"
+VERSION = "contextual_r_v8_extra_families"
 def slippage_estimate():
     path = REPORT.with_name("exness-slippage-report.json")
     if not path.exists():
@@ -37,8 +52,8 @@ def slippage_estimate():
         raise ValueError("Invalid slippage measurement")
     return {"bps": min(100, max(0, value)), "measured": True,
             "fills": audit["fills"], "measured_at": audit["as_of"]}
-FAMILIES = ("channel", "rsi", "fvg", "session", "squeeze", "sweep", "pullback", "range", "retest", "router")
-CAP = 40
+FAMILIES = ("channel", "rsi", "fvg", "session", "squeeze", "sweep", "pullback", "range", "retest", "router", "orb", "vsa", "mss", "vwap")
+CAP = 56
 SEEDS = [
     {"family": "channel", "mode": mode, "lookback": n, "stop_atr": 1.5, "trend": trend}
     for mode in ("breakout", "fade") for n in (20, 40) for trend in (True, False)
@@ -55,15 +70,24 @@ SEEDS = [
     {"family": "range", "lookback": 20, "edge": 0.1, "efficiency": 0.5, "stop_atr": 1.5, "trend": False},
     {"family": "retest", "lookback": 20, "wait_hours": 12, "stop_atr": 1.5, "trend": True},
     {"family": "router", "separation": 0.5, "stop_atr": 1.5, "trend": False},
+    *[{"family": "orb", "session": session, "range_bars": 2, "trade_bars": 8, "stop_atr": 1.5, "trend": True}
+      for session in ("london", "new_york")],
+    {"family": "vsa", "lookback": 20, "vol_mult": 1.5, "wick_ratio": 0.6, "stop_atr": 1.0, "trend": False},
+    {"family": "mss", "lookback": 10, "wait_bars": 6, "retrace": 0.5, "stop_atr": 1.0, "trend": False},
+    {"family": "vwap", "lookback": 30, "dev_mult": 2.5, "stop_atr": 1.0, "trend": False},
 ]
+SEEDS = [{**genome, "target_r": 2.0, "partial_be": True} for genome in SEEDS]
 
 def genome_name(g):
     tag = "trend" if g["trend"] else "free"
     family = g.get("family", "channel")
+    tp = f"_tp{float(g['target_r'])}" if "target_r" in g else ""
+    if "partial_be" in g:
+        tp += "_split" if g["partial_be"] else "_full"
     if family == "channel":
-        return f"gen_{g['mode']}_n{g['lookback']}_k{g['stop_atr']}_{tag}"
-    params = "_".join(f"{key}{g[key]}" for key in sorted(g) if key not in ("family", "stop_atr", "trend", "generation", "parents"))
-    return f"gen_{family}_{params}_k{g['stop_atr']}_{tag}"
+        return f"gen_{g['mode']}_n{g['lookback']}_k{g['stop_atr']}{tp}_{tag}"
+    params = "_".join(f"{key}{g[key]}" for key in sorted(g) if key not in ("family", "stop_atr", "target_r", "partial_be", "trend", "generation", "parents"))
+    return f"gen_{family}_{params}_k{g['stop_atr']}{tp}_{tag}"
 
 def genome_signal(g, candle, hours, minutes, higher=()):
     """Parametric closed-bar rule per family; ATR stop; trend=True requires H1 EMA20/50 agreement."""
@@ -74,14 +98,19 @@ def genome_signal(g, candle, hours, minutes, higher=()):
     if (len(history) < 20 or len(closed) < 50 or history[-1].time != candle.time - 900
             or closed[-1].time + 7200 <= candle.time + 900):
         return None
-    needed = g.get("lookback", 20) if family in ("channel", "sweep", "squeeze") else 20
+    needed = max(20, g.get("lookback", 20) + (g.get("wait_bars", 0) if family == "mss" else 0))
+    if len(history) < needed:
+        return None
     if any(after.time - before.time != 900 for before, after in zip(history[-needed:], history[-needed + 1:])):
         return None
     atr = sum(row.high - row.low for row in history[-14:]) / 14
     if atr <= 0:
         return None
     side = None
-    if family in ("channel", "sweep"):
+    if family in ("orb", "vsa", "mss", "vwap"):
+        from .forex_extra_families import extra_setup
+        side, _ = extra_setup(g, candle, history)
+    elif family in ("channel", "sweep"):
         window = history[-g["lookback"]:]
         if len(window) < g["lookback"]:
             return None
@@ -191,8 +220,40 @@ def genome_signal(g, candle, hours, minutes, higher=()):
     stop = candle.close - g["stop_atr"] * atr if side == "long" else candle.close + g["stop_atr"] * atr
     return {"strategy": genome_name(g), "status": "confirmed", "side": side, "stop": stop,
             "candle_time": candle.time, "available_at": candle.time + 900, "generated": True,
+            "target_r": g.get("target_r", 2.0), "partial_be": g.get("partial_be", True),
             "family": family, "generation": g.get("generation", 0), "parents": g.get("parents", []),
             "reason": f"Chiến lược tự sinh {genome_name(g)}"}
+
+def attach_execution(sample, minutes, hours, higher, features, candle, condition):
+    if not sample["signal"].get("generated"):
+        return
+    if not condition or any(condition.get(key) is None for key in (
+            "volume_min", "volume_max", "volume_step", "contract_size", "point_digits")):
+        sample.update(status="excluded", reason="missing_instrument_specs")
+        return
+    try:
+        sample["execution"] = new_variants(sample["signal"], minutes, hours, higher,
+                                           features, candle, condition)[0]
+    except ExnessError as exc:
+        sample.update(status="excluded", reason=str(exc))
+
+def advance_learning_sample(sample, candle, ask, minutes, slippage_bps, commission):
+    if sample["signal"].get("generated"):
+        row = sample.get("execution")
+        if row is None:
+            sample.update(status="excluded", reason="execution_model_changed")
+            return
+        advance_variant(row, candle, ask, minutes, slippage_bps / 10000, commission)
+        sample.update(status=row["status"], last_candle=row["last_candle"])
+        if row["status"] == "resolved":
+            sample.update(net_r_ex_swap=row["net_r"], label_available_at=row["resolved_at"],
+                          entry=row["entry"], entry_time=row["entry_time"], risk=row["risk"])
+        if row["status"] not in ("pending", "open"):
+            sample["execution_result"] = {key: row[key] for key in ("reason", "tp_reason", "legs") if key in row}
+            sample.pop("execution")
+        return
+    from scripts.exness_mtf_replay import advance
+    advance(sample, candle, ask, slippage_bps=slippage_bps, commission_per_unit=commission)
 
 # (key, step, low, high) per family; every child stays inside these bounds.
 BOUNDS = {
@@ -206,13 +267,19 @@ BOUNDS = {
     "range": (("lookback", 5, 10, 40), ("edge", 0.05, 0.05, 0.25), ("efficiency", 0.1, 0.2, 0.6)),
     "retest": (("lookback", 5, 10, 40), ("wait_hours", 2, 2, 12)),
     "router": (("separation", 0.1, 0.2, 1.0),),
+    "orb": (("range_bars", 1, 1, 4), ("trade_bars", 2, 4, 12)),
+    "vsa": (("lookback", 5, 10, 30), ("vol_mult", 0.25, 1.25, 3.0), ("wick_ratio", 0.05, 0.5, 0.8)),
+    "mss": (("lookback", 2, 5, 15), ("wait_bars", 1, 2, 10), ("retrace", 0.05, 0.3, 0.7)),
+    "vwap": (("lookback", 5, 20, 50), ("dev_mult", 0.25, 1.5, 3.5)),
 }
 
 def validate_genome(g):
     family = g.get("family", "channel")
     if family not in BOUNDS or type(g.get("trend")) is not bool:
         raise ValueError("Invalid genome family/filter")
-    bounds = (*BOUNDS[family], ("stop_atr", 0.1, 0.5, 3.0))
+    if type(g.get("partial_be", True)) is not bool:
+        raise ValueError("Invalid genome partial_be")
+    bounds = (*BOUNDS[family], ("stop_atr", 0.1, 0.5, 3.0), *((("target_r", 0.5, 1.5, 3.0),) if "target_r" in g else ()))
     for key, step, low, high in bounds:
         value = g.get(key)
         if (type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high
@@ -224,6 +291,8 @@ def validate_genome(g):
         raise ValueError("Invalid compression window")
     if family == "session" and g["start_hour"] >= g["end_hour"]:
         raise ValueError("Invalid session window")
+    if family == "orb" and g.get("session") not in ("london", "new_york"):
+        raise ValueError("Invalid opening session")
 
 def mutate(g, rng):
     validate_genome(g)
@@ -232,8 +301,10 @@ def mutate(g, rng):
     child["family"] = family
     for key, step, low, high in BOUNDS[family]:
         value = g[key] + rng.choice((-2, -1, 0, 1, 2)) * step
-        child[key] = round(min(high, max(low, value)), 1) if isinstance(step, float) else int(min(high, max(low, value)))
+        child[key] = round(min(high, max(low, value)), 2) if isinstance(step, float) else int(min(high, max(low, value)))
     child["stop_atr"] = min(3.0, max(0.5, round(g["stop_atr"] + rng.choice((-0.5, 0, 0.5)), 1)))
+    child["target_r"] = min(3.0, max(1.5, round(g.get("target_r", 2.0) + rng.choice((-0.5, 0, 0.5)), 1)))
+    child["partial_be"] = g.get("partial_be", True) if rng.random() >= 0.15 else not g.get("partial_be", True)
     if rng.random() < 0.2:
         child["trend"] = not g["trend"]
     if family == "channel" and rng.random() < 0.15:
@@ -248,6 +319,8 @@ def crossover(a, b):
     validate_genome(a)
     validate_genome(b)
     return {**a, "family": a.get("family", "channel"), "trend": b["trend"], "stop_atr": b["stop_atr"],
+            "target_r": b.get("target_r", 2.0),
+            "partial_be": b.get("partial_be", True),
             "generation": max(a.get("generation", 0), b.get("generation", 0)) + 1,
             "parents": [genome_name(a), genome_name(b)]}
 
@@ -260,7 +333,10 @@ def evolve(samples, population, cutoff, seed, retired=()):
                 and math.isfinite(sample["net_r_ex_swap"])):
             scores.setdefault(sample["strategy"], []).append(sample["net_r_ex_swap"])
     def value(g):
-        return mean(scores[genome_name(g)]) if genome_name(g) in scores else -math.inf
+        values = scores.get(genome_name(g), [])
+        if len(values) < 15:
+            return -math.inf
+        return mean(values) - 1.96 * stdev(values) / math.sqrt(len(values))
     retired = set(retired) | {name for name, values in scores.items() if len(values) >= 40 and mean(values) < 0}
     alive = []
     for g in population:
@@ -308,6 +384,41 @@ def promoted_names(samples, cutoff, now):
     def lower(values):
         return mean(values) - 1.96 * stdev(values) / math.sqrt(len(values)) if len(values) >= 30 else -1
     return sorted(name for name, (train, val) in groups.items() if lower(train) > 0 and lower(val) > 0)
+
+def shadow_report(samples, cutoff, now, names, promoted, retired, costs_verified):
+    """Per-genome shadow status + reasons; same split/gate as promoted_names."""
+    split = {n: ([], []) for n in names}
+    for s in samples:
+        if (s["status"] != "resolved" or s["strategy"] not in split or s["label_available_at"] >= now
+                or not math.isfinite(s["net_r_ex_swap"])):
+            continue
+        if s["confirm_time"] + 900 < cutoff and s["label_available_at"] < cutoff:
+            split[s["strategy"]][0].append(s["net_r_ex_swap"])
+        elif s["confirm_time"] + 900 >= cutoff:
+            split[s["strategy"]][1].append(s["net_r_ex_swap"])
+    def lower(v):
+        return mean(v) - 1.96 * stdev(v) / math.sqrt(len(v)) if len(v) >= 2 else None
+    rows = []
+    for n, (train, val) in split.items():
+        lt, lv = lower(train), lower(val)
+        reasons = []
+        if n in retired:
+            reasons.append("Đã loại: ≥40 mẫu train, R trung bình < 0")
+        if len(train) < 30:
+            reasons.append(f"Thiếu mẫu train {len(train)}/30")
+        elif lt is not None and lt <= 0:
+            reasons.append("Lower-bound R train ≤ 0")
+        if len(val) < 30:
+            reasons.append(f"Thiếu mẫu validation {len(val)}/30")
+        elif lv is not None and lv <= 0:
+            reasons.append("Lower-bound R validation ≤ 0")
+        if not costs_verified:
+            reasons.append("Chưa xác minh commission/slippage từ sàn")
+        status = "promoted" if n in promoted else "retired" if n in retired else "shadow"
+        rows.append({"name": n, "status": status, "train": len(train), "validation": len(val),
+                     "lower_r_train": lt, "lower_r_validation": lv,
+                     "reasons": [] if status == "promoted" else reasons})
+    return rows
 
 def context(candle, hours, ask):
     closed = [row for row in hours if row.time + 3600 <= candle.time + 900][-60:]
@@ -383,17 +494,136 @@ def learner_decision(candle, hours, minutes, ask, breakout, policy, higher=()):
                   "reason": f"{mode}: {signal['strategy']} · {signal['reason']}"}
     return signal, mode, scored, observations
 
-def live_signal(candle, hours, minutes, ask, breakout, higher=()):
-    """Decision for the executor at candle close. Policy comes from the last training pass."""
+def live_decision(candle, hours, minutes, ask, breakout, higher=()):
+    """(signal, mode, scored, observations) at candle close, or None without a valid policy."""
     if not POLICY.exists():
         return None
     policy = json.loads(POLICY.read_text())
     if policy.get("version") != VERSION:
         return None
-    return learner_decision(candle, hours, minutes, ask, breakout, policy, higher=higher)[0]
+    return learner_decision(candle, hours, minutes, ask, breakout, policy, higher=higher)
+
+def live_signal(candle, hours, minutes, ask, breakout, higher=()):
+    """Decision for the executor at candle close. Policy comes from the last training pass."""
+    return (live_decision(candle, hours, minutes, ask, breakout, higher=higher) or (None,))[0]
+
+FORWARD = REPORT.with_name("exness-forward-shadow.json")
+
+def forward_path(account):
+    import hashlib
+    return FORWARD.with_name(FORWARD.stem + "-" + hashlib.sha256(account.encode()).hexdigest()[:16] + ".json")
+
+def forward_summary(account):
+    path = forward_path(account)
+    if not path.exists():
+        return {"since": None, "signals": 0, "strategies": [], "recent": []}
+    ledger = json.loads(path.read_text())
+    groups = defaultdict(list)
+    for sample in ledger["samples"]:
+        groups[(sample["strategy"], sample["strategy_version"])].append(sample)
+    rows = []
+    for (name, version), samples in groups.items():
+        values = [sample["net_r_ex_swap"] for sample in samples if sample["status"] == "resolved"]
+        rows.append({"strategy": name, "version": version, "signals": len(samples),
+                     "open": sum(sample["status"] in ("pending", "open") for sample in samples),
+                     "resolved": len(values), "excluded": sum(sample["status"] in ("excluded", "invalid", "skipped") for sample in samples),
+                     "costs_verified": all(sample["costs"]["verified"] for sample in samples),
+                     "mean_r": mean(values) if values else None,
+                     "lower_r": mean(values) - 1.96 * stdev(values) / math.sqrt(len(values)) if len(values) > 1 else None})
+    return {"since": ledger["since"], "updated_at": ledger.get("updated_at"), "signals": len(ledger["samples"]),
+            "strategies": sorted(rows, key=lambda row: (-row["signals"], row["strategy"])),
+            "recent": list(reversed(ledger["samples"][-40:])), "last_capture": ledger.get("last_capture"),
+            "assumptions": "fixed_2r_next_open; bid/ask; stop-first; no swap; overlapping samples; not broker fills"}
+
+def forward_tick(now=None):
+    import hashlib
+    import os
+
+    from .db import WorkspaceFeedState
+
+    now = int(time.time()) if now is None else now
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    if not account:
+        return "unconfigured"
+    path = forward_path(account)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return "busy"
+        ledger = json.loads(path.read_text()) if path.exists() else {
+            "account": account, "since": now // 900 * 900 - 900, "samples": [], "last_capture": None}
+        stamp = now // 900 * 900 - 900
+        previous = ledger.get("last_capture") or {}
+        if previous.get("time") == stamp and previous.get("status") in ("captured", "missed_window"):
+            return "waiting_next_candle"
+        with Session() as session:
+            frames = load_frames(session, now)
+            feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+            feed_ready = all(state and not state.error and state.checked_until is not None
+                             and state.checked_until >= now // FRAMES[frame][1] * FRAMES[frame][1]
+                             for frame, state in zip(FRAMES, feeds))
+            specs = session.get(ForexInstrumentState, WORKSPACE)
+            commission = specs.snapshot.get("commission_per_unit") if specs and specs.snapshot else None
+            condition = dict(specs.snapshot) if specs and specs.snapshot else None
+            observation = session.get(ForexObservation, (WORKSPACE, stamp))
+            breakout = observation.snapshot if observation else None
+        bids = {frame: [row for row in rows if row.price_type == "bid"] for frame, rows in frames.items()}
+        asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
+        valid = audit_frames(frames)["status"] != "blocked"
+        if valid:
+            for sample in ledger["samples"]:
+                if sample["status"] not in ("pending", "open"):
+                    continue
+                for index, candle in enumerate(bids["15m"]):
+                    if candle.time <= sample["last_candle"]:
+                        continue
+                    if candle.time not in asks:
+                        sample.update(status="excluded", reason="ask_candle_missing")
+                        break
+                    advance_learning_sample(sample, candle, asks[candle.time], bids["15m"][max(0, index - 59):index + 1],
+                                            sample["costs"]["slippage_bps"], sample["costs"]["commission_per_unit"] or 0)
+                    if sample["status"] not in ("pending", "open"):
+                        break
+        capture = {"time": stamp, "at": now, "status": "waiting_data"}
+        if now - (stamp + 900) > 120:
+            capture["status"] = "missed_window"
+        elif valid and feed_ready and bids["15m"] and bids["15m"][-1].time == stamp and stamp in asks and POLICY.exists():
+            policy = json.loads(POLICY.read_text())
+            if policy.get("version") == VERSION:
+                candle = bids["15m"][-1]
+                selected, mode, scores, observations = learner_decision(
+                    candle, bids["1h"], bids["15m"], asks[stamp], breakout, policy, higher=bids["4h"])
+                slippage = slippage_estimate()
+                costs = {"slippage_bps": slippage["bps"], "commission_per_unit": commission,
+                         "verified": bool(slippage["measured"] and commission is not None)}
+                genomes = {genome_name(genome): genome for genome in policy["population"]}
+                source = Path(__file__).read_bytes() + Path(__file__).with_name("forex_strategies.py").read_bytes()
+                for signal in observations:
+                    if signal["status"] != "confirmed":
+                        continue
+                    genome = genomes.get(signal["strategy"])
+                    version = hashlib.sha256(source + json.dumps(genome, sort_keys=True).encode()).hexdigest()[:16]
+                    sample = {
+                        "strategy": signal["strategy"], "strategy_version": version, "genome": genome,
+                        "signal": signal, "side": signal["side"], "stop": signal["stop"],
+                        "confirm_time": stamp, "recorded_at": now, "last_candle": stamp, "status": "pending",
+                        "costs": costs, "policy_updated_at": policy["updated_at"], "provenance": "live_forward_shadow"}
+                    attach_execution(sample, bids["15m"][-60:], bids["1h"], bids["4h"],
+                                     context(candle, bids["1h"], asks[stamp]), candle, condition)
+                    ledger["samples"].append(sample)
+                capture.update(status="captured", selected=selected["strategy"] if selected else None, mode=mode,
+                               confirmed=len([row for row in observations if row["status"] == "confirmed"]))
+            else:
+                capture["status"] = "policy_missing"
+        ledger.update(last_capture=capture, updated_at=now)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(ledger, allow_nan=False))
+        temporary.replace(path)
+        return capture["status"]
 
 def train(frames, now, commission_per_unit=None, existing=None, population=None, slippage=None, condition=None, retired=()):
-    from scripts.exness_mtf_replay import advance
     slippage = slippage or slippage_estimate()
 
     frames = {frame: [row for row in rows if row.time + {"15m": 900, "1h": 3600, "4h": 14400}[frame] <= now]
@@ -423,8 +653,8 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
         if existing and candle.time <= existing["latest"]["time"]:
             continue
         for sample in active:
-            advance(sample, candle, asks[candle.time], slippage_bps=slippage["bps"],
-                    commission_per_unit=commission_per_unit or 0)
+            advance_learning_sample(sample, candle, asks[candle.time], minutes[max(0, index - 59):index + 1],
+                                    slippage["bps"], commission_per_unit or 0)
         active = [sample for sample in active if sample["status"] in ("open", "pending")]
         for row in exit_active:
             advance_variant(row, candle, asks[candle.time], minutes[max(0, index - 59):index + 1], slippage["bps"] / 10000, commission_per_unit or 0)
@@ -444,7 +674,7 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
             candidates.append(baseline)
         occupied = {row.get("slot", row["context"]) for row in exit_active}
         for signal in candidates:
-            if condition and signal["strategy"] != "regime_router" and slot_key(signal, features) not in occupied:
+            if condition and not signal.get("generated") and signal["strategy"] != "regime_router" and slot_key(signal, features) not in occupied:
                 try:
                     rows = new_variants(signal, history + [candle], bids["1h"], bids["4h"], features, candle, condition)
                 except ExnessError:
@@ -457,6 +687,7 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
                       "confirm_time": candle.time, "last_candle": candle.time, "stop": signal["stop"],
                       "features": features, "bucket": bucket(signal, features),
                       "provenance": "forward_simulation" if existing else "historical_simulation", "signal": signal}
+            attach_execution(sample, history + [candle], bids["1h"], bids["4h"], features, candle, condition)
             samples.append(sample)
             active.append(sample)
         if candle.time >= cutoff:
@@ -512,6 +743,7 @@ def train(frames, now, commission_per_unit=None, existing=None, population=None,
                           "shadow": sum(genome_name(g) not in promoted for g in population),
                           "costs_verified": costs_verified,
                           "gate": "30 train + 30 validation, positive lower R in both, measured costs; boundary-crossing trades excluded; simulation only"},
+            "shadow_details": shadow_report(samples, cutoff, now, [genome_name(g) for g in population], promoted, retired, costs_verified),
             "next_population": evolve(samples, population, cutoff, now // 21600, retired=retired) if not existing else existing.get("next_population", population),
             "strategy_summary": {
                 name: {"signals": sum(row["strategy"] == name for row in samples),
@@ -578,7 +810,12 @@ def summary():
     if not REPORT.exists():
         return {"mode": "warming_up", "reason": "Waiting for first learning pass"}
     report = json.loads(REPORT.read_text())
-    return {key: value for key, value in report.items() if key not in ("samples", "model", "decisions", "breakout_state", "exit_study_samples")}
+    import os
+
+    from .forex_scalping import scalp_summary
+    return {**{key: value for key, value in report.items() if key not in ("samples", "model", "decisions", "breakout_state", "exit_study_samples")},
+            "forward_shadow": forward_summary(os.getenv("EXNESS_ACCOUNT_ID", "").strip()),
+            "scalping": scalp_summary(os.getenv("EXNESS_ACCOUNT_ID", "").strip())}
 
 def learning_tick(now=None, force=False):
     now = int(time.time()) if now is None else now
@@ -694,6 +931,7 @@ def current_analysis(now=None):
     }
 
     selected_signal = None
+    population = []
     policy_mode = "warming_up"
     policy_updated_at = None
     scored = []
@@ -701,6 +939,7 @@ def current_analysis(now=None):
         try:
             policy = json.loads(POLICY.read_text())
             if policy.get("version") == VERSION:
+                population = policy["population"]
                 policy_updated_at = policy["updated_at"]
                 signal, mode, scored, observations = learner_decision(
                     candle, hours, minutes, ask, breakout_snap, policy, higher=higher)
@@ -737,6 +976,15 @@ def current_analysis(now=None):
             issues.append(str(exc))
             if selected_signal:
                 selected_signal["projection_error"] = str(exc)
+
+    chart_params = {**BUILT_INS, "breakout_retest": {"family": "retest"}}
+    for genome in population:
+        validate_genome(genome)
+        chart_params[genome_name(genome)] = {"family": "channel", **genome}
+    for name, row in strategies.items():
+        if name in chart_params:
+            row["chart"] = chart_analysis(chart_params[name], candle, hours, minutes, higher,
+                                          breakout_snap, generated=name.startswith("gen_"))
 
     return {
         "candle_time": candle.time, "available_at": candle.time + 900, "features": features,

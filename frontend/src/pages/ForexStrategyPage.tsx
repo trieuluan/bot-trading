@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, FlaskConical, AlertTriangle } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import {
   MtfObservationChart,
   type ObservationChartSnapshot,
 } from '../components/MtfObservationChart';
+import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { formatPrice, observationStatusLabels } from '../lib/format';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 
@@ -233,6 +234,7 @@ export function ForexStrategyPage({
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
+  const [shownStrategies, setShownStrategies] = useState<string[]>([]); // default: draw nothing
   const [view, setView] = useState<'mtf' | 'trend' | 'range' | 'router'>('mtf');
   const historyBefore = selectedPosition?.status === 'closed' ? selectedPosition.close_time : null;
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -250,6 +252,17 @@ export function ForexStrategyPage({
     clock - quoteHeartbeat < 5000 &&
     quoteState.quote !== null &&
     clock / 1000 - quoteState.quote.time <= 15;
+
+  const liveCandles = useMemo(
+    () =>
+      quoteLive && !(executionOnly && selectedPosition?.status === 'closed')
+        ? (quoteState.candles?.[frame] ?? []).map((row) => ({
+            time: row.time,
+            ...(side === 'bid' ? row.bid : row.ask),
+          }))
+        : [],
+    [quoteLive, executionOnly, selectedPosition?.status, quoteState.candles, frame, side],
+  );
 
   useEffect(() => {
     const stream = new EventSource('/api/workspaces/exness_forex/quotes/stream');
@@ -647,6 +660,13 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
+          {frame === '15m' && (
+            <StrategyOverlayMenu
+              analysis={analysis}
+              selected={shownStrategies}
+              onChange={setShownStrategies}
+            />
+          )}
           <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
             <span>
               BID <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
@@ -850,16 +870,10 @@ export function ForexStrategyPage({
         key={`${frame}-${side}`}
         onLoadOlder={hasMore && !chartError ? () => historyActions.current.older() : undefined}
         candles={candles}
-        liveCandles={
-          quoteLive && !(executionOnly && selectedPosition?.status === 'closed')
-            ? (quoteState.candles?.[frame] ?? []).map((row) => ({
-                time: row.time,
-                ...(side === 'bid' ? row.bid : row.ask),
-              }))
-            : []
-        }
+        liveCandles={liveCandles}
         snapshot={!executionOnly && frame === '15m' && side === 'bid' ? fullSnapshot : null}
         analysis={executionOnly && frame === '15m' ? analysis : null}
+        shown={shownStrategies}
         executions={executions}
         dark={executionOnly}
         onClosePosition={onClosePosition}
@@ -881,53 +895,73 @@ export function ForexStrategyPage({
         title={`Exness XAUUSD · ${executionOnly ? 'FILL SÀN DEMO' : view} · ${side.toUpperCase()} ${frame} · USD/oz · UTC`}
       />
       {executionOnly && (
-        <div className="broker-chart-status">
-          <span>
-            {loading
-              ? 'Đang tải nến…'
-              : `${candles.length.toLocaleString()} nến ${frame.toUpperCase()}`}
-          </span>
-          <span>
-            {selectedPosition?.status === 'closed'
-              ? 'Đang xem lịch sử vị thế · không ghép tick'
-              : quoteLive
-                ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
-                : 'Tick tạm dừng · không dùng giá cũ'}
-          </span>
-          <span>{hasMore ? 'Kéo trái để tải thêm' : 'Hết lịch sử đã lưu'}</span>
+        <div className="bot-footer">
+          <div className="bot-footer-bar">
+            <span>
+              {loading
+                ? 'Đang tải nến…'
+                : `${candles.length.toLocaleString()} nến ${frame.toUpperCase()}`}
+              {' · '}
+              {hasMore ? 'Kéo trái để tải thêm' : 'Hết lịch sử đã lưu'}
+            </span>
+            <span className={quoteLive && selectedPosition?.status !== 'closed' ? 'is-live' : ''}>
+              {selectedPosition?.status === 'closed'
+                ? 'Xem lịch sử vị thế · không ghép tick'
+                : quoteLive
+                  ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
+                  : 'Tick tạm dừng · không dùng giá cũ'}
+            </span>
+          </div>
+          {analysis && (
+            <details className="bot-analysis">
+              <summary>
+                <strong>Bot quan sát</strong>
+                <span>
+                  nến {new Date(analysis.candle_time * 1000).toISOString().slice(11, 16)} UTC
+                </span>
+                <span className={analysis.selected_signal ? 'is-pick' : ''}>
+                  {analysis.selected_signal
+                    ? `Chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side} · dự kiến, chưa vào lệnh`
+                    : `Chưa chọn tín hiệu · ${analysis.policy_mode}`}
+                </span>
+                <span className="bot-analysis-count">
+                  {
+                    Object.values(analysis.strategies).filter((row) => row.status === 'confirmed')
+                      .length
+                  }{' '}
+                  xác nhận ·{' '}
+                  {Object.keys(analysis.strategies).filter((n) => n.startsWith('gen_')).length} tự
+                  sinh đang chờ
+                </span>
+              </summary>
+              <table>
+                <tbody>
+                  {Object.entries(analysis.strategies)
+                    .filter(([name, row]) => !name.startsWith('gen_') || row.status === 'confirmed')
+                    .map(([name, row]) => (
+                      <tr key={name}>
+                        <td>{name}</td>
+                        <td>{row.status}</td>
+                        <td>{row.reason ?? '—'}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              <p>Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.</p>
+            </details>
+          )}
+          <p className="bot-footer-note">
+            Chart chỉ hiện vị thế đang mở: mũi tên là fill vào, SL/TP theo dữ liệu sàn. Lệnh đã đóng
+            xem ở tab Lệnh trên sàn.
+          </p>
         </div>
       )}
-      {executionOnly && analysis && (
-        <details className="broker-chart-footnote" open>
-          <summary>
-            Bot đang quan sát · nến{' '}
-            {new Date(analysis.candle_time * 1000).toISOString().slice(11, 16)} UTC ·{' '}
-            {analysis.selected_signal
-              ? `chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side} (dự kiến, chưa vào lệnh)`
-              : `chưa chọn tín hiệu (${analysis.policy_mode})`}
-          </summary>
-          {Object.entries(analysis.strategies)
-            .filter(([name, row]) => !name.startsWith('gen_') || row.status === 'confirmed')
-            .map(([name, row]) => (
-              <p key={name}>
-                {name}: {row.status}
-                {row.reason ? ` · ${row.reason}` : ''}
-              </p>
-            ))}
-          <p>
-            {Object.values(analysis.strategies).filter((row) => row.status === 'confirmed').length}{' '}
-            tín hiệu xác nhận ·{' '}
-            {Object.keys(analysis.strategies).filter((n) => n.startsWith('gen_')).length} chiến lược
-            tự sinh đang chờ. Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.
-          </p>
-        </details>
+      {!executionOnly && (
+        <p className="micro">
+          Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không
+          dịch chuyển mức giá của setup.
+        </p>
       )}
-      <p className={executionOnly ? 'broker-chart-footnote' : 'micro'}>
-        {executionOnly
-          ? 'Chart chỉ hiện vị thế đang mở: mũi tên là fill vào, SL/TP theo dữ liệu sàn. Lệnh đã đóng xem ở tab Lệnh trên sàn.'
-          : 'Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không dịch chuyển mức giá của setup.'}
-      </p>
-
       {!executionOnly && view !== 'mtf' && (
         <div style={{ marginTop: 24 }}>
           <h3>

@@ -5,6 +5,7 @@ from backend.app.exness import ExnessError
 from backend.app.exness_feed import WORKSPACE
 from backend.app.forex_costs import lot_size, normalize_specs, spec_summary, sync_specs
 
+
 def specification():
     return {
         "instrument": "XAUUSD", "quote_currency": "USD", "margin_currency": "XAU",
@@ -122,3 +123,21 @@ def test_nonzero_override_is_round_turn_and_preserves_currency_guard(monkeypatch
     condition = specification()
     condition["commission_settings"] = {"commission_type": "unsupported"}
     assert normalize_specs(account(), condition, 1000)["commission_per_unit"] is None
+
+def test_cache_invalidated_when_account_changes():
+    class API:
+        account_id = "new-account"
+        calls = 0
+        def account(self):
+            API.calls += 1
+            return account()
+        def condition(self, _):
+            return specification()
+    with Session.begin() as session:
+        session.query(ForexInstrumentState).delete()
+        session.add(ForexInstrumentState(workspace_id=WORKSPACE, checked_at=1000, retry_at=10**10,
+                                         snapshot={**normalize_specs(account(), specification(), 1000), "account_tag": "old"}))
+    sync_specs(API(), 2000)
+    assert API.calls == 1
+    sync_specs(API(), 2001)
+    assert API.calls == 1

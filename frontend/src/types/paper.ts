@@ -16,10 +16,10 @@ export type PaperTrade = {
     reason: string;
     signal_time: number;
     signal_close: number;
-    range_start: number;
-    range_end: number;
-    range_high: number;
-    range_low: number;
+    range_start?: number;
+    range_end?: number;
+    range_high?: number;
+    range_low?: number;
     risk_percent: number;
     risk_budget: number;
   } | null;
@@ -64,6 +64,7 @@ export type PaperWallet = {
   funding_error: string | null;
   funding_cursor: number;
   position: PaperTrade | null;
+  positions: PaperTrade[];
   trades: PaperTrade[];
   candles: Candle[];
 };
@@ -88,7 +89,30 @@ export type AutoDecision = {
   trade_id: number | null;
   parameters: AutoPaperConfig;
 };
+export type FuturesStrategyObservation = {
+  strategy: string;
+  status: string;
+  side: string | null;
+  setup?: AutoDecision['setup'];
+  levels?: { title: string; price: number; from?: number; to?: number }[];
+  curves?: { title: string; points: { time: number; value: number }[] }[];
+  note?: string;
+};
 export type AutoPaperState = AutoPaperConfig & {
+  auto_mode: 'legacy' | 'learner' | 'paper_learning';
+  learner_enabled: boolean;
+  learner_error: string | null;
+  learner_decision: {
+    time: number;
+    regime: string;
+    candidates: number;
+    mode: string;
+    auto_mode: string;
+    selected: string | null;
+    selection_reason: string;
+    setup: AutoDecision['setup'];
+    strategies?: FuturesStrategyObservation[];
+  } | null;
   enabled: boolean;
   last_candle: number | null;
   day: string;
@@ -101,3 +125,33 @@ export type AutoPaperState = AutoPaperConfig & {
   next_close_time: number;
   decisions: AutoDecision[];
 };
+export interface FuturesHistoryStats {
+  resolved: number;
+  mean_r: number | null;
+  profit_factor: number | null;
+  no_losses: boolean;
+  signals: number;
+  excluded: number;
+}
+
+export interface FuturesHistoryJob {
+  id: string;
+  status: 'running' | 'completed' | 'failed';
+  phase: string;
+  days: number;
+  completed: number;
+  total: number;
+  error: string | null;
+  report: {
+    start_time: number;
+    end_time: number;
+    train_before: number;
+    eligible_priors: number;
+    strategies: {
+      strategy: string;
+      train: FuturesHistoryStats;
+      validation: FuturesHistoryStats;
+      prior_eligible: boolean;
+    }[];
+  } | null;
+}

@@ -17,6 +17,7 @@ import {
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 import { formatPrice, observationStatusLabels } from '../lib/format';
+import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { placeChartTags } from '../lib/chart-tags';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
@@ -28,6 +29,7 @@ export function MtfObservationChart({
   candles,
   snapshot,
   analysis = null,
+  shown = [],
   livePrice = null,
   liveCandles = [],
   executions = [],
@@ -46,6 +48,7 @@ export function MtfObservationChart({
   candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
   snapshot: ObservationChartSnapshot | null;
   analysis?: LearnerAnalysis | null;
+  shown?: string[];
   title?: string;
   livePrice?: { price: number; label: string } | null;
   liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
@@ -382,6 +385,7 @@ export function MtfObservationChart({
     analysisLines.current.forEach((line) => priceSeries.removePriceLine(line));
     analysisLines.current = [];
     if (!analysis) return;
+    const on = (name: string) => shown.includes(name);
     const add = (
       price: number | null | undefined,
       color: string,
@@ -402,10 +406,27 @@ export function MtfObservationChart({
     };
     const last = candles.at(-1)?.close;
     const { levels, selected_signal: signal } = analysis;
-    add(levels.m15_donchian?.high, '#b59854', 'BOT · Donchian20 cao', LineStyle.Dotted);
-    add(levels.m15_donchian?.low, '#b59854', 'BOT · Donchian20 thấp', LineStyle.Dotted);
-    add(levels.m15_ema20, '#557fa1', 'BOT · EMA20 M15', LineStyle.Dotted);
-    if (last != null) {
+    if (on(CONTEXT_STRATEGY_KEY)) {
+      add(levels.m15_donchian?.high, '#b59854', 'BOT · Donchian20 cao', LineStyle.Dotted);
+      add(levels.m15_donchian?.low, '#b59854', 'BOT · Donchian20 thấp', LineStyle.Dotted);
+      add(levels.m15_ema20, '#557fa1', 'BOT · EMA20 M15', LineStyle.Dotted);
+    }
+    for (const [name, row] of Object.entries(analysis.strategies)) {
+      if (!on(name)) continue;
+      const tag = `${name}${row.side ? ' ' + row.side.toUpperCase() : ''}`;
+      const hue = [...name].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360;
+      const color = `hsl(${hue}, 65%, 65%)`;
+      if (row.chart) {
+        // ponytail: price lines span full width; RSI not plotted on price axis, shown in menu badge.
+        for (const level of row.chart.levels) {
+          add(level.price, color, `${name} · ${level.label}`, LineStyle.Dotted);
+        }
+      } else {
+        add(row.level, color, `${tag} · vùng`, LineStyle.Solid);
+      }
+      add(row.stop, '#bd7164', `${tag} · SL`, LineStyle.Dashed);
+    }
+    if (on(CONTEXT_STRATEGY_KEY) && last != null) {
       for (const frame of ['H1', 'H4']) {
         const above = levels.barriers
           .filter((row) => row.reason.startsWith(frame) && row.side === 'long' && row.price > last)
@@ -417,7 +438,7 @@ export function MtfObservationChart({
         if (below) add(below.price, '#bd7164', `CẢN DƯỚI · ${below.reason}`, LineStyle.LargeDashed);
       }
     }
-    if (signal) {
+    if (signal && on(signal.strategy)) {
       const tag = `${signal.strategy} ${signal.side.toUpperCase()}`;
       add(signal.projected_entry, '#557fa1', `THAM CHIẾU VÀO · ${tag}`, LineStyle.Dashed);
       add(signal.projected_stop, '#bd7164', 'SL DỰ KIẾN · không phải lệnh sàn', LineStyle.Dashed);
@@ -427,7 +448,7 @@ export function MtfObservationChart({
       analysisLines.current.forEach((line) => priceSeries.removePriceLine(line));
       analysisLines.current = [];
     };
-  }, [analysis, candles]);
+  }, [analysis, candles, shown]);
 
   return (
     <div className="trade-chart-wrap">
@@ -543,30 +564,34 @@ export function MtfObservationChart({
           )}
         </div>
       )}
-      <div className="chart-legend">
-        {snapshot && (
-          <strong>
-            {trendLabel}:{' '}
-            {snapshot.trend === 'up'
-              ? 'Tăng'
-              : snapshot.trend === 'down'
-                ? 'Giảm'
-                : snapshot.trend === 'sideway'
-                  ? 'Đi ngang'
-                  : 'Chưa rõ'}{' '}
-            · {observationStatusLabels[snapshot.status] ?? snapshot.status} · Vùng{' '}
-            {snapshot.level ? formatPrice(snapshot.level) : '—'}
-          </strong>
-        )}
-        <span className="breakout-legend">— Vùng 1h tham chiếu</span>
-        {snapshot && snapshot.level !== null && (
-          <span className="entry-legend">— {levelLabel}</span>
-        )}
-        {snapshot && snapshot.stop !== null && <span className="stop-legend">— SL tham chiếu</span>}
-        {snapshot && snapshot.target !== null && (
-          <span className="target-legend">— TP tham chiếu</span>
-        )}
-      </div>
+      {snapshot && (
+        <div className="chart-legend">
+          {snapshot && (
+            <strong>
+              {trendLabel}:{' '}
+              {snapshot.trend === 'up'
+                ? 'Tăng'
+                : snapshot.trend === 'down'
+                  ? 'Giảm'
+                  : snapshot.trend === 'sideway'
+                    ? 'Đi ngang'
+                    : 'Chưa rõ'}{' '}
+              · {observationStatusLabels[snapshot.status] ?? snapshot.status} · Vùng{' '}
+              {snapshot.level ? formatPrice(snapshot.level) : '—'}
+            </strong>
+          )}
+          <span className="breakout-legend">— Vùng 1h tham chiếu</span>
+          {snapshot && snapshot.level !== null && (
+            <span className="entry-legend">— {levelLabel}</span>
+          )}
+          {snapshot && snapshot.stop !== null && (
+            <span className="stop-legend">— SL tham chiếu</span>
+          )}
+          {snapshot && snapshot.target !== null && (
+            <span className="target-legend">— TP tham chiếu</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

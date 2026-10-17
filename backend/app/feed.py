@@ -8,6 +8,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import BotState, Event, MarketCandle, MarketState, Session, Signal, utcnow
 from .market import Candle
+from .futures_symbols import market_symbol, state_id
 from .mexc import INTERVAL_SECONDS, SOURCE, SYMBOL, TIMEFRAME, MarketDataError, MexcFuturesAdapter
 from .strategy import breakout
 
@@ -19,7 +20,7 @@ def load_candles(
         select(MarketCandle)
         .where(
             MarketCandle.source == SOURCE,
-            MarketCandle.symbol == SYMBOL,
+            MarketCandle.symbol == market_symbol(),
             MarketCandle.timeframe == TIMEFRAME,
         )
         .order_by(MarketCandle.time.desc())
@@ -39,7 +40,7 @@ def save_candles(session, candles: list[Candle]):
         session.merge(
             MarketCandle(
                 source=SOURCE,
-                symbol=SYMBOL,
+                symbol=market_symbol(),
                 timeframe=TIMEFRAME,
                 **candle.__dict__,
             )
@@ -50,7 +51,7 @@ def save_market_signal(session, candle_time, setup):
     """Both monitoring and auto entry can discover the same bar concurrently."""
     insert = sqlite_insert if session.bind.dialect.name == "sqlite" else postgres_insert
     statement = insert(Signal).values(
-        source=SOURCE, symbol=SYMBOL, timeframe=TIMEFRAME, candle_time=candle_time, **setup.__dict__
+        source=SOURCE, symbol=market_symbol(), timeframe=TIMEFRAME, candle_time=candle_time, **setup.__dict__
     )
     result = session.execute(
         statement.on_conflict_do_nothing(
@@ -63,7 +64,7 @@ def save_market_signal(session, candle_time, setup):
 def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
     """Network outside transaction; cursor/analysis inside one locked transaction."""
     with Session() as session:
-        market = session.get(MarketState, 1)
+        market = session.get(MarketState, state_id())
         if market.source != SOURCE:
             return
         retry_at = market.retry_at
@@ -88,7 +89,7 @@ def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
             # Always lock bot before market, also used by the control/config endpoints.
             bot = session.scalar(select(BotState).where(BotState.id == 1).with_for_update())
             market = session.scalar(
-                select(MarketState).where(MarketState.id == 1).with_for_update()
+                select(MarketState).where(MarketState.id == state_id()).with_for_update()
             )
             if market.source != SOURCE:
                 return
@@ -130,7 +131,7 @@ def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
     except MarketDataError as exc:
         with Session.begin() as session:
             market = session.scalar(
-                select(MarketState).where(MarketState.id == 1).with_for_update()
+                select(MarketState).where(MarketState.id == state_id()).with_for_update()
             )
             if market.source == SOURCE:
                 if market.error != str(exc):

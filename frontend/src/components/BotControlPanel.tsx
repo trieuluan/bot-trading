@@ -62,7 +62,7 @@ export function BotControlPanel({ snapshot, connected, busy, onToggle }: BotCont
             ? 'Dừng tạo tín hiệu'
             : 'Bật theo dõi tín hiệu'}
       </button>
-      <p className="micro">Chỉ tạo tín hiệu. Auto Paper được điều khiển riêng tại Ví mô phỏng.</p>
+      <p className="micro">Chỉ tạo tín hiệu. Auto Paper có nút bật/dừng riêng tại Giao dịch & Bot.</p>
     </section>
   );
 }

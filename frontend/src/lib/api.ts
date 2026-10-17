@@ -1,3 +1,4 @@
+import { futuresHeaders } from './futures-symbol';
 import type { Snapshot, BacktestParameters, BacktestReport } from '../types/trading';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -27,7 +28,7 @@ export async function setBotEnabled(enabled: boolean): Promise<void> {
 async function researchRequest(path: string, body?: object) {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...futuresHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(180_000),
   });
@@ -52,10 +53,18 @@ export function fetchLatestBacktest(): Promise<BacktestReport | null> {
 export function fetchPaperWallet(): Promise<import('../types/paper').PaperWallet> {
   return paperRequest('/api/paper/wallet');
 }
+export function fetchFuturesHistory(): Promise<import('../types/paper').FuturesHistoryJob | null> {
+  return paperRequest('/api/workspaces/mexc_futures/learning/history');
+}
+export function startFuturesHistory(
+  days: number,
+): Promise<import('../types/paper').FuturesHistoryJob> {
+  return paperRequest('/api/workspaces/mexc_futures/learning/history', { days });
+}
 async function paperRequest(path: string, body?: object) {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...futuresHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10000),
   });
@@ -109,5 +118,19 @@ export async function fetchMtfObservation(): Promise<
   if (!response.ok) {
     throw new Error(`MTF observation request failed: ${response.status}`);
   }
+  return response.json();
+}
+
+export async function fetchMexcCandles(
+  before?: number,
+  limit = 500,
+): Promise<{ candles: import('../types/trading').Candle[]; has_more: boolean }> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (before) query.set('before', String(before));
+  const response = await fetch(`/api/workspaces/mexc_futures/candles?${query}`, {
+    headers: futuresHeaders(),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error('Không tải được lịch sử nến.');
   return response.json();
 }

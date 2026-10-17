@@ -20,7 +20,7 @@ export function ConnectionsPage({
       await selectMarket(source);
       await onRefresh();
       setMessage(
-        'Đã đổi nguồn dữ liệu. Bot được dừng khi chuyển nguồn; bạn có thể bật lại ở trang Tổng quan.',
+        'Đã đổi nguồn dữ liệu. Bot được dừng khi chuyển nguồn; bật lại ở Nghiên cứu → Tín hiệu. Auto Paper có nút bật/dừng riêng tại Giao dịch & Bot.',
       );
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Không kết nối được nguồn dữ liệu.');
@@ -32,15 +32,16 @@ export function ConnectionsPage({
     <section className="panel prose">
       <h2>Nguồn dữ liệu thị trường</h2>
       <p>
-        MEXC Futures public API: BTC_USDT perpetual · 15 phút. Chỉ đọc nến đã đóng, không cần API
-        key. Bot lấy bù nến sau khi mất kết nối và kiểm tra khoảng trống trước khi tạo tín hiệu.
+        MEXC Futures public API: BTC_USDT perpetual · 15 phút. Chart nhận nến đang chạy qua
+        WebSocket; worker lưu nến đã đóng qua REST. Không cần API key. Bot lấy bù nến sau khi mất
+        kết nối và kiểm tra khoảng trống trước khi tạo tín hiệu.
       </p>
       <div className="exchange-grid">
         {[
           {
             source: 'mexc_futures' as const,
             name: 'MEXC Futures',
-            description: 'Giá hợp đồng thật · USDT perpetual · REST mỗi 15 giây',
+            description: 'Chart WebSocket live · nến đóng REST 15 giây · khớp Paper REST 5 giây',
           },
           {
             source: 'synthetic' as const,

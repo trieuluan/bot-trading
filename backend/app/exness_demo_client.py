@@ -5,7 +5,8 @@ import json
 import math
 import os
 import time
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from copy import deepcopy
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 import httpx
 
@@ -49,6 +50,8 @@ def signed_mutation_headers(api, method, path, body, key, now_ms=None):
             "Content-Type": "application/json"}
 
 
+PREPARE_TTL = 600
+
 class ExnessDemoClient:
     def __init__(self, api):
         self.api = api
@@ -73,6 +76,15 @@ class ExnessDemoClient:
         return snapshot
 
     def prepare(self, *, require_flat=True):
+        if os.getenv("EXNESS_ENVIRONMENT") != "demo" or os.getenv("EXNESS_SYMBOL") != "XAUUSD":
+            raise ExnessError("Demo XAUUSD configuration required")
+        identity = (self.api.account_id, self.api.base_url, self.api.api_key)
+        cached = getattr(self.api, "_prepared", None)
+        if cached and cached[3] == identity and 0 <= time.monotonic() - cached[0] < PREPARE_TTL:
+            self.can_modify = cached[2]
+            if require_flat:
+                self._require_flat()
+            return deepcopy(cached[1])
         self.verify_demo()
         condition = self.api.condition("XAUUSD")
         if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
@@ -97,11 +109,15 @@ class ExnessDemoClient:
         self.api.request_interval = max(1.05, self.api.request_interval, *[
             float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
             for rate in rates])
+        self.api._prepared = (time.monotonic(), deepcopy(condition), self.can_modify, identity)
         if require_flat:
-            snapshot = self.snapshot()
-            if snapshot.get("positions") or snapshot.get("orders"):
-                raise ExnessError("Calibration requires empty demo account; unrelated trades untouched")
+            self._require_flat()
         return condition
+
+    def _require_flat(self):
+        snapshot = self.snapshot()
+        if snapshot.get("positions") or snapshot.get("orders"):
+            raise ExnessError("Calibration requires empty demo account; unrelated trades untouched")
 
     def open_body(self, side, condition, quote, key):
         validate_quote(quote)

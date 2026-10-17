@@ -49,7 +49,7 @@ export function StrategyPage() {
         <p className="micro">
           Trực tiếp và chạy bù có nhãn riêng; tín hiệu cũ chỉ dùng nghiên cứu, không mở lệnh. Auto
           Paper vẫn giữ breakout 15m cũ.
-          {obs && !obs.available && ' · Chọn nguồn MEXC Futures tại Kết nối sàn để quan sát.'}
+          {obs && !obs.available && ' · Chọn nguồn MEXC Futures tại Cài đặt & Kết nối để quan sát.'}
           {obs?.backlog_bars && obs.backlog_bars > 0 ? (
             <span className="negative"> · Đang xử lý bù {obs.backlog_bars} nến sau gián đoạn.</span>
           ) : null}

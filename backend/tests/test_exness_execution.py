@@ -1,5 +1,5 @@
 import json
-import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -7,10 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import exness_execution as ee
-from backend.app.db import (ExnessDeal, ExnessExecutionState, ExnessExecutionTrade,
-                            ForexObservation, Session, WorkspaceCandle, WorkspaceFeedState)
+from backend.app.db import (
+    ExnessDeal,
+    ExnessExecutionState,
+    ExnessExecutionTrade,
+    Session,
+)
 from backend.app.exness import ExnessError, load_private_key
-from backend.app.exness_feed import WORKSPACE
 from backend.app.main import app
 
 NOW = 1791900000
@@ -221,3 +224,183 @@ def test_signal_splits_into_native_tp1_then_runner_only_after_first_fill(monkeyp
     with Session() as session:
         row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
         assert [leg["status"] for leg in row.snapshot["legs"]] == ["submitted", "planned"]
+
+def test_operation_404_falls_back_and_heartbeat_survives_api_error():
+    def missing(path, params=None):
+        raise ExnessError("Exness HTTP 404")
+    assert ee.operation_result(SimpleNamespace(account_id="1", get=missing), "op") == {}
+    api = dummy_api()
+    api.account = lambda: (_ for _ in ()).throw(ExnessError("Exness rate limit"))
+    with pytest.raises(ExnessError):
+        ee._execution_tick(api, now=NOW)
+    with Session() as session:
+        assert session.get(ExnessExecutionState, api.account_id).snapshot["heartbeat"] == NOW
+
+def test_reconciles_intent_older_than_one_day():
+    api = dummy_api()
+    old = NOW - 3 * 86400
+    leg = {"status": "submitted", "key": "rr-old", "recorded_at": old, "ack": {"operation_id": "9"}}
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=old, snapshot=leg))
+        session.add(ExnessDeal(account=api.account_id, deal_id="2", position_id="P", event_time=old + 9,
+                               snapshot={"type": "close", "price": "1", "position_id": "P"}))
+    def get(path, params=None):
+        if "/operations/" in path:
+            return {"status": "accepted"}
+        if path.endswith("/orders"):
+            return {"items": [{"order": {"comment": "rr-old", "instrument": "XAUUSD",
+                                         "state": "filled", "position_id": "P", "order_id": "1"}}], "has_more": False}
+        return {"items": [], "has_more": False}
+    api.get = get
+    ee.reconcile(api, {"positions": [], "orders": []}, NOW)
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, (api.account_id, old)).snapshot["status"] == "closed"
+
+@pytest.mark.parametrize("copies", [1, 2])
+def test_reconciles_when_broker_drops_comment(copies):
+    api = dummy_api()
+    old = NOW - 100
+    leg = {
+        "status": "submitted", "key": "rr-no-comment", "recorded_at": old, "submitted_at": old + 1,
+        "body": {"instrument": "XAUUSD", "side": "buy", "volume": "0.01", "stop_loss_price": "4000.0", "take_profit_price": "4020.0"}
+    }
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=old, snapshot=leg))
+        session.add(ExnessDeal(account=api.account_id, deal_id="3", position_id="P2", event_time=old + 5,
+                               snapshot={"type": "close", "price": "4020.0", "position_id": "P2"}))
+    def get(path, params=None):
+        if path.endswith("/orders"):
+            return {"items": [{"order": {
+                "comment": None, "instrument": "XAUUSD", "direction": "buy", "order_type": "market",
+                "volume": "0.01", "stop_loss_price": "4000.0", "take_profit_price": "4020.0",
+                "create_time": datetime.fromtimestamp(old + 1, timezone.utc).isoformat(), "state": "filled", "position_id": "P2", "order_id": "2"
+            }}] * copies, "has_more": False}
+        return {"items": [], "has_more": False}
+    api.get = get
+    ee.reconcile(api, {"positions": [], "orders": []}, NOW)
+    with Session() as session:
+        trade = session.get(ExnessExecutionTrade, (api.account_id, old))
+        assert trade.snapshot["status"] == ("closed" if copies == 1 else "submitted")
+        assert trade.snapshot.get("position_id") == ("P2" if copies == 1 else None)
+
+def test_journal_records_why_bot_stayed_out(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    def blocked(session, now):
+        session.info["execution_evaluation"] = {
+            "candle_time": NOW - 900, "evaluated": True, "mode": "explore", "selected": "squeeze_breakout",
+            "confirmed": [{"strategy": "squeeze_breakout", "side": "short", "shadow": False}]}
+        return None
+    monkeypatch.setattr(ee, "evaluate", blocked)
+    with Session.begin() as session:
+        row = session.get(ExnessExecutionState, api.account_id)
+        row.snapshot = {**row.snapshot, "history_until": 0}  # catching up -> blocked
+    assert ee._execution_tick(api, now=NOW) == "history_catching_up"
+    with Session() as session:
+        journal = session.get(ExnessExecutionState, api.account_id).snapshot["journal"]
+    assert journal[-1]["outcome"] == "blocked:history_catching_up"
+    assert journal[-1]["selected"] == "squeeze_breakout"
+    rows = journal + [{**journal[-1], "time": 1, "outcome": "order_sent"}]
+    assert ee.funnel(rows)["orders"] == 1 and ee.funnel(rows)["selected"] == 2
+
+def test_rate_limit_is_labeled_not_order_error(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    with Session.begin() as s:
+        st = s.get(ExnessExecutionState, api.account_id)
+        ee.record_journal(st, {"candle_time": NOW - 900}, "no_signal", NOW)
+    ee.record_error(api.account_id, ExnessError("limit", 5, rate_limited=True), NOW)
+    with Session() as s:
+        row = s.get(ExnessExecutionState, api.account_id).snapshot["journal"][-1]
+    assert row["outcome"] == "api_rate_limited"
+
+def test_late_retry_blocked_when_price_drifts():
+    sig = {"available_at": NOW - 200, "ref_price": 4000.0, "stop": 3990.0}
+    ee.late_drift_ok(sig, 4002.0, NOW)  # 0.2R ok
+    with pytest.raises(ExnessError, match="price_drift"):
+        ee.late_drift_ok(sig, 4003.0, NOW)  # 0.3R
+    ee.late_drift_ok({**sig, "available_at": NOW - 60}, 4050.0, NOW)  # in normal window: unchanged behavior
+
+def test_prepare_cached_across_clients():
+    from backend.app.exness_demo_client import ExnessDemoClient
+    api = dummy_api()
+    calls = []
+    orig_cond = api.condition
+    api.condition = lambda sym: (calls.append("condition"), orig_cond(sym))[1]
+    orig_acc = api.account
+    api.account = lambda: (calls.append("account"), orig_acc())[1]
+    orig_lim = api.limits
+    api.limits = lambda: (calls.append("limits"), orig_lim())[1]
+
+    ExnessDemoClient(api).prepare(require_flat=False)
+    assert calls == ["account", "condition", "limits"]
+    calls.clear()
+    ExnessDemoClient(api).prepare(require_flat=False)
+    assert calls == []
+
+def test_rate_limit_before_submit_allows_retry(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    calls = {"n": 0}
+    real = api.account
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 2:  # prepare passes (cached afterwards); mutate's verify_demo hits the limit
+            raise ExnessError("limit", 5, rate_limited=True)
+        return real()
+    api.account = flaky
+    with pytest.raises(ExnessError):
+        ee._execution_tick(api, now=NOW)
+    api.client.request.assert_not_called()
+    with Session() as s:
+        assert s.get(ExnessExecutionTrade, (api.account_id, NOW - 900)).snapshot["retryable_pre_submit"]
+    assert ee._execution_tick(api, now=NOW + 10) == "submitted"
+
+def test_prepare_cache_expires_and_rejects_env_change(monkeypatch):
+    from backend.app.exness_demo_client import PREPARE_TTL, ExnessDemoClient
+    api = dummy_api()
+    clock = [1000.0]
+    monkeypatch.setattr(ee.time, "monotonic", lambda: clock[0])
+    ExnessDemoClient(api).prepare(require_flat=False)
+    monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
+    with pytest.raises(ExnessError, match="Demo XAUUSD"):
+        ExnessDemoClient(api).prepare(require_flat=False)
+    monkeypatch.setenv("EXNESS_ENVIRONMENT", "demo")
+    api.account = lambda: {"is_demo": False}
+    clock[0] += PREPARE_TTL
+    with pytest.raises(ExnessError, match="demo account"):
+        ExnessDemoClient(api).prepare(require_flat=False)
+
+def test_cached_prepare_still_requires_flat_and_returns_copy():
+    from backend.app.exness_demo_client import ExnessDemoClient
+    api = dummy_api(positions=[{"position_id": "1"}])
+    condition = ExnessDemoClient(api).prepare(require_flat=False)
+    condition["volume_min"] = "99"
+    assert ExnessDemoClient(api).prepare(require_flat=False)["volume_min"] == "0.01"
+    with pytest.raises(ExnessError, match="empty demo account"):
+        ExnessDemoClient(api).prepare(require_flat=True)
+
+def test_retry_expires_without_submission(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    api.account = MagicMock(side_effect=[dummy_api().account(), ExnessError("limit", 5, rate_limited=True)])
+    with pytest.raises(ExnessError):
+        ee._execution_tick(api, now=NOW)
+    api.account = dummy_api().account
+    assert ee._execution_tick(api, now=NOW + ee.SIGNAL_WINDOW + 1) != "submitted"
+    api.client.request.assert_not_called()
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, (api.account_id, NOW - 900)).snapshot["status"] == "skipped"
+
+def test_late_retry_window_bounds():
+    sig = {"available_at": NOW, "ref_price": 4000.0, "stop": 3990.0}
+    ee.late_drift_ok(sig, 4002.5, NOW + 300)
+    with pytest.raises(ExnessError, match="signal_expired"):
+        ee.late_drift_ok(sig, 4000.0, NOW + 301)
+
+def test_m1_sync_yields_to_m15_orders():
+    from bot.exness_worker import m1_sync_allowed
+    for second in (0, 120, 300, 329, 840, 899):
+        assert not m1_sync_allowed(second)
+    assert m1_sync_allowed(330)
+    assert m1_sync_allowed(839)

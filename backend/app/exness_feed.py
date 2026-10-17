@@ -15,6 +15,7 @@ from .exness import ExnessError, ExnessReadOnly
 
 WORKSPACE = "exness_forex"
 FRAMES = {"15m": ("M15", 900), "1h": ("H1", 3600), "4h": ("H4", 14400)}
+HISTORY_FRAMES = {**FRAMES, "1m": ("M1", 60)}
 
 
 def connect_exness():
@@ -46,7 +47,7 @@ def connect_exness():
 
 
 def normalize_rows(rows, frame, start, end):
-    step = FRAMES[frame][1]
+    step = HISTORY_FRAMES[frame][1]
     unique = {}
     try:
         for row in rows:
@@ -80,12 +81,12 @@ def normalize_rows(rows, frame, start, end):
     return [item for stamp in sorted(unique) for item in unique[stamp]]
 
 
-def sync_page(api, frame, days=90, now=None):
-    if frame not in FRAMES or isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 365:
-        raise ValueError("Choose 15m/1h/4h and 1..365 initial calendar days")
+def sync_page(api, frame, days=90, now=None, *, older=False):
+    if frame not in HISTORY_FRAMES or isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 365:
+        raise ValueError("Choose 1m/15m/1h/4h and 1..365 initial calendar days")
     now = int(utcnow().timestamp()) if now is None else now
     current = datetime.fromtimestamp(now, timezone.utc)
-    code, step = FRAMES[frame]
+    code, step = HISTORY_FRAMES[frame]
     end = now // step * step
     try:
         with Session.begin() as session:
@@ -99,18 +100,29 @@ def sync_page(api, frame, days=90, now=None):
                 return {"status": "busy_or_unmigrated", "frame": frame}
             if state.retry_at and state.retry_at.replace(tzinfo=timezone.utc) > current:
                 return {"status": "cooldown", "frame": frame}
+            target_start = end - days * 86400
+            if older and (state.started_at is None or state.checked_until is None):
+                return {"status": "waiting_initial_sync", "frame": frame}
             if state.started_at is None:
-                state.started_at = end - days * 86400
+                state.started_at = target_start
             cursor = state.checked_until if state.checked_until is not None else state.started_at
             if cursor > end:
                 raise ExnessError("Clock behind persisted Exness cursor")
-            if cursor == end and state.error is None:
-                return {"status": "current", "frame": frame, "remaining_intervals": 0, "bars": 0}
-            start = cursor if cursor < end else max(state.started_at, end - 2 * step)
             cap = api.candle_limit
-            if state.checked_until is not None and 0 < end - cursor <= step and cap > 2:
-                start = max(state.started_at, cursor - 2 * step)
-            batch_end = min(end, start + cap * step)
+            if older:
+                if cursor < end:
+                    return {"status": "waiting_live_sync", "frame": frame}
+                if state.started_at <= target_start:
+                    return {"status": "current", "frame": frame, "remaining_intervals": 0, "bars": 0}
+                batch_end = state.started_at
+                start = max(target_start, batch_end - cap * step)
+            else:
+                if cursor == end and state.error is None:
+                    return {"status": "current", "frame": frame, "remaining_intervals": 0, "bars": 0}
+                start = cursor if cursor < end else max(state.started_at, end - 2 * step)
+                if state.checked_until is not None and 0 < end - cursor <= step and cap > 2:
+                    start = max(state.started_at, cursor - 2 * step)
+                batch_end = min(end, start + cap * step)
             raw = api.candles("XAUUSD", code, start, batch_end, now=now)
             if len(raw) > cap:
                 raise ExnessError("Exness returned more candles than the declared request cap")
@@ -124,11 +136,15 @@ def sync_page(api, frame, days=90, now=None):
                         "open", "high", "low", "close", "tick_volume",
                     )},
                 ))
-            state.checked_until = max(cursor, batch_end)
+            if older:
+                state.started_at = start
+            else:
+                state.checked_until = max(cursor, batch_end)
             state.last_sync = current
             state.error = state.retry_at = None
-            return {"status": "current" if batch_end == end else "backfill", "frame": frame,
-                    "bars": len(entries) // 2, "remaining_intervals": (end - state.checked_until) // step}
+            remaining = max(0, (state.started_at - target_start) // step) if older else (end - state.checked_until) // step
+            return {"status": "current" if remaining == 0 else "backfill_history" if older else "backfill", "frame": frame,
+                    "bars": len(entries) // 2, "remaining_intervals": remaining}
     except ExnessError as exc:
         with Session.begin() as session:
             state = session.get(WorkspaceFeedState, (WORKSPACE, frame), with_for_update=True)
@@ -179,7 +195,7 @@ def feed_summary():
         frames = []
         for state in rows:
             count, first, last = counts.get(state.timeframe, (0, None, None))
-            step = FRAMES[state.timeframe][1]
+            step = HISTORY_FRAMES[state.timeframe][1]
             frames.append({"timeframe": state.timeframe, "bars_per_side": count,
                            "first_candle": first, "last_candle": last, "checked_until": state.checked_until,
                            "last_sync": state.last_sync, "error": state.error, "retry_at": state.retry_at,

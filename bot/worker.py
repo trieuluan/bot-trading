@@ -11,6 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app.auto_paper import auto_tick, baseline_auto_on_startup, report_auto_failure
 from backend.app.db import BotState, Event, MarketState, Session, Signal, utcnow
 from backend.app.feed import sync_market
+from backend.app.futures_learner import learning_tick
+from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
 from backend.app.observation import observation_tick
@@ -58,6 +60,22 @@ def tick():
                 )
 
 
+def each_symbol(callback):
+    """One failing pair must not starve the others; BTC errors keep their normal handling."""
+    def run():
+        failed = None
+        for symbol in SYMBOLS:
+            try:
+                with symbol_scope(symbol):
+                    callback()
+            except Exception as exc:
+                logging.exception("%s failed for %s", callback.__name__, symbol)
+                failed = failed or exc
+        if failed and isinstance(failed, SQLAlchemyError):
+            raise failed
+    run.__name__ = callback.__name__
+    return run
+
 def market_tick():
     try:
         sync_market()
@@ -83,6 +101,10 @@ def run_loop(name, callback, interval):
                     logging.exception("Cannot persist auto failure while database is unavailable")
         stop.wait(max(0.1, interval - (time.monotonic() - started)))
 
+def run_symbol_loop(symbol, name, callback, interval):
+    with symbol_scope(symbol):
+        run_loop(name, callback, interval)
+
 
 def main():
     validate_mode()
@@ -91,7 +113,7 @@ def main():
     # Baseline before starting any auto loop. Fail/retry instead of trading history.
     while not stop.is_set():
         try:
-            baseline_auto_on_startup()
+            each_symbol(baseline_auto_on_startup)()
             break
         except SQLAlchemyError:
             logging.exception("Database/migration unavailable; auto startup is waiting")
@@ -101,13 +123,20 @@ def main():
     logging.info("Paper worker ready; live exchange order execution unavailable")
     jobs = [
         ("heartbeat", tick, 5),
-        ("quotes-and-stops", sync_paper_quote, 5),
-        ("market-history", market_tick, 15),
         ("mtf-observation", observation_tick, 15),
-        ("funding", sync_paper_funding, 60),
-        ("auto-paper", auto_tick, 5),
     ]
     threads = [threading.Thread(target=run_loop, args=job, name=job[0]) for job in jobs]
+    pair_jobs = [
+        ("quotes-and-stops", sync_paper_quote, 5),
+        ("market-history", market_tick, 15),
+        ("funding", sync_paper_funding, 60),
+        ("auto-paper", auto_tick, 5),
+        ("futures-learning", learning_tick, 30),
+    ]
+    threads.extend(
+        threading.Thread(target=run_symbol_loop, args=(symbol, *job), name=f"{symbol}-{job[0]}")
+        for symbol in SYMBOLS for job in pair_jobs
+    )
     for thread in threads:
         thread.start()
     for thread in threads:

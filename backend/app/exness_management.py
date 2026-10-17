@@ -1,7 +1,7 @@
 """Demo-only sizing and closed-candle position management rules."""
 
 import os
-from decimal import Decimal, ROUND_FLOOR
+from decimal import ROUND_FLOOR, Decimal
 
 from .exness import ExnessError
 from .forex_strategies import ema
@@ -55,7 +55,11 @@ def size_lot(distance, condition):
     return volume
 
 
-def split_bodies(body, condition, entry):
+def split_bodies(body, condition, entry, partial_be=True):
+    if type(partial_be) is not bool:
+        raise ExnessError("Invalid partial_be")
+    if not partial_be:
+        return [{**body, "role": "runner"}]
     volume = Decimal(body["volume"])
     minimum = Decimal(condition["volume_min"])
     step = Decimal(condition["volume_step"])

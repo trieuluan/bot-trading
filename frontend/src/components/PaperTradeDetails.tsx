@@ -47,8 +47,9 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
       )}
       {audit ? (
         <p className="micro">
-          Breakout 20 nến trước: đáy {formatPrice(audit.range_low)} — đỉnh{' '}
-          {formatPrice(audit.range_high)}. Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}.
+          {audit.strategy === 'breakout_20_v1' && audit.range_low !== undefined && audit.range_high !== undefined
+            ? `Breakout 20 nến trước: đáy ${formatPrice(audit.range_low)} — đỉnh ${formatPrice(audit.range_high)}.`
+            : `Chiến thuật: ${audit.strategy}.`} Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}.
           Ngân sách SL lúc vào: {formatPrice(audit.risk_budget)} USDT (cấu hình {audit.risk_percent}
           % equity, có giới hạn lỗ ngày).
         </p>

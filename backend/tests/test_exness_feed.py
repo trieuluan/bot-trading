@@ -10,10 +10,10 @@ from backend.app.exness_feed import (
     FRAMES,
     WORKSPACE,
     connect_exness,
+    feed_retry_delay,
     feed_summary,
     normalize_rows,
     record_connection_failure,
-    feed_retry_delay,
     sync_page,
 )
 from backend.app.main import app
@@ -41,7 +41,8 @@ class FakeApi:
             raise self.error
         if self.rows is not None:
             return self.rows
-        step = next(step for api_code, step in FRAMES.values() if api_code == code)
+        from backend.app.exness_feed import HISTORY_FRAMES
+        step = next(s for c, s in HISTORY_FRAMES.values() if c == code)
         return [candle(stamp) for stamp in range(start, end, step)]
 
 
@@ -297,8 +298,8 @@ def test_worker_keeps_heartbeat_without_api_calls_during_cooldown(monkeypatch):
     assert connections == []
 
 def test_recheck_gap_persists_empty_response_without_faking_closure(monkeypatch):
-    from backend.app.exness_gaps import recheck_gap, gap_audits
     from backend.app.db import WorkspaceCandle
+    from backend.app.exness_gaps import gap_audits, recheck_gap
     # Seed 2 candles with a 4-hour gap mid-week
     start = 1791892800  # Wednesday
     with Session.begin() as session:
@@ -313,3 +314,45 @@ def test_recheck_gap_persists_empty_response_without_faking_closure(monkeypatch)
         audits = gap_audits(session)
         assert len(audits) == 1
         assert audits[0]["status"] == "no_bars_returned"
+
+def test_m1_backfills_older_history_after_catching_up(monkeypatch):
+    monkeypatch.setattr("backend.app.exness_feed.utcnow", lambda: datetime.fromtimestamp(NOW, timezone.utc))
+    api = FakeApi()
+    api.candle_limit = 600
+    assert sync_page(api, "1m", days=1, now=NOW)["status"] in ("current", "backfill")
+    while sync_page(api, "1m", days=1, now=NOW)["status"] == "backfill":
+        pass
+    with Session() as session:
+        first = session.get(WorkspaceFeedState, (WORKSPACE, "1m")).started_at
+    results = []
+    while True:
+        result = sync_page(api, "1m", days=2, now=NOW, older=True)
+        results.append(result["status"])
+        if result["status"] == "current":
+            break
+    assert "backfill_history" in results
+    with Session() as session:
+        state = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        assert state.started_at == NOW // 60 * 60 - 2 * 86400 < first
+        assert state.checked_until == NOW
+        assert session.query(WorkspaceCandle).filter_by(timeframe="1m", price_type="bid").count() == 2 * 1440
+
+def test_older_backfill_waits_for_live_cursor_and_rolls_back_invalid_page():
+    api = FakeApi()
+    api.candle_limit = 60
+    sync_page(api, "1m", days=1, now=NOW)
+    before_calls = len(api.calls)
+    result = sync_page(api, "1m", days=30, now=NOW, older=True)
+    assert result["status"] == "waiting_live_sync"
+    assert len(api.calls) == before_calls
+    with Session.begin() as session:
+        feed = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        feed.checked_until = NOW
+        original_start = feed.started_at
+    api.rows = [candle(NOW + 60)]
+    with pytest.raises(ExnessError, match="candles"):
+        sync_page(api, "1m", days=30, now=NOW, older=True)
+    with Session() as session:
+        feed = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        assert feed.started_at == original_start
+        assert feed.checked_until == NOW

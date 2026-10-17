@@ -50,6 +50,6 @@ def structural_target(side, entry, stop, context, tick):
         _, price, label = min(ahead, key=lambda item: item[0])
         target, reason = price - direction * buffer, f"{label} @ {price}"
     target = target.quantize(tick)
-    if direction * (target - entry) < risk:
-        raise ExnessError("skipped_poor_rr: structural TP below 1R")
+    if direction * (target - entry) < Decimal("1.5") * risk:
+        raise ExnessError("skipped_poor_rr: structural TP below 1.5R")
     return target, reason

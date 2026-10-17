@@ -20,6 +20,7 @@ from .db import (
     Session,
     utcnow,
 )
+from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import save_candles
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter
 
@@ -44,7 +45,7 @@ class ResearchRequest(BaseModel):
 
 def check_cooldown():
     with Session() as session:
-        state = session.get(MarketState, 1)
+        state = session.get(MarketState, state_id())
         if state.retry_at:
             remaining = (state.retry_at.replace(tzinfo=utcnow().tzinfo) - utcnow()).total_seconds()
             if remaining > 0:
@@ -55,7 +56,7 @@ def check_cooldown():
 
 def market_failure(exc: MarketDataError):
     with Session.begin() as session:
-        state = session.scalar(select(MarketState).where(MarketState.id == 1).with_for_update())
+        state = session.scalar(select(MarketState).where(MarketState.id == state_id()).with_for_update())
         state.error = str(exc)
         state.retry_at = utcnow() + timedelta(seconds=exc.retry_after)
     return HTTPException(502, str(exc))
@@ -77,10 +78,10 @@ def configure_market(payload: MarketSelection):
         with Session.begin() as session:
             bot = session.scalar(select(BotState).where(BotState.id == 1).with_for_update())
             market = session.scalar(
-                select(MarketState).where(MarketState.id == 1).with_for_update()
+                select(MarketState).where(MarketState.id == state_id()).with_for_update()
             )
-            session.scalar(select(PaperWallet).where(PaperWallet.id == 1).with_for_update())
-            auto = session.get(AutoPaperState, 1)
+            session.scalar(select(PaperWallet).where(PaperWallet.id == state_id()).with_for_update())
+            auto = session.get(AutoPaperState, state_id())
             if auto and auto.enabled and payload.source != SOURCE:
                 raise HTTPException(409, "Dừng Auto Paper trước khi chuyển sang dữ liệu tổng hợp")
             changed = market.source != payload.source
@@ -143,7 +144,7 @@ def create_backtest(payload: ResearchRequest):
         contract = adapter.contract_info()
         result = run_backtest(candles, config, funding, fair_candles, contract)
         result.update(
-            symbol="BTC/USDT:USDT",
+            symbol=market_symbol(),
             timeframe="15m",
             days=payload.days,
             dataset_start=candles[0].time,
@@ -155,7 +156,7 @@ def create_backtest(payload: ResearchRequest):
             contract=contract,
         )
         with Session.begin() as session:
-            session.scalar(select(MarketState).where(MarketState.id == 1).with_for_update())
+            session.scalar(select(MarketState).where(MarketState.id == state_id()).with_for_update())
             save_candles(session, candles)
             run = BacktestRun(source=SOURCE, result=result)
             session.add(run)
