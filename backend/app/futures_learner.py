@@ -20,7 +20,7 @@ from .futures_symbols import current_symbol, market_symbol, state_id
 from .futures_context import load_signal_context
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop
-from .futures_rule_tree import describe_rule, validate_rule
+from .futures_rule_tree import describe_rule, nodes, validate_rule
 from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
                                  strategy_setup, to_rule_tree)
@@ -304,6 +304,8 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         if bar.time < candidate["born_at"]:
             continue
         kwargs = {k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history), ("benchmarks", benchmarks)) if v}
+        if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
+            kwargs["fair_candles"] = [fair]
         setup = strategy_setup(candidate["genome"], candles, state["funding"], **kwargs)
         observation.update(strategy_chart(candidate["genome"], candles))
         observation["status"] = "no_signal"
@@ -355,10 +357,14 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
     validate_candles(fair)
     if [bar.time for bar in candles] != [bar.time for bar in fair]:
         raise ValueError("Fair-price coverage mismatch")
+    fair_by_time = {bar.time: bar for bar in fair}
     result = simulate(
         candles, BacktestConfig(), funding, fair, contract, warmup=WARMUP, window=WARMUP,
         signal=lambda history, allow_short=False: strategy_setup(
-            candidate["genome"], history, funding, **(signal_context or {})),
+            candidate["genome"], history, funding,
+            **({**(signal_context or {}), "fair_candles": [fair_by_time[history[-1].time]]}
+               if any(node.get("feature") == "basis_aligned"
+                      for _, node in nodes(candidate["genome"]["rule"])) else (signal_context or {}))),
         exit_policy=candidate["genome"].get("exit_policy", "fixed"),
     )
     candidate["windows"].append({

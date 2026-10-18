@@ -14,7 +14,7 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
-            "bb_pierce", "volume_dryup", "macro_safe", "relative_strength", "funding_aligned", "oi_surge")
+            "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -300,6 +300,15 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         low, high = min(r.low for r in history), max(r.high for r in history)
         return (last.low < low < last.close < high and last.close > last.open if direction == 1
                 else low < last.close < high < last.high and last.close < last.open)
+    if feature == "session_active":
+        return 7 * 3600 <= (candles[-1].time + 900) % 86400 < 21 * 3600
+    if feature == "basis_aligned":
+        mark = next((bar for bar in reversed(context.get("fair_candles") or [])
+                     if bar.time == candles[-1].time), None)
+        price = candles[-1].close
+        if mark is None or not (0 < mark.close < float("inf") and 0 < price < float("inf")):
+            return False
+        return direction * (price / mark.close - 1) <= 0.0005
     if feature == "macro_safe":
         return is_macro_safe(candles[-1].time + 900, 4 * 3600)
     if feature == "funding_aligned":
@@ -407,6 +416,8 @@ def describe_rule(rule):
                   "candle_direction": "Thân nến cùng chiều lệnh",
                   "bb_pierce": "Râu chọc ra ngoài BB20 (2σ) rồi đóng lại trong dải, nến cùng chiều",
                   "volume_dryup": "Nhịp hồi ngược xu hướng 3 nến với volume ≤ 0.7× trung bình N nến",
+                  "session_active": "Khung giờ cố định 07:00-21:00 UTC (không đổi theo DST)",
+                  "basis_aligned": "Lệch giá trade/fair cùng nến: long không premium quá 5 bps, short không discount quá 5 bps (không phải index basis)",
                   "macro_safe": "Cách tin vĩ mô lớn (CPI, FOMC, NFP) tối thiểu ±4h",
                   "relative_strength": "Sức mạnh tương đối so với BTC trong N nến",
                   "oi_surge": "Open interest tăng ≥1% trong 1h, nến cùng chiều lệnh",
@@ -514,6 +525,17 @@ HTF_RULES = [
         {"feature": "breakout", "frame": "M15"},
     ]},
 ]
+
+HTF_RULES.extend([
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": feature, "frame": "H1"},
+            {"feature": "breakout", "frame": "H1"},
+        ]},
+        {"feature": "volume", "frame": "M15"},
+    ]} for feature in ("session_active", "basis_aligned")
+])
 
 RULES = HTF_RULES
 FAMILY_RULES = {}

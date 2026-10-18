@@ -178,7 +178,7 @@ def test_strategy_observations_include_waiting_and_signal_states(monkeypatch):
     names = list(state["candidates"])
     state["candidates"][names[0]]["born_at"] = 3600
     signal_genome = state["candidates"][names[1]]["genome"]
-    monkeypatch.setattr(learner, "strategy_setup", lambda genome, *args:
+    monkeypatch.setattr(learner, "strategy_setup", lambda genome, *args, **kwargs:
         Setup("long", 100, 95, 110, "test") if genome == signal_genome else None)
     learner.step(state, [candle(2)], candle(2), 2705)
     decision = state["last_decision"]
@@ -212,7 +212,7 @@ def test_paper_learning_uses_unqualified_signal_and_records_selection(ready, mon
     stamp = seed()
     state = learner.new_state(clock[0] - 3600)
     state["auto_mode"] = "paper_learning"
-    monkeypatch.setattr(learner, "strategy_setup", lambda *args: Setup(
+    monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=105, stop=90, target=135, reason="paper learning test"))
     bars = [Candle(stamp, 100, 106, 99, 105, 1)]
     learner.step(state, bars, bars[-1], clock[0])
@@ -280,7 +280,7 @@ def test_paper_learning_config_explicit_and_preserves_promotion(ready):
 def test_paper_learning_does_not_starve_tied_unseen_candidates(monkeypatch):
     state = learner.new_state(1)
     state["auto_mode"] = "paper_learning"
-    monkeypatch.setattr(learner, "strategy_setup", lambda *args: Setup(
+    monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=100, stop=95, target=110, reason="tie test"))
     picks = set()
     for offset in range(2, 22):

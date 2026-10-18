@@ -65,11 +65,11 @@ def ready(monkeypatch):
             from backend.app.strategy import Setup
             setups = {"long": Setup("long", 105, 95, 125, "test"),
                       "short": Setup("short", 85, 95, 65, "test"), "none": None}
-            monkeypatch.setattr(learner, "strategy_setup", lambda *args: setups[side])
+            monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: setups[side])
             from backend.app.strategy import Setup
             setups = {"long": Setup("long", 105, 95, 125, "test"),
                       "short": Setup("short", 85, 95, 65, "test"), "none": None}
-            monkeypatch.setattr(learner, "strategy_setup", lambda *args: setups[side])
+            monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: setups[side])
             learner.add_candidate(learning, SEEDS[0], 0)
             learner.step(learning, candles, candles[-1], now)
             learner.save_state(session, learning)

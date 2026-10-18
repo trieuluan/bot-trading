@@ -115,3 +115,26 @@ def test_replay_aggregation_cache_does_not_mix_pairs_or_interior_bars():
     assert memo_aggregate(first, 3600)[0].high == 101
     assert memo_aggregate(second, 3600)[0].high == 200
     _memo.clear()
+
+def test_session_active_rule_predicate():
+    rule = {"feature": "session_active", "frame": "H1"}
+    assert validate_rule(rule) == 1
+    day = 1700000000 // 86400 * 86400
+    def at(hour):
+        return [candle(day + hour * 3600 - (21 - i) * 900, 100, 101, 99, 100) for i in range(21)]
+    assert matches(rule, at(12), 1, 20)
+    assert not matches(rule, at(3), 1, 20)
+    assert not matches(rule, at(21), 1, 20)
+
+def test_basis_aligned_rule_predicate():
+    rule = {"feature": "basis_aligned", "frame": "H1"}
+    assert validate_rule(rule) == 1
+    bars = [candle(i * 900, 100, 101, 99, 100) for i in range(21)]
+    def fair(price):
+        return {"fair_candles": [candle(bars[-1].time, price, price, price, price)]}
+    assert matches(rule, bars, 1, 20, context=fair(100))
+    assert not matches(rule, bars, 1, 20, context=fair(99.9))    # long, premium 10 bps
+    assert matches(rule, bars, -1, 20, context=fair(99.9))
+    assert not matches(rule, bars, -1, 20, context=fair(100.1))  # short, discount 10 bps
+    assert not matches(rule, bars, 1, 20, context={})            # missing mark never passes
+    assert not matches(rule, bars, 1, 20, context={"fair_candles": [candle(0, 100, 100, 100, 100)]})

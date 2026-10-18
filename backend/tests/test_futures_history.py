@@ -19,7 +19,7 @@ client = TestClient(app)
 @pytest.fixture
 def replay_data(monkeypatch):
     monkeypatch.setattr(history, "WARMUP", 25)
-    monkeypatch.setattr(history, "strategy_setup", lambda *args: Setup(
+    monkeypatch.setattr(history, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=100, stop=90, target=104, reason="history test"))
     candles = [Candle(index * 900, 100, 105, 95, 102, 10) for index in range(225)]
     name = genome_name(SEEDS[0])

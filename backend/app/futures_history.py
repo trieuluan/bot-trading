@@ -89,6 +89,8 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                 continue
             kwargs = {k: v for k, v in (("btc_candles", btc_history),
                                        ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
+            if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
+                kwargs["fair_candles"] = [mark]
             setup = strategy_setup(candidate["genome"], history, known_funding, **kwargs)
             if setup is None:
                 continue

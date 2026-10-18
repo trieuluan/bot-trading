@@ -96,6 +96,8 @@ export function ruleName(rule: Rule): string {
       ema_bounce: 'Bật khỏi EMA21 / EMA50',
       ema_touch: 'Chạm EMA50',
       wick_sweep: 'Quét vùng rồi đóng trở lại',
+      session_active: 'Khung giờ cố định 07:00-21:00 UTC, không đổi theo DST',
+      basis_aligned: 'Lọc lệch giá trade/fair cùng nến: long premium tối đa 5 bps, short discount tối đa 5 bps; không phải index basis',
       macro_safe: 'Tránh giờ tin vĩ mô lớn (CPI, FOMC, NFP)',
       relative_strength: 'Sức mạnh tương đối so với BTC',
       funding_aligned: 'Funding rate thuận chiều',

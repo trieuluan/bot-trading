@@ -111,7 +111,7 @@ def test_seed_exit_variants_are_distinct():
 
 
 def test_search_keeps_htf_seeds_adaptive():
-    assert len(SEEDS) == 15
+    assert len(SEEDS) == 17
     assert all(seed["exit_policy"] == "adaptive" for seed in SEEDS)
     for seed in SEEDS:
         for index in range(50):
@@ -131,7 +131,7 @@ def test_stored_disallowed_policies_cannot_signal_breed_or_execute(monkeypatch):
     old = {**SEEDS[0], "exit_policy": "structure"}
     learner.add_candidate(state, old, 0)
     name = genome_name(old)
-    monkeypatch.setattr(learner, "strategy_setup", lambda *args: Setup("long", 100, 98, 104, "test"))
+    monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup("long", 100, 98, 104, "test"))
     learner.step(state, bars(100), bars(100)[-1], 14000)
     assert state["last_decision"]["selected"] is None
     assert state["last_decision"]["strategies"][0]["status"] == "paused"
