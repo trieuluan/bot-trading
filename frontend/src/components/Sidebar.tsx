@@ -22,7 +22,6 @@ const exnessNavigation = [
 
 const navigation = [
   { label: 'Giao dịch & Bot', icon: LayoutDashboard },
-  { label: 'Nghiên cứu', icon: FlaskConical },
   { label: 'Cài đặt & Kết nối', icon: Link2 },
 ];
 

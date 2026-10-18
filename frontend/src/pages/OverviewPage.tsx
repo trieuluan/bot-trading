@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import {
-  ArrowRight,
   ArrowUpRight,
   Bot,
   Check,
@@ -21,13 +20,11 @@ export function OverviewPage({
   botPanel,
   filter,
   setFilter,
-  onOpenStrategy,
 }: {
   snapshot: Snapshot;
   botPanel: ReactNode;
   filter: string;
   setFilter: (value: string) => void;
-  onOpenStrategy: () => void;
 }) {
   const realMarket = snapshot.data_source === 'mexc_futures';
   if (!snapshot.candles.length)
@@ -131,9 +128,6 @@ export function OverviewPage({
         <section className="panel strategy-preview">
           <div className="section-head">
             <h2>Chiến lược của workspace</h2>
-            <button className="text-button" onClick={onOpenStrategy}>
-              Chi tiết <ArrowRight size={15} />
-            </button>
           </div>
           <div className="strategy-row">
             <div className="strategy-symbol">

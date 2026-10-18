@@ -22,8 +22,7 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
           </li>
         </ol>
         <p>
-          Mở Nghiên cứu → Backtest để kiểm chứng chiến lược. Nghiên cứu → Tín hiệu điều khiển bot
-          phân tích riêng. Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.
+          Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.
         </p>
         <button className="primary" onClick={onClose}>
           Đã hiểu <Check size={16} />

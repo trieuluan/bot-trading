@@ -20,7 +20,7 @@ export function ConnectionsPage({
       await selectMarket(source);
       await onRefresh();
       setMessage(
-        'Đã đổi nguồn dữ liệu. Bot được dừng khi chuyển nguồn; bật lại ở Nghiên cứu → Tín hiệu. Auto Paper có nút bật/dừng riêng tại Giao dịch & Bot.',
+        'Đã đổi nguồn dữ liệu. Bot được dừng khi chuyển nguồn; Auto Paper có nút bật/dừng riêng tại Giao dịch & Bot.',
       );
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : 'Không kết nối được nguồn dữ liệu.');

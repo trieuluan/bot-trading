@@ -1,4 +1,4 @@
-import { PairStrip, useFuturesBoard } from './components/FuturesBoard';
+import { useFuturesBoard } from './components/FuturesBoard';
 import { getFuturesSymbol, setFuturesSymbol, type FuturesSymbol } from './lib/futures-symbol';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -8,12 +8,8 @@ import { HelpDialog } from './components/HelpDialog';
 import { useTradingDashboard } from './hooks/useTradingDashboard';
 import { BotControlPanel } from './components/BotControlPanel';
 import { OverviewPage } from './pages/OverviewPage';
-import { SignalsTable } from './components/SignalsTable';
-import { FuturesLearningPage } from './pages/FuturesLearningPage';
-import { StrategyPage } from './pages/StrategyPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
 import { PaperTradingPage } from './pages/PaperTradingPage';
-import { BacktestPage } from './pages/BacktestPage';
 import { ActivityPage } from './pages/ActivityPage';
 import {
   ForexObservationLog,
@@ -619,7 +615,6 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     setChartTrade(tradeId);
   };
   const [page, setPage] = useState('Giao dịch & Bot');
-  const [researchTab, setResearchTab] = useState('Chiến lược');
   const [menu, setMenu] = useState(false);
   const [filter, setFilter] = useState('all');
   const [notice, setNotice] = useState(false);
@@ -695,9 +690,7 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               <p>
                 {page === 'Giao dịch & Bot'
                   ? `${symbol} perpetual · Lệnh mô phỏng nội bộ, không gửi tới sàn.`
-                  : page === 'Nghiên cứu'
-                    ? 'Chiến lược, tín hiệu và backtest. Kết quả nghiên cứu không tự bật bot.'
-                    : 'Nguồn dữ liệu, trạng thái worker và nhật ký hệ thống.'}
+                  : 'Nguồn dữ liệu, trạng thái worker và nhật ký hệ thống.'}
               </p>
             </div>
             <button className="secondary" onClick={() => void refresh()}>
@@ -724,9 +717,6 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </button>
             </div>
           )}
-          {page === 'Nghiên cứu' && snapshot.data_source === 'mexc_futures' && (
-            <PairStrip board={board} symbol={symbol} onSelect={selectSymbol} />
-          )}
           {page === 'Giao dịch & Bot' &&
             (snapshot.data_source === 'mexc_futures' ? (
               <PaperTradingPage
@@ -741,40 +731,8 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                 botPanel={botPanel}
                 filter={filter}
                 setFilter={setFilter}
-                onOpenStrategy={() => navigate('Nghiên cứu')}
               />
             ))}
-          {page === 'Nghiên cứu' && (
-            <>
-              <div className="period-tabs" role="group" aria-label="Nội dung nghiên cứu Futures">
-                {['Chiến lược', 'Bot học', 'Backtest', 'Tín hiệu'].map((tab) => (
-                  <button
-                    key={tab}
-                    className={researchTab === tab ? 'active' : ''}
-                    aria-pressed={researchTab === tab}
-                    onClick={() => setResearchTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-              {researchTab === 'Chiến lược' && <StrategyPage />}
-              {researchTab === 'Bot học' && <FuturesLearningPage key={symbol} />}
-              {researchTab === 'Backtest' && <BacktestPage connected={connected} />}
-              {researchTab === 'Tín hiệu' && (
-                <>
-                  {botPanel}
-                  <SignalsTable
-                    entries={snapshot.signals.filter(
-                      (signal) => filter === 'all' || signal.side === filter,
-                    )}
-                    filter={filter}
-                    setFilter={setFilter}
-                  />
-                </>
-              )}
-            </>
-          )}
           {page === 'Cài đặt & Kết nối' && (
             <>
               <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />

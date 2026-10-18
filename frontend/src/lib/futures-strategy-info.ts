@@ -24,6 +24,7 @@ export const HTF_LABELS: Record<string, string> = {
   htf_ema_cross: 'EMA cross HTF',
   htf_wedge: 'Nêm HTF',
   htf_swing: 'Vùng swing HTF',
+  htf_trend_align: 'Đồng thuận Trend HTF',
   htf_other: 'Trend + nến',
 };
 
@@ -39,6 +40,7 @@ function htfProfile(rule?: Rule): string | null {
   if (has('retest', 'retest_seq')) return 'htf_retest';
   if (has('compression', 'compression_current')) return 'htf_squeeze';
   if (has('breakout')) return 'htf_breakout';
+  if (has('trend')) return 'htf_trend_align';
   if (has('wick_sweep', 'sweep')) return 'htf_sweep';
   if (has('ema_touch', 'ema_bounce')) return 'htf_pullback';
   if (has('ema_cross_n', 'ema_cross')) return 'htf_ema_cross';

@@ -363,16 +363,24 @@ def test_evolution_rejects_unchanged_child(monkeypatch):
     assert learner.evolve(state, 99999, force=True) == 0
     assert state["candidates"] == before
 
-def test_htf_mutations_never_add_h1_trend():
-    from backend.app.futures_rule_tree import HTF_CONTEXT_FEATURES, nodes, validate_htf_rule
-    assert "trend" not in HTF_CONTEXT_FEATURES
+def test_htf_mutations_allow_h1_trend_without_duplicates():
+    from backend.app.futures_rule_tree import HTF_CONTEXT_FEATURES, mutate_htf_rule, nodes, validate_htf_rule
+    from backend.app.futures_strategies import genome_fingerprint
+    assert "trend" in HTF_CONTEXT_FEATURES
+    found_h1_trend = False
     for seed in SEEDS:
-        for index in range(40):
-            child = mutate(seed, random.Random(index))
-            validate_htf_rule(child["rule"])
-            assert not any(node.get("feature") == "trend" and node.get("frame") == "H1"
-                           for _, node in nodes(child["rule"]))
-
+        for index in range(300):
+            child = mutate_htf_rule(seed["rule"], random.Random(index))
+            validate_htf_rule(child)
+            found_h1_trend |= any(node.get("feature") == "trend" and node.get("frame") == "H1"
+                                  for _, node in nodes(child))
+    assert found_h1_trend
+    aligned = copy.deepcopy(SEEDS[0])
+    aligned["rule"]["children"][1] = {"feature": "trend", "frame": "H1"}
+    validate_htf_rule(aligned["rule"])
+    duplicate = copy.deepcopy(aligned)
+    duplicate["rule"]["children"][1]["frame"] = "H4"
+    assert genome_fingerprint(aligned) != genome_fingerprint(duplicate)
 
 def test_rule_tree_can_enter_auto_paper(ready):
     state = learner.new_state(1000)
