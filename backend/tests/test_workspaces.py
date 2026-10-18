@@ -102,3 +102,31 @@ def test_futures_pairs_have_isolated_wallets_and_reject_unknown_symbol():
         assert len(client.get("/api/workspaces/mexc_futures/symbols").json()["symbols"]) == 10
         assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "XAU_USDT"}).status_code == 422
         assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "ETH_USDT"}).json()["symbol"] == "ETH_USDT"
+
+def test_mexc_candles_backfill_older_page_into_db(monkeypatch):
+    import backend.app.main as main
+    from backend.app.market import Candle
+    from backend.app.mexc import SOURCE
+
+    now, calls = 1_800_000_000, []
+
+    class Fake:
+        def server_time(self): return now
+        def close(self): pass
+        def history(self, start, end, server_time):
+            calls.append((start, end))
+            return [Candle(t, 1, 2, 0.5, 1.5, 1) for t in range(start, end, 900)]
+
+    monkeypatch.setattr(main, "MexcFuturesAdapter", Fake)
+    oldest = now // 900 * 900 - 10 * 900
+    with Session.begin() as session:
+        session.query(MarketCandle).delete()
+        session.add(MarketCandle(source=SOURCE, symbol=main.market_symbol(), timeframe="15m",
+                                 time=oldest, open=1, high=2, low=0.5, close=1.5, volume=1))
+    with TestClient(app) as client:
+        page = client.get(f"/api/workspaces/mexc_futures/candles?limit=50&before={oldest + 900}").json()
+        assert calls == [(oldest - main.BACKFILL_BARS * 900, oldest)]
+        assert len(page["candles"]) == 50 and page["has_more"] is True
+        assert all(bar["time"] >= oldest - 49 * 900 for bar in page["candles"])
+        client.get(f"/api/workspaces/mexc_futures/candles?limit=50&before={oldest + 900}")
+        assert len(calls) == 1  # enough stored history: no second MEXC call

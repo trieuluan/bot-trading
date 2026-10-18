@@ -131,6 +131,9 @@ export async function fetchMexcCandles(
     headers: futuresHeaders(),
     signal: AbortSignal.timeout(10000),
   });
-  if (!response.ok) throw new Error('Không tải được lịch sử nến.');
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null);
+    throw new Error(failure?.detail ?? 'Không tải được lịch sử nến; kéo trái để thử lại.');
+  }
   return response.json();
 }

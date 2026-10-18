@@ -49,6 +49,7 @@ export function PaperTradingPage({
   const stream = useMexcLiveCandle();
   const [older, setOlder] = useState<Candle[]>([]);
   const [hasMore, setHasMore] = useState(true);
+  const [olderError, setOlderError] = useState('');
   const loadingOlder = useRef(false);
   const [auto, setAuto] = useState<AutoPaperState | null>(null);
   const [wallet, setWallet] = useState<PaperWallet | null>(null);
@@ -117,12 +118,13 @@ export function PaperTradingPage({
     const before = Math.min(older[0]?.time ?? Infinity, wallet?.candles[0]?.time ?? Infinity);
     if (loadingOlder.current || !hasMore || !Number.isFinite(before)) return;
     loadingOlder.current = true;
+    setOlderError('');
     try {
       const page = await fetchMexcCandles(before, 50);
       setOlder((current) => [...page.candles, ...current]);
       setHasMore(page.has_more);
-    } catch {
-      /* retry on next pan */
+    } catch (cause) {
+      setOlderError(cause instanceof Error ? cause.message : 'Không tải được nến cũ; kéo trái để thử lại.');
     } finally {
       loadingOlder.current = false;
     }
@@ -458,6 +460,7 @@ export function PaperTradingPage({
             <p role="status">{historyError || 'Đang tải nến của lệnh lịch sử…'}</p>
           )}
           {(historicalId === null || history?.id === historicalId) && (
+            <>
             <PaperChart
               candles={chartCandles}
               trade={selected ?? (historicalId === null ? (wallet?.position ?? null) : null)}
@@ -469,6 +472,8 @@ export function PaperTradingPage({
               markStale={stale}
               onLoadOlder={historicalId === null ? () => void loadOlder() : undefined}
             />
+            {olderError && <p className="negative" role="alert">{olderError}</p>}
+            </>
           )}
           <details className="desk-analysis-details">
             <summary>Chi tiết bot, chiến thuật & lệnh {selected ? `#${selected.id}` : ''}</summary>

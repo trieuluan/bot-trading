@@ -34,7 +34,7 @@ from .exness_feed import feed_summary
 from .exness_observation import observation_summary
 from .exness_quotes import quotes
 from .exness_quotes import router as quotes_router
-from .feed import load_candles
+from .feed import load_candles, save_candles
 from .forex_learner import router as learning_router
 from .forex_paper import forex_paper_summary
 from .forex_reporting import journal_csv
@@ -43,10 +43,10 @@ from .futures_symbols import SYMBOLS, market_symbol, symbol_scope
 from .futures_learner import router as futures_learning_router
 from .futures_history import router as futures_history_router
 from .market import DemoAdapter, serialize
-from .mexc import SOURCE, SYMBOL, TIMEFRAME
+from .mexc import SOURCE, SYMBOL, TIMEFRAME, MarketDataError, MexcFuturesAdapter
 from .observation import router as observation_router
 from .paper import router as paper_router
-from .research import router as research_router
+from .research import check_cooldown, market_failure, research_lock, router as research_router
 from .settings import validate_mode
 
 
@@ -123,6 +123,39 @@ def workspaces():
         rows = session.scalars(select(Workspace).order_by(Workspace.id)).all()
         return {"workspaces": [workspace_values(row) for row in rows]}
 
+BACKFILL_BARS = 1000
+
+def backfill_older_candles(before, limit):
+    """Download older closed M15 candles without advancing any trading cursor."""
+    if not research_lock.acquire(blocking=False):
+        raise HTTPException(409, "Market download already running; retry when finished")
+    adapter = None
+    try:
+        where = (MarketCandle.source == SOURCE, MarketCandle.symbol == market_symbol(),
+                 MarketCandle.timeframe == TIMEFRAME)
+        with Session() as session:
+            oldest = session.scalar(select(func.min(MarketCandle.time)).where(*where))
+            older = session.scalar(select(func.count()).where(
+                *where, *([MarketCandle.time < before] if before else []))) if oldest else 0
+        if oldest is None or older > limit:
+            return
+        check_cooldown()
+        adapter = MexcFuturesAdapter()
+        now = adapter.server_time()
+        end = min((before + 899) // 900 * 900, oldest, now // 900 * 900)
+        start = max(0, end - max(BACKFILL_BARS, limit + 1) * 900)
+        if end <= start:
+            return
+        candles = adapter.history(start, end, now)
+        with Session.begin() as session:
+            save_candles(session, candles)
+    except MarketDataError as exc:
+        raise market_failure(exc) from exc
+    finally:
+        if adapter:
+            adapter.close()
+        research_lock.release()
+
 @app.get("/api/workspaces/{workspace_id}/candles")
 def workspace_candles(
     workspace_id: str,
@@ -135,6 +168,13 @@ def workspace_candles(
         workspace = session.get(Workspace, workspace_id)
         if workspace is None:
             raise HTTPException(404, "Unknown workspace")
+        mexc = workspace.venue == SOURCE
+        if mexc and price_type not in (None, "last"):
+            raise HTTPException(422, "MEXC candle history uses last price, not bid/ask")
+    if mexc and timeframe == TIMEFRAME and before is not None:
+        backfill_older_candles(before, limit)
+    with Session() as session:
+        workspace = session.get(Workspace, workspace_id)
         price_type = price_type or ("last" if workspace.venue == SOURCE else "bid")
         if workspace.venue == SOURCE:
             if price_type != "last":
@@ -156,6 +196,8 @@ def workspace_candles(
         ).order_by(model.time.desc()).limit(limit + 1)).all()
         has_more = len(rows) > limit
         rows = rows[:limit]
+        if mexc and timeframe == TIMEFRAME and rows and rows[-1].time > 0:
+            has_more = True
         return {"workspace": workspace_values(workspace), "timeframe": timeframe,
                 "has_more": has_more, "next_before": rows[-1].time if has_more else None,
                 "price_type": price_type, "candles": [
