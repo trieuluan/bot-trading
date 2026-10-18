@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Activity, Brain, Dna, Power } from 'lucide-react';
 import {
   exitLabel,
+  HTF_LABELS,
   profileOf,
   riskText,
   strategyInfo,
@@ -117,7 +118,7 @@ export function FuturesLearningPage() {
   const selected = data?.last_decision?.selected;
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
   const familyName = (name: string) =>
-    name === 'default' ? 'Cây luật tự sinh' : name.replace(/_/g, ' ');
+    name === 'default' ? 'Cây luật tự sinh' : (HTF_LABELS[name] ?? name.replace(/_/g, ' '));
   const rows = all.filter(
     (row) =>
       (family === 'all' || profileOf(row.genome) === family) &&

@@ -15,8 +15,42 @@ type Genome = {
   exit_profile?: string;
 };
 
+export const HTF_LABELS: Record<string, string> = {
+  htf_retest: 'Retest HTF',
+  htf_squeeze: 'Squeeze HTF',
+  htf_breakout: 'Breakout HTF',
+  htf_sweep: 'Quét thanh khoản HTF',
+  htf_pullback: 'Pullback EMA HTF',
+  htf_ema_cross: 'EMA cross HTF',
+  htf_wedge: 'Nêm HTF',
+  htf_swing: 'Vùng swing HTF',
+  htf_other: 'Đa khung khác',
+};
+
+function features(rule: Rule): string[] {
+  return 'feature' in rule ? [rule.feature] : rule.children.flatMap(features);
+}
+
+// Seed trees: H4 trend filter, H1 setup (child 1), M15 trigger (child 2).
+function htfProfile(rule?: Rule): string | null {
+  if (!rule || !('op' in rule) || rule.op !== 'all' || rule.children.length !== 3) return null;
+  const used = features(rule.children[1]);
+  const has = (...names: string[]) => names.some((name) => used.includes(name));
+  if (has('retest', 'retest_seq')) return 'htf_retest';
+  if (has('compression', 'compression_current')) return 'htf_squeeze';
+  if (has('breakout')) return 'htf_breakout';
+  if (has('wick_sweep', 'sweep')) return 'htf_sweep';
+  if (has('ema_touch', 'ema_bounce')) return 'htf_pullback';
+  if (has('ema_cross_n', 'ema_cross')) return 'htf_ema_cross';
+  if (has('wedge')) return 'htf_wedge';
+  if (has('swing_zone')) return 'htf_swing';
+  return 'htf_other';
+}
+
 export function profileOf(g: Genome): string {
-  return g.family === 'rule_tree' ? (g.exit_profile ?? 'default') : g.family;
+  if (g.family !== 'rule_tree') return g.family;
+  const profile = g.exit_profile ?? 'default';
+  return profile === 'default' ? (htfProfile(g.rule) ?? 'default') : profile;
 }
 
 type Info = {
@@ -78,7 +112,8 @@ export function ruleName(rule: Rule): string {
 export function strategyName(g: Genome): string {
   const profile = profileOf(g);
   const rule = g.rule ? ruleName(g.rule) : 'Cây luật tự sinh';
-  return profile === 'default' ? rule : `${profile.replace(/_/g, ' ')} · ${rule}`;
+  if (profile === 'default') return rule;
+  return `${HTF_LABELS[profile] ?? profile.replace(/_/g, ' ')} · ${rule}`;
 }
 
 export function searchText(text: string): string {
@@ -176,7 +211,7 @@ export function strategyInfo(g: Genome): Info {
     },
   };
 
-  if (profileOf(g) === 'default')
+  if (profileOf(g) === 'default' || profileOf(g) in HTF_LABELS)
     return {
       kind: 'Cây luật',
       basis: 'H4 lọc xu hướng, H1 xác định cấu trúc, M15 tìm điểm vào',
