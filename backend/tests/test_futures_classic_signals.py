@@ -59,12 +59,13 @@ def test_rsi_divergence_predicate():
     bars.append(c(30 * 3600, 67, 72, 66, 71))
     bars.append(c(31 * 3600, 71, 75, 70, 74))
     m15 = [c(b.time + s * 900, b.open, b.high, b.low, b.close, b.volume / 4) for b in bars for s in range(4)]
-    # Bullish divergence setup passes validation
-    assert validate_htf_rule({"op": "all", "children": [
-        {"feature": "trend", "frame": "H4"},
-        {"feature": "rsi_divergence", "frame": "H1"},
-        {"feature": "engulfing", "frame": "M15"},
-    ]}) is None
+    closes = [100 - i for i in range(19)] + [84, 86, 88, 90, 92] + [91, 89, 87, 85, 83, 81] + [83, 85]
+    synthetic = [c(i * 3600, close - 0.5, close + 1, close - 1, close, 100)
+                 for i, close in enumerate(closes)]
+    synthetic_m15 = [c(b.time + s * 900, b.open, b.high, b.low, b.close, b.volume / 4)
+                     for b in synthetic for s in range(4)]
+    assert matches(rule, synthetic_m15, 1, 20)
+    assert not matches(rule, synthetic_m15, -1, 20)
 
 def test_bos_predicate():
     rule = {"feature": "bos", "frame": "H1"}
