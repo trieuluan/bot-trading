@@ -14,9 +14,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from .backtest import BacktestConfig, simulate
-from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, FuturesOpenInterest, MarketState, PaperTrade,
+from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, MarketState, PaperTrade,
                  Session)
-from .futures_symbols import SYMBOLS, current_symbol, market_symbol, state_id, symbol_scope
+from .futures_symbols import current_symbol, market_symbol, state_id
+from .futures_context import load_signal_context
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop
 from .futures_rule_tree import describe_rule, validate_rule
@@ -344,7 +345,7 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
     state["cursor"], state["updated_at"] = bar.time, now
 
 
-def validate_window(candidate, candles, fair, funding, contract):
+def validate_window(candidate, candles, fair, funding, contract, signal_context=None):
     start = candidate["born_at"] + len(candidate["windows"]) * WINDOW_SECONDS
     end = start + WINDOW_SECONDS
     if (len(candles) != WARMUP + WINDOW_BARS or candles[WARMUP].time != start
@@ -356,7 +357,8 @@ def validate_window(candidate, candles, fair, funding, contract):
         raise ValueError("Fair-price coverage mismatch")
     result = simulate(
         candles, BacktestConfig(), funding, fair, contract, warmup=WARMUP, window=WARMUP,
-        signal=lambda history, allow_short=False: strategy_setup(candidate["genome"], history, funding),
+        signal=lambda history, allow_short=False: strategy_setup(
+            candidate["genome"], history, funding, **(signal_context or {})),
         exit_policy=candidate["genome"].get("exit_policy", "fixed"),
     )
     candidate["windows"].append({
@@ -382,21 +384,9 @@ def learning_tick(now=None, adapter=None):
         candles = load_candles(session, limit=WARMUP + 96, until=end)
         if not candles or candles[-1].time != end - 900:
             return
-        btc_candles, benchmarks = None, None
-        if current_symbol() != "BTC_USDT":
-            with symbol_scope("BTC_USDT"):
-                btc_candles = load_candles(session, since=candles[0].time, until=end)
-        else:
-            benchmarks = {}
-            for peer in SYMBOLS[1:]:
-                with symbol_scope(peer):
-                    benchmarks[peer] = load_candles(session, since=candles[0].time, until=end)
-            if any(not rows for rows in benchmarks.values()):
-                benchmarks = None  # incomplete peers -> relative_strength stays False for BTC
-        oi_history = [(r.time, r.hold_vol) for r in session.scalars(
-            select(FuturesOpenInterest).where(FuturesOpenInterest.symbol == current_symbol(),
-                                              FuturesOpenInterest.time >= end - 4 * 3600)
-            .order_by(FuturesOpenInterest.time))]
+        signal_context = load_signal_context(session, candles[0].time, end)
+        benchmarks = signal_context.get("benchmarks")
+        oi_history = signal_context.get("oi_history")
         due = next(((name, candidate) for name, candidate in state["candidates"].items()
                     if exit_policy_enabled(candidate["genome"])
                     and candidate["born_at"] + (len(candidate["windows"]) + 1) * WINDOW_SECONDS <= end), None)
@@ -405,6 +395,8 @@ def learning_tick(now=None, adapter=None):
             name, candidate = due
             start = candidate["born_at"] + len(candidate["windows"]) * WINDOW_SECONDS
             validation = (name, start, load_candles(session, since=start - WARMUP * 900, until=start + WINDOW_SECONDS))
+            validation_context = load_signal_context(session, start - WARMUP * 900,
+                                                     start + WINDOW_SECONDS)
     owns_adapter = adapter is None
     adapter = adapter or MexcFuturesAdapter()
     try:
@@ -436,11 +428,11 @@ def learning_tick(now=None, adapter=None):
                 current["cursor"] = first - 900
             for bar, mark in zip(bars, fair):
                 history = [past for past in candles if past.time <= bar.time][-WARMUP:]
-                btc_hist = [past for past in btc_candles if past.time <= bar.time][-WARMUP:] if btc_candles else None
                 bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
-                step(current, history, mark, now, btc_candles=btc_hist, oi_history=oi_history, benchmarks=bench_hist)
+                step(current, history, mark, now, oi_history=oi_history, benchmarks=bench_hist)
             if validation and current["candidates"][name]["windows"] == state["candidates"][name]["windows"]:
-                validate_window(current["candidates"][name], validation[2], validation_fair, validation_funding, contract)
+                validate_window(current["candidates"][name], validation[2], validation_fair,
+                                validation_funding, contract, validation_context)
             sync_seeds(current, now)
             evolve(current, now)
             current["error"] = None

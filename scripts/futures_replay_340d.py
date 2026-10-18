@@ -8,7 +8,7 @@ from multiprocessing import Pool
 from pathlib import Path
 from uuid import uuid4
 
-from backend.app import futures_rule_tree, futures_strategies, strategy
+from backend.app import futures_history, futures_rule_tree, futures_strategies, strategy
 from backend.app.db import Session
 from backend.app.futures_history import replay
 from backend.app.futures_learner import (
@@ -28,7 +28,10 @@ KEYS = ("signals", "resolved", "mean_r", "profit_factor")
 _orig, _memo = strategy.aggregate, {}
 
 def memo_aggregate(candles, seconds):
-    key = (candles[0].time, candles[-1].time, len(candles), seconds) if candles else None
+    # Key must include prices: pairs share identical bar times, so time-only keys mix pairs up.
+    key = ((candles[0].time, candles[-1].time, len(candles), seconds,
+            candles[0].open, candles[0].close, candles[-1].open, candles[-1].close,
+            candles[len(candles) // 2].close) if candles else None)
     if key not in _memo:
         if len(_memo) > 200:
             _memo.clear()
@@ -57,9 +60,16 @@ def run_pair(symbol):
             save_state(session, state)
 
     data = pickle.loads(CACHE.read_bytes())
+    # The cache pulled BTC one bar offset from the other pairs; replay on the common window only.
+    first = max(data[sym][2][0].time for sym in SYMBOLS)
+    last = min(data[sym][2][-1].time for sym in SYMBOLS)
+    def clip(rows):
+        return [bar for bar in rows if first <= bar.time <= last]
     start, end, candles, fair, funding = data[symbol]
-    btc = data["BTC_USDT"][2] if symbol != "BTC_USDT" else None
-    benchmarks = {sym: data[sym][2] for sym in SYMBOLS if sym != "BTC_USDT"} if symbol == "BTC_USDT" else None
+    start, end = max(start, first + futures_history.WARMUP * 900), last + 900
+    candles, fair = clip(candles), clip(fair)
+    btc = clip(data["BTC_USDT"][2]) if symbol != "BTC_USDT" else None
+    benchmarks = {sym: clip(data[sym][2]) for sym in SYMBOLS if sym != "BTC_USDT"} if symbol == "BTC_USDT" else None
     t0 = time.time()
     report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc, benchmarks=benchmarks)
     duration = time.time() - t0
