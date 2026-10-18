@@ -217,7 +217,7 @@ class PaperWallet(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     initial_balance: Mapped[float] = mapped_column(Float, default=10000)
     balance: Mapped[float] = mapped_column(Float, default=10000)
-    fee_bps: Mapped[float] = mapped_column(Float, default=5)
+    fee_bps: Mapped[float] = mapped_column(Float, default=8)
     slippage_bps: Mapped[float] = mapped_column(Float, default=2)
     quote: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     contract: Mapped[dict | None] = mapped_column(JSON, nullable=True)

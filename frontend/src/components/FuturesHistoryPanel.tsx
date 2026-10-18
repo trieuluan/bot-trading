@@ -54,7 +54,7 @@ export function FuturesHistoryPanel() {
       <h3>Học từ lịch sử</h3>
       <p className="micro">
         {getFuturesSymbol()} · M15 · 70% học / 30% kiểm chứng. Replay độc lập, không tạo lệnh hay đổi số dư. Phí
-        5 bps và trượt giá 2 bps mỗi chiều, có funding.
+        8 bps (MEXC API taker) và trượt giá 2 bps mỗi chiều, có funding.
       </p>
       <div className="futures-history-actions">
         <label>

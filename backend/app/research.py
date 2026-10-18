@@ -39,7 +39,7 @@ class ResearchRequest(BaseModel):
     days: int = Field(default=30, ge=2, le=90)
     initial_capital: float = Field(default=10_000, gt=0, le=100_000_000)
     risk_percent: float = Field(default=1, gt=0, le=5)
-    fee_bps: float = Field(default=5, ge=0, le=100)
+    fee_bps: float = Field(default=8, ge=0, le=100)
     slippage_bps: float = Field(default=2, ge=0, le=100)
 
 

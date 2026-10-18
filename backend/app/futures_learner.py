@@ -28,7 +28,7 @@ from .paper import lock_wallet
 from .strategy import Setup
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
-FEE, SLIP = 5 / 10000, 2 / 10000
+FEE, SLIP = 8 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96
 RULE_TRIAL_CAP = 256
 WINDOW_SECONDS = WINDOW_BARS * 900

@@ -94,7 +94,7 @@ def database(monkeypatch):
 
         wallet = session.get(PaperWallet, 1)
         wallet.initial_balance = wallet.balance = 10000
-        wallet.fee_bps = 5
+        wallet.fee_bps = 8
         wallet.slippage_bps = 2
         wallet.quote = wallet.contract = None
         wallet.error = wallet.retry_at = wallet.funding_error = None

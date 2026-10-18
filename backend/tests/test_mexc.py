@@ -127,7 +127,7 @@ def long_history():
 
 def test_next_open_entry_stop_first_and_cost_accounting():
     bars = long_history() + [candle(21, 106, 140, 89, 110)]
-    config = BacktestConfig(fee_bps=5, slippage_bps=2)
+    config = BacktestConfig(fee_bps=8, slippage_bps=2)
     result = simulate(bars, config, [], bars, CONTRACT)
     trade = result["trades"][0]
     assert trade["signal_time"] == bars[20].time

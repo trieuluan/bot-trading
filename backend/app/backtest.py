@@ -13,7 +13,7 @@ from .futures_exits import EXIT_POLICIES, adaptive_target, partial_size, protect
 class BacktestConfig:
     initial_capital: float = 10_000
     risk_percent: float = 1
-    fee_bps: float = 5
+    fee_bps: float = 8
     slippage_bps: float = 2
 
 

@@ -17,7 +17,7 @@ export function BacktestPage({ connected }: { connected: boolean }) {
   const [days, setDays] = useState(30);
   const [capital, setCapital] = useState(10000);
   const [risk, setRisk] = useState(1);
-  const [fee, setFee] = useState(5);
+  const [fee, setFee] = useState(8);
   const [slippage, setSlippage] = useState(2);
 
   useEffect(() => {

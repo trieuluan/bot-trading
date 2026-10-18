@@ -821,7 +821,7 @@ export function PaperTradingPage({
                   {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
                 </button>
                 <p className="micro">
-                  Khối lượng làm tròn xuống theo hợp đồng MEXC. Phí {wallet?.fee_bps ?? 5} bps và
+                  Khối lượng làm tròn xuống theo hợp đồng MEXC. Phí {wallet?.fee_bps ?? 8} bps và
                   trượt giá {wallet?.slippage_bps ?? 2} bps mỗi chiều là giả định, chưa gồm độ sâu
                   sổ lệnh.
                 </p>

@@ -57,7 +57,7 @@ def test_crossings_close_at_historical_level_once_and_pause_auto(recovery, side,
         assert trade.monitoring["execution_model"] == "historical_levels_v1"
         assert trade.monitoring["recovered_at"] == clock[0]
         assert trade.monitoring["time_basis"] == "bar_end_proxy"
-        assert trade.exit_fee == pytest.approx(trade.exit * trade.quantity * 5 / 10000)
+        assert trade.exit_fee == pytest.approx(trade.exit * trade.quantity * 8 / 10000)
         assert trade.monitoring["trigger_bar"] == cursor
         assert trade.monitoring["ambiguous"] == (high == 111 and low == 94)
         assert not session.get(AutoPaperState, 1).enabled
