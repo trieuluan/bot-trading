@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from .market import Candle
 from .mexc import validate_candles
 from .strategy import breakout, retest
-from .futures_exits import EXIT_POLICIES, protective_stop
+from .futures_exits import EXIT_POLICIES, adaptive_target, partial_size, protective_stop
 
 
 @dataclass(frozen=True)
@@ -117,7 +117,7 @@ def simulate(
                 gross = direction * (exit_price - position["entry"]) * position["quantity"]
                 exit_fee = exit_price * position["quantity"] * fee
                 cash += gross - exit_fee
-                fees = position["entry_fee"] + exit_fee
+                fees = position["entry_fee"] + exit_fee + position.get("realized_exit_fee", 0)
                 trades.append(
                     {
                         **position,
@@ -125,13 +125,27 @@ def simulate(
                         "exit": exit_price,
                         "exit_reason": reason,
                         "fees": fees,
-                        "net_pnl": gross - fees - position["funding_cost"],
+                        "net_pnl": gross + position.get("realized_gross", 0) - fees - position["funding_cost"],
                     }
                 )
                 position = None
             else:
+                history = candles[max(0, index - 99):index + 1]
+                quantity = partial_size(position, history, size * lot, size * float(contract["minVol"]))
+                if quantity:
+                    fill = candle.close * (1 - direction * slip)
+                    gross = direction * (fill - position["entry"]) * quantity
+                    exit_fee = fill * quantity * fee
+                    cash += gross - exit_fee
+                    position.update(original_quantity=position["quantity"],
+                                    quantity=position["quantity"] - quantity,
+                                    contracts=(position["quantity"] - quantity) / size,
+                                    realized_gross=gross, realized_exit_fee=exit_fee,
+                                    partial_exits=[dict(time=candle.time + 900, price=fill, quantity=quantity)])
+                position["target"] = adaptive_target(position, history)
                 position["stop"] = protective_stop(
-                    position, candles[max(0, index - 14):index + 1], fee, slip,
+                    {**position, "entry_fee": position["entry_fee"] * position["quantity"]
+                     / position.get("original_quantity", position["quantity"])}, history, fee, slip,
                 )
 
         equity = cash

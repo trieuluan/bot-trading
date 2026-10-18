@@ -4,6 +4,11 @@ export type PaperTrade = {
   monitoring: {
     status: 'watching' | 'history_pending' | 'recovered';
     next_bar: number;
+    exit_policy?: string;
+    original_quantity?: number;
+    original_entry_fee?: number;
+    realized_net?: number;
+    partial_exits?: { time: number; price: number; quantity: number; entry_fee: number; exit_fee: number; gross: number }[];
     trigger_bar?: number;
     ambiguous?: boolean;
     fill_basis?: 'level' | 'gap_open';

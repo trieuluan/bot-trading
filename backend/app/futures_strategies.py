@@ -9,14 +9,14 @@ from statistics import fmean, pstdev
 
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion
 from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
-from .futures_exits import EXIT_POLICIES, structural_target
+from .futures_exits import EXIT_POLICIES, adaptive_levels, structural_target
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
                                 validate_rule)
 
 RULE_FAMILY = "rule_tree"
 FAMILIES = ("breakout", "mtf_retest", "mean_reversion", "liquidity_sweep", "funding_filter",
             "retest", "squeeze", "trend_pullback", "volume_spike", "donchian_trend", "ema_cross", "rsi_reversal")
-MUTABLE_EXITS = ("fixed", "trail")
+MUTABLE_EXITS = ("fixed", "trail", "adaptive")
 BOUNDS = {
     "lookback": (10, 40, 5), "target_r": (1.5, 3.0, 0.5),
     "stop_buffer": (0.0, 0.5, 0.1), "max_er": (0.2, 0.4, 0.05),
@@ -39,10 +39,9 @@ def validate_genome(genome):
         validate_rule(genome["rule"])
         if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
             raise ValueError("Invalid rule-tree exit profile")
-        if (genome.get("exit_profile", "default") == "default"
-                and (genome.get("exit_policy", "fixed") != "fixed" or genome["target_r"] != 2.0
-                     or genome["stop_buffer"] != 0.0)):
-            raise ValueError("Rule-tree exits must remain fixed at the control settings")
+        if (genome.get("exit_profile", "default") == "default" and genome.get("exit_policy") != "adaptive"
+                and (genome["target_r"] != 2.0 or genome["stop_buffer"] != 0.0)):
+            raise ValueError("Default rule-tree exits must keep the control R/buffer")
     if genome.get("exit_policy", "fixed") not in EXIT_POLICIES:
         raise ValueError("Invalid futures genome: exit_policy")
     for key, (low, high, _) in BOUNDS.items():
@@ -77,6 +76,7 @@ RULE_SEEDS = [
      "max_er": 0.30, "funding_threshold": 0.0003, "rule": rule}
     for rule in RULES
 ]
+SEEDS += [{**seed, "exit_policy": "adaptive"} for seed in SEEDS if "exit_policy" not in seed]
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -107,16 +107,14 @@ def genome_name(genome):
     return f"{genome['family']}:{digest}"
 
 def exit_policy_enabled(genome):
-    policy = genome.get("exit_policy", "fixed")
-    return policy == "fixed" or (policy == "trail" and "squeeze" in (
-        genome["family"], genome.get("exit_profile")))
+    return genome.get("exit_policy", "fixed") in MUTABLE_EXITS
 
 def crossover(parent, mate):
     validate_genome(parent)
     validate_genome(mate)
     child = {**parent, "target_r": mate["target_r"], "stop_buffer": mate["stop_buffer"]}
     if is_rule_tree(parent) and is_rule_tree(mate):
-        if parent.get("exit_profile", "default") == "default":
+        if parent.get("exit_profile", "default") == "default" and mate.get("exit_policy") != "adaptive":
             child["target_r"], child["stop_buffer"] = 2.0, 0.0
         joined = {"op": "all", "children": [parent["rule"], mate["rule"]]}
         try:
@@ -125,8 +123,8 @@ def crossover(parent, mate):
         except ValueError:
             pass
     child.pop("exit_policy", None)
-    if "squeeze" in (parent["family"], parent.get("exit_profile")) and mate.get("exit_policy") == "trail":
-        child["exit_policy"] = "trail"
+    if mate.get("exit_policy") in ("trail", "adaptive"):
+        child["exit_policy"] = mate["exit_policy"]
     return child
 
 def mutate(genome, rng):
@@ -137,9 +135,8 @@ def mutate(genome, rng):
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else genome["family"]
     relevant = ["target_r", "stop_buffer"]
     if is_rule_tree(genome):
-        relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" else [])
-    if profile == "squeeze":
-        relevant.append("exit_policy")
+        relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" or genome.get("exit_policy") == "adaptive" else [])
+    relevant.append("exit_policy")
     if profile in ("breakout", "retest", "mtf_retest", "liquidity_sweep", "squeeze", "volume_spike", "donchian_trend", "ema_cross"):
         relevant.append("lookback")
     if profile == "mean_reversion":
@@ -153,6 +150,8 @@ def mutate(genome, rng):
         child.pop("exit_policy", None)
         if mode != "fixed":
             child["exit_policy"] = mode
+        if profile == "default" and mode != "adaptive":
+            child.update(target_r=2.0, stop_buffer=0.0)
         validate_genome(child)
         return child
     if key == "rule":
@@ -226,12 +225,19 @@ def strategy_setup(genome, candles, funding):
                           genome, funding)
     if custom:
         stop, target = custom
+    adaptive = genome.get("exit_policy") == "adaptive"
+    if adaptive:
+        levels = adaptive_levels("long" if direction == 1 else "short", candles,
+                                 genome["target_r"], genome["stop_buffer"])
+        if levels is None:
+            return None
+        stop, target = levels
     setup = Setup("long" if direction == 1 else "short", last.close, stop, target,
                   describe_rule(tree["rule"]))
     direction = 1 if setup.side == "long" else -1
-    stop = setup.stop - direction * genome["stop_buffer"] * atr14(candles)
+    stop = setup.stop if adaptive else setup.stop - direction * genome["stop_buffer"] * atr14(candles)
     risk = direction * (setup.entry - stop)
-    target = (setup.target if tree.get("exit_profile") == "mean_reversion"
+    target = (setup.target if adaptive or tree.get("exit_profile") == "mean_reversion"
               else setup.entry + direction * genome["target_r"] * risk)
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)

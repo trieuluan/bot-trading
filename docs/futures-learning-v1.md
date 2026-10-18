@@ -105,6 +105,18 @@ validation windows or promotion. The policies are:
   H1/H4 Donchian20 or confirmed swing barrier, with 0.1 M15 ATR14 buffer. Never
   extend the strategy's original TP. Require both frames to have 20 closed bars;
   reject the signal if the capped reward is below 1.5R at signal price.
+- `adaptive`: initial SL uses the five-bar M15 swing plus 0.25 ATR14, with a
+  minimum distance of one ATR14, then adds the genome's `stop_buffer`. Initial
+  TP is capped at `max(2, target_r)` times that final risk. Before entry, cap it
+  at the nearest prior M15/H1 range extreme or confirmed swing, buffered by
+  0.1 M15 ATR14. Reject a barrier below 1.5R instead of ignoring it; use the R
+  cap when no barrier exists or the barrier lies beyond it. H1 aggregation drops
+  incomplete hours; management retains 100 M15 bars to cover 20 closed hours.
+  While open, only weak closed candles can pull TP closer, never farther, and
+  only if the new target is still ahead of price and at least 1.5 initial R.
+  Strong candles keep their target. Reaching 1R alone does not take partial
+  profit: a weak close is also required. Partial exits are rounded to contract
+  steps and recorded once; the remaining position keeps breakeven/trailing SL.
 
 Mutation toggles `exit_policy` between `fixed` and `trail` for `squeeze` only.
 Stored variants outside that policy remain visible as paused, preserving their

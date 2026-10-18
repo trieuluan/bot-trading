@@ -242,6 +242,17 @@ export function PaperChart({
       }
     }
     if (trade) {
+      for (const leg of trade.monitoring?.partial_exits ?? []) {
+        const bucket = Math.floor(leg.time / 900) * 900;
+        if (candles.some((candle) => candle.time === bucket)) {
+          points.push({
+            time: bucket as UTCTimestamp,
+            position: trade.side === 'long' ? 'aboveBar' : 'belowBar',
+            color: '#2c856c', shape: 'circle',
+            text: `#${trade.id} CHỐT MỘT PHẦN ${formatPrice(leg.price)}`,
+          });
+        }
+      }
       const label = `#${trade.id} ${trade.side.toUpperCase()}`;
       allLevels.push(
         { title: `${label} ENTRY`, price: trade.entry, color: '#557fa1' },

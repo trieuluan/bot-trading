@@ -111,16 +111,15 @@ def test_fixed_seed_identity_remains_unchanged_and_exit_variants_are_distinct():
 
 
 def test_search_keeps_fixed_families_and_only_squeeze_trailing():
-    assert len(SEEDS) == 13
+    assert len(SEEDS) == 25
     assert sum(seed.get("exit_policy", "fixed") == "fixed" for seed in SEEDS) == 12
     for seed in SEEDS:
         for index in range(50):
             assert exit_policy_enabled(mutate(seed, random.Random(index)))
-            for policy in ("breakeven", "structure", "trail"):
+            for policy in ("breakeven", "structure", "trail", "adaptive"):
                 old = {**seed, "exit_policy": policy}
                 assert exit_policy_enabled(mutate(old, random.Random(index)))
                 assert exit_policy_enabled(crossover(seed, old))
-
 
 def test_stored_disallowed_policies_cannot_signal_breed_or_execute(monkeypatch):
     from backend.app import futures_learner as learner
@@ -129,7 +128,7 @@ def test_stored_disallowed_policies_cannot_signal_breed_or_execute(monkeypatch):
 
     state = learner.new_state(0)
     state["candidates"] = {}
-    old = {**SEEDS[0], "exit_policy": "trail"}
+    old = {**SEEDS[0], "exit_policy": "structure"}
     learner.add_candidate(state, old, 0)
     name = genome_name(old)
     monkeypatch.setattr(learner, "strategy_setup", lambda *args: Setup("long", 100, 98, 104, "test"))
@@ -173,3 +172,18 @@ def test_paper_management_persists_without_changing_existing_positions(recovery)
         assert trade.stop == moved_stop
         reconcile_stops(session, session.get(PaperWallet, 1), trade, clock[0])
         assert trade.stop == moved_stop and trade.exit_time is None
+
+def test_adaptive_levels_partial_once_and_target_pulls_to_resistance():
+    from backend.app.futures_exits import adaptive_levels, adaptive_target, partial_size
+    history = [Candle(i * 900, 100, 100.5, 99.5, 100, 1) for i in range(21)]
+    history[10] = Candle(9000, 100, 105, 99.5, 100, 1)
+    levels = adaptive_levels("long", history)
+    assert levels is not None
+    stop, target = levels
+    assert stop < 100 < target
+    position = {**pos("adaptive"), "target": 120, "quantity": 3}
+    candles = history[:-1] + [Candle(18000, 104, 104.2, 102.9, 103, 1)]
+    assert partial_size(position, candles, 1, 1) == 1
+    assert partial_size({**position, "partial_exits": [1]}, candles, 1, 1) == 0
+    resistance = candles[:-2] + [Candle(17100, 100, 105, 99, 100, 1), candles[-1]]
+    assert adaptive_target({**position, "entry": 100, "risk": 2}, resistance) < 120

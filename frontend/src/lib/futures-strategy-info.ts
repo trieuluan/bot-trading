@@ -8,7 +8,7 @@ type Genome = {
   lookback: number;
   target_r: number;
   stop_buffer: number;
-  exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure';
+  exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive';
   max_er?: number;
   funding_threshold?: number;
   rule?: Rule;
@@ -194,6 +194,12 @@ export function strategyInfo(g: Genome): Info {
 }
 
 export function riskText(g: Genome, stop: string) {
+  if (g.exit_policy === 'adaptive') {
+    return `SL theo swing 5 nến M15 + 0.25 ATR14, tối thiểu 1 ATR14; đệm thêm ${g.stop_buffer} ATR14. ` +
+      `TP ban đầu trước cản M15/H1 gần nhất (đệm 0.1 ATR14), không quá ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Khi đạt 1R: chốt 50% chỉ lúc nến yếu (thân ngược, râu từ chối, hoặc chững lại sát cản); nến khỏe giữ chạy tới cản/TP. Hòa vốn ngay từ 1R, ` +
+      'SL hòa vốn có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến + 0.1 ATR14. ' +
+      'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.';
+  }
   const buf = g.stop_buffer ? ` (cộng thêm ${g.stop_buffer}×ATR14 đệm)` : '';
   const tp =
     profileOf(g) === 'mean_reversion'
@@ -219,6 +225,7 @@ export function exitLabel(policy?: string) {
         fixed: 'SL/TP cố định',
         breakeven: 'Hòa vốn 1R',
         trail: 'Hòa vốn + trailing',
+        adaptive: 'SL/TP tự tính + chốt khi nến yếu + trailing',
         structure: 'TP cấu trúc + hòa vốn',
       } as Record<string, string>
     )[policy ?? 'fixed'] ?? policy

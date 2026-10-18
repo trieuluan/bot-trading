@@ -1,5 +1,6 @@
 import type { PaperTrade } from '../types/paper';
 import { formatPrice } from '../lib/format';
+import { exitLabel } from '../lib/futures-strategy-info';
 
 export const exitLabels: Record<string, string> = {
   manual: 'Đóng thủ công',
@@ -26,6 +27,16 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
           {closed ? 'LỊCH SỬ · ĐÃ ĐÓNG' : 'VỊ THẾ ĐANG MỞ'}
         </span>
       </div>
+      {trade.monitoring?.exit_policy && (
+        <p className="micro">Quản lý lệnh: {exitLabel(trade.monitoring.exit_policy)}</p>
+      )}
+      {trade.monitoring?.partial_exits?.map((leg) => (
+        <p key={leg.time} className="micro">
+          Đã chốt {leg.quantity} tại {formatPrice(leg.price)} · {utcTime(leg.time)} ·
+          PnL sau phí, chưa trừ funding {formatPrice(leg.gross - leg.entry_fee - leg.exit_fee)} USDT.
+          Còn {trade.quantity}; không mở thêm lệnh.
+        </p>
+      ))}
       <p>
         {trade.monitoring?.status === 'recovered' && (
           <span className="negative">
@@ -94,7 +105,8 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
               {trade.net_pnl === null ? '—' : formatPrice(trade.net_pnl)} USDT
             </span>
           </strong>{' '}
-          · Phí {formatPrice(trade.entry_fee + trade.exit_fee)} · Funding{' '}
+          · Phí {formatPrice(trade.entry_fee + trade.exit_fee +
+            (trade.monitoring?.partial_exits ?? []).reduce((sum, leg) => sum + leg.entry_fee + leg.exit_fee, 0))} · Funding{' '}
           {formatPrice(trade.funding_cost)} USDT
         </p>
       )}

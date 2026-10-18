@@ -28,7 +28,7 @@ from .db import (
     utcnow,
 )
 from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
-from .futures_exits import EXIT_POLICIES, protective_stop
+from .futures_exits import EXIT_POLICIES, adaptive_target, partial_size, protective_stop
 from .feed import load_candles
 from .mexc import MarketDataError, MexcFuturesAdapter
 
@@ -214,7 +214,8 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
     gross = direction(trade) * trade.quantity * (price - trade.entry)
     cash = master(session)
     cash.balance = round(cash.balance + gross - trade.exit_fee, 8)
-    trade.net_pnl = round(gross - trade.entry_fee - trade.exit_fee - trade.funding_cost, 8)
+    trade.net_pnl = round(gross - trade.entry_fee - trade.exit_fee - trade.funding_cost
+                          + (trade.monitoring or {}).get("realized_net", 0), 8)
     session.add(
         Event(
             kind="paper", message=f"PAPER #{trade.id}: đóng {reason}; PnL {trade.net_pnl:.2f} USDT"
@@ -316,15 +317,48 @@ def reconcile_stops(session, wallet, trade, now):
             return
         policy = monitoring.get("exit_policy", "fixed")
         if policy != "fixed":
-            history = load_candles(session, limit=15, until=candle.time + 900)
+            history = load_candles(session, limit=100, until=candle.time + 900)
             settled_funding = sum(session.scalars(select(PaperFunding.cost).where(
                 PaperFunding.trade_id == trade.id, PaperFunding.time <= candle.time,
             )))
+            risk = monitoring["risk"]
+            info = wallet.contract or {}
+            unit = float(info.get("contractSize") or 0) * float(info.get("volUnit") or 0)
+            position = dict(side=trade.side, entry=trade.entry, risk=risk, stop=trade.stop,
+                            target=trade.target, exit_policy=policy, quantity=trade.quantity,
+                            entry_fee=trade.entry_fee,
+                            funding_cost=settled_funding,
+                            partial_exits=monitoring.get("partial_exits"))
+            minimum = float(info.get("contractSize") or 0) * float(info.get("minVol") or 0)
+            quantity = partial_size(position, history, unit, minimum) if unit > 0 else 0
+            if quantity:
+                original = trade.quantity
+                fill = candle.close * (1 - direction(trade) * wallet.slippage_bps / 10000)
+                fee = round(fill * quantity * wallet.fee_bps / 10000, 8)
+                gross = direction(trade) * quantity * (fill - trade.entry)
+                master(session).balance = round(master(session).balance + gross - fee, 8)
+                entry_fee = trade.entry_fee * quantity / trade.quantity
+                trade.entry_fee = round(trade.entry_fee - entry_fee, 8)
+                trade.quantity = float(Decimal(str(trade.quantity)) - Decimal(str(quantity)))
+                trade.contracts = float(Decimal(str(trade.quantity)) / Decimal(str(info["contractSize"])))
+                for funding in session.scalars(select(PaperFunding).where(
+                    PaperFunding.trade_id == trade.id, PaperFunding.time >= candle.time + 900,
+                )):
+                    refund = round(funding.cost * quantity / original, 8)
+                    funding.cost = round(funding.cost - refund, 8)
+                    trade.funding_cost = round(trade.funding_cost - refund, 8)
+                    master(session).balance = round(master(session).balance + refund, 8)
+                monitoring = {**monitoring, "realized_net": round(
+                    monitoring.get("realized_net", 0) + gross - fee - entry_fee, 8),
+                    "original_quantity": original, "original_entry_fee": trade.entry_fee + entry_fee,
+                    "partial_exits": [dict(time=candle.time + 900, price=fill, quantity=quantity,
+                                           gross=gross, exit_fee=fee, entry_fee=entry_fee)]}
+                position.update(quantity=trade.quantity, entry_fee=trade.entry_fee,
+                                partial_exits=monitoring["partial_exits"])
+                session.add(Event(kind="paper", message=f"PAPER #{trade.id}: chốt {quantity:g} tại {fill:.4f}"))
+            trade.target = adaptive_target(position, history)
             next_stop = protective_stop(
-                dict(side=trade.side, entry=trade.entry, risk=monitoring["risk"], stop=trade.stop,
-                     exit_policy=policy, quantity=trade.quantity, entry_fee=trade.entry_fee,
-                     funding_cost=settled_funding),
-                history, wallet.fee_bps / 10000, wallet.slippage_bps / 10000)
+                position, history, wallet.fee_bps / 10000, wallet.slippage_bps / 10000)
             if next_stop != trade.stop:
                 monitoring = {**monitoring, "last_stop_update": candle.time + 900,
                               "previous_stop": trade.stop}
@@ -437,7 +471,10 @@ def sync_paper_funding(adapter=None, now=None):
                     if session.get(PaperFunding, (trade.id, timestamp)):
                         continue
                     price = prices[timestamp]
-                    cost = round(direction(trade) * trade.quantity * price * rate, 8)
+                    quantity = trade.quantity + sum(
+                        leg["quantity"] for leg in (trade.monitoring or {}).get("partial_exits", [])
+                        if timestamp < leg["time"])
+                    cost = round(direction(trade) * quantity * price * rate, 8)
                     master(session).balance = round(master(session).balance - cost, 8)
                     trade.funding_cost = round(trade.funding_cost + cost, 8)
                     if trade.net_pnl is not None:

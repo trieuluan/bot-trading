@@ -18,7 +18,7 @@ from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, Market
                  Session)
 from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles
-from .futures_exits import protective_stop
+from .futures_exits import adaptive_target, partial_size, protective_stop
 from .futures_rule_tree import describe_rule, validate_rule
 from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
@@ -58,6 +58,8 @@ def new_state(now):
         add_candidate(state, seed, born)
     rng = random.Random(now)
     for seed in [*SEEDS, *RULE_SEEDS]:
+        if len(state["candidates"]) >= CAP - 1:
+            break
         add_candidate(state, mutate(seed, rng), born, (genome_name(seed),))
     return state
 
@@ -129,7 +131,7 @@ def advance(sample, bar, fair, funding, candles=None):
             return
         sample.update(entry=entry, risk=risk, funding_cost=0.0)
     else:
-        sample["funding_cost"] += direction * fair.open * sum(
+        sample["funding_cost"] += sample.get("quantity", 1.0) * direction * fair.open * sum(
             row["rate"] for row in funding if row["time"] == bar.time
         )
     stop, target = sample["stop"], sample["target"]
@@ -142,10 +144,22 @@ def advance(sample, bar, fair, funding, candles=None):
     elif bar.time - sample["entry_time"] >= MAX_HOLD:
         price, why = bar.close, "timeout"
     else:
+        history = candles or [bar]
+        quantity = partial_size(sample, history)
+        if quantity:
+            fill = bar.close * (1 - direction * SLIP)
+            sample["partial_exits"] = [dict(time=bar.time + 900, price=fill, quantity=quantity)]
+            sample["realized_gross"] = direction * (fill - sample["entry"]) * quantity
+            sample["realized_exit_fee"] = fill * quantity * FEE
+            sample["quantity"] = sample.get("quantity", 1.0) - quantity
+        sample["target"] = adaptive_target(sample, history)
         sample["stop"] = protective_stop(sample, candles or [bar], FEE, SLIP)
         return
     price *= 1 - direction * SLIP
-    net = direction * (price - sample["entry"]) - (sample["entry"] + price) * FEE - sample["funding_cost"]
+    quantity = sample.get("quantity", 1.0)
+    net = (sample.get("realized_gross", 0) + direction * (price - sample["entry"]) * quantity
+           - sample["entry"] * FEE - price * quantity * FEE
+           - sample.get("realized_exit_fee", 0) - sample["funding_cost"])
     sample.update(status="resolved", exit_reason=why, net_r=net / sample["risk"],
                   label_available_at=bar.time + 900)
 
@@ -193,9 +207,10 @@ def sync_seeds(state, now):
     existing = {genome_name(candidate["genome"]) for candidate in state["candidates"].values()}
     for seed in [*SEEDS, *RULE_SEEDS]:
         name = genome_name(seed)
-        if name not in existing:
+        if name not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
-            add_candidate(state, mutate(seed, rng), born, (name,))
+            if len(state["candidates"]) < CAP:
+                add_candidate(state, mutate(seed, rng), born, (name,))
 
 def performance(state, now):
     """Resolved forward samples plus historical replay (train + validation) per strategy."""

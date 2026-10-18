@@ -18,7 +18,7 @@ type Row = {
     lookback: number;
     target_r: number;
     stop_buffer: number;
-    exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure';
+    exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive';
     max_er?: number;
     funding_threshold?: number;
     rule?: Rule;
