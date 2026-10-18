@@ -105,6 +105,7 @@ export function PaperChart({
       to: (candles.at(-1)!.time + step) as UTCTimestamp,
     });
   }
+  const snap = (time: number) => Math.floor(time / step) * step;
   const [hover, setHover] = useState<string | null>(null);
   const [tags, setTags] = useState<
     { id: number; kind: 'entry' | 'stop' | 'target'; y: number; displayY: number; column: number }[]
@@ -299,7 +300,7 @@ export function PaperChart({
               },
             ]),
       );
-      if (step === 900 && trade.audit?.range_start != null && trade.audit.range_end != null && chart.current) {
+      if (trade.audit?.range_start != null && trade.audit.range_end != null && chart.current) {
         const audit = trade.audit;
         for (const value of [audit.range_high, audit.range_low]) {
           if (value == null) continue;
@@ -312,8 +313,8 @@ export function PaperChart({
             crosshairMarkerVisible: false,
           });
           range.setData([
-            { time: audit.range_start as UTCTimestamp, value },
-            { time: audit.range_end as UTCTimestamp, value },
+            { time: snap(audit.range_start!) as UTCTimestamp, value },
+            { time: Math.max(snap(audit.range_end!), snap(audit.range_start!) + step) as UTCTimestamp, value },
           ]);
           ranges.current.push(range);
         }
@@ -371,12 +372,10 @@ export function PaperChart({
         );
       }
       for (const level of observation.levels ?? []) {
-        if (step !== 900) break;
-        const start = Math.max(
-          candles[0]?.time ?? observation.time,
-          level.from ?? observation.time - 20 * 900,
+        const start = snap(
+          Math.max(candles[0]?.time ?? observation.time, level.from ?? observation.time - 20 * 900),
         );
-        const end = Math.min(level.to ?? observation.time, observation.time);
+        const end = Math.max(snap(Math.min(level.to ?? observation.time, observation.time)), start + step);
         if (!chart.current || !Number.isFinite(level.price) || start >= end) continue;
         const range = chart.current.addSeries(LineSeries, {
           title: `${title} · ${level.title}`,
@@ -394,14 +393,18 @@ export function PaperChart({
         ]);
         ranges.current.push(range);
       }
-      for (const curve of step === 900 ? (observation.curves ?? []) : []) {
+      for (const curve of observation.curves ?? []) {
         if (!chart.current) continue;
-        const visible = curve.points.filter(
-          (point) =>
+        const byBucket = new Map<number, number>();
+        for (const point of curve.points) {
+          if (
             point.time >= (candles[0]?.time ?? 0) &&
             point.time <= observation.time &&
-            Number.isFinite(point.value),
-        );
+            Number.isFinite(point.value)
+          )
+            byBucket.set(snap(point.time), point.value);
+        }
+        const visible = [...byBucket].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
         if (visible.length < 2) continue;
         const indicator = chart.current.addSeries(LineSeries, {
           title: `${title} · ${curve.title}`,
@@ -671,14 +674,14 @@ export function PaperChart({
             {trade.exit !== null && <span className="exit-legend">— Exit · giá đóng</span>}
           </>
         )}
-        {step !== 900 && <span>Vùng và chỉ báo chiến thuật chỉ vẽ trên 15m. Nến cuối có thể chưa đóng.</span>}
-        {step === 900 && observations.length > 0 && (
+        {step !== 900 && <span>Vùng và chỉ báo tính từ nến 15m, hiển thị theo khung {timeframe}. Nến cuối có thể chưa đóng.</span>}
+        {observations.length > 0 && (
           <span>
             {observations.length} lớp phân tích · nét đứt: vùng tham chiếu · nét liền: chỉ báo ·
             marker: tín hiệu nến đóng · ENTRY/SL/TP dự kiến không phải lệnh đã khớp
           </span>
         )}
-        {step === 900 && trade?.audit?.range_high != null && (
+        {trade?.audit?.range_high != null && (
           <span className="breakout-legend">— Vùng 20 nến trước · ● Nến tín hiệu</span>
         )}
         {trade?.exit_time !== null && trade ? (
