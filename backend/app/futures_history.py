@@ -40,7 +40,7 @@ def historical_stats(samples):
     return result
 
 
-def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None, btc_candles=None):
+def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None, btc_candles=None, benchmarks=None):
     validate_candles(candles)
     validate_candles(fair)
     expected = list(range(start - WARMUP * 900, end, 900))
@@ -49,6 +49,10 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         raise ValueError("Incomplete historical trade/fair-price coverage")
     if btc_candles is not None and [bar.time for bar in btc_candles] != expected:
         raise ValueError("BTC reference candles must cover the same bars")
+    if benchmarks is not None:
+        for name, peer in benchmarks.items():
+            if [bar.time for bar in peer] != expected:
+                raise ValueError(f"Benchmark {name} candles must cover the same bars")
     for candidate in candidates.values():
         validate_genome(candidate["genome"])
     total = (end - start) // 900
@@ -66,6 +70,7 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
             active.clear()
         history = candles[index - WARMUP + 1:index + 1]
         btc_history = btc_candles[index - WARMUP + 1:index + 1] if btc_candles else None
+        peer_history = {name: peer[index - WARMUP + 1:index + 1] for name, peer in benchmarks.items()} if benchmarks else None
         for name, sample in list(active.items()):
             advance(sample, bar, mark, known_funding, history)
             if sample["status"] != "open":
@@ -75,8 +80,8 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         for name, candidate in candidates.items():
             if name in active:
                 continue
-            setup = strategy_setup(candidate["genome"], history, known_funding,
-                                   **({"btc_candles": btc_history} if btc_history else {}))
+            kwargs = {k: v for k, v in (("btc_candles", btc_history), ("benchmarks", peer_history)) if v}
+            setup = strategy_setup(candidate["genome"], history, known_funding, **kwargs)
             if setup is None:
                 continue
             sample = {"strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,

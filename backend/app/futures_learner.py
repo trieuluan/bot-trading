@@ -283,7 +283,7 @@ def evolve(state, now, max_children=1, force=False):
                 break
     return made
 
-def step(state, candles, fair, now, btc_candles=None, oi_history=None):
+def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None):
     bar = candles[-1]
     if state["cursor"] is not None and bar.time <= state["cursor"]:
         return
@@ -302,8 +302,8 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None):
             continue
         if bar.time < candidate["born_at"]:
             continue
-        setup = strategy_setup(candidate["genome"], candles, state["funding"],
-                               **{k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history)) if v})
+        kwargs = {k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history), ("benchmarks", benchmarks)) if v}
+        setup = strategy_setup(candidate["genome"], candles, state["funding"], **kwargs)
         observation.update(strategy_chart(candidate["genome"], candles))
         observation["status"] = "no_signal"
         if setup is None:
@@ -382,10 +382,17 @@ def learning_tick(now=None, adapter=None):
         candles = load_candles(session, limit=WARMUP + 96, until=end)
         if not candles or candles[-1].time != end - 900:
             return
-        btc_candles = None
+        btc_candles, benchmarks = None, None
         if current_symbol() != "BTC_USDT":
             with symbol_scope("BTC_USDT"):
                 btc_candles = load_candles(session, since=candles[0].time, until=end)
+        else:
+            benchmarks = {}
+            for peer in SYMBOLS[1:]:
+                with symbol_scope(peer):
+                    benchmarks[peer] = load_candles(session, since=candles[0].time, until=end)
+            if any(not rows for rows in benchmarks.values()):
+                benchmarks = None  # incomplete peers -> relative_strength stays False for BTC
         oi_history = [(r.time, r.hold_vol) for r in session.scalars(
             select(FuturesOpenInterest).where(FuturesOpenInterest.symbol == current_symbol(),
                                               FuturesOpenInterest.time >= end - 4 * 3600)
@@ -430,7 +437,8 @@ def learning_tick(now=None, adapter=None):
             for bar, mark in zip(bars, fair):
                 history = [past for past in candles if past.time <= bar.time][-WARMUP:]
                 btc_hist = [past for past in btc_candles if past.time <= bar.time][-WARMUP:] if btc_candles else None
-                step(current, history, mark, now, btc_candles=btc_hist, oi_history=oi_history)
+                bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
+                step(current, history, mark, now, btc_candles=btc_hist, oi_history=oi_history, benchmarks=bench_hist)
             if validation and current["candidates"][name]["windows"] == state["candidates"][name]["windows"]:
                 validate_window(current["candidates"][name], validation[2], validation_fair, validation_funding, contract)
             sync_seeds(current, now)

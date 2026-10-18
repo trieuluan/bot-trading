@@ -1,44 +1,33 @@
 """US macro event calendar (FOMC, CPI, NFP) used only as a "stay out" filter.
 
-Verified against official pages: FOMC 2025-2026 (federalreserve.gov) and CPI/NFP from Nov 2026
-(bls.gov). UNVERIFIED (entered from memory, BLS blocks scripted downloads): CPI/NFP for 2025 and
-Jan-Oct 2026. ponytail: replace with a BLS .ics export before trusting replay results on those dates.
+Only dates verified on official pages are listed: FOMC 2025-2026 (federalreserve.gov), BLS CPI/NFP for
+Jan-Mar and Sep-Dec 2025 and Oct-Dec 2026 (bls.gov schedule pages). CPI/NFP for Apr-Aug 2025 and
+Jan-Sep 2026 are NOT verified (BLS blocks scripted downloads), so macro_safe is blind there.
+ponytail: load the BLS .ics once it is downloadable, then replay results cover the full year.
 """
 from bisect import bisect_left
 from datetime import datetime, timezone
 
 # Official FOMC decision release times (day 2 of each meeting, 18:00 UTC EDT / 19:00 UTC EST)
 FOMC_EVENTS = [
-    # 2025
     "2025-01-29 19:00", "2025-03-19 18:00", "2025-05-07 18:00", "2025-06-18 18:00",
     "2025-07-30 18:00", "2025-09-17 18:00", "2025-10-29 18:00", "2025-12-10 19:00",
-    # 2026
     "2026-01-28 19:00", "2026-03-18 18:00", "2026-04-29 18:00", "2026-06-17 18:00",
     "2026-07-29 18:00", "2026-09-16 18:00", "2026-10-28 18:00", "2026-12-09 19:00",
 ]
 
-# US CPI release dates (08:30 AM ET -> 12:30 UTC EDT / 13:30 UTC EST)
+# BLS CPI, 08:30 ET (verified entries only)
 CPI_EVENTS = [
-    # 2025
-    "2025-01-15 13:30", "2025-02-12 13:30", "2025-03-12 12:30", "2025-04-10 12:30",
-    "2025-05-13 12:30", "2025-06-11 12:30", "2025-07-11 12:30", "2025-08-12 12:30",
-    "2025-09-11 12:30", "2025-10-15 12:30", "2025-11-13 13:30", "2025-12-10 13:30",
-    # 2026
-    "2026-01-14 13:30", "2026-02-11 13:30", "2026-03-11 12:30", "2026-04-14 12:30",
-    "2026-05-12 12:30", "2026-06-10 12:30", "2026-07-14 12:30", "2026-08-12 12:30",
-    "2026-09-15 12:30", "2026-10-14 12:30", "2026-11-10 13:30", "2026-12-10 13:30",
+    "2025-01-15 13:30", "2025-02-12 13:30", "2025-03-12 12:30", "2025-09-11 12:30",
+    "2025-10-24 12:30", "2025-12-18 13:30",
+    "2026-10-14 12:30", "2026-11-10 13:30", "2026-12-10 13:30",
 ]
 
-# US Employment Situation / NFP (First Friday of month, 08:30 AM ET -> 12:30 / 13:30 UTC)
+# BLS Employment Situation (NFP), 08:30 ET (verified entries only)
 NFP_EVENTS = [
-    # 2025
-    "2025-01-10 13:30", "2025-02-07 13:30", "2025-03-07 13:30", "2025-04-04 12:30",
-    "2025-05-02 12:30", "2025-06-06 12:30", "2025-07-03 12:30", "2025-08-01 12:30",
-    "2025-09-05 12:30", "2025-10-03 12:30", "2025-11-07 13:30", "2025-12-05 13:30",
-    # 2026
-    "2026-01-09 13:30", "2026-02-06 13:30", "2026-03-06 13:30", "2026-04-03 12:30",
-    "2026-05-08 12:30", "2026-06-05 12:30", "2026-07-02 12:30", "2026-08-07 12:30",
-    "2026-09-04 12:30", "2026-10-02 12:30", "2026-11-06 13:30", "2026-12-04 13:30",
+    "2025-01-10 13:30", "2025-02-07 13:30", "2025-03-07 13:30", "2025-09-05 12:30",
+    "2025-11-20 13:30", "2025-12-16 13:30",
+    "2026-10-02 12:30", "2026-11-06 13:30", "2026-12-04 13:30",
 ]
 
 def _parse_events(strings):

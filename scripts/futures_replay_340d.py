@@ -59,8 +59,9 @@ def run_pair(symbol):
     data = pickle.loads(CACHE.read_bytes())
     start, end, candles, fair, funding = data[symbol]
     btc = data["BTC_USDT"][2] if symbol != "BTC_USDT" else None
+    benchmarks = {sym: data[sym][2] for sym in SYMBOLS if sym != "BTC_USDT"} if symbol == "BTC_USDT" else None
     t0 = time.time()
-    report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc)
+    report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc, benchmarks=benchmarks)
     duration = time.time() - t0
 
     job_id = str(uuid4())
