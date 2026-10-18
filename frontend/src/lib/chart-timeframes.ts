@@ -3,6 +3,18 @@ import type { Candle } from '../types/trading';
 export const TIMEFRAMES = { '15m': 900, '1h': 3600, '4h': 14400, '1D': 86400 } as const;
 export type ChartTimeframe = keyof typeof TIMEFRAMES;
 
+export function projectOverlayPoints(points: { time: number; value: number }[], seconds: number) {
+  const buckets = new Map<number, { time: number; value: number }>();
+  for (const point of points) {
+    if (!Number.isFinite(point.time) || !Number.isFinite(point.value)) continue;
+    const bucket = Math.floor(point.time / seconds) * seconds;
+    const previous = buckets.get(bucket);
+    if (!previous || point.time >= previous.time) buckets.set(bucket, point);
+  }
+  return [...buckets].sort(([first], [second]) => first - second)
+    .map(([time, point]) => ({ time, value: point.value }));
+}
+
 export function aggregateCandles(bars: Candle[], seconds: number, now = Date.now() / 1000): Candle[] {
   if (!Object.values(TIMEFRAMES).includes(seconds as 900 | 3600 | 14400 | 86400)) {
     throw new Error('Unsupported chart timeframe');

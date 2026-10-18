@@ -43,3 +43,21 @@ assert.equal(profileOf(retestGenome), 'htf_retest');
 assert.ok(strategyName(retestGenome).startsWith('Retest HTF'));
 
 console.log('HTF labels check passed successfully');
+
+import { projectOverlayPoints } from '../src/lib/chart-timeframes.ts';
+{
+  const merged = projectOverlayPoints([{ time: 1000, value: 50 }, { time: 1900, value: 60 }], 3600);
+  assert.deepEqual(merged, [{ time: 0, value: 60 }]);
+  const split = projectOverlayPoints([{ time: 1000, value: 50 }, { time: 4000, value: 70 }], 3600);
+  assert.equal(split.length, 2);
+  for (const step of [900, 3600, 14400, 86400]) {
+    assert.deepEqual(projectOverlayPoints([
+      { time: step + 600, value: 70 },
+      { time: step + 300, value: 50 },
+      { time: 0, value: 10 },
+      { time: Number.NaN, value: 20 },
+      { time: step * 2, value: Number.NaN },
+    ], step), [{ time: 0, value: 10 }, { time: step, value: 70 }]);
+  }
+  console.log('overlay projection check passed');
+}

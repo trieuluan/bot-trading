@@ -23,7 +23,7 @@ import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
 
-import { aggregateCandles, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
+import { aggregateCandles, projectOverlayPoints, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
 
 const TIMEFRAME_KEY = 'futures-chart-timeframe';
 
@@ -311,11 +311,12 @@ export function PaperChart({
             lastValueVisible: false,
             priceLineVisible: false,
             crosshairMarkerVisible: false,
+            pointMarkersVisible: true,
           });
-          range.setData([
-            { time: snap(audit.range_start!) as UTCTimestamp, value },
-            { time: Math.max(snap(audit.range_end!), snap(audit.range_start!) + step) as UTCTimestamp, value },
-          ]);
+          range.setData(projectOverlayPoints([
+            { time: audit.range_start!, value },
+            { time: audit.range_end!, value },
+          ], step).map((point) => ({ ...point, time: point.time as UTCTimestamp })));
           ranges.current.push(range);
         }
       }
@@ -375,8 +376,8 @@ export function PaperChart({
         const start = snap(
           Math.max(candles[0]?.time ?? observation.time, level.from ?? observation.time - 20 * 900),
         );
-        const end = Math.max(snap(Math.min(level.to ?? observation.time, observation.time)), start + step);
-        if (!chart.current || !Number.isFinite(level.price) || start >= end) continue;
+        const end = snap(Math.min(level.to ?? observation.time, observation.time));
+        if (!chart.current || !Number.isFinite(level.price) || start > end) continue;
         const range = chart.current.addSeries(LineSeries, {
           title: `${title} · ${level.title}`,
           color,
@@ -385,27 +386,22 @@ export function PaperChart({
           lastValueVisible: false,
           priceLineVisible: false,
           crosshairMarkerVisible: false,
+          pointMarkersVisible: start === end,
           autoscaleInfoProvider: () => null,
         });
-        range.setData([
+        range.setData(projectOverlayPoints([
           { time: start as UTCTimestamp, value: level.price },
           { time: end as UTCTimestamp, value: level.price },
-        ]);
+        ], step).map((point) => ({ ...point, time: point.time as UTCTimestamp })));
         ranges.current.push(range);
       }
       for (const curve of observation.curves ?? []) {
         if (!chart.current) continue;
-        const byBucket = new Map<number, number>();
-        for (const point of curve.points) {
-          if (
+        const visible = projectOverlayPoints(curve.points.filter((point) =>
             point.time >= (candles[0]?.time ?? 0) &&
-            point.time <= observation.time &&
-            Number.isFinite(point.value)
-          )
-            byBucket.set(snap(point.time), point.value);
-        }
-        const visible = [...byBucket].sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
-        if (visible.length < 2) continue;
+            point.time <= observation.time,
+        ), step);
+        if (!visible.length) continue;
         const indicator = chart.current.addSeries(LineSeries, {
           title: `${title} · ${curve.title}`,
           color,
@@ -413,6 +409,7 @@ export function PaperChart({
           lastValueVisible: false,
           priceLineVisible: false,
           crosshairMarkerVisible: false,
+          pointMarkersVisible: visible.length === 1,
           autoscaleInfoProvider: () => null,
         });
         indicator.setData(
@@ -674,7 +671,7 @@ export function PaperChart({
             {trade.exit !== null && <span className="exit-legend">— Exit · giá đóng</span>}
           </>
         )}
-        {step !== 900 && <span>Vùng và chỉ báo tính từ nến 15m, hiển thị theo khung {timeframe}. Nến cuối có thể chưa đóng.</span>}
+        {step !== 900 && <span>Lớp phân tích giữ dữ liệu nguồn, gộp mốc thời gian theo {timeframe}; không tính lại chỉ báo theo khung xem. Nến cuối có thể chưa đóng.</span>}
         {observations.length > 0 && (
           <span>
             {observations.length} lớp phân tích · nét đứt: vùng tham chiếu · nét liền: chỉ báo ·
