@@ -112,7 +112,7 @@ export type FuturesStrategyObservation = {
 export type AutoPaperState = AutoPaperConfig & {
   portfolio_capital?: number;
   portfolio_used_risk?: number;
-  auto_mode: 'legacy' | 'learner' | 'paper_learning';
+  auto_mode: 'learner' | 'paper_learning';
   min_leverage?: number;
   max_leverage?: number | null;
   margin_mode?: 'cross';

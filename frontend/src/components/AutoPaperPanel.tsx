@@ -346,9 +346,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
           vẫn được worker quản lý. Tắt nút theo dõi tín hiệu ở Tổng quan không dừng Auto Paper.
         </p>
         <p>
-          {state?.auto_mode === 'legacy'
-            ? 'Nến đóng vượt đỉnh/đáy 20 nến → Long/Short. SL theo 5 nến trước, TP tham chiếu 2R từ giá tín hiệu.'
-            : 'Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto.'}{' '}
+          Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto.{' '}
           Vào bằng bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP
           hoặc đang có vị thế. Khối lượng theo rủi ro còn lại; tự động chặn nếu ký quỹ một lệnh vượt
           10% vốn ví chung. Trần tổng rủi ro SL danh mục theo cấu hình ví chung ở trên. Bước hợp

@@ -44,7 +44,7 @@ type Row = {
 };
 type Learning = {
   enabled: boolean;
-  auto_mode: 'legacy' | 'learner' | 'paper_learning';
+  auto_mode: 'learner' | 'paper_learning';
   stale: boolean;
   error: string | null;
   population: number;
@@ -161,7 +161,6 @@ export function FuturesLearningPage() {
   const modes = [
     ['paper_learning', 'Học thử Paper', { enabled: true, auto_mode: 'paper_learning' }],
     ['learner', 'Chỉ đã duyệt', { enabled: true, auto_mode: 'learner' }],
-    ['legacy', 'Breakout cũ', { enabled: data?.enabled ?? true, auto_mode: 'legacy' }],
   ] as const;
   const filters = [
     ['all', 'Tất cả'],
@@ -234,7 +233,7 @@ export function FuturesLearningPage() {
               onClick={() =>
                 act('/config', {
                   enabled: !data.enabled,
-                  auto_mode: data.enabled ? 'legacy' : data.auto_mode,
+                  auto_mode: data.auto_mode || 'paper_learning',
                 })
               }
             >
@@ -246,7 +245,7 @@ export function FuturesLearningPage() {
               ? 'Học thử Paper: bot thử cả chiến thuật chưa kiểm chứng và cập nhật điểm từ mẫu đã đóng. Không có tín hiệu thì đứng ngoài.'
               : data.auto_mode === 'learner'
                 ? 'Chỉ giao dịch chiến thuật đã qua cổng forward và được duyệt thủ công.'
-                : 'Đang dùng breakout cũ, chưa dùng bộ chọn chiến thuật học.'}{' '}
+                : ''}{' '}
             Đổi chế độ khi Auto Paper đang dừng.
           </p>
           <div className="evo-filters" role="group" aria-label="Lọc chiến thuật">

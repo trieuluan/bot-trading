@@ -542,7 +542,7 @@ export function PaperTradingPage({
                             ? 'Worker ngoại tuyến'
                             : auto.learner_error
                               ? `Lỗi bộ học: ${auto.learner_error}`
-                              : auto.auto_mode !== 'legacy' && !auto.learner_enabled
+                              : !auto.learner_enabled
                                 ? 'Bộ học đã tạm dừng'
                                 : auto.status}
                   </span>
@@ -651,9 +651,7 @@ export function PaperTradingPage({
                   </details>
                 ) : (
                   <p className="micro">
-                    {auto?.auto_mode === 'legacy'
-                      ? 'Bot dùng breakout 20 nến; chưa dùng bộ chọn chiến thuật học.'
-                      : 'Chờ bộ học đánh giá nến đóng đầu tiên.'}
+                    Chờ bộ học đánh giá nến đóng đầu tiên.
                   </p>
                 )}
                 <p className="micro">

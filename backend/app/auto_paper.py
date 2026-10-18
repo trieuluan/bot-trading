@@ -32,7 +32,6 @@ from .paper import (
     stop_risk_per_unit,
     validate_leverage,
 )
-from .strategy import breakout
 
 router = APIRouter(prefix="/api/paper/auto", tags=["Auto Paper"])
 MAX_SIGNAL_AGE = 60
@@ -202,23 +201,15 @@ def auto_tick(now=None):
             set_status(session, state, "Funding chưa đồng bộ; tạm dừng vào lệnh mới")
             return
         try:
-            used_learner, setup, strat_name = select_for_auto(session, candle_time, now)
+            _, setup, strat_name = select_for_auto(session, candle_time, now)
         except HTTPException as exc:
             set_status(session, state, exc.detail)
             return
-        if not used_learner:
-            setup = breakout(candles, allow_short=True)
-            strat_name = "breakout_20_v1"
-            if setup is None:
-                record_decision(
-                    session, state, candle_time, "no_setup", "Nến vừa đóng chưa có breakout hợp lệ"
-                )
-                return
         if setup is None:
             record_decision(session, state, candle_time, "no_setup", "Bot học chưa có tín hiệu đủ điều kiện cho chế độ đang chọn")
             return
-        learning = read_state(session, int(now)) if used_learner else None
-        learning_decision = (learning["last_decision"] or {}) if learning else {}
+        learning = read_state(session, int(now))
+        learning_decision = learning["last_decision"] or {}
         save_market_signal(session, candle_time, setup)
 # ponytail: no position cap; bounded only by available cash, risk budget and daily limits.
         entry = execution_price(wallet, setup.side, opening=True)
@@ -265,8 +256,7 @@ def auto_tick(now=None):
                 setup.target,
                 origin="auto",
                 signal_time=candle_time,
-                exit_policy=(learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
-                             if learning else "fixed"),
+                exit_policy=learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed"),
                 leverage=state.leverage,
             )
         except HTTPException as exc:
@@ -286,17 +276,10 @@ def auto_tick(now=None):
                 "reason": setup.reason,
                 "signal_time": candle_time,
                 "signal_close": candles[-1].close,
-                **({
-                    "range_start": candles[-21].time,
-                    "range_end": candles[-2].time,
-                    "range_high": max(c.high for c in candles[-21:-1]),
-                    "range_low": min(c.low for c in candles[-21:-1]),
-                } if not used_learner else {
-                    "selector": "futures_learner", "paper_only": True,
-                    "auto_mode": learning["auto_mode"],
-                    "selection_reason": learning_decision.get("selection_reason"),
-                    "regime": learning_decision.get("regime"),
-                }),
+                "selector": "futures_learner", "paper_only": True,
+                "auto_mode": learning["auto_mode"],
+                "selection_reason": learning_decision.get("selection_reason"),
+                "regime": learning_decision.get("regime"),
                 "risk_percent": state.risk_percent,
                 "leverage": state.leverage,
                 "margin_mode": "cross",

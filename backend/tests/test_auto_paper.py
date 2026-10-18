@@ -58,6 +58,13 @@ def ready(monkeypatch):
             state = session.get(AutoPaperState, 1)
             state.enabled = enabled
             state.last_candle = last - 900
+            from backend.app import futures_learner as learner
+            from backend.app.futures_strategies import SEEDS
+            learning = learner.new_state(0)
+            learning.update(auto_mode="paper_learning", candidates={})
+            learner.add_candidate(learning, SEEDS[0], 0)
+            learner.step(learning, candles, candles[-1], now)
+            learner.save_state(session, learning)
         return last
 
     return clock, seed
@@ -296,11 +303,10 @@ def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(r
     auto_tick()
     trade = client.get("/api/paper/wallet").json()["position"]
     audit = trade["audit"]
-    assert audit["range_high"] == 100
-    assert audit["range_low"] == 90
+    assert audit["strategy"].startswith("rule_tree:")
+    assert audit["selector"] == "futures_learner"
     assert audit["signal_close"] == 85
-    assert audit["range_start"] == last - 20 * 900
-    assert audit["range_end"] == last - 900
+    assert audit["signal_time"] == last
     assert audit["risk_percent"] == 1
     assert audit["risk_budget"] == 100
     assert trade["entry_reason"] == audit["reason"]
@@ -310,7 +316,7 @@ def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(r
     updated = client.get("/api/paper/wallet").json()["position"]
     assert updated["audit"] == audit
     candles = client.get(f"/api/paper/trades/{trade['id']}/candles").json()
-    assert candles[0]["time"] <= audit["range_start"]
+    assert candles[0]["time"] <= last
     assert any(c["time"] == last for c in candles)
     assert candles[-1]["time"] == last + 900  # Current observed bar keeps fills visible.
     assert client.get("/api/paper/trades/99999/candles").status_code == 404
@@ -325,7 +331,7 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
         decision.parameters = {"risk_percent": 1}
     trade = client.get("/api/paper/wallet").json()["position"]
     assert trade["audit"] is None
-    assert "20" in trade["entry_reason"]
+    assert "N nến" in trade["entry_reason"]
 
 
 def test_auto_enters_same_strategy_repeatedly_without_cap(ready):

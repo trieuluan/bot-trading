@@ -273,10 +273,10 @@ def test_paper_learning_config_explicit_and_preserves_promotion(ready):
     assert not client.get("/api/paper/auto").json()["enabled"]
     assert client.get("/api/paper/auto").json()["auto_mode"] == "paper_learning"
     assert client.post("/api/workspaces/mexc_futures/learning/config",
-                       json={"enabled": False, "auto_mode": "paper_learning"}).status_code == 409
+                       json={"enabled": False, "auto_mode": "paper_learning"}).status_code == 200
     seed(enabled=True)
     assert client.post("/api/workspaces/mexc_futures/learning/config",
-                       json={"enabled": True, "auto_mode": "legacy"}).status_code == 409
+                       json={"enabled": True, "auto_mode": "legacy"}).status_code == 422
 
 def test_paper_learning_does_not_starve_tied_unseen_candidates(monkeypatch):
     state = learner.new_state(1)

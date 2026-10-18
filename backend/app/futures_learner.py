@@ -49,7 +49,7 @@ def add_candidate(state, genome, born, parents=()):
 
 def new_state(now):
     state = {
-        "version": VERSION, "enabled": True, "auto_mode": "legacy", "started_at": now,
+        "version": VERSION, "enabled": True, "auto_mode": "learner", "started_at": now,
         "cursor": None, "candidates": {}, "samples": [], "funding": [],
         "evolved_at": now, "last_decision": None, "error": None, "updated_at": None,
     }
@@ -175,6 +175,8 @@ EVOLVE_SECONDS, MIN_PARENT_SAMPLES = 3600, 10
 
 def migrate_to_trees(state):
     """Convert genomes, preserving IDs referenced by trades, samples and replay reports."""
+    if state.get("auto_mode") == "legacy":
+        state.update(auto_mode="learner", last_decision=None)
     for collection in (state["candidates"], state.get("rule_archive", {})):
         for candidate in collection.values():
             if not is_rule_tree(candidate["genome"]):
@@ -416,8 +418,6 @@ def learning_tick(now=None, adapter=None):
 
 def select_for_auto(session, candle_time, now):
     state = read_state(session, int(now))
-    if state["auto_mode"] == "legacy":
-        return False, None, None
     decision = state["last_decision"]
     if not state["enabled"] or state["error"] or not decision or decision["time"] != candle_time:
         raise HTTPException(409, "Đợi learner xử lý nến mới; không dùng breakout dự phòng")
@@ -497,7 +497,7 @@ def get_learning():
 class LearningConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    auto_mode: Literal["legacy", "learner", "paper_learning"]
+    auto_mode: Literal["learner", "paper_learning"]
 
 
 @router.post("/config")
@@ -507,8 +507,6 @@ def configure_learning(payload: LearningConfig):
         lock_wallet(session)
         if session.get(AutoPaperState, state_id()).enabled:
             raise HTTPException(409, "Dừng Auto Paper trước khi đổi bộ chọn chiến thuật")
-        if not payload.enabled and payload.auto_mode != "legacy":
-            raise HTTPException(409, "Bật học shadow trước khi dùng learner")
         state = read_state(session, now)
         if state["enabled"] != payload.enabled:
             state["cursor"] = None
