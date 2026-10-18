@@ -14,7 +14,7 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
-            "bb_pierce", "volume_dryup", "macro_safe", "relative_strength", "funding_aligned")
+            "bb_pierce", "volume_dryup", "macro_safe", "relative_strength", "funding_aligned", "oi_surge")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -301,22 +301,45 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         return (last.low < low < last.close < high and last.close > last.open if direction == 1
                 else low < last.close < high < last.high and last.close < last.open)
     if feature == "macro_safe":
-        return is_macro_safe(candles[-1].time, 4 * 3600)
+        return is_macro_safe(candles[-1].time + 900, 4 * 3600)
     if feature == "funding_aligned":
         funding = context.get("funding") or []
         known = [f for f in funding if f["time"] <= candles[-1].time]
         if not known:
             return False
-        rate = known[-1].get("rate", 0.0)
-        return rate <= 0.0001 if direction == 1 else rate >= -0.0001
-    if feature == "relative_strength":
-        btc_candles = context.get("btc_candles") or []
-        btc_rows = frame_rows(btc_candles, rule["frame"])
-        if len(rows) < lookback + 1 or len(btc_rows) < lookback + 1:
+        latest = max(known, key=lambda record: record["time"])
+        if candles[-1].time + 900 - latest["time"] > 86400:
             return False
-        coin_ret = (rows[-1].close - rows[-lookback - 1].open) / max(rows[-lookback - 1].open, 1e-9)
-        btc_ret = (btc_rows[-1].close - btc_rows[-lookback - 1].open) / max(btc_rows[-lookback - 1].open, 1e-9)
-        return coin_ret > btc_ret if direction == 1 else coin_ret < btc_ret
+        rate = latest.get("rate")
+        return (isinstance(rate, (float, int)) and abs(rate) < float("inf")
+                and direction * rate <= context.get("funding_threshold", 0.0001))
+    if feature == "oi_surge":
+        oi = context.get("oi_history") or []
+        now = candles[-1].time + 900
+        known = sorted(p for p in oi if p[0] <= now and 0 < p[1] < float("inf"))
+        if not known or now - known[-1][0] > 900:
+            return False
+        past = [p for p in known if p[0] <= now - 3600]
+        if (not past or now - 3600 - past[-1][0] > 900
+                or known[-1][1] / past[-1][1] - 1 < 0.01):
+            return False
+        return bool(rows) and direction * (rows[-1].close - rows[-1].open) > 0
+    if feature == "relative_strength":
+        if len(rows) < lookback + 1:
+            return False
+        reference = rows[-lookback - 1:]
+        returns = []
+        benchmarks = context.get("benchmarks") or {"BTC_USDT": context.get("btc_candles") or []}
+        for benchmark in benchmarks.values():
+            closed = [bar for bar in benchmark if bar.time <= candles[-1].time]
+            peer = frame_rows(closed, rule["frame"])[-lookback - 1:]
+            if [bar.time for bar in peer] != [bar.time for bar in reference]:
+                return False
+            returns.append(peer[-1].close / peer[0].close - 1)
+        if not returns or reference[0].close <= 0:
+            return False
+        strength = reference[-1].close / reference[0].close - 1 - fmean(returns)
+        return direction * strength > 0
     if feature in ("bb_pierce", "volume_dryup"):
         if len(rows) < max(lookback, 20) + 4:
             return False
@@ -386,6 +409,7 @@ def describe_rule(rule):
                   "volume_dryup": "Nhịp hồi ngược xu hướng 3 nến với volume ≤ 0.7× trung bình N nến",
                   "macro_safe": "Cách tin vĩ mô lớn (CPI, FOMC, NFP) tối thiểu ±4h",
                   "relative_strength": "Sức mạnh tương đối so với BTC trong N nến",
+                  "oi_surge": "Open interest tăng ≥1% trong 1h, nến cùng chiều lệnh",
                   "funding_aligned": "Funding rate thuận chiều (không trả phí cực đoan)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}

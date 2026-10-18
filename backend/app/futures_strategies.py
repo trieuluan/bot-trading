@@ -204,7 +204,7 @@ def strategy_levels(genome, candles):
     return [{"title": f"Đỉnh {lookback} {frame}", "price": max(bar.high for bar in history)},
             {"title": f"Đáy {lookback} {frame}", "price": min(bar.low for bar in history)}]
 
-def strategy_setup(genome, candles, funding, btc_candles=None):
+def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None):
     validate_genome(genome)
     if len(candles) < 21:
         return None
@@ -212,7 +212,7 @@ def strategy_setup(genome, candles, funding, btc_candles=None):
     lookback = genome["lookback"]
     context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
                "max_er": genome["max_er"], "htf": is_htf_rule(tree["rule"]),
-               "btc_candles": btc_candles}
+               "btc_candles": btc_candles, "oi_history": oi_history}
     found = [side for side in (1, -1)
              if matches(tree["rule"], candles, side, lookback, context=context)]
     if len(found) != 1:

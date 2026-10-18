@@ -99,6 +99,7 @@ export function ruleName(rule: Rule): string {
       macro_safe: 'Tránh giờ tin vĩ mô lớn (CPI, FOMC, NFP)',
       relative_strength: 'Sức mạnh tương đối so với BTC',
       funding_aligned: 'Funding rate thuận chiều',
+      oi_surge: 'Open interest tăng ≥1% trong 1h',
       bb_pierce: 'Chọc ra ngoài BB20 rồi đóng lại',
       volume_dryup: 'Hồi cạn volume',
       retest_seq: 'Breakout + retest + xác nhận',

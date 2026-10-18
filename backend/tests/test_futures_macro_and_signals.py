@@ -50,3 +50,18 @@ def test_funding_aligned_rule_predicate():
     funding = [{"time": now, "rate": 0.0005}]
     assert not matches(rule, candles, 1, 20, context={"funding": funding})
     assert matches(rule, candles, -1, 20, context={"funding": funding})
+
+
+def test_oi_surge_rule_predicate():
+    rule = {"feature": "oi_surge", "frame": "H1"}
+    assert validate_rule(rule) == 1
+    end = 1700002800  # hour-aligned close of the last M15 bar
+    bull = [candle(end - (21 - i) * 900, 100, 105, 95, 102) for i in range(21)]
+    expanded = [(end - 3600, 1000.0), (end - 300, 1020.0)]
+    assert matches(rule, bull, 1, 20, context={"oi_history": expanded})
+    assert not matches(rule, bull, -1, 20, context={"oi_history": expanded})
+    assert not matches(rule, bull, 1, 20, context={"oi_history": [(end - 3600, 1000.0), (end - 300, 1005.0)]})
+    # missing or stale OI never fakes a signal
+    assert not matches(rule, bull, 1, 20, context={})
+    assert not matches(rule, bull, 1, 20, context={"oi_history": []})
+    assert not matches(rule, bull, 1, 20, context={"oi_history": [(end - 9000, 1000.0), (end - 7200, 1050.0)]})

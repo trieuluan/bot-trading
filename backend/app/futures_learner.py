@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from .backtest import BacktestConfig, simulate
-from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, MarketState, PaperTrade,
+from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, FuturesOpenInterest, MarketState, PaperTrade,
                  Session)
-from .futures_symbols import current_symbol, market_symbol, state_id
+from .futures_symbols import SYMBOLS, current_symbol, market_symbol, state_id, symbol_scope
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop
 from .futures_rule_tree import describe_rule, validate_rule
@@ -283,7 +283,7 @@ def evolve(state, now, max_children=1, force=False):
                 break
     return made
 
-def step(state, candles, fair, now, btc_candles=None):
+def step(state, candles, fair, now, btc_candles=None, oi_history=None):
     bar = candles[-1]
     if state["cursor"] is not None and bar.time <= state["cursor"]:
         return
@@ -303,7 +303,7 @@ def step(state, candles, fair, now, btc_candles=None):
         if bar.time < candidate["born_at"]:
             continue
         setup = strategy_setup(candidate["genome"], candles, state["funding"],
-                               **({"btc_candles": btc_candles} if btc_candles else {}))
+                               **{k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history)) if v})
         observation.update(strategy_chart(candidate["genome"], candles))
         observation["status"] = "no_signal"
         if setup is None:
@@ -386,6 +386,10 @@ def learning_tick(now=None, adapter=None):
         if current_symbol() != "BTC_USDT":
             with symbol_scope("BTC_USDT"):
                 btc_candles = load_candles(session, since=candles[0].time, until=end)
+        oi_history = [(r.time, r.hold_vol) for r in session.scalars(
+            select(FuturesOpenInterest).where(FuturesOpenInterest.symbol == current_symbol(),
+                                              FuturesOpenInterest.time >= end - 4 * 3600)
+            .order_by(FuturesOpenInterest.time))]
         due = next(((name, candidate) for name, candidate in state["candidates"].items()
                     if exit_policy_enabled(candidate["genome"])
                     and candidate["born_at"] + (len(candidate["windows"]) + 1) * WINDOW_SECONDS <= end), None)
@@ -426,7 +430,7 @@ def learning_tick(now=None, adapter=None):
             for bar, mark in zip(bars, fair):
                 history = [past for past in candles if past.time <= bar.time][-WARMUP:]
                 btc_hist = [past for past in btc_candles if past.time <= bar.time][-WARMUP:] if btc_candles else None
-                step(current, history, mark, now, btc_candles=btc_hist)
+                step(current, history, mark, now, btc_candles=btc_hist, oi_history=oi_history)
             if validation and current["candidates"][name]["windows"] == state["candidates"][name]["windows"]:
                 validate_window(current["candidates"][name], validation[2], validation_fair, validation_funding, contract)
             sync_seeds(current, now)

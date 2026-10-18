@@ -6,6 +6,7 @@ stop gaps with adverse slippage. Exact intrabar execution times are unavailable.
 """
 
 import time
+import math
 from dataclasses import asdict
 from datetime import timedelta
 from decimal import ROUND_DOWN, Decimal
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
 from .db import (
+    FuturesOpenInterest,
     AutoPaperDecision,
     AutoPaperState,
     Event,
@@ -404,6 +406,14 @@ def sync_paper_quote(adapter=None):
             else:
                 bar = dict(time=bucket, open=last, high=last, low=last, close=last, volume=0)
             wallet.quote = {**quote, "bar": bar}
+            if quote.get("holdVol"):
+                observed_at = math.ceil(max(quote["time"], quote["received_at"]))
+                latest = session.scalar(select(FuturesOpenInterest)
+                    .where(FuturesOpenInterest.symbol == current_symbol())
+                    .order_by(FuturesOpenInterest.time.desc()).limit(1))
+                if latest is None or observed_at // 300 > latest.time // 300:
+                    session.add(FuturesOpenInterest(symbol=current_symbol(), time=observed_at,
+                                                    hold_vol=quote["holdVol"]))
             if contract:
                 wallet.contract = contract
             wallet.error = None

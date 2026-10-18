@@ -89,7 +89,12 @@ class MexcFuturesAdapter:
                 or abs(time.time() - timestamp) > 30
             ):
                 raise ValueError("Stale or invalid quote")
-            return {**quote, "time": timestamp, "received_at": time.time()}
+            try:
+                hold = float(data.get("holdVol", 0))
+            except (TypeError, ValueError, OverflowError):
+                hold = 0
+            return {**quote, "time": timestamp, "received_at": time.time(),
+                    **({"holdVol": hold} if hold and math.isfinite(hold) and hold > 0 else {})}
         except (KeyError, TypeError, ValueError) as exc:
             raise MarketDataError("Invalid or stale MEXC ticker") from exc
 

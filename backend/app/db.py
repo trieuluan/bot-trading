@@ -268,6 +268,14 @@ class PaperFunding(Base):
     cost: Mapped[float] = mapped_column(Float)
 
 
+class FuturesOpenInterest(Base):
+    """Point-in-time MEXC holdVol, recorded forward only (no public history endpoint)."""
+    __tablename__ = "futures_open_interest"
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True)
+    time: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hold_vol: Mapped[float] = mapped_column(Float)
+
+
 class FuturesLearningState(Base):
     __tablename__ = "futures_learning_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
