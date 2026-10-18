@@ -447,17 +447,21 @@ export function FuturesLearningPage() {
                               ? strategyShortTitle(pRow.genome, parent)
                               : `#${parent.split(':')[1]?.slice(0, 6)}`;
                             return (
-                              <span key={parent}>
+                              <span key={`${parent}-${idx}`}>
                                 {idx > 0 && ' × '}
                                 <span className="evo-chip-wrap">
                                   <code
                                     className="evo-parent-chip"
                                     tabIndex={0}
-                                    aria-label={pTitle}
+                                    aria-describedby={`parent-tooltip-${row.strategy}-${idx}`}
                                   >
                                     {pLabel}
                                   </code>
-                                  <span className="evo-tooltip" role="tooltip">
+                                  <span
+                                    id={`parent-tooltip-${row.strategy}-${idx}`}
+                                    className="evo-tooltip"
+                                    role="tooltip"
+                                  >
                                     <span className="evo-tooltip-title">{pLabel}</span>
                                     <span className="evo-tooltip-body">{pTitle}</span>
                                     <span className="evo-tooltip-code">{parent}</span>

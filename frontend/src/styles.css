@@ -4444,6 +4444,7 @@ footer {
   outline: none;
 }
 .evo-chip-wrap .evo-tooltip {
+  text-align: left;
   visibility: hidden;
   opacity: 0;
   position: absolute;
