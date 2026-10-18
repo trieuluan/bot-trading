@@ -23,7 +23,7 @@ import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
 
-import { aggregateCandles, projectOverlayPoints, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
+import { aggregateCandles, projectOverlayPoints, recentChartRange, RECENT_CHART_BARS, CHART_RIGHT_SPACE, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
 
 const TIMEFRAME_KEY = 'futures-chart-timeframe';
 
@@ -86,7 +86,7 @@ export function PaperChart({
   stepRef.current = step;
   const oldestTime = baseCandles[0]?.time;
   useEffect(() => {
-    if (oldestTime !== undefined && step > 900 && candles.length < 40) {
+    if (oldestTime !== undefined && step > 900 && candles.length < RECENT_CHART_BARS) {
       loadOlder.current?.(step / 900);
     }
   }, [step, oldestTime, candles.length]);
@@ -100,10 +100,7 @@ export function PaperChart({
   const previousCandles = useRef<Candle[]>([]);
   function showRecentCandles() {
     if (!candles.length) return;
-    chart.current?.timeScale().setVisibleRange({
-      from: candles[Math.max(0, candles.length - 40)].time as UTCTimestamp,
-      to: (candles.at(-1)!.time + step) as UTCTimestamp,
-    });
+    chart.current?.timeScale().setVisibleLogicalRange(recentChartRange(candles.length));
   }
   const snap = (time: number) => Math.floor(time / step) * step;
   const [hover, setHover] = useState<string | null>(null);
@@ -167,7 +164,7 @@ export function PaperChart({
         vertLines: { color: '#eef1e9' },
         horzLines: { color: '#eef1e9' },
       },
-      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 },
+      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_SPACE },
       rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.15 } },
     });
     series.current = chart.current.addSeries(CandlestickSeries, {
@@ -241,7 +238,7 @@ export function PaperChart({
     if (!fitted.current || replacedHistory) {
       showRecentCandles();
       // Refresh may deliver only the live bar first; keep refitting until real history arrives.
-      fitted.current = candles.length >= 40;
+      fitted.current = candles.length >= RECENT_CHART_BARS;
     }
   }, [candles]);
   useEffect(() => {
@@ -485,7 +482,7 @@ export function PaperChart({
             } else showRecentCandles();
           }}
         >
-          {trade ? 'Tập trung vào lệnh' : '40 nến gần nhất'}
+          {trade ? 'Tập trung vào lệnh' : `${RECENT_CHART_BARS} nến gần nhất`}
         </button>
         <div className="chart-timeframes" role="group" aria-label="Khung thời gian">
           {(Object.keys(TIMEFRAMES) as ChartTimeframe[]).map((frame) => (

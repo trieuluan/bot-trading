@@ -44,7 +44,9 @@ assert.ok(strategyName(retestGenome).startsWith('Retest HTF'));
 
 console.log('HTF labels check passed successfully');
 
-import { projectOverlayPoints } from '../src/lib/chart-timeframes.ts';
+import { projectOverlayPoints, recentChartRange } from '../src/lib/chart-timeframes.ts';
+assert.deepEqual(recentChartRange(200), { from: 79.5, to: 211.5 });
+assert.deepEqual(recentChartRange(40), { from: -0.5, to: 51.5 });
 {
   const merged = projectOverlayPoints([{ time: 1000, value: 50 }, { time: 1900, value: 60 }], 3600);
   assert.deepEqual(merged, [{ time: 0, value: 60 }]);

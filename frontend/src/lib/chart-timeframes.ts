@@ -2,6 +2,12 @@ import type { Candle } from '../types/trading';
 
 export const TIMEFRAMES = { '15m': 900, '1h': 3600, '4h': 14400, '1D': 86400 } as const;
 export type ChartTimeframe = keyof typeof TIMEFRAMES;
+export const RECENT_CHART_BARS = 120;
+export const CHART_RIGHT_SPACE = 12;
+
+export function recentChartRange(count: number) {
+  return { from: Math.max(0, count - RECENT_CHART_BARS) - 0.5, to: count - 0.5 + CHART_RIGHT_SPACE };
+}
 
 export function projectOverlayPoints(points: { time: number; value: number }[], seconds: number) {
   const buckets = new Map<number, { time: number; value: number }>();
