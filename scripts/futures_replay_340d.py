@@ -1,5 +1,6 @@
 """Replay 340d MEXC history on the rule_tree population for all 10 pairs and save reports into DB."""
 import copy
+import argparse
 import json
 import logging
 import pickle
@@ -17,7 +18,7 @@ from backend.app.futures_learner import (
     save_state,
     sync_seeds,
 )
-from backend.app.futures_strategies import exit_policy_enabled
+from backend.app.futures_strategies import RULE_SEEDS, exit_policy_enabled, genome_name
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.paper import lock_wallet
 
@@ -28,23 +29,21 @@ KEYS = ("signals", "resolved", "mean_r", "profit_factor")
 _orig, _memo = strategy.aggregate, {}
 
 def memo_aggregate(candles, seconds):
-    # Key must include prices: pairs share identical bar times, so time-only keys mix pairs up.
-    key = ((candles[0].time, candles[-1].time, len(candles), seconds,
-            candles[0].open, candles[0].close, candles[-1].open, candles[-1].close,
-            candles[len(candles) // 2].close) if candles else None)
+    key = (tuple(map(id, candles)), seconds)
     if key not in _memo:
         if len(_memo) > 200:
             _memo.clear()
-        _memo[key] = _orig(candles, seconds)
-    return _memo[key]
+        _memo[key] = (candles, _orig(candles, seconds))
+    return _memo[key][1]
 
 def setup_memo():
+    _memo.clear()
     import backend.app.futures_rules as rules_module
     for module in (strategy, futures_rule_tree, rules_module, futures_strategies):
         if hasattr(module, "aggregate"):
             module.aggregate = memo_aggregate
 
-def run_pair(symbol):
+def run_pair(symbol, signal_seeds=False):
     setup_memo()
     now = int(time.time())
     with symbol_scope(symbol):
@@ -57,7 +56,13 @@ def run_pair(symbol):
                 for name, candidate in state["candidates"].items()
                 if exit_policy_enabled(candidate["genome"])
             })
-            save_state(session, state)
+            if not signal_seeds:
+                save_state(session, state)
+
+    if signal_seeds:
+        candidates = {genome_name(seed): {"genome": seed} for seed in RULE_SEEDS if any(
+            node.get("feature") in ("relative_strength", "funding_aligned", "macro_safe")
+            for _, node in futures_rule_tree.nodes(seed["rule"]))}
 
     data = pickle.loads(CACHE.read_bytes())
     # The cache pulled BTC one bar offset from the other pairs; replay on the common window only.
@@ -73,6 +78,9 @@ def run_pair(symbol):
     t0 = time.time()
     report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc, benchmarks=benchmarks)
     duration = time.time() - t0
+    print(f"{symbol}: replay finished in {duration:.1f}s", flush=True)
+    if signal_seeds:
+        return symbol, duration, report
 
     job_id = str(uuid4())
     job = {
@@ -100,10 +108,16 @@ def run_pair(symbol):
     return symbol, duration, report
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--signal-seeds", action="store_true",
+                        help="Replay the three new signal seeds without replacing learner history")
+    args = parser.parse_args()
+    output = (OUTPUT.with_name("futures-signal-seeds-340d.json")
+              if args.signal_seeds else OUTPUT)
     t_start = time.time()
     print(f"Starting 340-day replay for {len(SYMBOLS)} pairs on rule_tree population...", flush=True)
     with Pool(4) as pool:
-        results = pool.map(run_pair, SYMBOLS)
+        results = pool.starmap(run_pair, [(symbol, args.signal_seeds) for symbol in SYMBOLS])
 
     out = {}
     print("\nReplay 340d Results Summary:", flush=True)
@@ -114,6 +128,6 @@ if __name__ == "__main__":
         resolved = sum(r["train"]["resolved"] + r["validation"]["resolved"] for r in rep["strategies"])
         print(f"{sym:12} {dur:5.1f}s {len(rep['strategies']):11} {resolved:9} {rep['eligible_priors']:16}", flush=True)
 
-    OUTPUT.write_text(json.dumps(out, indent=2, allow_nan=False))
+    output.write_text(json.dumps(out, indent=2, allow_nan=False))
     print("-" * 60, flush=True)
-    print(f"Completed all 10 pairs in {time.time() - t_start:.1f}s. Report written to {OUTPUT}", flush=True)
+    print(f"Completed all 10 pairs in {time.time() - t_start:.1f}s. Report written to {output}", flush=True)

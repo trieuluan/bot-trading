@@ -12,10 +12,13 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .db import Session
+from .futures_context import load_signal_context
 from .futures_learner import (FEE, SLIP, WARMUP, advance, evolve, performance, read_state, save_state,
                               stats, sync_seeds)
 from .futures_strategies import exit_policy_enabled, regime, strategy_setup, validate_genome
-from .futures_symbols import current_symbol, symbol_scope
+from .futures_symbols import SYMBOLS, current_symbol, symbol_scope
+from .futures_rule_tree import nodes
+from .macro_calendar import MACRO_TIMESTAMPS
 from .mexc import MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_wallet
 from .research import check_cooldown, market_failure, research_lock
@@ -40,7 +43,8 @@ def historical_stats(samples):
     return result
 
 
-def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None, btc_candles=None, benchmarks=None):
+def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None,
+           btc_candles=None, benchmarks=None, oi_history=None):
     validate_candles(candles)
     validate_candles(fair)
     expected = list(range(start - WARMUP * 900, end, 900))
@@ -49,8 +53,11 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         raise ValueError("Incomplete historical trade/fair-price coverage")
     if btc_candles is not None and [bar.time for bar in btc_candles] != expected:
         raise ValueError("BTC reference candles must cover the same bars")
+    if btc_candles is not None:
+        validate_candles(btc_candles)
     if benchmarks is not None:
         for name, peer in benchmarks.items():
+            validate_candles(peer)
             if [bar.time for bar in peer] != expected:
                 raise ValueError(f"Benchmark {name} candles must cover the same bars")
     for candidate in candidates.values():
@@ -80,7 +87,8 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         for name, candidate in candidates.items():
             if name in active:
                 continue
-            kwargs = {k: v for k, v in (("btc_candles", btc_history), ("benchmarks", peer_history)) if v}
+            kwargs = {k: v for k, v in (("btc_candles", btc_history),
+                                       ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
             setup = strategy_setup(candidate["genome"], history, known_funding, **kwargs)
             if setup is None:
                 continue
@@ -107,11 +115,19 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
     digest = hashlib.sha256(json.dumps({
         "candles": [asdict(bar) for bar in candles], "fair": [asdict(bar) for bar in fair],
         "funding": funding,
+        "benchmarks": {name: [asdict(bar) for bar in peer]
+                       for name, peer in (benchmarks or {}).items()},
+        "btc_candles": [asdict(bar) for bar in btc_candles or []],
+        "oi_history": oi_history or [], "macro_release_times": MACRO_TIMESTAMPS,
     }, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return {"source": "historical", "start_time": start, "end_time": end,
             "train_before": split, "bars": total, "warmup_bars": WARMUP,
             "fee_bps": FEE * 10000, "slippage_bps": SLIP * 10000,
             "dataset_sha256": digest, "strategies": list(rows.values()),
+            "signal_inputs": {"benchmarks": sorted(benchmarks or {}),
+                              "btc_reference": bool(btc_candles),
+                              "oi_observations": len(oi_history or []),
+                              "macro_calendar": "official_release_snapshot_2025_2026_not_revision_archive"},
             "eligible_priors": sum(row["prior_eligible"] for row in rows.values())}
 
 
@@ -162,9 +178,26 @@ def _run_history(job_id, days, candidates):
         update_job(job_id, phase="fair_price")
         fair = load_history(adapter, start - WARMUP * 900, end, now, fair=True)
         funding = adapter.funding_history(start - WARMUP * 900 - 2 * 86400, end)
+        with Session() as session:
+            signal_context = load_signal_context(session, start - WARMUP * 900, end)
+        used = {node.get("feature") for candidate in candidates.values()
+                for _, node in nodes(candidate["genome"].get("rule", {}))}
+        signal_context.pop("benchmarks", None)
+        if "relative_strength" in used:
+            peers = SYMBOLS[1:] if current_symbol() == "BTC_USDT" else ("BTC_USDT",)
+            signal_context["benchmarks"] = {}
+            update_job(job_id, phase="benchmarks")
+            for peer in peers:
+                peer_adapter = MexcFuturesAdapter(symbol=peer)
+                try:
+                    signal_context["benchmarks"][peer] = load_history(
+                        peer_adapter, start - WARMUP * 900, end, now)
+                finally:
+                    peer_adapter.close()
         update_job(job_id, phase="replay")
         report = replay(candidates, candles, fair, funding, start, end,
-                        lambda done, total: update_job(job_id, completed=done, total=total))
+                        lambda done, total: update_job(job_id, completed=done, total=total),
+                        **signal_context)
         update_job(job_id, status="completed", phase="done", report=report, error=None)
         evolve_from_history(job_id)
     except Exception as exc:
