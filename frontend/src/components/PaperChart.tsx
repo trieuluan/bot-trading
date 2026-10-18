@@ -209,7 +209,8 @@ export function PaperChart({
       (candles.at(-1)!.time < previous[0].time || candles[0].time > previous.at(-1)!.time);
     if (!fitted.current || replacedHistory) {
       showRecentCandles();
-      fitted.current = true;
+      // Refresh may deliver only the live bar first; keep refitting until real history arrives.
+      fitted.current = candles.length >= 40;
     }
   }, [candles]);
   useEffect(() => {
