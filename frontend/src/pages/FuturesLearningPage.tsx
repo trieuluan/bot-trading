@@ -8,6 +8,7 @@ import {
   riskText,
   strategyInfo,
   strategyName,
+  strategyShortTitle,
   searchText,
   type Rule,
 } from '../lib/futures-strategy-info';
@@ -189,7 +190,10 @@ export function FuturesLearningPage() {
           <h2>
             <Brain size={17} /> Bot học Futures · Tiến hóa
           </h2>
-          <p>Họ gốc tiến hóa tham số · Cây luật tự sinh biến đổi cấu trúc và điều kiện.</p>
+          <p>
+            Khung HTF: <b>H4</b> lọc xu hướng EMA50 · <b>H1</b> cấu trúc điểm tựa · <b>M15</b>{' '}
+            trigger đóng nến. Cây luật tự sinh biến đổi cấu trúc và điều kiện.
+          </p>
         </div>
         <span className="pill amber">Paper · không gửi lệnh sàn</span>
       </header>
@@ -361,7 +365,9 @@ export function FuturesLearningPage() {
                 >
                   <div className="evo-card-top">
                     <div>
-                      <strong title={strategyName(row.genome)}>{strategyName(row.genome)}</strong>
+                      <strong title={strategyName(row.genome)}>
+                        {strategyShortTitle(row.genome, row.strategy)}
+                      </strong>
                       <code title={row.strategy}>{row.strategy.split(':')[1]}</code>
                     </div>
                     <span className={`pill ${row.generation ? 'green' : ''}`}>
@@ -393,16 +399,11 @@ export function FuturesLearningPage() {
                         className="pill"
                         title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
                       >
-                        Ngừng thử · chính sách thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
+                        Ngừng thử · thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
                       </span>
                     )}
-                    {row.rule_text && (
-                      <span className="pill">
-                        Cây luật · {row.shadow_only ? 'shadow' : 'thử Paper'}
-                      </span>
-                    )}
-                    <span className="evo-kind">{info.kind}</span> Dựa theo {info.basis}.{' '}
-                    {exitLabel(row.genome.exit_policy)}.
+                    <span className="pill">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
+                    <span className="pill blue">{exitLabel(row.genome.exit_policy)}</span>
                   </p>
                   {row.rule_text && (
                     <p className="evo-rule" title={row.rule_text}>
@@ -436,15 +437,24 @@ export function FuturesLearningPage() {
                       </dd>
                     </div>
                     {row.parents.length > 0 && (
-                      <div>
+                      <div className="evo-parents-row">
                         <dt>Cha mẹ</dt>
-                        <dd title={row.parents.join(' + ')}>
-                          {row.parents
-                            .map(
-                              (parent) =>
-                                `${titles.get(parent) ?? parent.split(':')[0]} · ${parent.split(':')[1]?.slice(0, 6)}`,
-                            )
-                            .join(' × ')}
+                        <dd className="evo-parents-chips">
+                          {row.parents.map((parent, idx) => {
+                            const pRow = all.find((r) => r.strategy === parent);
+                            const pTitle = titles.get(parent) ?? parent;
+                            const pLabel = pRow
+                              ? strategyShortTitle(pRow.genome, parent)
+                              : `#${parent.split(':')[1]?.slice(0, 6)}`;
+                            return (
+                              <span key={parent}>
+                                {idx > 0 && ' × '}
+                                <code className="evo-parent-chip" title={pTitle}>
+                                  {pLabel}
+                                </code>
+                              </span>
+                            );
+                          })}
                         </dd>
                       </div>
                     )}

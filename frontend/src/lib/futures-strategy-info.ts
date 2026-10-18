@@ -24,7 +24,7 @@ export const HTF_LABELS: Record<string, string> = {
   htf_ema_cross: 'EMA cross HTF',
   htf_wedge: 'Nêm HTF',
   htf_swing: 'Vùng swing HTF',
-  htf_other: 'Đa khung khác',
+  htf_other: 'Trend + nến',
 };
 
 function features(rule: Rule): string[] {
@@ -107,6 +107,14 @@ export function ruleName(rule: Rule): string {
   return children.join(
     rule.op === 'then' ? ` rồi ≤${rule.within} nến ` : rule.op === 'all' ? ' + ' : ' / ',
   );
+}
+
+export function strategyShortTitle(g: Genome, id?: string): string {
+  const profile = profileOf(g);
+  const label =
+    HTF_LABELS[profile] ?? (profile === 'default' ? 'Cây tự sinh' : profile.replace(/_/g, ' '));
+  const hex = id ? id.split(':')[1]?.slice(0, 6) : '';
+  return hex ? `${label} #${hex}` : label;
 }
 
 export function strategyName(g: Genome): string {
@@ -230,10 +238,12 @@ export function strategyInfo(g: Genome): Info {
 
 export function riskText(g: Genome, stop: string) {
   if (g.exit_policy === 'adaptive') {
-    return `SL theo swing 5 nến H1 + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
+    return (
+      `SL theo swing 5 nến H1 + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
       `TP ban đầu trước cản M15/H1 gần nhất (đệm 0.1 ATR14), không quá ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Khi đạt 1R: chốt 50% chỉ lúc nến yếu (thân ngược, râu từ chối, hoặc chững lại sát cản); nến khỏe giữ chạy tới cản/TP. Hòa vốn ngay từ 1R, ` +
       'SL hòa vốn có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến + 0.1 ATR14. ' +
-      'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.';
+      'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.'
+    );
   }
   const buf = g.stop_buffer ? ` (cộng thêm ${g.stop_buffer}×ATR14 đệm)` : '';
   const tp =

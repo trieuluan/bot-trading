@@ -4410,6 +4410,24 @@ footer {
   font-size: 10.5px;
   color: #859087;
 }
+.evo-card .evo-parents-row {
+  align-items: flex-start;
+}
+.evo-card .evo-parents-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  font-variant-numeric: normal;
+}
+.evo-parent-chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef1e9;
+  color: #475549;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
 .evo-card .pill {
   display: inline-flex;
   align-items: center;
@@ -5060,63 +5078,299 @@ main:has(.futures-desk) {
   line-height: 1.45;
 }
 
-.leverage-box { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
-.leverage-box legend { padding: 0 6px; font-size: 12px; color: #55635b; }
-.leverage-stepper { display: grid; grid-template-columns: 42px 1fr auto 42px; align-items: center; gap: 8px; }
-.leverage-stepper input { text-align: right; font-weight: 700; }
-.leverage-stepper span { font-weight: 700; }
-.leverage-stepper button, .leverage-presets button { min-height: 34px; }
-.leverage-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.leverage-presets button { flex: 1 1 52px; }
-.leverage-slider { width: 100%; padding: 0; }
-.leverage-ticks { display: flex; justify-content: space-between; font-size: 11px; color: #7a867f; }
+.leverage-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.leverage-box legend {
+  padding: 0 6px;
+  font-size: 12px;
+  color: #55635b;
+}
+.leverage-stepper {
+  display: grid;
+  grid-template-columns: 42px 1fr auto 42px;
+  align-items: center;
+  gap: 8px;
+}
+.leverage-stepper input {
+  text-align: right;
+  font-weight: 700;
+}
+.leverage-stepper span {
+  font-weight: 700;
+}
+.leverage-stepper button,
+.leverage-presets button {
+  min-height: 34px;
+}
+.leverage-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.leverage-presets button {
+  flex: 1 1 52px;
+}
+.leverage-slider {
+  width: 100%;
+  padding: 0;
+}
+.leverage-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #7a867f;
+}
 
-.ap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ap-head .auto-title p { display: flex; flex-direction: column; gap: 2px; margin: 0; }
-.ap-head .auto-strategy { margin: 0; }
-.ap-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 16px; border-radius: 999px; border: 0; font-weight: 700; color: #fff; background: #2c856c; cursor: pointer; white-space: nowrap; }
-.ap-toggle.on { background: #bd5f50; }
-.ap-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
-.ap-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0 14px; }
-.ap-kpis > div { display: grid; gap: 4px; padding: 9px 10px; background: #fafbf6; border: 1px solid #e2e7dd; border-radius: 8px; min-width: 0; }
-.ap-kpis > div.bad { border-color: #e4b4ac; background: #fdf3f1; }
-.ap-kpis span { font-size: 10.5px; color: #63746a; }
-.ap-kpis strong { font-size: 15px; font-variant-numeric: tabular-nums; }
-.ap-kpis small { font-size: 11px; color: #7a867f; font-weight: 500; }
-.ap-form { display: grid; gap: 12px; }
-.ap-card { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: #fcfdf9; }
-.ap-card h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #55635b; }
-.ap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.ap-grid label { display: grid; gap: 6px; font-size: 12px; color: #55635b; }
-.ap-switch { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #3f4d45; cursor: pointer; }
-.ap-switch input { width: auto; }
-.ap-actions { display: flex; align-items: center; gap: 10px; }
-.ap-actions button { min-height: 38px; }
-.leverage-presets button.active { background: #2c856c; color: #fff; border-color: #2c856c; }
+.ap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ap-head .auto-title p {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+.ap-head .auto-strategy {
+  margin: 0;
+}
+.ap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 0;
+  font-weight: 700;
+  color: #fff;
+  background: #2c856c;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ap-toggle.on {
+  background: #bd5f50;
+}
+.ap-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ap-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 14px;
+}
+.ap-kpis > div {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  background: #fafbf6;
+  border: 1px solid #e2e7dd;
+  border-radius: 8px;
+  min-width: 0;
+}
+.ap-kpis > div.bad {
+  border-color: #e4b4ac;
+  background: #fdf3f1;
+}
+.ap-kpis span {
+  font-size: 10.5px;
+  color: #63746a;
+}
+.ap-kpis strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.ap-kpis small {
+  font-size: 11px;
+  color: #7a867f;
+  font-weight: 500;
+}
+.ap-form {
+  display: grid;
+  gap: 12px;
+}
+.ap-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fcfdf9;
+}
+.ap-card h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #55635b;
+}
+.ap-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ap-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: #55635b;
+}
+.ap-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #3f4d45;
+  cursor: pointer;
+}
+.ap-switch input {
+  width: auto;
+}
+.ap-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ap-actions button {
+  min-height: 38px;
+}
+.leverage-presets button.active {
+  background: #2c856c;
+  color: #fff;
+  border-color: #2c856c;
+}
 /* Auto Paper compact */
-.auto-paper-panel { padding: 14px; }
-.ap-head .auto-title { gap: 10px; min-width: 0; }
-.ap-head .auto-title h2 { margin: 0; font-size: 17px; }
-.ap-head .auto-title > svg { align-self: center; }
-.ap-head .auto-title p { display: flex; flex-direction: column; gap: 1px; font-size: 11px; line-height: 1.35; }
-.ap-head .auto-strategy { margin: 0; font-size: 11.5px; }
-.ap-toggle { min-height: 34px; padding: 0 14px; font-size: 12.5px; }
-.auto-paper-panel .auto-status { flex-wrap: nowrap; padding: 8px 10px; margin: 10px 0; gap: 8px; }
-.auto-paper-panel .auto-status > span:last-child { flex: 1; flex-basis: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.auto-paper-panel .auto-status strong { white-space: nowrap; }
-.ap-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 0 10px; }
-.ap-kpis > div { padding: 8px 10px; }
-.ap-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.ap-chips span { padding: 3px 9px; border-radius: 999px; background: #eef2e8; font-size: 11px; color: #55635b; }
-.ap-chips b { color: #1e3a2f; font-variant-numeric: tabular-nums; }
-.ap-config { border: 1px solid var(--border); border-radius: 10px; background: #fcfdf9; }
-.ap-config > summary { padding: 9px 12px; font-size: 12px; font-weight: 700; cursor: pointer; color: #3f4d45; }
-.ap-config[open] > summary { border-bottom: 1px solid var(--border); }
-.ap-config .ap-form { padding: 12px; margin: 0; }
-.ap-config .ap-card { padding: 10px; border: 0; background: transparent; padding-inline: 0; }
-.ap-config .ap-grid input, .ap-config .leverage-stepper input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dce1d7; border-radius: 8px; background: #fff; font: inherit; }
-.ap-config .leverage-box { padding: 10px; margin: 0; min-width: 0; }
-.ap-config .leverage-presets button { min-height: 30px; font-size: 12px; }
-.ap-config .ap-actions { padding-top: 2px; }
-.ap-config .ap-actions button { width: 100%; justify-content: center; }
-.auto-paper-guide { margin-top: 10px; }
+.auto-paper-panel {
+  padding: 14px;
+}
+.ap-head .auto-title {
+  gap: 10px;
+  min-width: 0;
+}
+.ap-head .auto-title h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.ap-head .auto-title > svg {
+  align-self: center;
+}
+.ap-head .auto-title p {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.ap-head .auto-strategy {
+  margin: 0;
+  font-size: 11.5px;
+}
+.ap-toggle {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+.auto-paper-panel .auto-status {
+  flex-wrap: nowrap;
+  padding: 8px 10px;
+  margin: 10px 0;
+  gap: 8px;
+}
+.auto-paper-panel .auto-status > span:last-child {
+  flex: 1;
+  flex-basis: auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auto-paper-panel .auto-status strong {
+  white-space: nowrap;
+}
+.ap-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 0 10px;
+}
+.ap-kpis > div {
+  padding: 8px 10px;
+}
+.ap-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.ap-chips span {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef2e8;
+  font-size: 11px;
+  color: #55635b;
+}
+.ap-chips b {
+  color: #1e3a2f;
+  font-variant-numeric: tabular-nums;
+}
+.ap-config {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fcfdf9;
+}
+.ap-config > summary {
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #3f4d45;
+}
+.ap-config[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.ap-config .ap-form {
+  padding: 12px;
+  margin: 0;
+}
+.ap-config .ap-card {
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  padding-inline: 0;
+}
+.ap-config .ap-grid input,
+.ap-config .leverage-stepper input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #dce1d7;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+}
+.ap-config .leverage-box {
+  padding: 10px;
+  margin: 0;
+  min-width: 0;
+}
+.ap-config .leverage-presets button {
+  min-height: 30px;
+  font-size: 12px;
+}
+.ap-config .ap-actions {
+  padding-top: 2px;
+}
+.ap-config .ap-actions button {
+  width: 100%;
+  justify-content: center;
+}
+.auto-paper-guide {
+  margin-top: 10px;
+}
