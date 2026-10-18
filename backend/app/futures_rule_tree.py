@@ -16,6 +16,10 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
+HTF_CONTEXT_FEATURES = tuple(feature for feature in LEAF_FEATURES if feature not in (
+    "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional"))
+HTF_ENTRY_FEATURES = (
+    "volume", "breakout", "candle_direction", "engulfing", "pin_bar", "star", "soldiers", *PATTERNS)
 
 
 def validate_rule(rule, depth=1, retest_allowed=False):
@@ -44,8 +48,8 @@ def validate_rule(rule, depth=1, retest_allowed=False):
     return count
 
 
-def leaf(rng):
-    return {"feature": rng.choice(LEAF_FEATURES), "frame": rng.choice(tuple(FRAMES))}
+def leaf(rng, features=LEAF_FEATURES, frames=tuple(FRAMES)):
+    return {"feature": rng.choice(features), "frame": rng.choice(frames)}
 
 
 def nodes(rule, path=()):
@@ -65,19 +69,19 @@ def replace_node(rule, path, replacement):
     return result
 
 
-def mutate_rule(rule, rng, mate=None):
+def mutate_rule(rule, rng, mate=None, features=LEAF_FEATURES, frames=tuple(FRAMES)):
     validate_rule(rule)
     if mate is not None:
         validate_rule(mate)
     for _ in range(24):
         path, node = rng.choice(list(nodes(rule)))
         action = rng.choice(("replace", "add", "remove", "regroup", "cross"))
-        replacement = leaf(rng)
+        replacement = leaf(rng, features, frames)
         if action == "cross" and mate is not None:
             replacement = rng.choice(list(nodes(mate)))[1]
         elif action == "add":
             replacement = {"op": rng.choice(("all", "any", "then")),
-                           "children": [copy.deepcopy(node), leaf(rng)]}
+                           "children": [copy.deepcopy(node), leaf(rng, features, frames)]}
             if replacement["op"] == "then":
                 replacement["within"] = rng.randint(1, 8)
         elif "children" in node:
@@ -93,7 +97,41 @@ def mutate_rule(rule, rng, mate=None):
             continue
         if result != rule:
             return result
-    return {"feature": "trend" if rule.get("feature") != "trend" else "volume", "frame": "H1"}
+    return leaf(rng, features, frames)
+
+def validate_htf_rule(rule):
+    validate_rule(rule)
+    if (rule.get("op") != "all" or len(rule["children"]) != 3
+            or rule["children"][0] != {"feature": "trend", "frame": "H4"}):
+        raise ValueError("HTF rule requires H4 trend, H1 setup and M15 trigger")
+    for index, features, frame in ((1, (*HTF_CONTEXT_FEATURES, "retest"), "H1"),
+                                    (2, HTF_ENTRY_FEATURES, "M15")):
+        if any(node.get("feature") not in features or node.get("frame") != frame
+               for _, node in nodes(rule["children"][index]) if "feature" in node):
+            raise ValueError("Invalid HTF setup/entry timeframe or feature")
+
+def mutate_htf_rule(rule, rng):
+    for _ in range(24):
+        result = copy.deepcopy(rule)
+        index = rng.choice((1, 2))
+        features, frames = ((HTF_CONTEXT_FEATURES, ("H1",)) if index == 1
+                            else (HTF_ENTRY_FEATURES, ("M15",)))
+        result["children"][index] = mutate_rule(result["children"][index], rng,
+                                               features=features, frames=frames)
+        try:
+            validate_htf_rule(result)
+        except ValueError:
+            continue
+        if result != rule:
+            return result
+    return copy.deepcopy(rule)
+
+def is_htf_rule(rule):
+    try:
+        validate_htf_rule(rule)
+    except ValueError:
+        return False
+    return True
 
 
 def frame_rows(candles, frame):
@@ -194,12 +232,15 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
             return all(matches(child, candles, direction, lookback, anchor, context) for child in children)
         if rule["op"] == "any":
             return any(matches(child, candles, direction, lookback, anchor, context) for child in children)
-        for lag in range(1, min(rule["within"], len(candles) - 1) + 1):
+        step = (4 if (context or {}).get("htf") and all(
+            node["frame"] == "H1" for _, node in nodes(rule) if "feature" in node) else 1)
+        for lag in range(step, min(rule["within"] * step, len(candles) - 1) + 1, step):
             prior = candles[:-lag]
             if not matches(children[0], prior, direction, lookback, anchor, context):
                 continue
             level = breakout_level(children[0], prior, direction, lookback)
-            if level is not None and any(direction * (row.close - level) < 0 for row in candles[-lag:]):
+            holding = aggregate(candles, 3600)[-lag // 4:] if step == 4 else candles[-lag:]
+            if level is not None and any(direction * (row.close - level) < 0 for row in holding):
                 continue
             if matches(children[1], candles, direction, lookback, level, context):
                 return True
@@ -246,12 +287,12 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
     if feature == "ema_touch":
         if len(rows) < 50 or not candles:
             return False
-        level, last = ema50(rows), candles[-1]
+        level, last = ema50(rows), rows[-1] if context.get("htf") else candles[-1]
         return (last.low <= level < last.close and last.close > last.open if direction == 1
                 else last.high >= level > last.close and last.close < last.open)
     if feature == "wick_sweep":
-        history = frame_rows(candles[:-1], rule["frame"])[-lookback:]
-        last = candles[-1]
+        history = rows[-lookback - 1:-1] if context.get("htf") else frame_rows(candles[:-1], rule["frame"])[-lookback:]
+        last = rows[-1] if context.get("htf") and rows else candles[-1]
         if len(history) < lookback:
             return False
         low, high = min(r.low for r in history), max(r.high for r in history)
@@ -313,95 +354,61 @@ def describe_rule(rule):
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
     descriptions = [describe_rule(child) for child in rule["children"]]
     if rule["op"] == "then":
-        return f'({descriptions[0]}) rồi trong {rule["within"]} nến M15 ({descriptions[1]})'
+        frame = "H1" if all(node["frame"] == "H1" for _, node in nodes(rule) if "feature" in node) else "M15"
+        return f'({descriptions[0]}) rồi trong {rule["within"]} nến {frame} ({descriptions[1]})'
     return "(" + (" VÀ " if rule["op"] == "all" else " HOẶC ").join(descriptions) + ")"
 
 
 
-FAMILY_RULES = {
-    "breakout": {"feature": "breakout", "frame": "M15"},
-    "squeeze": {
-        "op": "all",
-        "children": [
-            {"feature": "compression_current", "frame": "M15"},
-            {"feature": "breakout", "frame": "M15"},
-        ],
-    },
-    "retest": {"feature": "retest_seq", "frame": "M15"},
-    "volume_spike": {
-        "op": "all",
-        "children": [
-            {"feature": "breakout", "frame": "M15"},
-            {"feature": "volume", "frame": "M15"},
-            {"feature": "candle_direction", "frame": "M15"},
-        ],
-    },
-    "donchian_trend": {
-        "op": "all",
-        "children": [
-            {"feature": "trend_optional", "frame": "H1"},
-            {"feature": "breakout", "frame": "M15"},
-        ],
-    },
-    "ema_cross": {"feature": "ema_cross_n", "frame": "M15"},
-    "trend_pullback": {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "ema_touch", "frame": "H1"}]},
-    "rsi_reversal": {"op": "all", "children": [
-        {"feature": "rsi", "frame": "M15"},
-        {"feature": "candle_direction", "frame": "M15"}]},
-    "mtf_retest": {"feature": "mtf_seq", "frame": "M15"},
-    "liquidity_sweep": {"op": "all", "children": [{"feature": "trend", "frame": "H4"}, {"feature": "wick_sweep", "frame": "H1"}]},
-    "mean_reversion": {"feature": "band_reclaim", "frame": "H1"},
-    "funding_filter": {"feature": "funding_extreme", "frame": "M15"},
-}
-
-RULES = [
-    {"op": "all", "children": [{"feature": "trend", "frame": "H4"},
-                                {"feature": "breakout", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "compression", "frame": "H1"},
-                                {"op": "any", "children": [{"feature": "sweep", "frame": "M15"},
-                                                            {"feature": "rsi", "frame": "M15"}]}]},
-    {"op": "then", "within": 3,
-     "children": [{"op": "all", "children": [{"feature": "breakout", "frame": "M15"},
-                                               {"feature": "volume", "frame": "M15"}]},
-                  {"feature": "retest", "frame": "M15"}]},
-    {"feature": "breakout", "frame": "M15"},
-    {"op": "all", "children": [{"feature": "compression", "frame": "M15"},
-                                {"feature": "breakout", "frame": "M15"}]},
-    {"op": "then", "within": 5,
-     "children": [{"feature": "breakout", "frame": "M15"},
-                  {"feature": "retest", "frame": "M15"}]},
+HTF_RULES = [
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "breakout", "frame": "H1"},
+        {"feature": "volume", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "ema_touch", "frame": "H1"},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "wedge", "frame": "H1"},
+        {"feature": "candle_direction", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "then", "within": 3, "children": [
+            {"feature": "breakout", "frame": "H1"},
+            {"feature": "retest", "frame": "H1"},
+        ]},
+        {"feature": "engulfing", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "swing_zone", "frame": "H1"},
+        {"op": "any", "children": [
+            {"feature": "pin_bar", "frame": "M15"},
+            {"feature": "star", "frame": "M15"},
+        ]},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "compression", "frame": "H1"},
+        {"feature": "breakout", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "ema_cross_n", "frame": "H1"},
+        {"feature": "candle_direction", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "wick_sweep", "frame": "H1"},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
 ]
 
-# Added after the original 6 so existing genome names stay stable.
-RULES.extend([
-    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "engulfing", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "swing_zone", "frame": "H1"}, {"feature": "pin_bar", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "ema_cross", "frame": "M15"}, {"feature": "volume", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "compression", "frame": "H1"}, {"feature": "star", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "soldiers", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "ema_bounce", "frame": "M15"},
-                                {"op": "any", "children": [{"feature": "engulfing", "frame": "M15"},
-                                                            {"feature": "pin_bar", "frame": "M15"}]}]},
-    {"op": "then", "within": 3, "children": [{"feature": "breakout", "frame": "M15"},
-                                               {"op": "all", "children": [{"feature": "retest", "frame": "M15"},
-                                                                          {"feature": "pin_bar", "frame": "M15"}]}]},
-    {"op": "then", "within": 4, "children": [{"feature": "ema_cross", "frame": "M15"},
-                                               {"op": "any", "children": [{"feature": "ema_bounce", "frame": "M15"},
-                                                                          {"feature": "swing_zone", "frame": "M15"}]}]},
-    {"op": "all", "children": [{"feature": "swing_zone", "frame": "H1"},
-                                {"op": "any", "children": [{"feature": "harami", "frame": "M15"},
-                                                            {"feature": "piercing", "frame": "M15"},
-                                                            {"feature": "tweezer", "frame": "M15"}]}]},
-    {"op": "all", "children": [{"feature": "wedge", "frame": "H1"}, {"feature": "volume", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "trend", "frame": "H4"}, {"feature": "three_methods", "frame": "M15"}]},
-    {"op": "all", "children": [{"feature": "swing_zone", "frame": "M15"},
-                                {"op": "any", "children": [{"feature": "doji_reversal", "frame": "M15"},
-                                                            {"feature": "inverted_pin", "frame": "M15"}]}]},
-])
-# Family-equivalent trees: same data model as the 12 legacy families so evolve_rules can mutate them.
-FAMILY_RULES = {k: v for k, v in FAMILY_RULES.items()}
-RULES.extend(rule for rule in FAMILY_RULES.values() if rule not in RULES)
-
-# Measured by tests/test_futures_family_parity.py against the frozen oracle (fixtures/futures_entry_v1.py).
-# retest/mtf_retest/mean_reversion/funding_filter reuse the legacy scanners as opaque leaves (exact by construction).
-FAMILY_PARITY = {family: 1.00 for family in FAMILY_RULES}
+RULES = HTF_RULES
+FAMILY_RULES = {}
+FAMILY_PARITY = {}

@@ -33,7 +33,7 @@ WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96
 RULE_TRIAL_CAP = 256
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
-VERSION = "futures_forward_v1"
+VERSION = "futures_htf_v1"
 
 
 def add_candidate(state, genome, born, parents=()):
@@ -69,7 +69,9 @@ def read_state(session, now):
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
     if row.payload and row.payload.get("version") != VERSION:
-        raise HTTPException(409, "Futures learning state version mismatch")
+        state = new_state(now)
+        row.payload = state
+        return state
     state = copy.deepcopy(row.payload) if row.payload else new_state(now)
     migrate_to_trees(state)
     return state

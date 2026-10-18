@@ -11,9 +11,16 @@ EXIT_POLICIES = ("fixed", "breakeven", "trail", "structure", "adaptive")
 def adaptive_levels(side, candles, target_r=2.0, stop_buffer=0.0):
     """Stop from swing; TP = target_r cap, pulled in front of the nearest barrier. None if barrier < 1.5R."""
     direction = 1 if side == "long" else -1
-    entry, atr = candles[-1].close, atr14(candles)
-    swing = (min(row.low for row in candles[-5:]) if direction == 1
-             else max(row.high for row in candles[-5:]))
+    entry = candles[-1].close
+    h1_bars = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
+    if len(h1_bars) >= 5:
+        atr = atr14(h1_bars)
+        swing = (min(row.low for row in h1_bars[-5:]) if direction == 1
+                 else max(row.high for row in h1_bars[-5:]))
+    else:
+        atr = atr14(candles)
+        swing = (min(row.low for row in candles[-20:]) if direction == 1
+                 else max(row.high for row in candles[-20:]))
     risk = max(direction * (entry - swing) + atr * 0.25, atr) + stop_buffer * atr
     stop = entry - direction * risk
     target = entry + direction * max(2.0, target_r) * risk

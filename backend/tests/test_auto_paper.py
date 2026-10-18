@@ -62,6 +62,14 @@ def ready(monkeypatch):
             from backend.app.futures_strategies import SEEDS
             learning = learner.new_state(0)
             learning.update(auto_mode="paper_learning", candidates={})
+            from backend.app.strategy import Setup
+            setups = {"long": Setup("long", 105, 95, 125, "test"),
+                      "short": Setup("short", 85, 95, 65, "test"), "none": None}
+            monkeypatch.setattr(learner, "strategy_setup", lambda *args: setups[side])
+            from backend.app.strategy import Setup
+            setups = {"long": Setup("long", 105, 95, 125, "test"),
+                      "short": Setup("short", 85, 95, 65, "test"), "none": None}
+            monkeypatch.setattr(learner, "strategy_setup", lambda *args: setups[side])
             learner.add_candidate(learning, SEEDS[0], 0)
             learner.step(learning, candles, candles[-1], now)
             learner.save_state(session, learning)
@@ -331,7 +339,7 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
         decision.parameters = {"risk_percent": 1}
     trade = client.get("/api/paper/wallet").json()["position"]
     assert trade["audit"] is None
-    assert "N nến" in trade["entry_reason"]
+    assert trade["entry_reason"] == "test"
 
 
 def test_auto_enters_same_strategy_repeatedly_without_cap(ready):

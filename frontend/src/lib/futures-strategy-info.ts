@@ -54,8 +54,8 @@ export function ruleName(rule: Rule): string {
       three_methods: 'Rising / Falling Three Methods',
       wedge: 'Nêm giảm / nêm tăng',
       ema_bounce: 'Bật khỏi EMA21 / EMA50',
-      ema_touch: 'M15 chạm EMA50',
-      wick_sweep: 'M15 quét vùng rồi đóng trở lại',
+      ema_touch: 'Chạm EMA50',
+      wick_sweep: 'Quét vùng rồi đóng trở lại',
       retest_seq: 'Breakout + retest + xác nhận',
       mtf_seq: 'H4 xu hướng + H1 breakout + M15 retest',
       band_reclaim: 'H4 đi ngang + M15 lấy lại dải BB20 H1',
@@ -179,9 +179,9 @@ export function strategyInfo(g: Genome): Info {
   if (profileOf(g) === 'default')
     return {
       kind: 'Cây luật',
-      basis: 'cấu trúc điều kiện bot tự ghép',
-      entry: 'Vào lệnh khi cây điều kiện boolean thoả.',
-      stop: 'Đáy/đỉnh 5 nến M15 gần nhất',
+      basis: 'H4 lọc xu hướng, H1 xác định cấu trúc, M15 tìm điểm vào',
+      entry: 'Chờ nến đóng; H4 và H1 đồng thuận rồi M15 xác nhận điểm vào.',
+      stop: 'Swing 5 nến H1 và ATR14 H1',
     };
   return (
     map[profileOf(g)] ?? {
@@ -195,7 +195,7 @@ export function strategyInfo(g: Genome): Info {
 
 export function riskText(g: Genome, stop: string) {
   if (g.exit_policy === 'adaptive') {
-    return `SL theo swing 5 nến M15 + 0.25 ATR14, tối thiểu 1 ATR14; đệm thêm ${g.stop_buffer} ATR14. ` +
+    return `SL theo swing 5 nến H1 + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
       `TP ban đầu trước cản M15/H1 gần nhất (đệm 0.1 ATR14), không quá ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Khi đạt 1R: chốt 50% chỉ lúc nến yếu (thân ngược, râu từ chối, hoặc chững lại sát cản); nến khỏe giữ chạy tới cản/TP. Hòa vốn ngay từ 1R, ` +
       'SL hòa vốn có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến + 0.1 ATR14. ' +
       'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.';

@@ -231,6 +231,6 @@ def test_tree_setup_preserves_structural_target_and_checks_final_stop_buffer(mon
     genome = {**RULE_SEEDS[0], "exit_policy": "adaptive"}
     setup = strategy_setup(genome, rows, [])
     assert setup is not None
-    assert (setup.stop, setup.target) == adaptive_levels(side, rows, genome["target_r"])
+    assert (setup.stop, setup.target) == adaptive_levels(side, rows, genome["target_r"], genome["stop_buffer"])
     assert direction * (setup.target - setup.entry) < genome["target_r"] * abs(setup.entry - setup.stop)
     assert strategy_setup({**genome, "stop_buffer": 0.5}, rows, []) is None

@@ -11,11 +11,10 @@ from .futures_rules import atr14, ema50, funding_filter, mean_reversion
 from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 from .futures_exits import EXIT_POLICIES, adaptive_levels, structural_target
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
-                                validate_rule)
+                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule)
 
 RULE_FAMILY = "rule_tree"
-FAMILIES = ("breakout", "mtf_retest", "mean_reversion", "liquidity_sweep", "funding_filter",
-            "retest", "squeeze", "trend_pullback", "volume_spike", "donchian_trend", "ema_cross", "rsi_reversal")
+FAMILIES = ()
 MUTABLE_EXITS = ("fixed", "trail", "adaptive")
 BOUNDS = {
     "lookback": (10, 40, 5), "target_r": (1.5, 3.0, 0.5),
@@ -65,18 +64,12 @@ def to_rule_tree(genome):
         "rule": copy.deepcopy(FAMILY_RULES[family]),
     }
 
-LEGACY_SEEDS = [{"family": family, "lookback": 20, "target_r": 2.0,
-            "stop_buffer": 0.0, "max_er": 0.30, "funding_threshold": 0.0003}
-           for family in FAMILIES]
-SEEDS = [to_rule_tree(legacy) for legacy in LEGACY_SEEDS]
-SEEDS.append({**next(seed for seed in SEEDS if seed["exit_profile"] == "squeeze"), "exit_policy": "trail"})
-
 RULE_SEEDS = [
     {"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
-     "max_er": 0.30, "funding_threshold": 0.0003, "rule": rule}
+     "max_er": 0.30, "funding_threshold": 0.0003, "exit_policy": "adaptive", "rule": rule}
     for rule in RULES
 ]
-SEEDS += [{**seed, "exit_policy": "adaptive"} for seed in SEEDS if "exit_policy" not in seed]
+SEEDS = copy.deepcopy(RULE_SEEDS)
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -116,9 +109,13 @@ def crossover(parent, mate):
     if is_rule_tree(parent) and is_rule_tree(mate):
         if parent.get("exit_profile", "default") == "default" and mate.get("exit_policy") != "adaptive":
             child["target_r"], child["stop_buffer"] = 2.0, 0.0
-        joined = {"op": "all", "children": [parent["rule"], mate["rule"]]}
+        if is_htf_rule(parent["rule"]) and is_htf_rule(mate["rule"]):
+            joined = copy.deepcopy(parent["rule"])
+            joined["children"][1] = copy.deepcopy(mate["rule"]["children"][1])
+        else:
+            joined = {"op": "all", "children": [parent["rule"], mate["rule"]]}
         try:
-            validate_rule(joined)
+            (validate_htf_rule if is_htf_rule(parent["rule"]) else validate_rule)(joined)
             child["rule"] = joined
         except ValueError:
             pass
@@ -155,7 +152,8 @@ def mutate(genome, rng):
         validate_genome(child)
         return child
     if key == "rule":
-        child["rule"] = mutate_rule(genome["rule"], rng)
+        mutation = mutate_htf_rule if is_htf_rule(genome["rule"]) else mutate_rule
+        child["rule"] = mutation(genome["rule"], rng)
         validate_genome(child)
         return child
     low, high, step = BOUNDS[key]
@@ -175,32 +173,13 @@ def regime(candles):
 def strategy_levels(genome, candles):
     if not candles:
         return []
-    family, lookback = genome["family"], genome["lookback"]
-    profile = genome.get("exit_profile") if is_rule_tree(genome) else family
-    if profile == "mean_reversion":
-        hours = aggregate(candles, 3600)
-        if len(hours) < 21:
-            return []
-        closes = [bar.close for bar in hours[-21:-1]]
-        average, deviation = fmean(closes), pstdev(closes)
-        return [{"title": title, "price": price} for title, price in (
-            ("BB20 H1 · trên", average + 2 * deviation),
-            ("BB20 H1 · giữa", average), ("BB20 H1 · dưới", average - 2 * deviation))]
-    if profile == "trend_pullback":
-        hours = aggregate(candles, 3600)
-        return [{"title": "EMA50 H1", "price": ema50(hours)}] if len(hours) >= 50 else []
-    if profile == "mtf_retest":
-        watch = mtf_scan(candles, lookback=lookback)["current"]
-        return [{"title": "Vùng retest H1", "price": watch["level"]}] if watch else []
-    if profile == "liquidity_sweep":
-        history, frame = aggregate(candles[:-1], 3600)[-lookback:], "H1"
-    elif profile in ("breakout", "volume_spike", "squeeze", "donchian_trend", "funding_filter"):
-        count = 10 if profile == "funding_filter" else lookback
-        history, frame = candles[-count - 1:-1], "M15"
-        lookback = count
+    lookback = genome.get("lookback", 20)
+    h1 = aggregate(candles[:-1], 3600)
+    if len(h1) >= lookback:
+        history, frame = h1[-lookback:], "H1"
+    elif len(candles) >= lookback + 1:
+        history, frame = candles[-lookback - 1:-1], "M15"
     else:
-        return []
-    if len(history) < lookback:
         return []
     return [{"title": f"Đỉnh {lookback} {frame}", "price": max(bar.high for bar in history)},
             {"title": f"Đáy {lookback} {frame}", "price": min(bar.low for bar in history)}]
@@ -212,7 +191,7 @@ def strategy_setup(genome, candles, funding):
     tree = genome if is_rule_tree(genome) else to_rule_tree(genome)
     lookback = genome["lookback"]
     context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
-               "max_er": genome["max_er"]}
+               "max_er": genome["max_er"], "htf": is_htf_rule(tree["rule"])}
     found = [side for side in (1, -1)
              if matches(tree["rule"], candles, side, lookback, context=context)]
     if len(found) != 1:

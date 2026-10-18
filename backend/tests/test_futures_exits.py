@@ -104,15 +104,15 @@ def test_structure_target_caps_at_barrier_rejects_poor_rr_and_uses_closed_frames
         barrier - direction * 0.1 * atr14(partial))
 
 
-def test_fixed_seed_identity_remains_unchanged_and_exit_variants_are_distinct():
-    fixed = SEEDS[0]
-    assert "exit_policy" not in fixed
-    assert genome_name({**fixed, "exit_policy": "trail"}) != genome_name(fixed)
+def test_seed_exit_variants_are_distinct():
+    seed = SEEDS[0]
+    assert seed["exit_policy"] == "adaptive"
+    assert genome_name({**seed, "exit_policy": "trail"}) != genome_name(seed)
 
 
-def test_search_keeps_fixed_families_and_only_squeeze_trailing():
-    assert len(SEEDS) == 25
-    assert sum(seed.get("exit_policy", "fixed") == "fixed" for seed in SEEDS) == 12
+def test_search_keeps_htf_seeds_adaptive():
+    assert len(SEEDS) == 8
+    assert all(seed["exit_policy"] == "adaptive" for seed in SEEDS)
     for seed in SEEDS:
         for index in range(50):
             assert exit_policy_enabled(mutate(seed, random.Random(index)))
