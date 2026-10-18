@@ -534,7 +534,7 @@ HTF_RULES.extend([
             {"feature": "breakout", "frame": "H1"},
         ]},
         {"feature": "volume", "frame": "M15"},
-    ]} for feature in ("session_active", "basis_aligned")
+    ]} for feature in ("session_active", "basis_aligned", "oi_surge")
 ])
 
 RULES = HTF_RULES

@@ -86,7 +86,7 @@ def test_wedge_and_ema_bounce():
 
 def test_every_seed_rule_is_valid():
     from backend.app.futures_rule_tree import RULES
-    assert len(RULES) == 17 and all(validate_rule(rule) <= 11 for rule in RULES)
+    assert len(RULES) == 18 and all(validate_rule(rule) <= 11 for rule in RULES)
 
 def test_bb_pierce_and_volume_dryup():
     base = [(100, 101, 99, 100 + (i % 2) * 0.2) for i in range(30)]

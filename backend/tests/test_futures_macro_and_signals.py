@@ -70,6 +70,24 @@ def test_oi_surge_rule_predicate():
     assert not matches(rule, bull, 1, 20, context={"oi_history": []})
     assert not matches(rule, bull, 1, 20, context={"oi_history": [(end - 9000, 1000.0), (end - 7200, 1050.0)]})
 
+def test_oi_surge_seed_registration():
+    from backend.app.futures_rule_tree import nodes, validate_htf_rule
+    from backend.app.futures_strategies import RULE_SEEDS, SEEDS, genome_name, validate_genome
+
+    seeds = [seed for seed in RULE_SEEDS
+             if any(node.get("feature") == "oi_surge" for _, node in nodes(seed["rule"]))]
+    assert len(seeds) == 1
+    seed = seeds[0]
+    validate_genome(seed)
+    validate_htf_rule(seed["rule"])
+    assert seed["exit_policy"] == "adaptive"
+    assert seed in SEEDS
+    assert len({genome_name(candidate) for candidate in RULE_SEEDS}) == len(RULE_SEEDS)
+    assert seed["rule"]["children"][1] == {"op": "all", "children": [
+        {"feature": "oi_surge", "frame": "H1"},
+        {"feature": "breakout", "frame": "H1"},
+    ]}
+
 
 def test_macro_revised_release_dates_and_unknown_coverage():
     for release in ("2025-11-20 13:30", "2025-12-18 13:30", "2026-01-13 13:30",
