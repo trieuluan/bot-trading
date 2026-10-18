@@ -20,7 +20,6 @@ from .futures_learner import read_state, select_for_auto
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .paper import (
     MAX_ORDER_MARGIN_PERCENT,
-    MAX_PORTFOLIO_RISK_PERCENT,
     create_position,
     execution_price,
     fresh_quote,
@@ -45,6 +44,7 @@ class AutoConfig(BaseModel):
     leverage: int | None = Field(default=None, ge=1, strict=True)
     max_daily_trades: int = Field(default=100, ge=1, le=100)
     daily_loss_percent: float = Field(default=3, gt=0, le=20)
+    max_portfolio_risk_percent: float | None = Field(default=None, ge=0.5, le=50)
 
 
 class AutoControl(BaseModel):
@@ -233,14 +233,15 @@ def auto_tick(now=None):
             0, state.day_start_equity * session.get(AutoPaperState, 1).daily_loss_percent / 100 - daily_loss
         )
         capital, used_risk = portfolio_risk_limits(session)
-        headroom = max(0.0, capital * MAX_PORTFOLIO_RISK_PERCENT / 100 - used_risk)
+        cap = session.get(AutoPaperState, 1).max_portfolio_risk_percent
+        headroom = float("inf") if cap is None else max(0.0, capital * cap / 100 - used_risk)
         risk_cash = min(
             max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget, headroom
         )
         if risk_cash <= 0:
             record_decision(
                 session, state, candle_time, "skipped",
-                f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {MAX_PORTFOLIO_RISK_PERCENT}% ví chung",
+                f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {cap:g}% ví chung",
                 setup,
             )
             return
@@ -328,6 +329,9 @@ def state_response(session, wallet, state, now):
         margin_mode="cross",
         max_daily_trades=state.max_daily_trades,
         daily_loss_percent=account.daily_loss_percent,
+        max_portfolio_risk_percent=account.max_portfolio_risk_percent,
+        portfolio_capital=round(portfolio_risk_limits(session)[0], 2),
+        portfolio_used_risk=round(portfolio_risk_limits(session)[1], 2),
         last_candle=state.last_candle,
         day=account.day,
         day_start_equity=account.day_start_equity,
@@ -382,11 +386,12 @@ def configure_auto(payload: AutoConfig):
             raise HTTPException(409, "Dừng Auto Paper trước khi đổi thông số")
         validate_leverage(wallet, state.leverage if payload.leverage is None else payload.leverage)
         account = session.get(AutoPaperState, 1)
-        if payload.daily_loss_percent != account.daily_loss_percent:
+        if payload.daily_loss_percent != account.daily_loss_percent or payload.max_portfolio_risk_percent != account.max_portfolio_risk_percent:
             if session.scalar(select(AutoPaperState.id).where(AutoPaperState.enabled.is_(True)).limit(1)):
-                raise HTTPException(409, "Dừng Auto Paper trên mọi cặp trước khi đổi giới hạn lỗ ví chung")
+                raise HTTPException(409, "Dừng Auto Paper trên mọi cặp trước khi đổi cấu hình rủi ro ví chung")
             for pair in session.scalars(select(AutoPaperState)):
                 pair.daily_loss_percent = payload.daily_loss_percent
+                pair.max_portfolio_risk_percent = payload.max_portfolio_risk_percent
         for key, value in payload.model_dump(exclude_none=True).items():
             setattr(state, key, value)
         session.add(Event(kind="auto_paper", message="Đã lưu thông số Auto Paper"))

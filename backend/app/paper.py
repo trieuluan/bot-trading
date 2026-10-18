@@ -34,7 +34,6 @@ from .mexc import MarketDataError, MexcFuturesAdapter
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
 QUOTE_TTL = 20
-MAX_PORTFOLIO_RISK_PERCENT = 5
 MAX_ORDER_MARGIN_PERCENT = 10
 
 def stop_risk_per_unit(side, entry, stop, fee_bps, slippage_bps):
@@ -629,8 +628,11 @@ def create_position(
         if notional / leverage > capital * MAX_ORDER_MARGIN_PERCENT / 100 + 1e-8:
             raise HTTPException(422, "Ký quỹ mỗi lệnh Auto Paper vượt 10% vốn ví chung")
         risk = quantity * stop_risk_per_unit(side, price, stop, wallet.fee_bps, wallet.slippage_bps)
-        if used_risk + risk > capital * MAX_PORTFOLIO_RISK_PERCENT / 100 + 1e-8:
-            raise HTTPException(422, "Tổng rủi ro tới SL vượt 5% vốn ví chung; bỏ lệnh mới")
+        cap = session.get(AutoPaperState, 1).max_portfolio_risk_percent
+        if cap is not None and (
+            used_risk + risk > capital * cap / 100 + 1e-8
+        ):
+            raise HTTPException(422, f"Tổng rủi ro tới SL vượt {cap:g}% vốn ví chung; bỏ lệnh mới")
     trade = PaperTrade(
         symbol=current_symbol(),
         side=side,

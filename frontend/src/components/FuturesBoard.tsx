@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
+import { exitLabels } from './PaperTradeDetails';
 import type { AutoPaperState, PaperTrade, PaperWallet } from '../types/paper';
 
 export type PairInfo = {
@@ -60,6 +61,114 @@ const sign = (v: number) => (v < 0 ? 'negative' : 'positive');
 const short = (s: string) => s.replace('_USDT', '');
 
 export type PositionRow = { s: string; p: PaperTrade; mark: number | null; feeBps: number };
+
+const fmtTime = (t: number) =>
+  new Date(t * 1000).toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+const span = (a: number, b: number) => {
+  const m = Math.max(0, Math.round((b - a) / 60));
+  return m >= 1440
+    ? `${Math.floor(m / 1440)}n ${Math.floor((m % 1440) / 60)}g`
+    : m >= 60
+      ? `${Math.floor(m / 60)}g ${m % 60}p`
+      : `${m}p`;
+};
+
+export function TradeHistoryTable({
+  rows,
+  showPair,
+  selectedId,
+  onView,
+}: {
+  rows: { s: string; t: PaperTrade }[];
+  showPair: boolean;
+  selectedId?: number | null;
+  onView: (row: { s: string; t: PaperTrade }) => void;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="positions-table">
+        <thead>
+          <tr>
+            <th>Lệnh</th>
+            <th>Chiến thuật</th>
+            <th>Khối lượng</th>
+            <th>Entry → Exit</th>
+            <th>SL / TP</th>
+            <th>Kết thúc</th>
+            <th>Phí / Funding</th>
+            <th>PnL ròng</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const { s, t } = row;
+            const lev = t.leverage ?? 1;
+            const notional = t.entry * t.quantity;
+            const margin = notional / lev;
+            const risk = Math.abs(t.entry - t.stop) * t.quantity;
+            const net = t.net_pnl;
+            const unit = short(s);
+            return (
+              <tr key={`${s}${t.id}`} className={selectedId === t.id ? 'selected-trade-row' : undefined}>
+                <td>
+                  <button className="text-button" onClick={() => onView(row)}>
+                    {showPair ? `${unit} ` : ''}#{t.id}
+                  </button>
+                  <span className={`side-tag ${t.side}`}>{t.side.toUpperCase()}</span>
+                  <small className="trade-origin">{t.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}</small>
+                </td>
+                <td title={t.audit?.reason ?? t.entry_reason ?? ''}>
+                  {t.audit?.strategy
+                    ? t.audit.strategy.replace(/_/g, ' ').replace(':', ' · ')
+                    : 'Thủ công'}
+                  <small>{t.audit?.reason ?? t.entry_reason ?? ''}</small>
+                </td>
+                <td>
+                  {formatPrice(margin)} × {lev}x = {formatPrice(notional)} USDT
+                  <small>
+                    {t.quantity} {unit} · {t.contracts} hợp đồng · Cross
+                  </small>
+                </td>
+                <td>
+                  {formatPrice(t.entry)} → {t.exit === null ? '—' : formatPrice(t.exit)}
+                  <small>
+                    {fmtTime(t.entry_time)}
+                    {t.exit_time ? ` → ${fmtTime(t.exit_time)}` : ' · đang mở'}
+                  </small>
+                </td>
+                <td>
+                  <span className="negative">{formatPrice(t.stop)}</span> /{' '}
+                  <span className="positive">{formatPrice(t.target)}</span>
+                  <small>Rủi ro SL {formatPrice(risk)} USDT</small>
+                </td>
+                <td>
+                  {t.exit_reason ? (exitLabels[t.exit_reason] ?? t.exit_reason) : 'Đang mở'}
+                  <small>{t.exit_time ? `Giữ ${span(t.entry_time, t.exit_time)}` : ''}</small>
+                </td>
+                <td>
+                  {formatPrice(t.entry_fee + t.exit_fee)} / {formatPrice(t.funding_cost)}
+                  <small>USDT</small>
+                </td>
+                <td className={net === null ? undefined : sign(net)}>
+                  {net === null ? 'Chưa chốt' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
+                  <small>
+                    {net !== null && margin > 0 ? `${((net / margin) * 100).toFixed(1)}% ký quỹ` : ''}
+                    {net !== null && risk > 0 ? ` · ${(net / risk).toFixed(2)}R` : ''}
+                  </small>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const hold = (since: number) => {
   const m = Math.max(0, Math.floor((Date.now() / 1000 - since) / 60));
@@ -295,27 +404,7 @@ export function AllPairsPanel({
         <>
           <h3>Lịch sử lệnh · tối đa 100 lệnh gần nhất / cặp</h3>
           {trades.length ? (
-            <div className="table-scroll">
-              <table>
-                <tbody>
-                  {trades.map(({ s, t }) => (
-                    <tr key={`${s}${t.id}`}>
-                      <td>
-                        <button className="text-button" onClick={() => onSelect(s, t.id)}>
-                          {short(s)} #{t.id}
-                        </button>
-                      </td>
-                      <td>{t.side.toUpperCase()}</td>
-                      <td>{t.audit?.strategy ?? 'Thủ công'}</td>
-                      <td>
-                        {formatPrice(t.entry)} → {t.exit === null ? '—' : formatPrice(t.exit)}
-                      </td>
-                      <td className={sign(t.net_pnl ?? 0)}>{formatPrice(t.net_pnl ?? 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <TradeHistoryTable showPair rows={trades} onView={({ s, t }) => onSelect(s as FuturesSymbol, t.id)} />
           ) : (
             <p className="muted">Chưa có lệnh đóng.</p>
           )}

@@ -78,20 +78,29 @@ def test_leverage_cannot_exceed_contract_maximum():
     assert res.status_code == 422
 
 
-def test_auto_caps_margin_and_total_stop_risk(monkeypatch):
-    from fastapi import HTTPException
+def test_portfolio_stop_risk_cap_is_disabled_for_paper():
+    from backend.app.db import AutoPaperState, Session
+    from backend.app.paper import portfolio_risk_limits, stop_risk_per_unit
 
-    from backend.app import paper
+    with Session.begin() as session:
+        session.get(AutoPaperState, 1).max_portfolio_risk_percent = None
+    assert stop_risk_per_unit("long", 100, 99, 5, 2) > 1
+    with Session() as session:
+        assert session.get(AutoPaperState, 1).max_portfolio_risk_percent is None
 
-    class Wallet:
-        fee_bps, slippage_bps = 5, 2
-
-    capital = 10000
-    monkeypatch.setattr(paper, "portfolio", lambda session: (capital, 0, 0))
-    monkeypatch.setattr(paper, "portfolio_risk_limits", lambda session: (capital, 450.0))
-    assert paper.stop_risk_per_unit("long", 100, 99, 5, 2) > 1
-    capital_now, used = paper.portfolio_risk_limits(None)
-    risk = 100 * paper.stop_risk_per_unit("long", 100, 99, 5, 2)
-    assert used + risk > capital_now * paper.MAX_PORTFOLIO_RISK_PERCENT / 100
-    assert 1500 / 1 > capital_now * paper.MAX_ORDER_MARGIN_PERCENT / 100
-    assert HTTPException  # Both limits are enforced by create_position for origin="auto".
+def test_portfolio_stop_risk_cap_can_be_configured_via_api():
+    with symbol_scope("BTC_USDT"):
+        sync_paper_quote(MockMarket(100))
+    res = client.post("/api/paper/auto/config", headers={"X-Futures-Symbol": "BTC_USDT"}, json={
+        "risk_percent": 1, "leverage": 5, "max_daily_trades": 10, "daily_loss_percent": 5,
+        "max_portfolio_risk_percent": 7.5
+    })
+    assert res.status_code == 200
+    assert res.json()["max_portfolio_risk_percent"] == 7.5
+    # Can also disable cap by setting to null
+    res2 = client.post("/api/paper/auto/config", headers={"X-Futures-Symbol": "BTC_USDT"}, json={
+        "risk_percent": 1, "leverage": 5, "max_daily_trades": 10, "daily_loss_percent": 5,
+        "max_portfolio_risk_percent": None
+    })
+    assert res2.status_code == 200
+    assert res2.json()["max_portfolio_risk_percent"] is None

@@ -83,6 +83,7 @@ export type AutoPaperConfig = {
   leverage: number;
   max_daily_trades: number;
   daily_loss_percent: number;
+  max_portfolio_risk_percent?: number | null;
 };
 export type AutoDecision = {
   candle_time: number;
@@ -109,6 +110,8 @@ export type FuturesStrategyObservation = {
   note?: string;
 };
 export type AutoPaperState = AutoPaperConfig & {
+  portfolio_capital?: number;
+  portfolio_used_risk?: number;
   auto_mode: 'legacy' | 'learner' | 'paper_learning';
   min_leverage?: number;
   max_leverage?: number | null;

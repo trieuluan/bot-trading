@@ -1,5 +1,6 @@
 """Bounded rule genomes, not arbitrary code generation or a claim of profitability."""
 
+import copy
 import hashlib
 import json
 import math
@@ -9,7 +10,7 @@ from statistics import fmean, pstdev
 from .futures_rules import atr14, donchian, ema50, funding_filter, liquidity_sweep, mean_reversion, rsi14
 from .strategy import Setup, aggregate, breakout, mtf_retest, mtf_scan, retest
 from .futures_exits import EXIT_POLICIES, structural_target
-from .futures_rule_tree import (RULES, breakout_level, describe_rule, matches, mutate_rule,
+from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
                                 validate_rule)
 
 RULE_FAMILY = "rule_tree"
@@ -37,12 +38,14 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "rule"} if rule_tree else {"exit_policy"}
+    extra = {"exit_policy", "rule", "exit_profile"} if rule_tree else {"exit_policy"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
     if rule_tree:
         validate_rule(genome["rule"])
+        if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
+            raise ValueError("Invalid rule-tree exit profile")
         if (genome.get("exit_policy", "fixed") != "fixed" or genome["target_r"] != 2.0
                 or genome["stop_buffer"] != 0.0):
             raise ValueError("Rule-tree exits must remain fixed at the control settings")
@@ -54,6 +57,47 @@ def validate_genome(genome):
             raise ValueError(f"Invalid futures genome: {key}")
     if type(genome["lookback"]) is not int:
         raise ValueError("lookback must be integer")
+
+
+def to_rule_tree(genome):
+    """Convert any legacy family genome to a unified rule_tree genome."""
+    if is_rule_tree(genome):
+        return copy.deepcopy(genome)
+    family = genome.get("family")
+    rule = FAMILY_RULES.get(family, {"feature": "breakout", "frame": "M15"})
+    return {
+        "family": RULE_FAMILY,
+        "exit_profile": family if family in FAMILY_RULES else "default",
+        "lookback": genome.get("lookback", 20),
+        "target_r": 2.0,
+        "stop_buffer": 0.0,
+        "max_er": genome.get("max_er", 0.30),
+        "funding_threshold": genome.get("funding_threshold", 0.0003),
+        "rule": copy.deepcopy(rule),
+    }
+
+def profile_exit(profile, candles, direction, lookback, genome, funding):
+    """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
+    last, buffer = candles[-1], atr14(candles) * 0.1
+    if profile in ("mtf_retest", "mean_reversion", "retest", "funding_filter"):
+        found = {"mtf_retest": lambda: mtf_retest(candles, allow_short=True, lookback=lookback),
+                 "mean_reversion": lambda: mean_reversion(candles, allow_short=True, max_er=genome["max_er"]),
+                 "retest": lambda: retest(candles, lookback=lookback, allow_short=True),
+                 "funding_filter": lambda: funding_filter(funding, genome["funding_threshold"])(
+                     candles, allow_short=True)}[profile]()
+        same = found is not None and found.side == ("long" if direction == 1 else "short")
+        return (found.stop, found.target) if same else None
+    if profile == "breakout":
+        prior = candles[-lookback - 1:-1][-5:]
+        stop = min(c.low for c in prior) if direction == 1 else max(c.high for c in prior)
+    elif profile == "donchian_trend":
+        prior = candles[-lookback - 1:-1]
+        stop = (max(c.high for c in prior) + min(c.low for c in prior)) / 2
+    elif profile == "liquidity_sweep":
+        stop = last.low - buffer if direction == 1 else last.high + buffer
+    else:
+        return None
+    return stop, last.close + direction * 2 * abs(last.close - stop)
 
 def genome_name(genome):
     validate_genome(genome)
@@ -162,14 +206,22 @@ def strategy_setup(genome, candles, funding):
         return None
     family, lookback = genome["family"], genome["lookback"]
     if family == RULE_FAMILY:
-        found = [side for side in (1, -1) if matches(genome["rule"], candles, side, lookback)]
+        context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
+                   "max_er": genome["max_er"]}
+        found = [side for side in (1, -1)
+                 if matches(genome["rule"], candles, side, lookback, context=context)]
         if len(found) != 1:
             return None
         direction, last = found[0], candles[-1]
         stop = (min(bar.low for bar in candles[-5:]) if direction == 1
                 else max(bar.high for bar in candles[-5:]))
-        setup = Setup("long" if direction == 1 else "short", last.close, stop,
-                      last.close + direction * 2 * abs(last.close - stop), describe_rule(genome["rule"]))
+        target = last.close + direction * 2 * abs(last.close - stop)
+        custom = profile_exit(genome.get("exit_profile", "default"), candles, direction, lookback,
+                              genome, funding)
+        if custom:
+            stop, target = custom
+        setup = Setup("long" if direction == 1 else "short", last.close, stop, target,
+                      describe_rule(genome["rule"]))
     elif family == "breakout":
         setup = breakout(candles, lookback, allow_short=True)
     elif family == "mtf_retest":
@@ -278,7 +330,8 @@ def strategy_setup(genome, candles, funding):
     direction = 1 if setup.side == "long" else -1
     stop = setup.stop - direction * genome["stop_buffer"] * atr14(candles)
     risk = direction * (setup.entry - stop)
-    target = setup.target if family == "mean_reversion" else setup.entry + direction * genome["target_r"] * risk
+    target = (setup.target if family == "mean_reversion" or genome.get("exit_profile") == "mean_reversion"
+              else setup.entry + direction * genome["target_r"] * risk)
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)
         if target is None:

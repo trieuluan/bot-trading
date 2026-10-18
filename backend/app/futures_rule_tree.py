@@ -3,10 +3,17 @@
 import copy
 from statistics import fmean
 
-from .futures_rules import atr14, ema50, rsi14
-from .strategy import aggregate
+from .futures_candles import LABELS, PATTERNS, wedge
+from .futures_rules import atr14, ema50, funding_filter, mean_reversion, rsi14
+from .strategy import aggregate, mtf_retest
+from .strategy import retest as legacy_retest
 
-FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retest")
+FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retest",
+            "engulfing", "pin_bar", "star", "soldiers", "ema_cross", "swing_zone",
+            *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
+            "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
+            "compression_current", "ema_cross_n", "trend_optional", "candle_direction")
+LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
 
@@ -38,7 +45,7 @@ def validate_rule(rule, depth=1, retest_allowed=False):
 
 
 def leaf(rng):
-    return {"feature": rng.choice(FEATURES[:-1]), "frame": rng.choice(tuple(FRAMES))}
+    return {"feature": rng.choice(LEAF_FEATURES), "frame": rng.choice(tuple(FRAMES))}
 
 
 def nodes(rule, path=()):
@@ -104,23 +111,97 @@ def breakout_level(rule, candles, direction, lookback):
     return None
 
 
-def matches(rule, candles, direction, lookback, anchor=None):
+def body(row):
+    return abs(row.close - row.open)
+
+def engulfing(rows, direction):
+    previous, last = rows[-2], rows[-1]
+    return (direction * (last.close - last.open) > 0 and direction * (previous.close - previous.open) < 0
+            and body(last) > body(previous)
+            and (last.close >= previous.open and last.open <= previous.close if direction == 1
+                 else last.close <= previous.open and last.open >= previous.close))
+
+def pin_bar(rows, direction):
+    """Hammer (long) / shooting star (short): long rejection wick, small opposite wick."""
+    last = rows[-1]
+    top, bottom = last.high - max(last.open, last.close), min(last.open, last.close) - last.low
+    rejected, other = (bottom, top) if direction == 1 else (top, bottom)
+    return (last.high > last.low and rejected >= 2 * max(body(last), 1e-12)
+            and other <= body(last) and direction * (last.close - last.open) >= 0)
+
+def star(rows, direction):
+    """Morning (long) / evening (short) star: big candle, small body, reversal past its midpoint."""
+    first, middle, last = rows[-3:]
+    return (direction * (first.close - first.open) < 0 and body(middle) <= body(first) / 3
+            and direction * (last.close - last.open) > 0
+            and direction * (last.close - (first.open + first.close) / 2) > 0)
+
+def soldiers(rows, direction):
+    """Three white soldiers / three black crows: three closes in sequence, each opening inside the last body."""
+    a, b, c = rows[-3:]
+    return all(direction * (row.close - row.open) > 0 for row in (a, b, c)) and all(
+        direction * (row.close - prior.close) > 0
+        and min(prior.open, prior.close) <= row.open <= max(prior.open, prior.close)
+        for prior, row in ((a, b), (b, c)))
+
+CANDLE_PATTERNS = {"engulfing": engulfing, "pin_bar": pin_bar, "star": star, "soldiers": soldiers,
+                   **PATTERNS}
+
+def ema(values, period):
+    value, weight, result = values[0], 2 / (period + 1), []
+    for item in values:
+        value += weight * (item - value)
+        result.append(value)
+    return result
+
+def ema_cross(rows, direction):
+    closes = [row.close for row in rows]
+    fast, slow = ema(closes, 9), ema(closes, 21)
+    return direction * (fast[-2] - slow[-2]) <= 0 < direction * (fast[-1] - slow[-1])
+
+def swing_zone(rows, direction, lookback):
+    """Close rejects the nearest prior swing pivot (support for long, resistance for short)."""
+    window, last = rows[-lookback - 1:-1], rows[-1]
+    key = (lambda row: row.low) if direction == 1 else (lambda row: row.high)
+    pivots = [key(row) for index, row in enumerate(window[2:-2], 2)
+              if all(direction * (key(row) - key(window[index + step])) <= 0 for step in (-2, -1, 1, 2))]
+    if not pivots:
+        return False
+    level = pivots[-1]
+    reach = 0.25 * atr14(rows[:-1])
+    return (abs(last.low - level) <= reach and last.close > level and last.close > last.open if direction == 1
+            else abs(last.high - level) <= reach and last.close < level and last.close < last.open)
+
+def ema_bounce(rows, direction):
+    """Trend-aligned EMA21/EMA50 acts as dynamic support/resistance; last candle rejects it."""
+    closes = [row.close for row in rows]
+    fast, slow, last = ema(closes, 21)[-1], ema(closes, 50)[-1], rows[-1]
+    if direction * (fast - slow) <= 0 or direction * (last.close - last.open) <= 0:
+        return False
+    reach = 0.25 * atr14(rows[:-1])
+    if direction == 1:
+        return any(last.low <= level + reach and last.low >= level - 2 * reach and last.close > level
+                   for level in (fast, slow))
+    return any(last.high >= level - reach and last.high <= level + 2 * reach and last.close < level
+               for level in (fast, slow))
+
+def matches(rule, candles, direction, lookback, anchor=None, context=None):
     if not candles:
         return False
     if "op" in rule:
         children = rule["children"]
         if rule["op"] == "all":
-            return all(matches(child, candles, direction, lookback, anchor) for child in children)
+            return all(matches(child, candles, direction, lookback, anchor, context) for child in children)
         if rule["op"] == "any":
-            return any(matches(child, candles, direction, lookback, anchor) for child in children)
+            return any(matches(child, candles, direction, lookback, anchor, context) for child in children)
         for lag in range(1, min(rule["within"], len(candles) - 1) + 1):
             prior = candles[:-lag]
-            if not matches(children[0], prior, direction, lookback, anchor):
+            if not matches(children[0], prior, direction, lookback, anchor, context):
                 continue
             level = breakout_level(children[0], prior, direction, lookback)
             if level is not None and any(direction * (row.close - level) < 0 for row in candles[-lag:]):
                 continue
-            if matches(children[1], candles, direction, lookback, level):
+            if matches(children[1], candles, direction, lookback, level, context):
                 return True
         return False
     rows = frame_rows(candles, rule["frame"])
@@ -132,7 +213,53 @@ def matches(rule, candles, direction, lookback, anchor=None):
         return (last.time + FRAMES[rule["frame"]] == candles[-1].time + 900
                 and (last.low <= anchor < last.close if direction == 1 else last.high >= anchor > last.close)
                 and direction * (last.close - last.open) > 0)
-    required = 50 if feature == "trend" else max(16, lookback + 1)
+    side = "long" if direction == 1 else "short"
+    context = context or {}
+    if feature == "candle_direction":
+        return bool(rows) and direction * (rows[-1].close - rows[-1].open) > 0
+    if feature == "trend_optional":
+        return len(rows) < 50 or direction * (candles[-1].close - ema50(rows)) > 0
+    if feature == "ema_cross_n":
+        if len(rows) < lookback + 2:
+            return False
+        closes = [row.close for row in rows]
+        fast, slow = ema(closes, max(5, lookback // 2)), ema(closes, lookback)
+        return direction * (fast[-2] - slow[-2]) <= 0 < direction * (fast[-1] - slow[-1])
+    if feature == "compression_current":
+        if len(rows) < lookback + 1:
+            return False
+        prior = rows[-lookback - 1:-1]
+        return max(row.high for row in prior) - min(row.low for row in prior) <= 3 * atr14(rows)
+    if feature == "retest_seq":
+        found = legacy_retest(candles, lookback=lookback, allow_short=True)
+        return found is not None and found.side == side
+    if feature == "mtf_seq":
+        found = mtf_retest(candles, allow_short=True, lookback=lookback)
+        return found is not None and found.side == side
+    if feature == "band_reclaim":
+        found = mean_reversion(candles, allow_short=True, max_er=context.get("max_er", 0.30))
+        return found is not None and found.side == side
+    if feature == "funding_extreme":
+        signal = funding_filter(context.get("funding", []), context.get("funding_threshold", 0.0003))
+        found = signal(candles, allow_short=True)
+        return found is not None and found.side == side
+    if feature == "ema_touch":
+        if len(rows) < 50 or not candles:
+            return False
+        level, last = ema50(rows), candles[-1]
+        return (last.low <= level < last.close and last.close > last.open if direction == 1
+                else last.high >= level > last.close and last.close < last.open)
+    if feature == "wick_sweep":
+        history = frame_rows(candles[:-1], rule["frame"])[-lookback:]
+        last = candles[-1]
+        if len(history) < lookback:
+            return False
+        low, high = min(r.low for r in history), max(r.high for r in history)
+        return (last.low < low < last.close < high and last.close > last.open if direction == 1
+                else low < last.close < high < last.high and last.close < last.open)
+    size = max(lookback, 20)
+    required = (50 if feature in ("trend", "ema_bounce") else 30 if feature == "ema_cross"
+                else size + 1 if feature == "wedge" else max(16, lookback + 1))
     if len(rows) < required:
         return False
     last, prior = rows[-1], rows[-lookback - 1:-1]
@@ -148,6 +275,16 @@ def matches(rule, candles, direction, lookback, anchor=None):
     if feature == "sweep":
         return (last.low < min(row.low for row in prior) < last.close if direction == 1 else
                 last.high > max(row.high for row in prior) > last.close)
+    if feature in CANDLE_PATTERNS:
+        return CANDLE_PATTERNS[feature](rows, direction)
+    if feature == "ema_cross":
+        return ema_cross(rows, direction)
+    if feature == "ema_bounce":
+        return ema_bounce(rows, direction)
+    if feature == "wedge":
+        return wedge(rows, direction, size, atr14(rows[:-1]))
+    if feature == "swing_zone":
+        return swing_zone(rows, direction, lookback)
     previous, current = rsi14(rows[:-1]), rsi14(rows)
     return previous <= 30 < current if direction == 1 else previous >= 70 > current
 
@@ -157,13 +294,65 @@ def describe_rule(rule):
         labels = {"trend": "Cùng xu hướng EMA50", "breakout": "Đóng phá vùng N nến",
                   "volume": "Volume ≥ 2× trung bình N nến", "compression": "Vùng N nến ≤ 3 ATR14",
                   "sweep": "Quét râu và đóng lại trong vùng N nến", "rsi": "RSI14 thoát quá mua/bán",
-                  "retest": "Retest giữ vùng breakout, nến xác nhận cùng chiều"}
+                  "retest": "Retest giữ vùng breakout, nến xác nhận cùng chiều",
+                  "engulfing": "Nến nhấn chìm (Engulfing)", "pin_bar": "Nến râu từ chối (Hammer/Shooting Star)",
+                  "star": "Mô hình sao 3 nến (Morning/Evening Star)",
+                  "soldiers": "Ba nến liên tiếp cùng chiều (Soldiers/Crows)",
+                  "ema_touch": "Nến M15 chạm EMA50 khung này rồi đóng cùng chiều",
+                  "wick_sweep": "Râu M15 quét đỉnh/đáy N nến khung này rồi đóng lại trong vùng",
+                  "retest_seq": "Breakout, retest rồi nến xác nhận (logic gốc)",
+                  "mtf_seq": "H4 xu hướng, H1 breakout, M15 retest (logic gốc)",
+                  "band_reclaim": "Ra ngoài BB20 H1 rồi M15 đóng lại trong dải (logic gốc)",
+                  "funding_extreme": "Funding cực đoan ngược chiều, phá vùng 10 nến (logic gốc)",
+                  "compression_current": "Vùng N nến ≤ 3 ATR14 gồm nến xác nhận",
+                  "ema_cross_n": "EMA nhanh (N/2, tối thiểu 5) cắt EMA chậm (N)",
+                  "trend_optional": "Giá M15 cùng EMA50; bỏ lọc khi chưa đủ 50 nến",
+                  "candle_direction": "Thân nến cùng chiều lệnh",
+                  "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
+                  **LABELS}
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
     descriptions = [describe_rule(child) for child in rule["children"]]
     if rule["op"] == "then":
         return f'({descriptions[0]}) rồi trong {rule["within"]} nến M15 ({descriptions[1]})'
     return "(" + (" VÀ " if rule["op"] == "all" else " HOẶC ").join(descriptions) + ")"
 
+
+
+FAMILY_RULES = {
+    "breakout": {"feature": "breakout", "frame": "M15"},
+    "squeeze": {
+        "op": "all",
+        "children": [
+            {"feature": "compression_current", "frame": "M15"},
+            {"feature": "breakout", "frame": "M15"},
+        ],
+    },
+    "retest": {"feature": "retest_seq", "frame": "M15"},
+    "volume_spike": {
+        "op": "all",
+        "children": [
+            {"feature": "breakout", "frame": "M15"},
+            {"feature": "volume", "frame": "M15"},
+            {"feature": "candle_direction", "frame": "M15"},
+        ],
+    },
+    "donchian_trend": {
+        "op": "all",
+        "children": [
+            {"feature": "trend_optional", "frame": "H1"},
+            {"feature": "breakout", "frame": "M15"},
+        ],
+    },
+    "ema_cross": {"feature": "ema_cross_n", "frame": "M15"},
+    "trend_pullback": {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "ema_touch", "frame": "H1"}]},
+    "rsi_reversal": {"op": "all", "children": [
+        {"feature": "rsi", "frame": "M15"},
+        {"feature": "candle_direction", "frame": "M15"}]},
+    "mtf_retest": {"feature": "mtf_seq", "frame": "M15"},
+    "liquidity_sweep": {"op": "all", "children": [{"feature": "trend", "frame": "H4"}, {"feature": "wick_sweep", "frame": "H1"}]},
+    "mean_reversion": {"feature": "band_reclaim", "frame": "H1"},
+    "funding_filter": {"feature": "funding_extreme", "frame": "M15"},
+}
 
 RULES = [
     {"op": "all", "children": [{"feature": "trend", "frame": "H4"},
@@ -182,3 +371,37 @@ RULES = [
      "children": [{"feature": "breakout", "frame": "M15"},
                   {"feature": "retest", "frame": "M15"}]},
 ]
+
+# Added after the original 6 so existing genome names stay stable.
+RULES.extend([
+    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "engulfing", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "swing_zone", "frame": "H1"}, {"feature": "pin_bar", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "ema_cross", "frame": "M15"}, {"feature": "volume", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "compression", "frame": "H1"}, {"feature": "star", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "soldiers", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "trend", "frame": "H1"}, {"feature": "ema_bounce", "frame": "M15"},
+                                {"op": "any", "children": [{"feature": "engulfing", "frame": "M15"},
+                                                            {"feature": "pin_bar", "frame": "M15"}]}]},
+    {"op": "then", "within": 3, "children": [{"feature": "breakout", "frame": "M15"},
+                                               {"op": "all", "children": [{"feature": "retest", "frame": "M15"},
+                                                                          {"feature": "pin_bar", "frame": "M15"}]}]},
+    {"op": "then", "within": 4, "children": [{"feature": "ema_cross", "frame": "M15"},
+                                               {"op": "any", "children": [{"feature": "ema_bounce", "frame": "M15"},
+                                                                          {"feature": "swing_zone", "frame": "M15"}]}]},
+    {"op": "all", "children": [{"feature": "swing_zone", "frame": "H1"},
+                                {"op": "any", "children": [{"feature": "harami", "frame": "M15"},
+                                                            {"feature": "piercing", "frame": "M15"},
+                                                            {"feature": "tweezer", "frame": "M15"}]}]},
+    {"op": "all", "children": [{"feature": "wedge", "frame": "H1"}, {"feature": "volume", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "trend", "frame": "H4"}, {"feature": "three_methods", "frame": "M15"}]},
+    {"op": "all", "children": [{"feature": "swing_zone", "frame": "M15"},
+                                {"op": "any", "children": [{"feature": "doji_reversal", "frame": "M15"},
+                                                            {"feature": "inverted_pin", "frame": "M15"}]}]},
+])
+# Family-equivalent trees: same data model as the 12 legacy families so evolve_rules can mutate them.
+FAMILY_RULES = {k: v for k, v in FAMILY_RULES.items()}
+RULES.extend(rule for rule in FAMILY_RULES.values() if rule not in RULES)
+
+# Measured by tests/test_futures_family_parity.py against the frozen oracle (fixtures/futures_entry_v1.py).
+# retest/mtf_retest/mean_reversion/funding_filter reuse the legacy scanners as opaque leaves (exact by construction).
+FAMILY_PARITY = {family: 1.00 for family in FAMILY_RULES}

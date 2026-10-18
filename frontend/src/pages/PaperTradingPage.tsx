@@ -4,7 +4,7 @@ import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
 import { AutoDecisionList } from '../components/AutoDecisionList';
 import { FuturesLearningPage } from './FuturesLearningPage';
-import { PaperTradeDetails, exitLabels } from '../components/PaperTradeDetails';
+import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart, strategyColor } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
@@ -21,7 +21,7 @@ import type { AutoPaperState, PaperWallet } from '../types/paper';
 import { useMexcLiveCandle } from '../hooks/useMexcLiveCandle';
 import { withLiveCandle } from '../lib/mexc-stream';
 import { getFuturesSymbol, type FuturesSymbol } from '../lib/futures-symbol';
-import { AllPairsPanel, PairStrip, PositionsTable, type Board } from '../components/FuturesBoard';
+import { AllPairsPanel, PairStrip, PositionsTable, TradeHistoryTable, type Board } from '../components/FuturesBoard';
 
 function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
   const bars = new Map<number, Candle>();
@@ -933,52 +933,12 @@ export function PaperTradingPage({
             <h2>Lịch sử lệnh mô phỏng</h2>
             <span className="muted">100 lệnh gần nhất · click để xem mức giá</span>
           </div>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Lệnh / thời gian</th>
-                  <th>Chiều</th>
-                  <th>Entry → Exit</th>
-                  <th>Phí / Funding</th>
-                  <th>Trạng thái</th>
-                  <th>PnL ròng</th>
-                </tr>
-              </thead>
-              <tbody>
-                {wallet?.trades.map((trade) => (
-                  <tr
-                    key={trade.id}
-                    className={selected?.id === trade.id ? 'selected-trade-row' : undefined}
-                  >
-                    <td>
-                      <button className="text-button" onClick={() => viewTrade(trade.id)}>
-                        #{trade.id} · {timeLabel(trade.entry_time)}
-                      </button>
-                    </td>
-                    <td>
-                      {trade.side.toUpperCase()}
-                      <small className="trade-origin">
-                        {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
-                      </small>
-                    </td>
-                    <td>
-                      {formatPrice(trade.entry)} →{' '}
-                      {trade.exit === null ? '—' : formatPrice(trade.exit)}
-                    </td>
-                    <td>
-                      {formatPrice(trade.entry_fee + trade.exit_fee)} /{' '}
-                      {formatPrice(trade.funding_cost)}
-                    </td>
-                    <td>{trade.exit_reason ? exitLabels[trade.exit_reason] : 'Đang mở'}</td>
-                    <td className={(trade.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>
-                      {trade.net_pnl === null ? 'Chưa chốt' : formatPrice(trade.net_pnl)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TradeHistoryTable
+            showPair={false}
+            selectedId={selected?.id}
+            rows={(wallet?.trades ?? []).map((t) => ({ s: symbol, t }))}
+            onView={({ t }) => viewTrade(t.id)}
+          />
           {!wallet?.trades.length && <p>Chưa có lệnh mô phỏng.</p>}
           <details>
             <summary>Giả định và giới hạn mô phỏng</summary>

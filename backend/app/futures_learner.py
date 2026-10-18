@@ -29,8 +29,8 @@ from .strategy import Setup
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 5 / 10000, 2 / 10000
-WARMUP, WINDOW_BARS, CAP = 1600, 2880, 48
-RULE_CAP, RULE_TRIAL_CAP = 16, 128
+WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96
+RULE_CAP, RULE_TRIAL_CAP = 48, 256
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
 VERSION = "futures_forward_v1"

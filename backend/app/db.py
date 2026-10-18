@@ -281,6 +281,7 @@ class AutoPaperState(Base):
     leverage: Mapped[int] = mapped_column(Integer, default=1)
     max_daily_trades: Mapped[int] = mapped_column(Integer, default=5)
     daily_loss_percent: Mapped[float] = mapped_column(Float, default=3)
+    max_portfolio_risk_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_candle: Mapped[int | None] = mapped_column(Integer, nullable=True)
     day: Mapped[str] = mapped_column(String(10), default="")
     day_start_equity: Mapped[float] = mapped_column(Float, default=10000)
