@@ -12,7 +12,8 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             "engulfing", "pin_bar", "star", "soldiers", "ema_cross", "swing_zone",
             *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
-            "compression_current", "ema_cross_n", "trend_optional", "candle_direction")
+            "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
+            "bb_pierce", "volume_dryup")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -298,6 +299,20 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         low, high = min(r.low for r in history), max(r.high for r in history)
         return (last.low < low < last.close < high and last.close > last.open if direction == 1
                 else low < last.close < high < last.high and last.close < last.open)
+    if feature in ("bb_pierce", "volume_dryup"):
+        if len(rows) < max(lookback, 20) + 4:
+            return False
+        last = rows[-1]
+        if feature == "bb_pierce":
+            band = rows[-20:]
+            mid = fmean(row.close for row in band)
+            dev = 2 * (sum((row.close - mid) ** 2 for row in band) / 20) ** 0.5
+            return (last.low < mid - dev < last.close and last.close > last.open if direction == 1
+                    else last.high > mid + dev > last.close and last.close < last.open)
+        base = rows[-lookback - 3:-3]
+        pullback = direction * (rows[-4].close - rows[-1].close) > 0
+        average = fmean(row.volume for row in base)
+        return pullback and average > 0 and fmean(row.volume for row in rows[-3:]) <= 0.7 * average
     size = max(lookback, 20)
     required = (50 if feature in ("trend", "ema_bounce") else 30 if feature == "ema_cross"
                 else size + 1 if feature == "wedge" else max(16, lookback + 1))
@@ -349,6 +364,8 @@ def describe_rule(rule):
                   "ema_cross_n": "EMA nhanh (N/2, tối thiểu 5) cắt EMA chậm (N)",
                   "trend_optional": "Giá M15 cùng EMA50; bỏ lọc khi chưa đủ 50 nến",
                   "candle_direction": "Thân nến cùng chiều lệnh",
+                  "bb_pierce": "Râu chọc ra ngoài BB20 (2σ) rồi đóng lại trong dải, nến cùng chiều",
+                  "volume_dryup": "Nhịp hồi ngược xu hướng 3 nến với volume ≤ 0.7× trung bình N nến",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
@@ -416,6 +433,16 @@ HTF_RULES = [
         {"feature": "trend", "frame": "H4"},
         {"feature": "sweep", "frame": "H1"},
         {"feature": "engulfing", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "bb_pierce", "frame": "H1"},
+        {"feature": "candle_direction", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "volume_dryup", "frame": "H1"},
+        {"feature": "breakout", "frame": "M15"},
     ]},
 ]
 

@@ -25,6 +25,8 @@ export const HTF_LABELS: Record<string, string> = {
   htf_wedge: 'Nêm HTF',
   htf_swing: 'Vùng swing HTF',
   htf_trend_align: 'Đồng thuận Trend HTF',
+  htf_bollinger: 'Bollinger HTF',
+  htf_dryup: 'Hồi cạn volume HTF',
   htf_other: 'Trend + nến',
 };
 
@@ -39,6 +41,8 @@ function htfProfile(rule?: Rule): string | null {
   const has = (...names: string[]) => names.some((name) => used.includes(name));
   if (has('retest', 'retest_seq')) return 'htf_retest';
   if (has('compression', 'compression_current')) return 'htf_squeeze';
+  if (has('bb_pierce')) return 'htf_bollinger';
+  if (has('volume_dryup')) return 'htf_dryup';
   if (has('breakout')) return 'htf_breakout';
   if (has('trend')) return 'htf_trend_align';
   if (has('wick_sweep', 'sweep')) return 'htf_sweep';
@@ -92,6 +96,8 @@ export function ruleName(rule: Rule): string {
       ema_bounce: 'Bật khỏi EMA21 / EMA50',
       ema_touch: 'Chạm EMA50',
       wick_sweep: 'Quét vùng rồi đóng trở lại',
+      bb_pierce: 'Chọc ra ngoài BB20 rồi đóng lại',
+      volume_dryup: 'Hồi cạn volume',
       retest_seq: 'Breakout + retest + xác nhận',
       mtf_seq: 'H4 xu hướng + H1 breakout + M15 retest',
       band_reclaim: 'H4 đi ngang + M15 lấy lại dải BB20 H1',

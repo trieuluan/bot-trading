@@ -86,4 +86,15 @@ def test_wedge_and_ema_bounce():
 
 def test_every_seed_rule_is_valid():
     from backend.app.futures_rule_tree import RULES
-    assert len(RULES) == 10 and all(validate_rule(rule) <= 11 for rule in RULES)
+    assert len(RULES) == 12 and all(validate_rule(rule) <= 11 for rule in RULES)
+
+def test_bb_pierce_and_volume_dryup():
+    base = [(100, 101, 99, 100 + (i % 2) * 0.2) for i in range(30)]
+    pierce = rows(*base, (100, 100.5, 96, 100.3))
+    assert matches({"feature": "bb_pierce", "frame": "M15"}, pierce, 1, 20)
+    assert not matches({"feature": "bb_pierce", "frame": "M15"}, pierce, -1, 20)
+    up = [Candle(i * 900, 100 + i, 101 + i, 99 + i, 100.5 + i, 10.0) for i in range(25)]
+    dip = [Candle((25 + i) * 900, 124 - i, 125 - i, 123 - i, 123.5 - i, 2.0) for i in range(3)]
+    assert matches({"feature": "volume_dryup", "frame": "M15"}, up + dip, 1, 20)
+    heavy = [Candle(c.time, c.open, c.high, c.low, c.close, 10.0) for c in dip]
+    assert not matches({"feature": "volume_dryup", "frame": "M15"}, up + heavy, 1, 20)
