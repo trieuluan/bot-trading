@@ -449,9 +449,20 @@ export function FuturesLearningPage() {
                             return (
                               <span key={parent}>
                                 {idx > 0 && ' × '}
-                                <code className="evo-parent-chip" title={pTitle}>
-                                  {pLabel}
-                                </code>
+                                <span className="evo-chip-wrap">
+                                  <code
+                                    className="evo-parent-chip"
+                                    tabIndex={0}
+                                    aria-label={pTitle}
+                                  >
+                                    {pLabel}
+                                  </code>
+                                  <span className="evo-tooltip" role="tooltip">
+                                    <span className="evo-tooltip-title">{pLabel}</span>
+                                    <span className="evo-tooltip-body">{pTitle}</span>
+                                    <span className="evo-tooltip-code">{parent}</span>
+                                  </span>
+                                </span>
                               </span>
                             );
                           })}

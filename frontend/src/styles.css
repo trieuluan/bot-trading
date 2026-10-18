@@ -4420,13 +4420,89 @@ footer {
   gap: 4px;
   font-variant-numeric: normal;
 }
+.evo-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
 .evo-parent-chip {
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 999px;
   background: #eef1e9;
-  color: #475549;
+  color: #2e4a32;
   font-size: 10.5px;
   white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid #d5decb;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.evo-parent-chip:hover,
+.evo-parent-chip:focus-visible {
+  background: #dce7d2;
+  border-color: #9cb58e;
+  outline: none;
+}
+.evo-chip-wrap .evo-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: calc(100% + 7px);
+  right: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s;
+  background: #17231c;
+  color: #f3f6f1;
+  padding: 8px 10px;
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: normal;
+  width: max-content;
+  max-width: 280px;
+  z-index: 100;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid #2e4235;
+}
+.evo-chip-wrap .evo-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 14px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: #17231c transparent transparent transparent;
+}
+.evo-chip-wrap:hover .evo-tooltip,
+.evo-chip-wrap:focus-within .evo-tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+.evo-tooltip-title {
+  font-weight: 700;
+  color: #a4e0b5;
+  font-size: 11px;
+}
+.evo-tooltip-body {
+  color: #e5ece6;
+  font-size: 10.5px;
+}
+.evo-tooltip-code {
+  font-family: monospace;
+  font-size: 9.5px;
+  color: #8da494;
+  word-break: break-all;
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid #2a3c30;
 }
 .evo-card .pill {
   display: inline-flex;
