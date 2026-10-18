@@ -5486,3 +5486,34 @@ main:has(.futures-desk) {
   color: #fff;
   background: #25382e;
 }
+
+/* Futures desk: readable text + vertical alignment */
+.mexc-top-dock { padding: 5px 12px; min-height: 40px; }
+.mexc-ticker-left { gap: 6px 14px; }
+.mexc-pair-title { font-size: 14px; line-height: 1.2; }
+.mexc-last-price { font-size: 18px; line-height: 1.2; }
+.mexc-fair-price { font-size: 12px; }
+.mexc-wallet-strip { gap: 4px 20px; }
+.mexc-wallet-strip > div { align-items: center; gap: 6px; }
+.mexc-wallet-strip .muted { font-size: 12px; color: #55675d; white-space: nowrap; }
+.mexc-wallet-strip strong { font-size: 13.5px; }
+.mexc-wallet-strip small { font-size: 11.5px; }
+.desk-sticky-header .pair-strip button { align-items: center; font-size: 12.5px; }
+.desk-sticky-header .pair-strip small { font-size: 11.5px; }
+.futures-desk .desk-chart-toolbar { align-items: center; gap: 10px; }
+.futures-desk .desk-chart-toolbar .secondary,
+.futures-desk .desk-chart-toolbar .text-button { font-size: 12px; line-height: 1.4; }
+.futures-desk .paper-strategy-toolbar label { font-size: 12px; }
+.futures-desk .desk-overlay-note { font-size: 12px; color: #45574c; }
+.futures-desk .chart-ohlc {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-timeframes { margin: 0; align-items: center; }
+.chart-timeframes button { font-size: 12px; padding: 2px 9px; line-height: 1.4; }
+.futures-desk table th,
+.futures-desk table td { vertical-align: middle; font-variant-numeric: tabular-nums; }
