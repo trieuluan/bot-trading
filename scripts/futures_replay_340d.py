@@ -61,7 +61,7 @@ def run_pair(symbol, signal_seeds=False):
 
     if signal_seeds:
         candidates = {genome_name(seed): {"genome": seed} for seed in RULE_SEEDS if any(
-            node.get("feature") in ("relative_strength", "funding_aligned", "macro_safe")
+            node.get("feature") in ("relative_strength", "funding_aligned", "macro_safe", "session_active", "basis_aligned", "oi_surge", "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
             for _, node in futures_rule_tree.nodes(seed["rule"]))}
 
     data = pickle.loads(CACHE.read_bytes())
