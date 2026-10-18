@@ -4,6 +4,7 @@ import copy
 from statistics import fmean
 
 from .futures_candles import LABELS, PATTERNS, wedge
+from .macro_calendar import is_macro_safe
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion, rsi14
 from .strategy import aggregate, mtf_retest
 from .strategy import retest as legacy_retest
@@ -13,7 +14,7 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
-            "bb_pierce", "volume_dryup")
+            "bb_pierce", "volume_dryup", "macro_safe", "relative_strength", "funding_aligned")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -299,6 +300,23 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         low, high = min(r.low for r in history), max(r.high for r in history)
         return (last.low < low < last.close < high and last.close > last.open if direction == 1
                 else low < last.close < high < last.high and last.close < last.open)
+    if feature == "macro_safe":
+        return is_macro_safe(candles[-1].time, 4 * 3600)
+    if feature == "funding_aligned":
+        funding = context.get("funding") or []
+        known = [f for f in funding if f["time"] <= candles[-1].time]
+        if not known:
+            return False
+        rate = known[-1].get("rate", 0.0)
+        return rate <= 0.0001 if direction == 1 else rate >= -0.0001
+    if feature == "relative_strength":
+        btc_candles = context.get("btc_candles") or []
+        btc_rows = frame_rows(btc_candles, rule["frame"])
+        if len(rows) < lookback + 1 or len(btc_rows) < lookback + 1:
+            return False
+        coin_ret = (rows[-1].close - rows[-lookback - 1].open) / max(rows[-lookback - 1].open, 1e-9)
+        btc_ret = (btc_rows[-1].close - btc_rows[-lookback - 1].open) / max(btc_rows[-lookback - 1].open, 1e-9)
+        return coin_ret > btc_ret if direction == 1 else coin_ret < btc_ret
     if feature in ("bb_pierce", "volume_dryup"):
         if len(rows) < max(lookback, 20) + 4:
             return False
@@ -366,6 +384,9 @@ def describe_rule(rule):
                   "candle_direction": "Thân nến cùng chiều lệnh",
                   "bb_pierce": "Râu chọc ra ngoài BB20 (2σ) rồi đóng lại trong dải, nến cùng chiều",
                   "volume_dryup": "Nhịp hồi ngược xu hướng 3 nến với volume ≤ 0.7× trung bình N nến",
+                  "macro_safe": "Cách tin vĩ mô lớn (CPI, FOMC, NFP) tối thiểu ±4h",
+                  "relative_strength": "Sức mạnh tương đối so với BTC trong N nến",
+                  "funding_aligned": "Funding rate thuận chiều (không trả phí cực đoan)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
@@ -442,6 +463,30 @@ HTF_RULES = [
     {"op": "all", "children": [
         {"feature": "trend", "frame": "H4"},
         {"feature": "volume_dryup", "frame": "H1"},
+        {"feature": "breakout", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "relative_strength", "frame": "H1"},
+            {"feature": "breakout", "frame": "H1"},
+        ]},
+        {"feature": "volume", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "funding_aligned", "frame": "H1"},
+            {"feature": "ema_touch", "frame": "H1"},
+        ]},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "macro_safe", "frame": "H1"},
+            {"feature": "compression", "frame": "H1"},
+        ]},
         {"feature": "breakout", "frame": "M15"},
     ]},
 ]

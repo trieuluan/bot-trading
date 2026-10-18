@@ -56,9 +56,11 @@ def run_pair(symbol):
             })
             save_state(session, state)
 
-    start, end, candles, fair, funding = pickle.loads(CACHE.read_bytes())[symbol]
+    data = pickle.loads(CACHE.read_bytes())
+    start, end, candles, fair, funding = data[symbol]
+    btc = data["BTC_USDT"][2] if symbol != "BTC_USDT" else None
     t0 = time.time()
-    report = replay(candidates, candles, fair, funding, start, end)
+    report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc)
     duration = time.time() - t0
 
     job_id = str(uuid4())

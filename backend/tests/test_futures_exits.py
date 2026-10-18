@@ -111,7 +111,7 @@ def test_seed_exit_variants_are_distinct():
 
 
 def test_search_keeps_htf_seeds_adaptive():
-    assert len(SEEDS) == 12
+    assert len(SEEDS) == 15
     assert all(seed["exit_policy"] == "adaptive" for seed in SEEDS)
     for seed in SEEDS:
         for index in range(50):
