@@ -5463,3 +5463,26 @@ main:has(.futures-desk) {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.chart-timeframes {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 10px;
+  padding: 2px;
+  background: #eef1e9;
+  border-radius: 6px;
+}
+.chart-timeframes button {
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #55675d;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.chart-timeframes button.active {
+  color: #fff;
+  background: #25382e;
+}

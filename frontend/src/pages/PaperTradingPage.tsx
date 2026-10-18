@@ -114,13 +114,13 @@ export function PaperTradingPage({
       clearInterval(ticker);
     };
   }, []);
-  async function loadOlder() {
+  async function loadOlder(m15Bars = 1) {
     const before = Math.min(older[0]?.time ?? Infinity, wallet?.candles[0]?.time ?? Infinity);
     if (loadingOlder.current || !hasMore || !Number.isFinite(before)) return;
     loadingOlder.current = true;
     setOlderError('');
     try {
-      const page = await fetchMexcCandles(before, 50);
+      const page = await fetchMexcCandles(before, Math.min(5000, 50 * m15Bars));
       setOlder((current) => [...page.candles, ...current]);
       setHasMore(page.has_more);
     } catch (cause) {
@@ -470,7 +470,7 @@ export function PaperTradingPage({
               markPrice={wallet?.quote?.fairPrice ?? null}
               feeBps={wallet?.fee_bps ?? 0}
               markStale={stale}
-              onLoadOlder={historicalId === null ? () => void loadOlder() : undefined}
+              onLoadOlder={historicalId === null ? (bars) => void loadOlder(bars) : undefined}
             />
             {olderError && <p className="negative" role="alert">{olderError}</p>}
             </>

@@ -1,5 +1,5 @@
 import { getFuturesSymbol } from '../lib/futures-symbol';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   LineSeries,
@@ -22,6 +22,10 @@ import { placeChartTags } from '../lib/chart-tags';
 import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
+
+import { aggregateCandles, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
+
+const TIMEFRAME_KEY = 'futures-chart-timeframe';
 
 export function strategyColor(strategy: string) {
   const families = [
@@ -46,7 +50,7 @@ function markerLabel(label: string, trade: PaperTrade) {
 }
 
 export function PaperChart({
-  candles,
+  candles: baseCandles,
   trade,
   observations = [],
   positions = [],
@@ -64,10 +68,28 @@ export function PaperChart({
   markPrice?: number | null;
   feeBps?: number;
   markStale?: boolean;
-  onLoadOlder?: () => void;
+  onLoadOlder?: (m15Bars: number) => void;
 }) {
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
+    try {
+      const saved = localStorage.getItem(TIMEFRAME_KEY);
+      return saved && Object.hasOwn(TIMEFRAMES, saved) ? (saved as ChartTimeframe) : '15m';
+    } catch {
+      return '15m';
+    }
+  });
+  const step = TIMEFRAMES[timeframe];
+  const candles = useMemo(() => aggregateCandles(baseCandles, step), [baseCandles, step]);
+  const stepRef = useRef(900);
   const loadOlder = useRef(onLoadOlder);
   loadOlder.current = onLoadOlder;
+  stepRef.current = step;
+  const oldestTime = baseCandles[0]?.time;
+  useEffect(() => {
+    if (oldestTime !== undefined && step > 900 && candles.length < 40) {
+      loadOlder.current?.(step / 900);
+    }
+  }, [step, oldestTime, candles.length]);
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -80,7 +102,7 @@ export function PaperChart({
     if (!candles.length) return;
     chart.current?.timeScale().setVisibleRange({
       from: candles[Math.max(0, candles.length - 40)].time as UTCTimestamp,
-      to: (candles.at(-1)!.time + 900) as UTCTimestamp,
+      to: (candles.at(-1)!.time + step) as UTCTimestamp,
     });
   }
   const [hover, setHover] = useState<string | null>(null);
@@ -156,7 +178,7 @@ export function PaperChart({
     });
     markers.current = createSeriesMarkers(series.current, []);
     chart.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (range && range.from < 30) loadOlder.current?.();
+      if (range && range.from < 30) loadOlder.current?.(stepRef.current / 900);
     });
     return () => {
       chart.current?.remove();
@@ -169,6 +191,14 @@ export function PaperChart({
       previousCandles.current = [];
     };
   }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TIMEFRAME_KEY, timeframe);
+    } catch {}
+    markers.current?.setMarkers([]);
+    fitted.current = false;
+    previousCandles.current = [];
+  }, [timeframe]);
   useEffect(() => {
     if (!series.current) return;
     const previous = previousCandles.current;
@@ -230,7 +260,7 @@ export function PaperChart({
           { title: `${label} SL`, price: position.stop, color: '#bd7164' },
           { title: `${label} TP`, price: position.target, color: '#2c856c' },
         );
-        const entryTime = Math.floor(position.entry_time / 900) * 900;
+        const entryTime = Math.floor(position.entry_time / step) * step;
         if (candles.some((candle) => candle.time === entryTime)) {
           points.push({
             time: entryTime as UTCTimestamp,
@@ -244,7 +274,7 @@ export function PaperChart({
     }
     if (trade) {
       for (const leg of trade.monitoring?.partial_exits ?? []) {
-        const bucket = Math.floor(leg.time / 900) * 900;
+        const bucket = Math.floor(leg.time / step) * step;
         if (candles.some((candle) => candle.time === bucket)) {
           points.push({
             time: bucket as UTCTimestamp,
@@ -269,7 +299,7 @@ export function PaperChart({
               },
             ]),
       );
-      if (trade.audit?.range_start != null && trade.audit.range_end != null && chart.current) {
+      if (step === 900 && trade.audit?.range_start != null && trade.audit.range_end != null && chart.current) {
         const audit = trade.audit;
         for (const value of [audit.range_high, audit.range_low]) {
           if (value == null) continue;
@@ -294,7 +324,7 @@ export function PaperChart({
         [trade.exit_time, 'EXIT'],
       ] as const) {
         if (timestamp === null) continue;
-        const bucket = Math.floor(timestamp / 900) * 900;
+        const bucket = Math.floor(timestamp / step) * step;
         if (candles.some((candle) => candle.time === bucket))
           points.push({
             time: bucket as UTCTimestamp,
@@ -341,6 +371,7 @@ export function PaperChart({
         );
       }
       for (const level of observation.levels ?? []) {
+        if (step !== 900) break;
         const start = Math.max(
           candles[0]?.time ?? observation.time,
           level.from ?? observation.time - 20 * 900,
@@ -363,7 +394,7 @@ export function PaperChart({
         ]);
         ranges.current.push(range);
       }
-      for (const curve of observation.curves ?? []) {
+      for (const curve of step === 900 ? (observation.curves ?? []) : []) {
         if (!chart.current) continue;
         const visible = curve.points.filter(
           (point) =>
@@ -389,10 +420,10 @@ export function PaperChart({
       if (
         observation.setup &&
         !heldByTrade &&
-        candles.some((candle) => candle.time === observation.time)
+        candles.some((candle) => candle.time === Math.floor(observation.time / step) * step)
       ) {
         points.push({
-          time: observation.time as UTCTimestamp,
+          time: (Math.floor(observation.time / step) * step) as UTCTimestamp,
           position: observation.setup.side === 'long' ? 'belowBar' : 'aboveBar',
           color,
           shape: 'circle',
@@ -434,21 +465,21 @@ export function PaperChart({
       priceSeries.applyOptions({ autoscaleInfoProvider: undefined });
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
-  }, [trade, observations, candles, positions]);
+  }, [trade, observations, candles, positions, step]);
   return (
     <div className="trade-chart-wrap">
       <div className="chart-ohlc">
         <button
           className="text-button"
           onClick={() => {
-            const anchor =
-              trade?.signal_time ?? (trade ? Math.floor(trade.entry_time / 900) * 900 : null);
+            const timestamp = trade?.signal_time ?? trade?.entry_time;
+            const anchor = timestamp == null ? null : Math.floor(timestamp / step) * step;
             if (anchor !== null && candles.some((c) => c.time === anchor)) {
               chart.current?.timeScale().setVisibleRange({
-                from: Math.max(candles[0].time, anchor - 24 * 900) as UTCTimestamp,
+                from: Math.max(candles[0].time, anchor - 24 * step) as UTCTimestamp,
                 to: Math.min(
                   candles[candles.length - 1].time,
-                  Math.max(anchor + 6 * 900, trade?.exit_time ?? anchor),
+                  Math.max(anchor + 6 * step, trade?.exit_time ?? anchor),
                 ) as UTCTimestamp,
               });
             } else showRecentCandles();
@@ -456,7 +487,20 @@ export function PaperChart({
         >
           {trade ? 'Tập trung vào lệnh' : '40 nến gần nhất'}
         </button>
-        {getFuturesSymbol()} perpetual · 15m · UTC · kéo để di chuyển, cuộn để zoom
+        <div className="chart-timeframes" role="group" aria-label="Khung thời gian">
+          {(Object.keys(TIMEFRAMES) as ChartTimeframe[]).map((frame) => (
+            <button
+              key={frame}
+              type="button"
+              className={frame === timeframe ? 'active' : ''}
+              aria-pressed={frame === timeframe}
+              onClick={() => setTimeframe(frame)}
+            >
+              {frame}
+            </button>
+          ))}
+        </div>
+        {getFuturesSymbol()} perpetual · {timeframe} · UTC · kéo để di chuyển, cuộn để zoom
       </div>
       <div className="paper-chart-stage">
         <div
@@ -599,7 +643,7 @@ export function PaperChart({
           </svg>
         </div>
       </div>
-      {trade && !candles.some((c) => c.time === Math.floor(trade.entry_time / 900) * 900) && (
+      {trade && !candles.some((c) => c.time === Math.floor(trade.entry_time / step) * step) && (
         <p className="micro">
           Chưa có nến tại thời điểm vào lệnh trong dữ liệu đã lưu; không thể hiển thị marker Entry.
         </p>
@@ -627,13 +671,14 @@ export function PaperChart({
             {trade.exit !== null && <span className="exit-legend">— Exit · giá đóng</span>}
           </>
         )}
-        {observations.length > 0 && (
+        {step !== 900 && <span>Vùng và chỉ báo chiến thuật chỉ vẽ trên 15m. Nến cuối có thể chưa đóng.</span>}
+        {step === 900 && observations.length > 0 && (
           <span>
             {observations.length} lớp phân tích · nét đứt: vùng tham chiếu · nét liền: chỉ báo ·
             marker: tín hiệu nến đóng · ENTRY/SL/TP dự kiến không phải lệnh đã khớp
           </span>
         )}
-        {trade?.audit?.range_high != null && (
+        {step === 900 && trade?.audit?.range_high != null && (
           <span className="breakout-legend">— Vùng 20 nến trước · ● Nến tín hiệu</span>
         )}
         {trade?.exit_time !== null && trade ? (
