@@ -22,7 +22,7 @@ from .futures_exits import protective_stop
 from .futures_rule_tree import describe_rule, validate_rule
 from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
-                                 strategy_setup)
+                                 strategy_setup, to_rule_tree)
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_wallet
 from .strategy import Setup
@@ -30,7 +30,7 @@ from .strategy import Setup
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 5 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96
-RULE_CAP, RULE_TRIAL_CAP = 48, 256
+RULE_TRIAL_CAP = 256
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
 VERSION = "futures_forward_v1"
@@ -68,10 +68,13 @@ def read_state(session, now):
         raise HTTPException(503, "Run migrations before starting Futures learning")
     if row.payload and row.payload.get("version") != VERSION:
         raise HTTPException(409, "Futures learning state version mismatch")
-    return copy.deepcopy(row.payload) if row.payload else new_state(now)
+    state = copy.deepcopy(row.payload) if row.payload else new_state(now)
+    migrate_to_trees(state)
+    return state
 
 
 def save_state(session, state):
+    migrate_to_trees(state)
     session.get(FuturesLearningState, state_id()).payload = state
 
 
@@ -170,12 +173,25 @@ def score(samples, name, side, context, cutoff, historical=None):
 
 EVOLVE_SECONDS, MIN_PARENT_SAMPLES = 3600, 10
 
+def migrate_to_trees(state):
+    """Convert genomes, preserving IDs referenced by trades, samples and replay reports."""
+    for collection in (state["candidates"], state.get("rule_archive", {})):
+        for candidate in collection.values():
+            if not is_rule_tree(candidate["genome"]):
+                candidate["genome"] = to_rule_tree(candidate["genome"])
+    report = (state.get("historical") or {}).get("report")
+    for row in (report or {}).get("strategies", []):
+        if not is_rule_tree(row["genome"]):
+            row["genome"] = to_rule_tree(row["genome"])
+
 def sync_seeds(state, now):
     """Add seed families introduced after this state was created, each with one mutated child."""
+    migrate_to_trees(state)
     born, rng = (now // 900 + 1) * 900, random.Random(now)
+    existing = {genome_name(candidate["genome"]) for candidate in state["candidates"].values()}
     for seed in [*SEEDS, *RULE_SEEDS]:
         name = genome_name(seed)
-        if name not in state["candidates"]:
+        if name not in existing:
             add_candidate(state, seed, born)
             add_candidate(state, mutate(seed, rng), born, (name,))
 
@@ -204,76 +220,44 @@ def evolve(state, now, max_children=1, force=False):
         return 0
     state["evolved_at"] = now
     results = performance(state, now)
+    archive = state.get("rule_archive", {})
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
-                     and exit_policy_enabled(state["candidates"][name]["genome"])
-                     and not is_rule_tree(state["candidates"][name]["genome"])),
-                    key=lambda name: results[name][1], reverse=True)
+                     and exit_policy_enabled(state["candidates"][name]["genome"])),
+                    key=lambda name: results[name][1] - 0.01 * complexity(
+                        state["candidates"][name]["genome"]), reverse=True)
     parents = ranked[:4]
     if not parents:
         return 0
     rng, made = random.Random(now // EVOLVE_SECONDS), 0
     for _ in range(max_children):
+        if len(state["candidates"]) + len(archive) >= RULE_TRIAL_CAP:
+            break
         if sum(exit_policy_enabled(candidate["genome"])
                for candidate in state["candidates"].values()) >= CAP:
             weak = [name for name, candidate in state["candidates"].items()
                     if candidate["generation"] > 0 and not candidate["promoted"]
                     and exit_policy_enabled(candidate["genome"])
-                    and not is_rule_tree(candidate["genome"])
+                    and not any(sample["strategy"] == name and sample["status"] == "open"
+                                for sample in state["samples"])
                     and name in results and name not in parents
                     and results[name][1] < results[parents[0]][1]]
             if not weak:
                 break
-            del state["candidates"][min(weak, key=lambda name: results[name][1])]
+            retired = min(weak, key=lambda name: results[name][1])
+            archive = state.setdefault("rule_archive", {})
+            archive[retired] = state["candidates"].pop(retired)
         for _ in range(40):
             parent, mate = rng.choice(parents), rng.choice(parents)
             genome = mutate(crossover(state["candidates"][parent]["genome"],
                                       state["candidates"][mate]["genome"]), rng)
-            if genome_name(genome) not in state["candidates"] and genome_name(genome) not in results:
+            known = {genome_name(candidate["genome"])
+                     for candidate in [*state["candidates"].values(), *archive.values()]}
+            if genome_name(genome) not in known and genome_name(genome) not in results:
                 add_candidate(state, genome, (now // 900 + 1) * 900, (parent, mate))
                 made += 1
                 break
     return made
-
-def evolve_rules(state, now):
-    if now - state.get("rule_evolved_at", state["started_at"]) < EVOLVE_SECONDS:
-        return 0
-    state["rule_evolved_at"] = now
-    rules = {name: candidate for name, candidate in state["candidates"].items()
-             if is_rule_tree(candidate["genome"])}
-    archive = state.get("rule_archive", {})
-    if len(rules) + len(archive) >= RULE_TRIAL_CAP:
-        return 0
-    values = defaultdict(list)
-    for sample in state["samples"]:
-        if (sample["strategy"] in rules and sample["status"] == "resolved"
-                and sample["label_available_at"] <= now):
-            values[sample["strategy"]].append(sample["net_r"])
-    scores = {name: mean(observed) - 0.01 * complexity(rules[name]["genome"])
-              for name, observed in values.items() if len(observed) >= MIN_PARENT_SAMPLES}
-    ranked = sorted(scores, key=scores.get, reverse=True)
-    if not ranked:
-        return 0
-    parents = ranked[:4]
-    rng = random.Random(now // EVOLVE_SECONDS)
-    for _ in range(40):
-        parent, mate = rng.choice(parents), rng.choice(parents)
-        genome = copy.deepcopy(rules[parent]["genome"])
-        genome["rule"] = mutate_rule(genome["rule"], rng, rules[mate]["genome"]["rule"])
-        name = genome_name(genome)
-        if name in rules or name in archive:
-            continue
-        if len(rules) >= RULE_CAP or len(state["candidates"]) >= CAP:
-            weak = [name for name in ranked if rules[name]["generation"] > 0 and name not in parents
-                    and not any(sample["strategy"] == name and sample["status"] == "open"
-                                for sample in state["samples"])]
-            if not weak:
-                return 0
-            retired = weak[-1]
-            state.setdefault("rule_archive", {})[retired] = state["candidates"].pop(retired)
-        add_candidate(state, genome, (now // 900 + 1) * 900, (parent, mate))
-        return 1
-    return 0
 
 def step(state, candles, fair, now):
     bar = candles[-1]
@@ -417,7 +401,6 @@ def learning_tick(now=None, adapter=None):
                 validate_window(current["candidates"][name], validation[2], validation_fair, validation_funding, contract)
             sync_seeds(current, now)
             evolve(current, now)
-            evolve_rules(current, now)
             current["error"] = None
             save_state(session, current)
     except (MarketDataError, ValueError) as exc:

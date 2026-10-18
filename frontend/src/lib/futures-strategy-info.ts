@@ -12,7 +12,12 @@ type Genome = {
   max_er?: number;
   funding_threshold?: number;
   rule?: Rule;
+  exit_profile?: string;
 };
+
+export function profileOf(g: Genome): string {
+  return g.family === 'rule_tree' ? (g.exit_profile ?? 'default') : g.family;
+}
 
 type Info = {
   kind: string;
@@ -71,11 +76,9 @@ export function ruleName(rule: Rule): string {
 }
 
 export function strategyName(g: Genome): string {
-  return g.family === 'rule_tree'
-    ? g.rule
-      ? ruleName(g.rule)
-      : 'Cây luật tự sinh'
-    : g.family.replace(/_/g, ' ');
+  const profile = profileOf(g);
+  const rule = g.rule ? ruleName(g.rule) : 'Cây luật tự sinh';
+  return profile === 'default' ? rule : `${profile.replace(/_/g, ' ')} · ${rule}`;
 }
 
 export function searchText(text: string): string {
@@ -173,7 +176,7 @@ export function strategyInfo(g: Genome): Info {
     },
   };
 
-  if (g.family === 'rule_tree')
+  if (profileOf(g) === 'default')
     return {
       kind: 'Cây luật',
       basis: 'cấu trúc điều kiện bot tự ghép',
@@ -181,9 +184,9 @@ export function strategyInfo(g: Genome): Info {
       stop: 'Đáy/đỉnh 5 nến M15 gần nhất',
     };
   return (
-    map[g.family] ?? {
+    map[profileOf(g)] ?? {
       kind: 'Quy tắc khác',
-      basis: g.family,
+      basis: profileOf(g),
       entry: 'Chiến thuật theo bộ quy tắc riêng.',
       stop: 'Theo mức dừng của quy tắc',
     }
@@ -193,7 +196,7 @@ export function strategyInfo(g: Genome): Info {
 export function riskText(g: Genome, stop: string) {
   const buf = g.stop_buffer ? ` (cộng thêm ${g.stop_buffer}×ATR14 đệm)` : '';
   const tp =
-    g.family === 'mean_reversion'
+    profileOf(g) === 'mean_reversion'
       ? 'Chốt lời tại đường trung bình SMA20 H1'
       : `Chốt lời ${g.target_r}R (lợi nhuận = ${g.target_r}× khoảng cách cắt lỗ)`;
   const policy = g.exit_policy ?? 'fixed';

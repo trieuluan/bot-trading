@@ -299,12 +299,12 @@ def test_learning_freshness_tracks_closed_bar_not_intrabar_age():
     assert learner.summary(state, 2821)["stale"]
 
 def test_new_families_emit_valid_setups_and_seeds_sync_into_old_state():
-    names = {seed["family"] for seed in SEEDS}
+    names = {seed.get("exit_profile") for seed in SEEDS}
     assert {"volume_spike", "donchian_trend", "ema_cross", "rsi_reversal"} <= names
     bars = [candle(offset) for offset in range(60)]
     bars.append(Candle(60 * 900, 100, 130, 99, 129, 50))
     for seed in SEEDS:
-        if seed["family"] in ("volume_spike", "donchian_trend"):
+        if seed["exit_profile"] in ("volume_spike", "donchian_trend"):
             setup = strategy_setup(seed, bars, [])
             assert setup and setup.side == "long" and setup.stop < setup.entry < setup.target
     state = learner.new_state(1000)
@@ -352,3 +352,16 @@ def test_rule_tree_can_enter_auto_paper(ready):
     with Session() as session:
         handled, picked_setup, picked_name = learner.select_for_auto(session, 2000, 2000)
         assert handled and picked_name == rule_name and picked_setup.entry == 100
+
+def test_old_family_state_migrates_to_trees_keeping_samples():
+    from backend.app.futures_strategies import LEGACY_SEEDS
+    old = LEGACY_SEEDS[0]
+    old_name = genome_name(old)
+    state = learner.new_state(1000)
+    state["candidates"] = {}
+    learner.add_candidate(state, old, 0)
+    state["samples"] = [sample(strategy=old_name, status="resolved", net_r=1, label_available_at=0)]
+    learner.migrate_to_trees(state)
+    assert state["candidates"][old_name]["genome"]["family"] == "rule_tree"
+    assert state["candidates"][old_name]["genome"]["exit_profile"] == old["family"]
+    assert state["samples"][0]["strategy"] == old_name

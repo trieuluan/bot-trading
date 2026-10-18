@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Activity, Brain, Dna, Power } from 'lucide-react';
 import {
   exitLabel,
+  profileOf,
   riskText,
   strategyInfo,
   strategyName,
@@ -21,6 +22,7 @@ type Row = {
     max_er?: number;
     funding_threshold?: number;
     rule?: Rule;
+    exit_profile?: string;
   };
   parents: string[];
   born_at: number;
@@ -109,16 +111,16 @@ export function FuturesLearningPage() {
   };
 
   const all = data?.strategies ?? [];
-  const families = [...new Set(all.map((row) => row.genome.family))].sort();
+  const families = [...new Set(all.map((row) => profileOf(row.genome)))].sort();
   const generations = [...new Set(all.map((row) => row.generation))].sort((a, b) => a - b);
   const needles = searchText(query).trim().split(/\s+/).filter(Boolean);
   const selected = data?.last_decision?.selected;
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
   const familyName = (name: string) =>
-    name === 'rule_tree' ? 'Cây luật tự sinh' : name.replace(/_/g, ' ');
+    name === 'default' ? 'Cây luật tự sinh' : name.replace(/_/g, ' ');
   const rows = all.filter(
     (row) =>
-      (family === 'all' || row.genome.family === family) &&
+      (family === 'all' || profileOf(row.genome) === family) &&
       (status === 'all' ? !row.paused || (row.open_trades?.length ?? 0) > 0 : true) &&
       (status === 'all' ||
         status === 'all_with_paused' ||
@@ -131,7 +133,7 @@ export function FuturesLearningPage() {
         searchText(
           [
             strategyName(row.genome),
-            familyName(row.genome.family),
+            familyName(profileOf(row.genome)),
             row.strategy,
             row.rule_text ?? '',
             strategyInfo(row.genome).basis,
@@ -265,7 +267,8 @@ export function FuturesLearningPage() {
                 <option value="all">Tất cả họ ({all.length})</option>
                 {families.map((name) => (
                   <option key={name} value={name}>
-                    {familyName(name)} ({all.filter((row) => row.genome.family === name).length})
+                    {familyName(name)} ({all.filter((row) => profileOf(row.genome) === name).length}
+                    )
                   </option>
                 ))}
               </select>
@@ -369,9 +372,12 @@ export function FuturesLearningPage() {
                     {openTrades.length > 0 && (
                       <span
                         className="pill evo-open-trades"
-                        title={openTrades.map((position) => `#${position.id} ${position.side.toUpperCase()}`).join(' · ')}
+                        title={openTrades
+                          .map((position) => `#${position.id} ${position.side.toUpperCase()}`)
+                          .join(' · ')}
                       >
-                        <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length} lệnh Paper
+                        <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length} lệnh
+                        Paper
                       </span>
                     )}
                     {row.strategy === selected && (
@@ -382,12 +388,14 @@ export function FuturesLearningPage() {
                         Được chọn gần nhất
                       </span>
                     )}
-                    {row.paused && <span
+                    {row.paused && (
+                      <span
                         className="pill"
                         title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
                       >
                         Ngừng thử · chính sách thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
-                      </span>}
+                      </span>
+                    )}
                     {row.rule_text && (
                       <span className="pill">
                         Cây luật · {row.shadow_only ? 'shadow' : 'thử Paper'}

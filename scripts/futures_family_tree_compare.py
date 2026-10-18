@@ -7,7 +7,7 @@ from pathlib import Path
 
 from backend.app import strategy
 from backend.app.futures_history import replay
-from backend.app.futures_strategies import SEEDS, genome_name, to_rule_tree
+from backend.app.futures_strategies import LEGACY_SEEDS as SEEDS, genome_name, to_rule_tree
 from backend.app.futures_symbols import SYMBOLS
 
 DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 340

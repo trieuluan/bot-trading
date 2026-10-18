@@ -7,8 +7,8 @@ import math
 from dataclasses import replace
 from statistics import fmean, pstdev
 
-from .futures_rules import atr14, donchian, ema50, funding_filter, liquidity_sweep, mean_reversion, rsi14
-from .strategy import Setup, aggregate, breakout, mtf_retest, mtf_scan, retest
+from .futures_rules import atr14, ema50, funding_filter, mean_reversion
+from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 from .futures_exits import EXIT_POLICIES, structural_target
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
                                 validate_rule)
@@ -16,14 +16,7 @@ from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_ru
 RULE_FAMILY = "rule_tree"
 FAMILIES = ("breakout", "mtf_retest", "mean_reversion", "liquidity_sweep", "funding_filter",
             "retest", "squeeze", "trend_pullback", "volume_spike", "donchian_trend", "ema_cross", "rsi_reversal")
-SEEDS = [{"family": family, "lookback": 20, "target_r": 2.0,
-          "stop_buffer": 0.0, "max_er": 0.30, "funding_threshold": 0.0003}
-         for family in FAMILIES]
-# ponytail: search fixed exits plus squeeze trailing; expand only after separate validation.
-SEEDS.append({**next(seed for seed in SEEDS if seed["family"] == "squeeze"), "exit_policy": "trail"})
 MUTABLE_EXITS = ("fixed", "trail")
-RULE_SEEDS = [{"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
-               "max_er": 0.30, "funding_threshold": 0.0003, "rule": rule} for rule in RULES]
 BOUNDS = {
     "lookback": (10, 40, 5), "target_r": (1.5, 3.0, 0.5),
     "stop_buffer": (0.0, 0.5, 0.1), "max_er": (0.2, 0.4, 0.05),
@@ -46,8 +39,9 @@ def validate_genome(genome):
         validate_rule(genome["rule"])
         if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
             raise ValueError("Invalid rule-tree exit profile")
-        if (genome.get("exit_policy", "fixed") != "fixed" or genome["target_r"] != 2.0
-                or genome["stop_buffer"] != 0.0):
+        if (genome.get("exit_profile", "default") == "default"
+                and (genome.get("exit_policy", "fixed") != "fixed" or genome["target_r"] != 2.0
+                     or genome["stop_buffer"] != 0.0)):
             raise ValueError("Rule-tree exits must remain fixed at the control settings")
     if genome.get("exit_policy", "fixed") not in EXIT_POLICIES:
         raise ValueError("Invalid futures genome: exit_policy")
@@ -61,20 +55,28 @@ def validate_genome(genome):
 
 def to_rule_tree(genome):
     """Convert any legacy family genome to a unified rule_tree genome."""
+    validate_genome(genome)
     if is_rule_tree(genome):
         return copy.deepcopy(genome)
-    family = genome.get("family")
-    rule = FAMILY_RULES.get(family, {"feature": "breakout", "frame": "M15"})
+    family = genome["family"]
     return {
+        **copy.deepcopy(genome),
         "family": RULE_FAMILY,
-        "exit_profile": family if family in FAMILY_RULES else "default",
-        "lookback": genome.get("lookback", 20),
-        "target_r": 2.0,
-        "stop_buffer": 0.0,
-        "max_er": genome.get("max_er", 0.30),
-        "funding_threshold": genome.get("funding_threshold", 0.0003),
-        "rule": copy.deepcopy(rule),
+        "exit_profile": family,
+        "rule": copy.deepcopy(FAMILY_RULES[family]),
     }
+
+LEGACY_SEEDS = [{"family": family, "lookback": 20, "target_r": 2.0,
+            "stop_buffer": 0.0, "max_er": 0.30, "funding_threshold": 0.0003}
+           for family in FAMILIES]
+SEEDS = [to_rule_tree(legacy) for legacy in LEGACY_SEEDS]
+SEEDS.append({**next(seed for seed in SEEDS if seed["exit_profile"] == "squeeze"), "exit_policy": "trail"})
+
+RULE_SEEDS = [
+    {"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
+     "max_er": 0.30, "funding_threshold": 0.0003, "rule": rule}
+    for rule in RULES
+]
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -106,14 +108,16 @@ def genome_name(genome):
 
 def exit_policy_enabled(genome):
     policy = genome.get("exit_policy", "fixed")
-    return policy == "fixed" or (genome["family"] == "squeeze" and policy == "trail")
+    return policy == "fixed" or (policy == "trail" and "squeeze" in (
+        genome["family"], genome.get("exit_profile")))
 
 def crossover(parent, mate):
     validate_genome(parent)
     validate_genome(mate)
     child = {**parent, "target_r": mate["target_r"], "stop_buffer": mate["stop_buffer"]}
     if is_rule_tree(parent) and is_rule_tree(mate):
-        child["target_r"], child["stop_buffer"] = 2.0, 0.0
+        if parent.get("exit_profile", "default") == "default":
+            child["target_r"], child["stop_buffer"] = 2.0, 0.0
         joined = {"op": "all", "children": [parent["rule"], mate["rule"]]}
         try:
             validate_rule(joined)
@@ -121,7 +125,7 @@ def crossover(parent, mate):
         except ValueError:
             pass
     child.pop("exit_policy", None)
-    if parent["family"] == "squeeze" and mate.get("exit_policy") == "trail":
+    if "squeeze" in (parent["family"], parent.get("exit_profile")) and mate.get("exit_policy") == "trail":
         child["exit_policy"] = "trail"
     return child
 
@@ -130,16 +134,17 @@ def mutate(genome, rng):
     child = dict(genome)
     if not exit_policy_enabled(child):
         child.pop("exit_policy", None)
+    profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else genome["family"]
     relevant = ["target_r", "stop_buffer"]
     if is_rule_tree(genome):
-        relevant = ["rule", "rule", "lookback"]
-    if genome["family"] == "squeeze":
+        relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" else [])
+    if profile == "squeeze":
         relevant.append("exit_policy")
-    if genome["family"] in ("breakout", "retest", "mtf_retest", "liquidity_sweep", "squeeze", "volume_spike", "donchian_trend", "ema_cross"):
+    if profile in ("breakout", "retest", "mtf_retest", "liquidity_sweep", "squeeze", "volume_spike", "donchian_trend", "ema_cross"):
         relevant.append("lookback")
-    if genome["family"] == "mean_reversion":
+    if profile == "mean_reversion":
         relevant.append("max_er")
-    if genome["family"] == "funding_filter":
+    if profile == "funding_filter":
         relevant.append("funding_threshold")
     key = rng.choice(relevant)
     if key == "exit_policy":
@@ -172,9 +177,8 @@ def strategy_levels(genome, candles):
     if not candles:
         return []
     family, lookback = genome["family"], genome["lookback"]
-    if family == RULE_FAMILY:
-        return []
-    if family == "mean_reversion":
+    profile = genome.get("exit_profile") if is_rule_tree(genome) else family
+    if profile == "mean_reversion":
         hours = aggregate(candles, 3600)
         if len(hours) < 21:
             return []
@@ -183,18 +187,20 @@ def strategy_levels(genome, candles):
         return [{"title": title, "price": price} for title, price in (
             ("BB20 H1 · trên", average + 2 * deviation),
             ("BB20 H1 · giữa", average), ("BB20 H1 · dưới", average - 2 * deviation))]
-    if family == "trend_pullback":
+    if profile == "trend_pullback":
         hours = aggregate(candles, 3600)
         return [{"title": "EMA50 H1", "price": ema50(hours)}] if len(hours) >= 50 else []
-    if family == "mtf_retest":
+    if profile == "mtf_retest":
         watch = mtf_scan(candles, lookback=lookback)["current"]
         return [{"title": "Vùng retest H1", "price": watch["level"]}] if watch else []
-    if family == "liquidity_sweep":
+    if profile == "liquidity_sweep":
         history, frame = aggregate(candles[:-1], 3600)[-lookback:], "H1"
-    else:
-        count = 10 if family == "funding_filter" else lookback
+    elif profile in ("breakout", "volume_spike", "squeeze", "donchian_trend", "funding_filter"):
+        count = 10 if profile == "funding_filter" else lookback
         history, frame = candles[-count - 1:-1], "M15"
         lookback = count
+    else:
+        return []
     if len(history) < lookback:
         return []
     return [{"title": f"Đỉnh {lookback} {frame}", "price": max(bar.high for bar in history)},
@@ -204,133 +210,28 @@ def strategy_setup(genome, candles, funding):
     validate_genome(genome)
     if len(candles) < 21:
         return None
-    family, lookback = genome["family"], genome["lookback"]
-    if family == RULE_FAMILY:
-        context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
-                   "max_er": genome["max_er"]}
-        found = [side for side in (1, -1)
-                 if matches(genome["rule"], candles, side, lookback, context=context)]
-        if len(found) != 1:
-            return None
-        direction, last = found[0], candles[-1]
-        stop = (min(bar.low for bar in candles[-5:]) if direction == 1
-                else max(bar.high for bar in candles[-5:]))
-        target = last.close + direction * 2 * abs(last.close - stop)
-        custom = profile_exit(genome.get("exit_profile", "default"), candles, direction, lookback,
-                              genome, funding)
-        if custom:
-            stop, target = custom
-        setup = Setup("long" if direction == 1 else "short", last.close, stop, target,
-                      describe_rule(genome["rule"]))
-    elif family == "breakout":
-        setup = breakout(candles, lookback, allow_short=True)
-    elif family == "mtf_retest":
-        setup = mtf_retest(candles, allow_short=True, lookback=lookback)
-    elif family == "mean_reversion":
-        setup = mean_reversion(candles, allow_short=True, max_er=genome["max_er"])
-    elif family == "liquidity_sweep":
-        setup = liquidity_sweep(candles, allow_short=True, lookback=lookback)
-    elif family == "funding_filter":
-        setup = funding_filter(funding, genome["funding_threshold"])(candles, allow_short=True)
-    elif family == "retest":
-        setup = retest(candles, lookback=lookback, allow_short=True)
-    elif family == "volume_spike":
-        history = candles[-lookback - 1 : -1]
-        mean_vol = fmean(c.volume for c in history) if history else 0
-        last = candles[-1]
-        if last.volume >= 2.0 * mean_vol and mean_vol > 0:
-            high, low = max(c.high for c in history), min(c.low for c in history)
-            if last.close > high and last.close > last.open:
-                stop = min(c.low for c in candles[-5:])
-                setup = Setup("long", last.close, stop, last.close + 2 * (last.close - stop), "Vol Spike Long")
-            elif last.close < low and last.close < last.open:
-                stop = max(c.high for c in candles[-5:])
-                setup = Setup("short", last.close, stop, last.close - 2 * (stop - last.close), "Vol Spike Short")
-            else:
-                setup = None
-        else:
-            setup = None
-    elif family == "donchian_trend":
-        history = candles[-lookback - 1 : -1]
-        upper, lower = max(c.high for c in history), min(c.low for c in history)
-        hours = aggregate(candles, 3600)
-        ema = ema50(hours) if len(hours) >= 50 else None
-        last = candles[-1]
-        mid = (upper + lower) / 2
-        if last.close > upper and (ema is None or last.close > ema):
-            setup = Setup("long", last.close, mid, last.close + 2 * (last.close - mid), "Donchian Breakout Long")
-        elif last.close < lower and (ema is None or last.close < ema):
-            setup = Setup("short", last.close, mid, last.close - 2 * (mid - last.close), "Donchian Breakout Short")
-        else:
-            setup = None
-    elif family == "ema_cross":
-        fast_span = max(5, lookback // 2)
-        slow_span = lookback
-        if len(candles) >= slow_span + 2:
-            def calc_ema(span, data):
-                mult = 2 / (span + 1)
-                val = data[0].close
-                for b in data[1:]:
-                    val = val * (1 - mult) + b.close * mult
-                return val
-            prev_fast = calc_ema(fast_span, candles[:-1])
-            prev_slow = calc_ema(slow_span, candles[:-1])
-            curr_fast = calc_ema(fast_span, candles)
-            curr_slow = calc_ema(slow_span, candles)
-            last = candles[-1]
-            if prev_fast <= prev_slow and curr_fast > curr_slow:
-                stop = min(c.low for c in candles[-5:])
-                setup = Setup("long", last.close, stop, last.close + 2 * (last.close - stop), "EMA Cross Long")
-            elif prev_fast >= prev_slow and curr_fast < curr_slow:
-                stop = max(c.high for c in candles[-5:])
-                setup = Setup("short", last.close, stop, last.close - 2 * (stop - last.close), "EMA Cross Short")
-            else:
-                setup = None
-        else:
-            setup = None
-    elif family == "rsi_reversal":
-        if len(candles) >= 20:
-            prev_rsi = rsi14(candles[:-1])
-            curr_rsi = rsi14(candles)
-            last = candles[-1]
-            if prev_rsi <= 30 and curr_rsi > 30 and last.close > last.open:
-                stop = min(c.low for c in candles[-5:])
-                setup = Setup("long", last.close, stop, last.close + 2 * (last.close - stop), "RSI Oversold Long")
-            elif prev_rsi >= 70 and curr_rsi < 70 and last.close < last.open:
-                stop = max(c.high for c in candles[-5:])
-                setup = Setup("short", last.close, stop, last.close - 2 * (stop - last.close), "RSI Overbought Short")
-            else:
-                setup = None
-        else:
-            setup = None
-    else:
-        last = candles[-1]
-        history = candles[-lookback - 1:-1]
-        high, low = max(bar.high for bar in history), min(bar.low for bar in history)
-        side = None
-        if family == "squeeze":
-            if high - low <= 3 * atr14(candles):
-                side = "long" if last.close > high else "short" if last.close < low else None
-        else:
-            hours = aggregate(candles, 3600)
-            if len(hours) < 50:
-                return None
-            ema = hours[0].close
-            for bar in hours[1:]:
-                ema += 2 / 51 * (bar.close - ema)
-            if hours[-1].close > ema and last.low <= ema < last.close and last.close > last.open:
-                side = "long"
-            elif hours[-1].close < ema and last.high >= ema > last.close and last.close < last.open:
-                side = "short"
-        direction = 1 if side == "long" else -1
-        stop = min(bar.low for bar in candles[-5:]) if direction == 1 else max(bar.high for bar in candles[-5:])
-        setup = Setup(side, last.close, stop, last.close + direction * 2 * abs(last.close - stop), family) if side else None
-    if setup is None:
+    tree = genome if is_rule_tree(genome) else to_rule_tree(genome)
+    lookback = genome["lookback"]
+    context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
+               "max_er": genome["max_er"]}
+    found = [side for side in (1, -1)
+             if matches(tree["rule"], candles, side, lookback, context=context)]
+    if len(found) != 1:
         return None
+    direction, last = found[0], candles[-1]
+    stop = (min(bar.low for bar in candles[-5:]) if direction == 1
+            else max(bar.high for bar in candles[-5:]))
+    target = last.close + direction * 2 * abs(last.close - stop)
+    custom = profile_exit(tree.get("exit_profile", "default"), candles, direction, lookback,
+                          genome, funding)
+    if custom:
+        stop, target = custom
+    setup = Setup("long" if direction == 1 else "short", last.close, stop, target,
+                  describe_rule(tree["rule"]))
     direction = 1 if setup.side == "long" else -1
     stop = setup.stop - direction * genome["stop_buffer"] * atr14(candles)
     risk = direction * (setup.entry - stop)
-    target = (setup.target if family == "mean_reversion" or genome.get("exit_profile") == "mean_reversion"
+    target = (setup.target if tree.get("exit_profile") == "mean_reversion"
               else setup.entry + direction * genome["target_r"] * risk)
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)
@@ -342,6 +243,7 @@ def strategy_setup(genome, candles, funding):
 
 def strategy_chart(genome, candles):
     family, lookback = genome["family"], genome["lookback"]
+    profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else family
     if family == RULE_FAMILY:
         levels = []
         for direction, title in ((1, "Vùng breakout trên"), (-1, "Vùng breakout dưới")):
@@ -350,7 +252,8 @@ def strategy_chart(genome, candles):
                 levels.append({"title": title, "price": price,
                                "from": candles[max(0, len(candles) - lookback - 1)].time,
                                "to": candles[-1].time})
-        return {"levels": levels, "curves": [], "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
+        if profile == "default":
+            return {"levels": levels, "curves": [], "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",
@@ -365,24 +268,25 @@ def strategy_chart(genome, candles):
         "ema_cross": f"Chờ giao cắt EMA nhanh ({max(5, lookback // 2)}) và EMA chậm ({lookback}).",
         "rsi_reversal": "Chờ RSI14 quá bán (< 30) cắt lên hoặc quá mua (> 70) cắt xuống.",
     }
-    result = {"levels": [], "curves": [], "note": descriptions[family]}
+    note = descriptions[profile]
+    result = {"levels": [], "curves": [], "note": note}
     if not candles:
         return result
     end = candles[-1].time
     levels = strategy_levels(genome, candles)
     history = (aggregate(candles[:-1], 3600)[-lookback:]
-               if family == "liquidity_sweep" else
-               candles[-(10 if family == "funding_filter" else lookback) - 1:-1])
+               if profile == "liquidity_sweep" else
+               candles[-(10 if profile == "funding_filter" else lookback) - 1:-1])
     start = history[0].time if history else end
-    if family == "mtf_retest":
+    if profile == "mtf_retest":
         watch = mtf_scan(candles, lookback=lookback)["current"]
         start = watch["range_start"] if watch else end
-    if family not in ("mean_reversion", "trend_pullback"):
+    if profile not in ("mean_reversion", "trend_pullback"):
         result["levels"] = [{**level, "from": start, "to": end} for level in levels]
-    if family in ("mean_reversion", "trend_pullback", "liquidity_sweep", "funding_filter"):
-        frame = 14400 if family in ("liquidity_sweep", "funding_filter") else 3600
+    if profile in ("mean_reversion", "trend_pullback", "liquidity_sweep", "funding_filter"):
+        frame = 14400 if profile in ("liquidity_sweep", "funding_filter") else 3600
         bars = aggregate(candles, frame)
-        if family == "mean_reversion":
+        if profile == "mean_reversion":
             for multiplier, label in ((2, "BB20 H1 · trên"), (0, "BB20 H1 · giữa"), (-2, "BB20 H1 · dưới")):
                 points = []
                 for index in range(max(20, len(bars) - 100), len(bars)):
@@ -403,5 +307,5 @@ def strategy_chart(genome, candles):
             if curve["points"][-1]["time"] < end:
                 curve["points"].append({"time": end, "value": curve["points"][-1]["value"]})
     if not result["levels"] and not result["curves"]:
-        result["note"] += " Chưa có vùng retest hợp lệ." if family == "mtf_retest" else " Thiếu nến để vẽ vùng tham chiếu."
+        result["note"] += " Chưa có vùng retest hợp lệ." if profile == "mtf_retest" else " Thiếu nến để vẽ vùng tham chiếu."
     return result

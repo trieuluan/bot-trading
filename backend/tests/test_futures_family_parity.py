@@ -4,7 +4,7 @@ from math import sin
 import pytest
 
 from backend.app.futures_rule_tree import FAMILY_PARITY, FAMILY_RULES, matches, validate_rule
-from backend.app.futures_strategies import SEEDS, strategy_setup, to_rule_tree
+from backend.app.futures_strategies import LEGACY_SEEDS as SEEDS, strategy_setup, to_rule_tree
 from backend.app.market import Candle
 from backend.tests.fixtures.futures_entry_v1 import strategy_setup as legacy_setup
 
@@ -94,7 +94,7 @@ def test_tree_twin_has_identical_entry_stop_and_target():
     for seed in (s for s in SEEDS if "exit_policy" not in s):
         twin, seen = to_rule_tree(seed), 0
         for end in range(400, len(bars), 5):
-            old, new = (strategy_setup(g, bars[:end], funding) for g in (seed, twin))
+            old, new = legacy_setup(seed, bars[:end], funding), strategy_setup(twin, bars[:end], funding)
             assert (old and (old.side, old.entry, old.stop, old.target)) == (
                 new and (new.side, new.entry, new.stop, new.target)), (seed["family"], end)
             seen += old is not None
