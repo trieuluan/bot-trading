@@ -324,6 +324,55 @@ def test_evolution_uses_history_replaces_weakest_and_keeps_parents():
     assert all(state["candidates"][n]["genome"] == g for n, g in parents.items())
     assert learner.evolve(state, 99999 + 10) == 0
 
+@pytest.mark.parametrize("parent_count", [1, 2, 4])
+def test_evolution_records_distinct_parents_or_single_mutation(monkeypatch, parent_count):
+    state = learner.new_state(1000)
+    state["candidates"] = {name: row for name, row in state["candidates"].items()
+                           if row["generation"] == 0}
+    parents = list(state["candidates"])[:parent_count]
+    monkeypatch.setattr(learner, "performance", lambda *args: {name: (20, 1) for name in parents})
+    if parent_count == 1:
+        monkeypatch.setattr(learner, "crossover", lambda *args: pytest.fail("Single parent must only mutate"))
+    before = set(state["candidates"])
+    assert learner.evolve(state, 99999, force=True) == 1
+    child = next(row for name, row in state["candidates"].items() if name not in before)
+    assert len(child["parents"]) == min(parent_count, 2)
+    assert len(set(child["parents"])) == len(child["parents"])
+
+def test_duplicate_children_ignore_boolean_order_and_default_fields():
+    from backend.app.futures_strategies import genome_fingerprint
+    state = learner.new_state(1000)
+    parent = SEEDS[0]
+    duplicate = copy.deepcopy(parent)
+    duplicate["exit_profile"] = "default"
+    duplicate["rule"]["children"].reverse()
+    assert genome_name(duplicate) != genome_name(parent)
+    assert genome_fingerprint(duplicate) == genome_fingerprint(parent)
+    before = len(state["candidates"])
+    learner.add_candidate(state, duplicate, 2000, (genome_name(parent),))
+    assert len(state["candidates"]) == before
+    for field, value in (("lookback", 25), ("exit_policy", "trail")):
+        assert genome_fingerprint({**parent, field: value}) != genome_fingerprint(parent)
+
+def test_evolution_rejects_unchanged_child(monkeypatch):
+    state = learner.new_state(1000)
+    parent = next(iter(state["candidates"]))
+    monkeypatch.setattr(learner, "performance", lambda *args: {parent: (20, 1)})
+    monkeypatch.setattr(learner, "mutate", lambda genome, rng: copy.deepcopy(genome))
+    before = copy.deepcopy(state["candidates"])
+    assert learner.evolve(state, 99999, force=True) == 0
+    assert state["candidates"] == before
+
+def test_htf_mutations_never_add_h1_trend():
+    from backend.app.futures_rule_tree import HTF_CONTEXT_FEATURES, nodes, validate_htf_rule
+    assert "trend" not in HTF_CONTEXT_FEATURES
+    for seed in SEEDS:
+        for index in range(40):
+            child = mutate(seed, random.Random(index))
+            validate_htf_rule(child["rule"])
+            assert not any(node.get("feature") == "trend" and node.get("frame") == "H1"
+                           for _, node in nodes(child["rule"]))
+
 
 def test_rule_tree_can_enter_auto_paper(ready):
     state = learner.new_state(1000)

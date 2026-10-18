@@ -20,7 +20,7 @@ from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop
 from .futures_rule_tree import describe_rule, validate_rule
-from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name,
+from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
                                  strategy_setup, to_rule_tree)
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
@@ -38,7 +38,9 @@ VERSION = "futures_htf_v1"
 
 def add_candidate(state, genome, born, parents=()):
     name = genome_name(genome)
-    if name in state["candidates"]:
+    known = [*state["candidates"].values(), *state.get("rule_archive", {}).values()]
+    fingerprint = genome_fingerprint(genome)
+    if any(genome_fingerprint(candidate["genome"]) == fingerprint for candidate in known):
         return
     generation = max((state["candidates"][parent]["generation"] for parent in parents), default=-1) + 1
     state["candidates"][name] = {
@@ -267,13 +269,16 @@ def evolve(state, now, max_children=1, force=False):
             archive = state.setdefault("rule_archive", {})
             archive[retired] = state["candidates"].pop(retired)
         for _ in range(40):
-            parent, mate = rng.choice(parents), rng.choice(parents)
-            genome = mutate(crossover(state["candidates"][parent]["genome"],
-                                      state["candidates"][mate]["genome"]), rng)
-            known = {genome_name(candidate["genome"])
+            lineage = tuple(rng.sample(parents, 2)) if len(parents) > 1 else (parents[0],)
+            base = state["candidates"][lineage[0]]["genome"]
+            if len(lineage) == 2:
+                base = crossover(base, state["candidates"][lineage[1]]["genome"])
+            genome = mutate(base, rng)
+            known = {genome_fingerprint(candidate["genome"])
                      for candidate in [*state["candidates"].values(), *archive.values()]}
-            if genome_name(genome) not in known and genome_name(genome) not in results:
-                add_candidate(state, genome, (now // 900 + 1) * 900, (parent, mate))
+            if genome_fingerprint(genome) not in known and genome_name(genome) not in results:
+                add_candidate(state, genome, (now // 900 + 1) * 900,
+                              lineage)
                 made += 1
                 break
     return made

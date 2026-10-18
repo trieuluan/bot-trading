@@ -17,7 +17,7 @@ LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
 HTF_CONTEXT_FEATURES = tuple(feature for feature in LEAF_FEATURES if feature not in (
-    "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional"))
+    "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional", "trend"))
 HTF_ENTRY_FEATURES = (
     "volume", "breakout", "candle_direction", "engulfing", "pin_bar", "star", "soldiers", *PATTERNS)
 

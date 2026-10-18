@@ -99,6 +99,26 @@ def genome_name(genome):
     digest = hashlib.sha256(json.dumps(genome, sort_keys=True).encode()).hexdigest()[:12]
     return f"{genome['family']}:{digest}"
 
+def canonical_rule(rule):
+    if "feature" in rule:
+        return rule
+    children = [canonical_rule(child) for child in rule["children"]]
+    if rule["op"] in ("all", "any"):
+        children = [nested for child in children
+                    for nested in (child["children"] if child.get("op") == rule["op"] else [child])]
+        unique = {json.dumps(child, sort_keys=True): child for child in children}
+        children = [unique[key] for key in sorted(unique)]
+        if len(children) == 1:
+            return children[0]
+    return {**rule, "children": children}
+
+def genome_fingerprint(genome):
+    normalized = {**genome, "exit_policy": genome.get("exit_policy", "fixed"),
+                  "exit_profile": genome.get("exit_profile", "default")}
+    if is_rule_tree(genome):
+        normalized["rule"] = canonical_rule(genome["rule"])
+    return json.dumps(normalized, sort_keys=True)
+
 def exit_policy_enabled(genome):
     return genome.get("exit_policy", "fixed") in MUTABLE_EXITS
 
