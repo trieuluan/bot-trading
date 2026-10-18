@@ -27,6 +27,11 @@ export const HTF_LABELS: Record<string, string> = {
   htf_trend_align: 'Đồng thuận Trend HTF',
   htf_bollinger: 'Bollinger HTF',
   htf_dryup: 'Hồi cạn volume HTF',
+  htf_fib: 'Fibonacci thoái lui HTF',
+  htf_divergence: 'Phân kỳ RSI HTF',
+  htf_fvg: 'Fair Value Gap HTF',
+  htf_bos: 'Phá vỡ cấu trúc BOS HTF',
+  htf_vwap: 'VWAP phiên HTF',
   htf_other: 'Trend + nến',
 };
 
@@ -50,6 +55,11 @@ function htfProfile(rule?: Rule): string | null {
   if (has('ema_cross_n', 'ema_cross')) return 'htf_ema_cross';
   if (has('wedge')) return 'htf_wedge';
   if (has('swing_zone')) return 'htf_swing';
+  if (has('fib_retrace')) return 'htf_fib';
+  if (has('rsi_divergence')) return 'htf_divergence';
+  if (has('fvg')) return 'htf_fvg';
+  if (has('bos')) return 'htf_bos';
+  if (has('session_vwap')) return 'htf_vwap';
   return 'htf_other';
 }
 
@@ -102,6 +112,11 @@ export function ruleName(rule: Rule): string {
       relative_strength: 'Sức mạnh tương đối so với BTC',
       funding_aligned: 'Funding rate thuận chiều',
       oi_surge: 'Open interest tăng ≥1% trong 1h',
+      fib_retrace: 'Đóng trong vùng Fib 50-61.8%, swing xác nhận sau 2 nến',
+      rsi_divergence: 'Phân kỳ RSI14 >2 điểm, pivot xác nhận cách tối đa 4 nến',
+      fvg: 'Chạm lần đầu FVG 3 nến, không xuyên biên xa, nến cùng chiều',
+      bos: 'Đóng phá swing đã xác nhận, chưa bị phá trước đó',
+      session_vwap: 'Đóng cắt lại VWAP ngày UTC, xấp xỉ theo volume nến',
       bb_pierce: 'Chọc ra ngoài BB20 rồi đóng lại',
       volume_dryup: 'Hồi cạn volume',
       retest_seq: 'Breakout + retest + xác nhận',

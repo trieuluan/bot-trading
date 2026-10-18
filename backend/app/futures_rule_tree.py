@@ -14,7 +14,8 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             *PATTERNS, "wedge", "ema_bounce", "ema_touch", "wick_sweep",
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
-            "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge")
+            "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge",
+            "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -225,6 +226,105 @@ def ema_bounce(rows, direction):
     return any(last.high >= level - reach and last.high <= level + 2 * reach and last.close < level
                for level in (fast, slow))
 
+CLASSIC_FEATURES = ("fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
+
+def confirmed_pivots(rows, direction, lookback):
+    values = [row.high if direction == 1 else row.low for row in rows]
+    return [index for index in range(max(2, len(rows) - lookback), len(rows) - 2)
+            if all(direction * (values[index] - values[index + offset]) > 0
+                   for offset in (-2, -1, 1, 2))]
+
+def fib_zone(rows, direction, lookback):
+    ends = confirmed_pivots(rows, direction, lookback)
+    starts = confirmed_pivots(rows, -direction, lookback)
+    if not ends:
+        return None
+    end = ends[-1]
+    starts = [index for index in starts if index < end]
+    if not starts:
+        return None
+    start = starts[-1]
+    origin = rows[start].low if direction == 1 else rows[start].high
+    peak = rows[end].high if direction == 1 else rows[end].low
+    if direction * (peak - origin) <= 0:
+        return None
+    if any((row.low <= origin if direction == 1 else row.high >= origin)
+           for row in rows[end + 1:]):
+        return None
+    return (peak - (peak - origin) * 0.5, peak - (peak - origin) * 0.618, rows[end].time)
+
+def fresh_fvg(rows, direction, lookback):
+    for end in range(len(rows) - 2, max(1, len(rows) - lookback - 1), -1):
+        first, middle, third = rows[end - 2:end + 1]
+        lower, upper = ((first.high, third.low) if direction == 1 else (third.high, first.low))
+        if lower >= upper or direction * (middle.close - middle.open) <= 0:
+            continue
+        if any(row.low <= upper and row.high >= lower for row in rows[end + 1:-1]):
+            continue
+        last = rows[-1]
+        if (last.low < lower if direction == 1 else last.high > upper):
+            continue
+        return lower, upper, third.time
+    return None
+
+def structure_level(rows, direction, lookback):
+    pivots = confirmed_pivots(rows[:-1], direction, lookback)
+    if not pivots:
+        return None
+    pivot = pivots[-1]
+    price = rows[pivot].high if direction == 1 else rows[pivot].low
+    if any(direction * (row.close - price) > 0 for row in rows[pivot + 1:-1]):
+        return None
+    return price, rows[pivot].time
+
+def session_vwap_points(rows, seconds):
+    if not rows:
+        return []
+    start = rows[-1].time // 86400 * 86400
+    session = [row for row in rows if row.time >= start]
+    if not session or any(row.time != start + index * seconds for index, row in enumerate(session)):
+        return []
+    volume, weighted, points = 0.0, 0.0, []
+    for row in session:
+        if row.volume < 0:
+            return []
+        volume += row.volume
+        weighted += (row.high + row.low + row.close) / 3 * row.volume
+        if volume > 0:
+            points.append({"time": row.time, "value": weighted / volume})
+    return points
+
+def classic_matches(feature, rows, direction, lookback, seconds):
+    if len(rows) < 2:
+        return False
+    last = rows[-1]
+    if feature == "fib_retrace":
+        zone = fib_zone(rows, direction, lookback)
+        return zone is not None and min(zone[:2]) <= last.close <= max(zone[:2])
+    if feature == "rsi_divergence":
+        pivots = [index for index in confirmed_pivots(rows, -direction, lookback) if index >= 14]
+        if len(pivots) < 2 or len(rows) - 1 - pivots[-1] > 4:
+            return False
+        first, second = pivots[-2:]
+        old_price = rows[first].low if direction == 1 else rows[first].high
+        new_price = rows[second].low if direction == 1 else rows[second].high
+        return (direction * (new_price - old_price) < 0
+                and direction * (rsi14(rows[:second + 1]) - rsi14(rows[:first + 1])) > 2
+                and direction * (last.close - last.open) > 0)
+    if feature == "fvg":
+        gap = fresh_fvg(rows, direction, lookback)
+        return (gap is not None and last.low <= gap[1] and last.high >= gap[0]
+                and direction * (last.close - last.open) > 0)
+    if feature == "bos":
+        level = structure_level(rows, direction, lookback)
+        return level is not None and direction * (last.close - level[0]) > 0
+    points = session_vwap_points(rows, seconds)
+    if len(points) < 2 or points[-2]["time"] != rows[-2].time:
+        return False
+    return (direction * (rows[-2].close - points[-2]["value"]) <= 0
+            and direction * (last.close - points[-1]["value"]) > 0
+            and direction * (last.close - last.open) > 0)
+
 def matches(rule, candles, direction, lookback, anchor=None, context=None):
     if not candles:
         return False
@@ -249,6 +349,8 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         return False
     rows = frame_rows(candles, rule["frame"])
     feature = rule["feature"]
+    if feature in CLASSIC_FEATURES:
+        return classic_matches(feature, rows, direction, lookback, FRAMES[rule["frame"]])
     if feature == "retest":
         if anchor is None or not rows:
             return False
@@ -422,6 +524,11 @@ def describe_rule(rule):
                   "relative_strength": "Sức mạnh tương đối so với BTC trong N nến",
                   "oi_surge": "Open interest tăng ≥1% trong 1h, nến cùng chiều lệnh",
                   "funding_aligned": "Funding rate thuận chiều (không trả phí cực đoan)",
+                  "fib_retrace": "Đóng trong vùng Fibonacci 50-61.8% của swing đã xác nhận 2 nến",
+                  "rsi_divergence": "Phân kỳ RSI14 >2 điểm giữa 2 pivot đã xác nhận; pivot mới cách ≤4 nến",
+                  "fvg": "Chạm lần đầu FVG 3 nến, không xuyên biên xa, thân nến cùng chiều",
+                  "bos": "Đóng phá swing đã xác nhận 2 nến, chưa từng đóng phá trước đó",
+                  "session_vwap": "Đóng cắt lại VWAP theo volume nến từ 00:00 UTC (xấp xỉ, không phải từng giao dịch)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
@@ -535,6 +642,34 @@ HTF_RULES.extend([
         ]},
         {"feature": "volume", "frame": "M15"},
     ]} for feature in ("session_active", "basis_aligned", "oi_surge")
+])
+
+HTF_RULES.extend([
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "fib_retrace", "frame": "H1"},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "rsi_divergence", "frame": "H1"},
+        {"feature": "engulfing", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "fvg", "frame": "H1"},
+        {"feature": "candle_direction", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "bos", "frame": "H1"},
+        {"feature": "volume", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"feature": "session_vwap", "frame": "H1"},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
 ])
 
 RULES = HTF_RULES

@@ -11,7 +11,8 @@ from .futures_rules import atr14, ema50, funding_filter, mean_reversion
 from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 from .futures_exits import EXIT_POLICIES, adaptive_levels, structural_target
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
-                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule)
+                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule,
+                                fib_zone, fresh_fvg, structure_level, session_vwap_points, nodes)
 
 RULE_FAMILY = "rule_tree"
 FAMILIES = ()
@@ -253,7 +254,7 @@ def strategy_chart(genome, candles):
     family, lookback = genome["family"], genome["lookback"]
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else family
     if family == RULE_FAMILY:
-        levels = []
+        levels, curves = [], []
         for direction, title in ((1, "Vùng breakout trên"), (-1, "Vùng breakout dưới")):
             price = breakout_level(genome["rule"], candles, direction, lookback)
             if price is not None and candles:
@@ -261,7 +262,44 @@ def strategy_chart(genome, candles):
                                "from": candles[max(0, len(candles) - lookback - 1)].time,
                                "to": candles[-1].time})
         if profile == "default":
-            return {"levels": levels, "curves": [], "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
+            for _, node in nodes(genome["rule"]):
+                feat, frame = node.get("feature"), node.get("frame", "H1")
+                if feat not in ("fib_retrace", "fvg", "bos", "session_vwap"):
+                    continue
+                seconds = 14400 if frame == "H4" else 3600 if frame == "H1" else 900
+                bars = aggregate(candles, seconds) if seconds > 900 else candles
+                if not bars:
+                    continue
+                if feat == "session_vwap":
+                    points = session_vwap_points(bars, seconds)
+                    if points:
+                        curves.append({"title": f"VWAP ngày {frame} · volume nến", "points": [
+                            {"time": point["time"] + seconds - 900, "value": point["value"]}
+                            for point in points]})
+                    continue
+                for direction, side in ((1, "Long"), (-1, "Short")):
+                    if feat == "fib_retrace":
+                        zone = fib_zone(bars, direction, lookback)
+                        if not zone:
+                            continue
+                        start = zone[2] + 3 * seconds - 900
+                        values = [("Fib 50%", zone[0]), ("Fib 61.8%", zone[1])]
+                    elif feat == "fvg":
+                        zone = fresh_fvg(bars, direction, lookback)
+                        if not zone:
+                            continue
+                        start = zone[2] + seconds - 900
+                        values = [("FVG dưới", zone[0]), ("FVG trên", zone[1])]
+                    else:
+                        level = structure_level(bars, direction, lookback)
+                        if not level:
+                            continue
+                        start = level[1] + 3 * seconds - 900
+                        values = [("Cấu trúc BOS", level[0])]
+                    levels.extend({"title": f"{label} {frame} · {side}", "price": price,
+                                   "from": start, "to": candles[-1].time}
+                                  for label, price in values)
+            return {"levels": levels, "curves": curves, "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",

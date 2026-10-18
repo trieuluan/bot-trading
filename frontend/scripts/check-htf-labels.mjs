@@ -18,6 +18,11 @@ const cases = [
   ['ema_cross_n', 'htf_ema_cross', 'EMA cross HTF'],
   ['wedge', 'htf_wedge', 'Nêm HTF'],
   ['swing_zone', 'htf_swing', 'Vùng swing HTF'],
+  ['fib_retrace', 'htf_fib', 'Fibonacci thoái lui HTF'],
+  ['rsi_divergence', 'htf_divergence', 'Phân kỳ RSI HTF'],
+  ['fvg', 'htf_fvg', 'Fair Value Gap HTF'],
+  ['bos', 'htf_bos', 'Phá vỡ cấu trúc BOS HTF'],
+  ['session_vwap', 'htf_vwap', 'VWAP phiên HTF'],
 ];
 
 for (const [feat, expectedKey, expectedLabel] of cases) {
