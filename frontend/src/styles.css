@@ -4875,6 +4875,19 @@ main:has(.futures-desk) .page-heading {
   font-size: 11px;
   color: #64746a;
 }
+.mexc-stat {
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+  min-width: 128px;
+}
+.mexc-stat .muted {
+  font-size: 10px;
+}
+.mexc-stat strong {
+  font-size: 12px;
+  white-space: nowrap;
+}
 .mexc-wallet-strip > div {
   display: flex;
   flex-direction: column;

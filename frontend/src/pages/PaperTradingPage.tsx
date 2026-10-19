@@ -344,42 +344,39 @@ export function PaperTradingPage({
             </span>
             {quote?.fundingRate !== undefined && (
               <span
-                className="mexc-fair-price"
-                title={quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'}
+                className="mexc-stat"
+                title={`${quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'} · đếm ngược tới kỳ thanh toán funding`}
               >
-                Funding{' '}
-                <b className={quote.fundingRate >= 0 ? 'negative' : 'positive'}>
-                  {quote.fundingRate >= 0 ? '+' : ''}
-                  {(quote.fundingRate * 100).toFixed(4)}%
-                </b>
-                {quote.nextFundingTime && (
-                  <> / {fundingCountdown(quote.nextFundingTime - clock / 1000)}</>
-                )}
+                <span className="muted">Funding / Còn lại</span>
+                <strong>
+                  <span className={quote.fundingRate >= 0 ? 'negative' : 'positive'}>
+                    {quote.fundingRate >= 0 ? '+' : ''}
+                    {(quote.fundingRate * 100).toFixed(4)}%
+                  </span>
+                  {quote.nextFundingTime && (
+                    <> / {fundingCountdown(quote.nextFundingTime - clock / 1000)}</>
+                  )}
+                </strong>
               </span>
             )}
             <span
-              className="mexc-fair-price"
+              className="mexc-stat"
               title="Open Interest: số hợp đồng còn mở trên MEXC. Chỉ tham khảo bối cảnh, không kích hoạt lệnh."
             >
-              OI{' '}
-              <b>
+              <span className="muted">OI (hợp đồng) / 24h</span>
+              <strong>
                 {wallet?.open_interest
                   ? wallet.open_interest.contracts.toLocaleString('en-US', {
                       notation: 'compact',
                       maximumFractionDigits: 2,
                     })
                   : '—'}
-              </b>{' '}
-              hợp đồng · 24h{' '}
-              {wallet?.open_interest?.change_24h_pct != null && !wallet.stale ? (
-                <b>
-                  {wallet.open_interest.change_24h_pct > 0 ? '+' : ''}
-                  {wallet.open_interest.change_24h_pct.toFixed(2)}%
-                </b>
-              ) : (
-                <span>—</span>
-              )}
-              {wallet?.stale && ' · dữ liệu cũ'}
+                {' / '}
+                {wallet?.open_interest?.change_24h_pct != null && !wallet.stale
+                  ? `${wallet.open_interest.change_24h_pct > 0 ? '+' : ''}${wallet.open_interest.change_24h_pct.toFixed(2)}%`
+                  : '—'}
+                {wallet?.stale && <small> · cũ</small>}
+              </strong>
             </span>
             <span className={`pill ${stream.live ? 'green' : 'amber'}`}>
               {stream.live ? 'LIVE 15m' : 'REST'}
@@ -402,7 +399,7 @@ export function PaperTradingPage({
               <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
             </div>
             <div>
-              <span className="muted">PnL chưa chốt (chung / cặp)</span>
+              <span className="muted">PnL chưa chốt: Tất cả / Cặp này</span>
               {typeof wallet?.unrealized_pnl === 'number' ? (
                 <strong>
                   <span className={wallet.unrealized_pnl < 0 ? 'negative' : 'positive'}>
