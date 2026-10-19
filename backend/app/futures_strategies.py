@@ -250,11 +250,6 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
                   describe_rule(tree["rule"]))
     direction = 1 if setup.side == "long" else -1
     risk = direction * (setup.entry - stop)
-    policy = genome.get("exit_policy", "fixed")
-    if policy == "runner":
-        target = setup.entry + direction * max(6.0, genome["target_r"] * 2.5) * risk
-    elif policy == "scale_out_ladder":
-        target = setup.entry + direction * max(3.0, genome["target_r"]) * risk
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)
         if target is None:

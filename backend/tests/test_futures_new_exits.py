@@ -70,6 +70,8 @@ def test_all_policies_start_from_identical_hourly_stop(monkeypatch, side):
                         lambda rule, rows, candidate, lookback, context: candidate == direction)
     rows = bars(80)
     rows[72] = Candle(72 * 900, 100, 108, 92, 100, 1)
+    close = 100 + direction * 12
+    rows[-1] = Candle(79 * 900, 100, max(101, close), min(99, close), close, 1)
     expected_stop, expected_target = adaptive_levels(side, rows)
     for policy in EVOLVABLE_EXITS:
         genome = {**RULE_SEEDS[0], "exit_policy": policy}
