@@ -5724,3 +5724,7 @@ main:has(.futures-desk) {
 .position-tag { font-size: 12px; max-width: 190px; }
 .position-tag > * { padding: 2px 7px; white-space: nowrap; }
 
+
+.chart-legend-info { position: relative; margin-left: auto; }
+.chart-legend-info summary { cursor: pointer; color: #63746a; }
+.chart-legend-info ul { position: absolute; right: 0; bottom: 24px; z-index: 5; width: 340px; margin: 0; padding: 10px 14px 10px 26px; border-radius: 6px; background: #0b100e; color: #d8e2dc; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 18px rgba(0,0,0,.35); }

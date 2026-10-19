@@ -703,42 +703,43 @@ export function PaperChart({
       )}
       <div className="chart-legend">
         {openTrades.length > 0 && (
-          <span>
-            PnL trên thẻ là chênh lệch giá × khối lượng, chưa trừ phí; rê chuột vào thẻ để xem số
-            sau phí.
-          </span>
-        )}
-        {trade && (
           <strong>
-            #{trade.id} {trade.side.toUpperCase()} ·{' '}
-            {trade.exit_time === null ? 'Đang mở' : 'Đã đóng'} ·{' '}
-            {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
+            {openTrades.length} vị thế
+            {(['long', 'short'] as const).map((side) => {
+              const count = openTrades.filter((p) => p.side === side).length;
+              return count ? ` · ${count} ${side.toUpperCase()}` : '';
+            })}
+            {` · ${new Set(openTrades.map((p) => p.audit?.strategy ?? p.origin)).size} chiến thuật`}
+          </strong>
+        )}
+        {openTrades.length === 0 && trade && (
+          <strong>
+            #{trade.id} {trade.side.toUpperCase()} · Đã đóng
             {trade.audit?.strategy ? ` · ${tradeStrategy(trade.audit)?.title}` : ''}
           </strong>
         )}
-        {trade && (
+        {(trade || openTrades.length > 0) && (
           <>
             <span className="entry-legend">— Entry</span>
             <span className="stop-legend">— SL</span>
             <span className="target-legend">— TP</span>
-            {trade.exit !== null && <span className="exit-legend">— Exit · giá đóng</span>}
+            {trade?.exit != null && <span className="exit-legend">— Exit · giá đóng</span>}
           </>
-        )}
-        {step !== 900 && <span>Lớp phân tích giữ dữ liệu nguồn, gộp mốc thời gian theo {timeframe}; không tính lại chỉ báo theo khung xem. Nến cuối có thể chưa đóng.</span>}
-        {observations.length > 0 && (
-          <span>
-            {observations.length} lớp phân tích · nét đứt: vùng tham chiếu · nét liền: chỉ báo ·
-            marker: tín hiệu nến đóng · ENTRY/SL/TP dự kiến không phải lệnh đã khớp
-          </span>
         )}
         {trade?.audit?.range_high != null && (
           <span className="breakout-legend">— Vùng 20 nến trước · ● Nến tín hiệu</span>
         )}
-        {trade?.exit_time !== null && trade ? (
-          <span>Nến lịch sử / giá đã quan sát; giá realtime ở phía trên</span>
-        ) : (
-          <span>Nến hiện tại chỉ gồm các giá đã quan sát</span>
-        )}
+        {observations.length > 0 && <span>{observations.length} lớp phân tích</span>}
+        <details className="chart-legend-info">
+          <summary>Thông tin chart</summary>
+          <ul>
+            <li>PnL trên thẻ: chênh lệch giá × khối lượng, chưa trừ phí. Rê chuột vào thẻ để xem số sau phí.</li>
+            <li>Nét đứt: vùng tham chiếu · nét liền: chỉ báo · marker: tín hiệu nến đóng.</li>
+            <li>ENTRY/SL/TP dự kiến không phải lệnh đã khớp.</li>
+            {step !== 900 && <li>Lớp phân tích giữ dữ liệu nguồn, gộp mốc thời gian theo {timeframe}; không tính lại chỉ báo theo khung xem. Nến cuối có thể chưa đóng.</li>}
+            <li>Nến hiện tại chỉ gồm các giá đã quan sát; giá realtime ở phía trên.</li>
+          </ul>
+        </details>
       </div>
     </div>
   );
