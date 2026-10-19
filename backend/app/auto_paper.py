@@ -18,6 +18,7 @@ from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles, save_market_signal
 from .futures_learner import read_state, select_for_auto
 from .mexc import SOURCE, MarketDataError, validate_candles
+from .notifications import notify_open
 from .paper import (
     MAX_ORDER_MARGIN_PERCENT,
     create_position,
@@ -138,6 +139,9 @@ def record_decision(
         )
     )
     set_status(session, state, reason)
+    if action == "opened" and trade is not None:
+        notify_open(session, trade, audit, master(session).balance,
+                    (audit or {}).get("reason"))
 
 
 def baseline_auto_on_startup():
@@ -258,6 +262,8 @@ def auto_tick(now=None):
                 signal_time=candle_time,
                 exit_policy=learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed"),
                 leverage=state.leverage,
+                exit_params=learning["candidates"][strat_name]["genome"].get("exit_params"),
+                exit_rule=learning["candidates"][strat_name]["genome"].get("rule"),
             )
         except HTTPException as exc:
             record_decision(session, state, candle_time, "skipped", exc.detail, setup)
@@ -284,8 +290,14 @@ def auto_tick(now=None):
                 "leverage": state.leverage,
                 "margin_mode": "cross",
                 "risk_budget": risk_cash,
+                "strategy_source": "entry_snapshot",
+                "initial_stop": setup.stop,
+                "initial_target": setup.target,
                 "exit_policy": (learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
                                 if learning else "fixed"),
+                "genome": learning["candidates"][strat_name]["genome"] if learning and strat_name in learning["candidates"] else None,
+                "generation": learning["candidates"][strat_name].get("generation", 0) if learning and strat_name in learning["candidates"] else 0,
+                "parents": learning["candidates"][strat_name].get("parents", []) if learning and strat_name in learning["candidates"] else [],
             },
         )
 
@@ -299,12 +311,18 @@ def state_response(session, wallet, state, now):
     ).all()
     beat = session.get(BotState, 1).heartbeat
     worker_online = bool(beat and now - beat.replace(tzinfo=timezone.utc).timestamp() < 30)
+    decision = learning["last_decision"]
+    if decision:
+        decision = {**decision, "strategies": [
+            {**row, "genome": learning["candidates"].get(row["strategy"], {}).get("genome")}
+            for row in decision.get("strategies", [])
+        ]}
     return dict(
         enabled=state.enabled,
         auto_mode=learning["auto_mode"],
         learner_enabled=learning["enabled"],
         learner_error=learning["error"],
-        learner_decision=learning["last_decision"],
+        learner_decision=decision,
         risk_percent=state.risk_percent,
         leverage=state.leverage,
         min_leverage=leverage_limits(wallet)[0],

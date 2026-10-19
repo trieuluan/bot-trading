@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
 from .db import (
+    FuturesLearningState,
     FuturesOpenInterest,
     AutoPaperDecision,
     AutoPaperState,
@@ -30,8 +31,10 @@ from .db import (
     utcnow,
 )
 from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
-from .futures_exits import EXIT_POLICIES, adaptive_target, partial_size, protective_stop
+from .futures_exits import (EXIT_POLICIES, adaptive_target, partial_size, protective_stop,
+                           discretionary_exit, has_target, exit_parameters)
 from .feed import load_candles
+from .notifications import notify_close, notify_open, notify_partial
 from .mexc import MarketDataError, MexcFuturesAdapter
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
@@ -223,6 +226,7 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
             kind="paper", message=f"PAPER #{trade.id}: đóng {reason}; PnL {trade.net_pnl:.2f} USDT"
         )
     )
+    notify_close(session, trade)
 
 
 def apply_stops(session, wallet, now):
@@ -237,7 +241,8 @@ def apply_stops(session, wallet, now):
         # Executable side of the sampled book, not a candle high/low.
         price = quote["bid1"] if trade.side == "long" else quote["ask1"]
         stopped = price <= trade.stop if trade.side == "long" else price >= trade.stop
-        targeted = price >= trade.target if trade.side == "long" else price <= trade.target
+        targeted = has_target(trade.monitoring or {}) and (
+            price >= trade.target if trade.side == "long" else price <= trade.target)
         if stopped or targeted:
             close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
 
@@ -271,7 +276,8 @@ def reconcile_stops(session, wallet, trade, now):
         if candle.time != cursor:
             break
         stopped = candle.low <= trade.stop if trade.side == "long" else candle.high >= trade.stop
-        targeted = candle.high >= trade.target if trade.side == "long" else candle.low <= trade.target
+        targeted = has_target(monitoring) and (
+            candle.high >= trade.target if trade.side == "long" else candle.low <= trade.target)
         if stopped or targeted:
             hit, span, ambiguous, resolution = candle, 899, bool(stopped and targeted), "15m"
             if stopped and targeted:
@@ -330,7 +336,19 @@ def reconcile_stops(session, wallet, trade, now):
                             target=trade.target, exit_policy=policy, quantity=trade.quantity,
                             entry_fee=trade.entry_fee,
                             funding_cost=settled_funding,
-                            partial_exits=monitoring.get("partial_exits"))
+                            partial_exits=monitoring.get("partial_exits"),
+                            exit_params=monitoring.get("exit_params"), exit_rule=monitoring.get("exit_rule"),
+                            entry_time=trade.entry_time,
+                            original_quantity=monitoring.get("original_quantity", trade.quantity))
+            why = discretionary_exit(position, history)
+            if why:
+                fill = candle.close * (1 + (-1 if trade.side == "long" else 1) * wallet.slippage_bps / 10000)
+                trade.monitoring = {**monitoring, "next_bar": cursor, "status": "recovered",
+                                    "trigger_bar": candle.time, "fill_basis": "bar_close",
+                                    "execution_model": "historical_levels_v1", "recovered_at": int(now),
+                                    "time_basis": "bar_end_proxy"}
+                close_position(session, wallet, trade, why, now, price=fill, exit_time=candle.time + 899)
+                return
             minimum = float(info.get("contractSize") or 0) * float(info.get("minVol") or 0)
             quantity = partial_size(position, history, unit, minimum) if unit > 0 else 0
             if quantity:
@@ -352,13 +370,18 @@ def reconcile_stops(session, wallet, trade, now):
                     master(session).balance = round(master(session).balance + refund, 8)
                 monitoring = {**monitoring, "realized_net": round(
                     monitoring.get("realized_net", 0) + gross - fee - entry_fee, 8),
-                    "original_quantity": original, "original_entry_fee": trade.entry_fee + entry_fee,
-                    "partial_exits": [dict(time=candle.time + 900, price=fill, quantity=quantity,
+                    "original_quantity": monitoring.get("original_quantity", original),
+                    "original_entry_fee": monitoring.get("original_entry_fee", trade.entry_fee + entry_fee),
+                    "partial_exits": [*(monitoring.get("partial_exits") or []),
+                                      dict(time=candle.time + 900, price=fill, quantity=quantity,
                                            gross=gross, exit_fee=fee, entry_fee=entry_fee)]}
                 position.update(quantity=trade.quantity, entry_fee=trade.entry_fee,
                                 partial_exits=monitoring["partial_exits"])
                 session.add(Event(kind="paper", message=f"PAPER #{trade.id}: chốt {quantity:g} tại {fill:.4f}"))
-            trade.target = adaptive_target(position, history)
+                notify_partial(session, trade, fill, quantity, gross - fee - entry_fee,
+                               trade.quantity, candle.time)
+            if has_target(position):
+                trade.target = adaptive_target(position, history)
             next_stop = protective_stop(
                 position, history, wallet.fee_bps / 10000, wallet.slippage_bps / 10000)
             if next_stop != trade.stop:
@@ -374,6 +397,13 @@ def reconcile_stops(session, wallet, trade, now):
         )))
     trade.monitoring = {**monitoring, "next_bar": cursor, "status": status}
 
+
+def sync_paper_stops(now=None):
+    now = time.time() if now is None else now
+    with Session.begin() as session:
+        wallet = lock_wallet(session)
+        for trade in open_positions(session):
+            reconcile_stops(session, wallet, trade, now)
 
 def sync_paper_quote(adapter=None):
     owns_adapter = adapter is None
@@ -510,7 +540,7 @@ def sync_paper_funding(adapter=None, now=None):
             adapter.close()
 
 
-def serialize_trade(trade, decision=None):
+def serialize_trade(trade, decision=None, candidates=None):
     result = {
         name: getattr(trade, name)
         for name in (
@@ -537,7 +567,24 @@ def serialize_trade(trade, decision=None):
         )
     }
 
-    result["audit"] = decision.parameters.get("audit") if decision else None
+    raw_audit = decision.parameters.get("audit") if decision and decision.parameters else None
+    audit = dict(raw_audit) if raw_audit else None
+    if audit:
+        audit["strategy_source"] = "entry_snapshot" if audit.get("genome") else "missing"
+    if audit and candidates:
+        name = audit.get("strategy")
+        if name and name in candidates:
+            cand = candidates[name]
+            if not audit.get("genome"):
+                audit["genome"] = cand.get("genome")
+                audit["strategy_source"] = "registry"
+            if "generation" not in audit:
+                audit["generation"] = cand.get("generation", 0)
+            if "parents" not in audit:
+                audit["parents"] = cand.get("parents", [])
+            if "exit_policy" not in audit:
+                audit["exit_policy"] = cand.get("genome", {}).get("exit_policy", "fixed")
+    result["audit"] = audit
     result["margin_mode"] = "cross"
     result["initial_margin"] = round(trade.entry * trade.quantity / (trade.leverage or 1), 8)
     result["entry_reason"] = decision.setup.get("reason") if decision and decision.setup else None
@@ -574,6 +621,9 @@ def get_wallet():
     # Keep balance, position and ledger from the same serialized wallet state.
     with Session.begin() as session:
         wallet = lock_wallet(session)
+        learning_state = session.get(FuturesLearningState, state_id())
+        learning_payload = (learning_state.payload or {}) if learning_state else {}
+        candidates = {**learning_payload.get("rule_archive", {}), **learning_payload.get("candidates", {})}
         trades = session.scalars(select(PaperTrade).where(PaperTrade.symbol == current_symbol()).order_by(PaperTrade.id.desc()).limit(100)).all()
         positions = open_positions(session)
         decisions = {
@@ -620,10 +670,10 @@ def get_wallet():
             funding_error=wallet.funding_error,
             funding_cursor=wallet.funding_cursor,
             position=(
-                serialize_trade(positions[-1], decisions.get(positions[-1].id)) if positions else None
+                serialize_trade(positions[-1], decisions.get(positions[-1].id), candidates) if positions else None
             ),
-            positions=[serialize_trade(t, decisions.get(t.id)) for t in positions],
-            trades=[serialize_trade(trade, decisions.get(trade.id)) for trade in trades],
+            positions=[serialize_trade(t, decisions.get(t.id), candidates) for t in positions],
+            trades=[serialize_trade(trade, decisions.get(trade.id), candidates) for trade in trades],
             candles=candles,
         )
 
@@ -639,7 +689,7 @@ def replay_command(session, request_id, payload):
 
 def create_position(
     session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None,
-    exit_policy="fixed", leverage=1,
+    exit_policy="fixed", leverage=1, exit_params=None, exit_rule=None,
 ):
     """Shared sizing/fill/accounting for manual and automatic paper entries.
 
@@ -647,6 +697,10 @@ def create_position(
     """
     if exit_policy not in EXIT_POLICIES:
         raise HTTPException(422, "Invalid futures exit policy")
+    try:
+        exit_parameters(exit_policy, exit_params)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     validate_leverage(wallet, leverage)
     fresh_quote(wallet)
     cash, _, margin = portfolio(session, require_fresh=True)
@@ -688,7 +742,8 @@ def create_position(
             next_bar=(int(time.time()) // 900 + 1) * 900,
             status="watching",
             maintenance_margin_rate=float(info.get("maintenanceMarginRate") or 0),
-            **({} if exit_policy == "fixed" else {"exit_policy": exit_policy, "risk": abs(price - stop)}),
+            **({} if exit_policy == "fixed" else {"exit_policy": exit_policy, "risk": abs(price - stop),
+                                                      "exit_params": exit_params, "exit_rule": exit_rule}),
         ),
         origin=origin,
         signal_time=signal_time,
@@ -726,6 +781,7 @@ def open_order(payload: OpenOrder):
         trade = create_position(
             session, wallet, payload.side, payload.notional, payload.stop, payload.target
         )
+        notify_open(session, trade, None, master(session).balance)
         result = {"trade_id": trade.id, "status": "opened", "mode": "paper"}
         session.add(PaperCommand(id=str(payload.request_id), payload=command, result=result))
         session.add(

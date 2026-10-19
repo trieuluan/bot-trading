@@ -9,14 +9,15 @@ from statistics import fmean, pstdev
 
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion
 from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
-from .futures_exits import EXIT_POLICIES, adaptive_levels, structural_target
+from .futures_chart import rule_overlays
+from .futures_exits import (EXIT_POLICIES, EVOLVABLE_EXITS, EXIT_BOUNDS, EXIT_DEFAULTS,
+                           exit_parameters, adaptive_levels, structural_target)
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
-                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule,
-                                fib_zone, fresh_fvg, structure_level, session_vwap_points, nodes)
+                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule)
 
 RULE_FAMILY = "rule_tree"
 FAMILIES = ()
-MUTABLE_EXITS = ("fixed", "trail", "adaptive")
+MUTABLE_EXITS = EVOLVABLE_EXITS
 BOUNDS = {
     "lookback": (10, 40, 5), "target_r": (1.5, 3.0, 0.5),
     "stop_buffer": (0.0, 0.5, 0.1), "max_er": (0.2, 0.4, 0.05),
@@ -31,7 +32,7 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "rule", "exit_profile"} if rule_tree else {"exit_policy"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
@@ -44,6 +45,7 @@ def validate_genome(genome):
             raise ValueError("Default rule-tree exits must keep the control R/buffer")
     if genome.get("exit_policy", "fixed") not in EXIT_POLICIES:
         raise ValueError("Invalid futures genome: exit_policy")
+    exit_parameters(genome.get("exit_policy", "fixed"), genome.get("exit_params"))
     for key, (low, high, _) in BOUNDS.items():
         value = genome[key]
         if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
@@ -118,6 +120,8 @@ def genome_fingerprint(genome):
                   "exit_profile": genome.get("exit_profile", "default")}
     if is_rule_tree(genome):
         normalized["rule"] = canonical_rule(genome["rule"])
+    if genome.get("exit_policy") in EXIT_DEFAULTS:
+        normalized["exit_params"] = exit_parameters(genome["exit_policy"], genome.get("exit_params"))
     return json.dumps(normalized, sort_keys=True)
 
 def exit_policy_enabled(genome):
@@ -141,8 +145,11 @@ def crossover(parent, mate):
         except ValueError:
             pass
     child.pop("exit_policy", None)
-    if mate.get("exit_policy") in ("trail", "adaptive"):
+    child.pop("exit_params", None)
+    if mate.get("exit_policy") in MUTABLE_EXITS and mate.get("exit_policy") != "fixed":
         child["exit_policy"] = mate["exit_policy"]
+        if mate.get("exit_params"):
+            child["exit_params"] = copy.deepcopy(mate["exit_params"])
     return child
 
 def mutate(genome, rng):
@@ -155,6 +162,8 @@ def mutate(genome, rng):
     if is_rule_tree(genome):
         relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" or genome.get("exit_policy") == "adaptive" else [])
     relevant.append("exit_policy")
+    if genome.get("exit_policy") in EXIT_DEFAULTS:
+        relevant.append("exit_params")
     if profile in ("breakout", "retest", "mtf_retest", "liquidity_sweep", "squeeze", "volume_spike", "donchian_trend", "ema_cross"):
         relevant.append("lookback")
     if profile == "mean_reversion":
@@ -166,10 +175,21 @@ def mutate(genome, rng):
         mode = rng.choice([policy for policy in MUTABLE_EXITS
                            if policy != genome.get("exit_policy", "fixed")])
         child.pop("exit_policy", None)
+        child.pop("exit_params", None)
         if mode != "fixed":
             child["exit_policy"] = mode
         if profile == "default" and mode != "adaptive":
             child.update(target_r=2.0, stop_buffer=0.0)
+        validate_genome(child)
+        return child
+    if key == "exit_params":
+        params = exit_parameters(genome["exit_policy"], genome.get("exit_params"))
+        param = rng.choice(list(params))
+        low, high, step = EXIT_BOUNDS[param]
+        value = rng.choice([value for value in (params[param] - step, params[param] + step)
+                            if low - 1e-9 <= value <= high + 1e-9])
+        params[param] = int(value) if param in ("max_bars", "confirm_bars") else round(value, 6)
+        child["exit_params"] = params
         validate_genome(child)
         return child
     if key == "rule":
@@ -240,8 +260,14 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     direction = 1 if setup.side == "long" else -1
     stop = setup.stop if adaptive else setup.stop - direction * genome["stop_buffer"] * atr14(candles)
     risk = direction * (setup.entry - stop)
-    target = (setup.target if adaptive or tree.get("exit_profile") == "mean_reversion"
-              else setup.entry + direction * genome["target_r"] * risk)
+    policy = genome.get("exit_policy", "fixed")
+    if policy == "runner":
+        target = setup.entry + direction * max(6.0, genome["target_r"] * 2.5) * risk
+    elif policy == "scale_out_ladder":
+        target = setup.entry + direction * max(3.0, genome["target_r"]) * risk
+    else:
+        target = (setup.target if adaptive or tree.get("exit_profile") == "mean_reversion"
+                  else setup.entry + direction * genome["target_r"] * risk)
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)
         if target is None:
@@ -250,56 +276,12 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
         return None
     return replace(setup, stop=stop, target=target)
 
-def strategy_chart(genome, candles):
+def strategy_chart(genome, candles, context=None):
     family, lookback = genome["family"], genome["lookback"]
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else family
     if family == RULE_FAMILY:
-        levels, curves = [], []
-        for direction, title in ((1, "Vùng breakout trên"), (-1, "Vùng breakout dưới")):
-            price = breakout_level(genome["rule"], candles, direction, lookback)
-            if price is not None and candles:
-                levels.append({"title": title, "price": price,
-                               "from": candles[max(0, len(candles) - lookback - 1)].time,
-                               "to": candles[-1].time})
-        if profile == "default":
-            for _, node in nodes(genome["rule"]):
-                feat, frame = node.get("feature"), node.get("frame", "H1")
-                if feat not in ("fib_retrace", "fvg", "bos", "session_vwap"):
-                    continue
-                seconds = 14400 if frame == "H4" else 3600 if frame == "H1" else 900
-                bars = aggregate(candles, seconds) if seconds > 900 else candles
-                if not bars:
-                    continue
-                if feat == "session_vwap":
-                    points = session_vwap_points(bars, seconds)
-                    if points:
-                        curves.append({"title": f"VWAP ngày {frame} · volume nến", "points": [
-                            {"time": point["time"] + seconds - 900, "value": point["value"]}
-                            for point in points]})
-                    continue
-                for direction, side in ((1, "Long"), (-1, "Short")):
-                    if feat == "fib_retrace":
-                        zone = fib_zone(bars, direction, lookback)
-                        if not zone:
-                            continue
-                        start = zone[2] + 3 * seconds - 900
-                        values = [("Fib 50%", zone[0]), ("Fib 61.8%", zone[1])]
-                    elif feat == "fvg":
-                        zone = fresh_fvg(bars, direction, lookback)
-                        if not zone:
-                            continue
-                        start = zone[2] + seconds - 900
-                        values = [("FVG dưới", zone[0]), ("FVG trên", zone[1])]
-                    else:
-                        level = structure_level(bars, direction, lookback)
-                        if not level:
-                            continue
-                        start = level[1] + 3 * seconds - 900
-                        values = [("Cấu trúc BOS", level[0])]
-                    levels.extend({"title": f"{label} {frame} · {side}", "price": price,
-                                   "from": start, "to": candles[-1].time}
-                                  for label, price in values)
-            return {"levels": levels, "curves": curves, "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
+        return {**rule_overlays(genome["rule"], candles, lookback, context),
+                "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",

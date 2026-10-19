@@ -19,7 +19,7 @@ from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, Market
 from .futures_symbols import current_symbol, market_symbol, state_id
 from .futures_context import load_signal_context
 from .feed import load_candles
-from .futures_exits import adaptive_target, partial_size, protective_stop
+from .futures_exits import adaptive_target, partial_size, protective_stop, discretionary_exit, has_target
 from .futures_rule_tree import describe_rule, nodes, validate_rule
 from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
@@ -144,22 +144,31 @@ def advance(sample, bar, fair, funding, candles=None):
         price, why = bar.open, "stop_gap"
     elif (bar.low <= stop if direction == 1 else bar.high >= stop):
         price, why = stop, "stop"
-    elif (bar.high >= target if direction == 1 else bar.low <= target):
+    elif has_target(sample) and (bar.high >= target if direction == 1 else bar.low <= target):
         price, why = target, "target"
     elif bar.time - sample["entry_time"] >= MAX_HOLD:
         price, why = bar.close, "timeout"
     else:
         history = candles or [bar]
+        why = discretionary_exit(sample, history)
+        if why:
+            price = bar.close
+            return finish(sample, direction, price, why, bar)
+        sample.setdefault("original_quantity", sample.get("quantity", 1.0))
         quantity = partial_size(sample, history)
         if quantity:
             fill = bar.close * (1 - direction * SLIP)
-            sample["partial_exits"] = [dict(time=bar.time + 900, price=fill, quantity=quantity)]
-            sample["realized_gross"] = direction * (fill - sample["entry"]) * quantity
-            sample["realized_exit_fee"] = fill * quantity * FEE
+            sample["partial_exits"] = [*(sample.get("partial_exits") or []),
+                                       dict(time=bar.time + 900, price=fill, quantity=quantity)]
+            sample["realized_gross"] = sample.get("realized_gross", 0) + direction * (fill - sample["entry"]) * quantity
+            sample["realized_exit_fee"] = sample.get("realized_exit_fee", 0) + fill * quantity * FEE
             sample["quantity"] = sample.get("quantity", 1.0) - quantity
         sample["target"] = adaptive_target(sample, history)
         sample["stop"] = protective_stop(sample, candles or [bar], FEE, SLIP)
         return
+    finish(sample, direction, price, why, bar)
+
+def finish(sample, direction, price, why, bar):
     price *= 1 - direction * SLIP
     quantity = sample.get("quantity", 1.0)
     net = (sample.get("realized_gross", 0) + direction * (price - sample["entry"]) * quantity
@@ -307,7 +316,11 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
             kwargs["fair_candles"] = [fair]
         setup = strategy_setup(candidate["genome"], candles, state["funding"], **kwargs)
-        observation.update(strategy_chart(candidate["genome"], candles))
+        observation.update(strategy_chart(candidate["genome"], candles, {
+            **kwargs, "funding": state["funding"],
+            "funding_threshold": candidate["genome"]["funding_threshold"],
+            "max_er": candidate["genome"]["max_er"],
+        }))
         observation["status"] = "no_signal"
         if setup is None:
             continue
@@ -325,6 +338,8 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
                 "regime": context, "status": "open", "entry": None, "net_r": None,
                 "label_available_at": None,
                 "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
+                "exit_params": candidate["genome"].get("exit_params"),
+                "exit_rule": candidate["genome"].get("rule"),
             })
     eligible = [candidate for candidate in found if candidate["promoted"]]
     pool = found if state["auto_mode"] == "paper_learning" else eligible or found
@@ -366,6 +381,8 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
                if any(node.get("feature") == "basis_aligned"
                       for _, node in nodes(candidate["genome"]["rule"])) else (signal_context or {}))),
         exit_policy=candidate["genome"].get("exit_policy", "fixed"),
+        exit_params=candidate["genome"].get("exit_params"),
+        exit_rule=candidate["genome"].get("rule"),
     )
     candidate["windows"].append({
         **{key: result[key] for key in ("start_time", "end_time", "trade_count", "net_pnl", "max_drawdown_percent")},

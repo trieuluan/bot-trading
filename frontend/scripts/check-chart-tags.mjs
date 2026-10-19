@@ -1,5 +1,20 @@
 import assert from 'node:assert/strict';
 import { placeChartTags } from '../src/lib/chart-tags.ts';
+import { drawOrder, stackLabels } from '../src/lib/chart-labels.ts';
+
+const labels = [
+  { time: 1, above: true, text: 'Signal' },
+  { time: 2, above: true, text: 'Entry' },
+  { time: 1, above: true, text: 'Confirmation' },
+  { time: 1, above: false, text: 'Exit' },
+];
+const stacked = stackLabels(labels);
+assert.deepEqual(stacked.map((label) => label.slot), [0, 0, 1, 0]);
+assert.deepEqual(drawOrder(stacked, 1).map((label) => label.text), ['Entry', 'Signal', 'Confirmation', 'Exit']);
+assert.deepEqual(drawOrder(stacked, 2).map((label) => label.text), ['Signal', 'Confirmation', 'Exit', 'Entry']);
+assert.deepEqual(drawOrder(stacked, null), stacked);
+assert.deepEqual(drawOrder(stacked, 99), stacked);
+assert.deepEqual(stacked.map((label) => label.time), [1, 2, 1, 1]);
 
 for (const count of [1, 5, 7, 22]) {
   for (const priceY of [0, 100, 399]) {

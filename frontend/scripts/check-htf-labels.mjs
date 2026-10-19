@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { HTF_LABELS, profileOf, strategyName } from '../src/lib/futures-strategy-info.ts';
+import { HTF_LABELS, profileOf, strategyName, chartStrategyText, searchText } from '../src/lib/futures-strategy-info.ts';
 
 const ruleFor = (feat) => ({
   op: 'all',
@@ -30,7 +30,13 @@ for (const [feat, expectedKey, expectedLabel] of cases) {
   assert.equal(profileOf(genome), expectedKey);
   assert.equal(HTF_LABELS[expectedKey], expectedLabel);
   assert.ok(strategyName(genome).startsWith(expectedLabel));
+  const row = chartStrategyText({ strategy: 'rule_tree:abc123456', genome, note: 'Đang chờ nến đóng' });
+  assert.equal(row.title, `${expectedLabel} #abc123`);
+  for (const query of [expectedLabel, 'ABC123456', 'dang cho nen dong', 'H4', feat]) {
+    assert.ok(row.search.includes(searchText(query)), query);
+  }
 }
+assert.ok(chartStrategyText({ strategy: 'rule_tree:old123' }).search.includes('old123'));
 
 // Retest with sequence child
 const retestGenome = {

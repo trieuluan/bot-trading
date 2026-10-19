@@ -197,7 +197,10 @@ def test_strategy_observations_include_waiting_and_signal_states(monkeypatch):
         learner.save_state(session, state)
     response = client.get("/api/paper/auto")
     assert response.status_code == 200
-    assert response.json()["learner_decision"] == decision
+    enriched = response.json()["learner_decision"]
+    for row in enriched["strategies"]:
+        assert row.pop("genome") == state["candidates"][row["strategy"]]["genome"]
+    assert enriched == decision
     assert response.json()["learner_enabled"] is True
     assert response.json()["learner_error"] == "test feed gap"
 
@@ -206,6 +209,18 @@ def test_chart_reference_levels_exclude_signal_bar_and_require_history():
     assert strategy_levels(SEEDS[0], bars) == [
         {"title": "Đỉnh 20 M15", "price": 101}, {"title": "Đáy 20 M15", "price": 99}]
     assert strategy_levels(SEEDS[0], bars[:20]) == []
+
+def test_chart_overlays_cover_every_seed_feature():
+    bars = [Candle(index * 900, 100 + index % 7, 102 + index % 7, 98 + index % 5,
+                   100 + index % 6, 1) for index in range(400)]
+    for seed in RULE_SEEDS:
+        chart = learner.strategy_chart(seed, bars)
+        assert all({"title", "price", "from", "to"} <= set(row) for row in chart["levels"])
+        assert all(len(row["points"]) >= 1 for row in chart["curves"])
+        assert chart["overlay_details"] and all(row["message"] or row["drawn"] for row in chart["overlay_details"])
+    ema_seed = RULE_SEEDS[1]
+    assert any(row["title"].startswith("EMA50") for row in learner.strategy_chart(ema_seed, bars)["curves"])
+    assert learner.strategy_chart(ema_seed, [])["levels"] == []
 
 def test_paper_learning_uses_unqualified_signal_and_records_selection(ready, monkeypatch):
     clock, seed = ready

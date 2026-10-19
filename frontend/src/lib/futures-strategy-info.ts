@@ -3,12 +3,12 @@ export type Rule =
   | { op: 'all' | 'any'; children: Rule[] }
   | { op: 'then'; within: number; children: Rule[] };
 
-type Genome = {
+export type Genome = {
   family: string;
   lookback: number;
   target_r: number;
   stop_buffer: number;
-  exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive';
+  exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive' | 'atr_chandelier' | 'time_stop' | 'scale_out_ladder' | 'signal_invalidation' | 'runner' | 'volatility_stop' | 'funding_exit';
   max_er?: number;
   funding_threshold?: number;
   rule?: Rule;
@@ -35,7 +35,7 @@ export const HTF_LABELS: Record<string, string> = {
   htf_other: 'Trend + nến',
 };
 
-function features(rule: Rule): string[] {
+export function features(rule: Rule): string[] {
   return 'feature' in rule ? [rule.feature] : rule.children.flatMap(features);
 }
 
@@ -160,6 +160,25 @@ export function searchText(text: string): string {
     .toLowerCase()
     .replace(/đ/g, 'd')
     .replace(/_/g, ' ');
+}
+
+export function chartStrategyText(row: {
+  strategy: string;
+  genome?: Genome | null;
+  note?: string;
+  setup?: { reason: string } | null;
+}) {
+  const title = row.genome
+    ? strategyShortTitle(row.genome, row.strategy)
+    : row.strategy.replace(/_/g, ' ').replace(':', ' #');
+  const description = row.genome ? strategyName(row.genome) : '';
+  const featList = row.genome?.rule ? features(row.genome.rule).join(' ') : '';
+  const profile = row.genome ? profileOf(row.genome) : '';
+  return {
+    title,
+    description,
+    search: searchText([title, description, profile, featList, row.strategy, row.note, row.setup?.reason].join(' ')),
+  };
 }
 
 export function strategyInfo(g: Genome): Info {
@@ -301,7 +320,48 @@ export function exitLabel(policy?: string) {
         trail: 'Hòa vốn + trailing',
         adaptive: 'SL/TP tự tính + chốt khi nến yếu + trailing',
         structure: 'TP cấu trúc + hòa vốn',
+        atr_chandelier: 'Chandelier: SL trail k×ATR H1',
+        time_stop: 'Time-stop: thoát nếu lệnh chết',
+        scale_out_ladder: 'Chốt nhiều bậc 1R/2R + trail',
+        signal_invalidation: 'Thoát khi xu hướng HTF đảo',
+        runner: 'Runner: chốt một phần, thả trôi, không TP',
+        volatility_stop: 'SL theo biến động ATR',
+        funding_exit: 'Thoát khi funding ăn quá R',
       } as Record<string, string>
     )[policy ?? 'fixed'] ?? policy
   );
+}
+
+export type TradeStrategy = { title: string; detail: string; generation: string; source: string };
+
+export function tradeStrategy(
+  audit: {
+    strategy: string;
+    genome?: Genome | null;
+    generation?: number;
+    exit_policy?: string;
+    strategy_source?: 'entry_snapshot' | 'registry' | 'missing';
+  } | null | undefined,
+): TradeStrategy | null {
+  if (!audit?.strategy) return null;
+  const { genome } = audit;
+  const generation = audit.generation === undefined ? '' : `G${audit.generation}`;
+  if (!genome) {
+    return {
+      title: audit.strategy.startsWith('rule_tree:')
+        ? `Cây chưa rõ họ #${audit.strategy.split(':')[1].slice(0, 6)}`
+        : audit.strategy.replace(/_/g, ' ').replace(':', ' #'),
+      detail: 'Lệnh cũ chưa lưu snapshot chiến thuật lúc vào.',
+      generation,
+      source: 'Thiếu snapshot lúc vào lệnh',
+    };
+  }
+  return {
+    title: strategyShortTitle(genome, audit.strategy),
+    detail: `${strategyName(genome)} · ${exitLabel(audit.exit_policy ?? genome.exit_policy)}`,
+    generation,
+    source: audit.strategy_source === 'registry'
+      ? 'Tra cứu danh mục cây · không phải snapshot lúc vào'
+      : 'Bản lưu chiến thuật lúc vào lệnh',
+  };
 }

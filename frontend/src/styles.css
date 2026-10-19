@@ -5517,3 +5517,102 @@ main:has(.futures-desk) {
 .chart-timeframes button { font-size: 12px; padding: 2px 9px; line-height: 1.4; }
 .futures-desk table th,
 .futures-desk table td { vertical-align: middle; font-variant-numeric: tabular-nums; }
+
+.tsp {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  max-height: min(300px, calc(100dvh - 16px));
+  overflow: hidden;
+  border: 1px solid #2d3b34;
+  border-radius: 12px;
+  background: #101614;
+  color: #d5e2da;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 40%);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tsp:popover-open { display: flex; flex-direction: column; }
+.tsp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #26332d;
+}
+.tsp-title { flex: 1; font-weight: 700; color: #fff; }
+.tsp-gen {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #1e5b47;
+  color: #bff0d8;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tsp-close {
+  border: 0;
+  background: none;
+  color: #8fa397;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tsp-close:hover { color: #fff; }
+.tsp-body { display: grid; gap: 10px; padding: 12px; overflow-y: auto; }
+.tsp-sec { display: grid; gap: 2px; }
+.tsp-label {
+  color: #7f9488;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tsp-foot { padding: 8px 12px; border-top: 1px solid #26332d; }
+.tsp-foot code { color: #8fa397; font-size: 11px; }
+.strategy-detail-btn { font-size: 12px; padding: 0; }
+
+.pair-signal {
+  position: absolute;
+  top: 1px;
+  left: 6px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #1e8f68;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  animation: pair-signal-pulse 1.8s ease-in-out infinite;
+}
+@keyframes pair-signal-pulse { 50% { box-shadow: 0 0 0 3px rgb(30 143 104 / 25%); } }
+@media (prefers-reduced-motion: reduce) { .pair-signal { animation: none; } }
+
+.positions-table .strat-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.positions-table .strat-gen {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #e7f1e7;
+  color: #1e5b47;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.positions-table .strat-exit { margin-top: 2px; }
+.positions-table .strategy-detail-btn {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.3;
+}

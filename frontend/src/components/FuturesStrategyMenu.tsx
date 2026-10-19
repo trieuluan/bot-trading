@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { Layers, Search, X } from 'lucide-react';
 import type { FuturesStrategyObservation } from '../types/paper';
 import { strategyColor } from './PaperChart';
+import { chartStrategyText, searchText } from '../lib/futures-strategy-info';
 
 export function FuturesStrategyMenu({
   rows,
@@ -21,7 +22,7 @@ export function FuturesStrategyMenu({
     (row) =>
       (filter !== 'selected' || selected.includes(row.strategy)) &&
       (filter !== 'signal' || row.status === 'signal') &&
-      row.strategy.replace(/_/g, ' ').toLowerCase().includes(query.trim().toLowerCase()),
+      chartStrategyText(row).search.includes(searchText(query.trim())),
   );
   return (
     <div className="strategy-menu-wrapper">
@@ -67,7 +68,7 @@ export function FuturesStrategyMenu({
             <input
               autoFocus
               aria-label="Tìm chiến thuật"
-              placeholder="Tìm tên hoặc mã biến thể…"
+              placeholder="Tìm tên, mã cây hoặc điều kiện…"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -93,7 +94,8 @@ export function FuturesStrategyMenu({
         <div className="strategy-popover-body">
           {visible.map((row) => {
             const checked = selected.includes(row.strategy);
-            const [family, code] = row.strategy.split(':');
+            const code = row.strategy.split(':')[1];
+            const text = chartStrategyText(row);
             return (
               <label
                 key={row.strategy}
@@ -112,9 +114,9 @@ export function FuturesStrategyMenu({
                 />
                 <div className="strategy-item-meta">
                   <div className="strategy-item-title-line">
-                    <span className="strategy-item-name" title={row.strategy}>
+                    <span className="strategy-item-name">
                       <span style={{ color: strategyColor(row.strategy) }}>■</span>{' '}
-                      {family.replace(/_/g, ' ')}
+                      {text.title}
                     </span>
                     <span className="status-pill-sub">
                       {row.status === 'signal'
@@ -128,8 +130,8 @@ export function FuturesStrategyMenu({
                     {code ? `#${code} · ` : ''}
                     {row.side?.toUpperCase() ?? 'Chưa có hướng'}
                   </small>
-                  <div className="strategy-item-reason" title={row.setup?.reason ?? row.note}>
-                    {row.setup?.reason ?? row.note}
+                  <div className="strategy-item-reason">
+                    {row.setup?.reason ?? row.note ?? text.description}
                   </div>
                 </div>
               </label>

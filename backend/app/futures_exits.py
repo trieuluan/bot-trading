@@ -6,7 +6,75 @@ from decimal import Decimal, ROUND_DOWN
 from .futures_rules import atr14
 from .strategy import aggregate
 
-EXIT_POLICIES = ("fixed", "breakeven", "trail", "structure", "adaptive")
+EVOLVABLE_EXITS = ("fixed", "trail", "adaptive", "atr_chandelier", "time_stop",
+                   "scale_out_ladder", "signal_invalidation", "runner", "volatility_stop", "funding_exit")
+EXIT_POLICIES = (*EVOLVABLE_EXITS, "breakeven", "structure")
+EXIT_DEFAULTS = {
+    "atr_chandelier": {"atr_multiple": 3.0},
+    "time_stop": {"max_bars": 32, "min_progress_r": 0.5},
+    "scale_out_ladder": {"step_r": 1.0, "partial_fraction": 0.3},
+    "signal_invalidation": {"confirm_bars": 2},
+    "runner": {"partial_r": 1.0, "partial_fraction": 0.5, "atr_multiple": 3.0},
+    "volatility_stop": {"atr_multiple": 2.0},
+    "funding_exit": {"funding_r": 0.1},
+}
+EXIT_BOUNDS = {
+    "atr_multiple": (1.0, 5.0, 0.5), "max_bars": (4, 192, 4),
+    "min_progress_r": (0.1, 1.0, 0.1), "step_r": (0.5, 2.0, 0.5),
+    "partial_fraction": (0.1, 0.7, 0.1), "partial_r": (1.0, 3.0, 0.5),
+    "confirm_bars": (1, 4, 1), "funding_r": (0.05, 0.5, 0.05),
+}
+
+def exit_parameters(policy, params=None):
+    if policy not in EXIT_POLICIES or params is not None and not isinstance(params, dict):
+        raise ValueError("Invalid futures exit parameters")
+    defaults = EXIT_DEFAULTS.get(policy, {})
+    if set(params or {}) - defaults.keys():
+        raise ValueError("Unexpected futures exit parameter")
+    result = {**defaults, **(params or {})}
+    for key, value in result.items():
+        low, high, _ = EXIT_BOUNDS[key]
+        if (type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high
+                or key in ("max_bars", "confirm_bars") and type(value) is not int):
+            raise ValueError(f"Invalid futures exit parameter: {key}")
+    return result
+
+def has_target(position):
+    return position.get("exit_policy", "fixed") not in ("runner", "scale_out_ladder")
+
+def discretionary_exit(position, candles):
+    if not candles:
+        return None
+    policy = position.get("exit_policy", "fixed")
+    params = exit_parameters(policy, position.get("exit_params"))
+    direction = 1 if position["side"] == "long" else -1
+    progress = direction * (candles[-1].close - position["entry"]) / position["risk"]
+    if policy == "time_stop":
+        elapsed = (candles[-1].time + 900 - position["entry_time"]) // 900
+        if elapsed >= params["max_bars"] and progress < params["min_progress_r"]:
+            return "time_stop"
+    if policy == "scale_out_ladder" and progress >= 3 * params["step_r"]:
+        return "ladder_complete"
+    if policy == "funding_exit":
+        original = position.get("original_quantity", position.get("quantity", 1.0))
+        if position.get("funding_cost", 0) >= params["funding_r"] * position["risk"] * original:
+            return "funding_exit"
+    if policy == "signal_invalidation":
+        from .futures_rule_tree import matches
+        rule = position.get("exit_rule", {})
+        def trends(node):
+            if node.get("feature") == "trend" and node.get("frame") in ("H1", "H4"):
+                return [node]
+            if node.get("op") in ("all", "then"):
+                return [leaf for child in node["children"] for leaf in trends(child)]
+            return []
+        gates = trends(rule) or [{"feature": "trend", "frame": "H4"}]
+        count = params["confirm_bars"]
+        histories = [candles[:len(candles) - offset] for offset in range(count)]
+        if all(len(history) >= 800 and any(matches(gate, history, -direction, 20)
+                                           for gate in gates) for history in histories):
+            return "signal_invalidation"
+    return None
 
 def adaptive_levels(side, candles, target_r=2.0, stop_buffer=0.0):
     """Stop from swing; TP = target_r cap, pulled in front of the nearest barrier. None if barrier < 1.5R."""
@@ -72,21 +140,41 @@ def weak_close(position, candles):
     return stalled and barrier is not None and direction * (barrier - last.close) <= 0.5 * atr14(candles)
 
 def partial_size(position, candles, step=0.0, minimum=0.0):
-    if (position.get("exit_policy") != "adaptive" or position.get("partial_exits")
-            or not candles):
+    if not candles:
         return 0.0
+    policy = position.get("exit_policy", "fixed")
+    if policy not in ("adaptive", "runner", "scale_out_ladder"):
+        return 0.0
+    params = exit_parameters(policy, position.get("exit_params"))
     direction = 1 if position["side"] == "long" else -1
-    if direction * (candles[-1].close - position["entry"]) < position["risk"] or not weak_close(position, candles):
+    progress = direction * (candles[-1].close - position["entry"]) / position["risk"]
+    fraction = 0.0
+    partials = position.get("partial_exits") or []
+    if policy == "adaptive":
+        if not partials and progress >= 1.0 and weak_close(position, candles):
+            fraction = 0.5
+    elif policy == "runner":
+        if not partials and progress >= params["partial_r"]:
+            fraction = params["partial_fraction"]
+    elif policy == "scale_out_ladder":
+        if len(partials) == 0 and progress >= params["step_r"]:
+            fraction = params["partial_fraction"]
+        elif len(partials) == 1 and progress >= 2 * params["step_r"]:
+            fraction = params["partial_fraction"]
+    if fraction <= 0:
         return 0.0
-    quantity = position.get("quantity", 1.0)
-    if not all(math.isfinite(value) for value in (quantity, step, minimum)) or quantity <= 0 or min(step, minimum) < 0:
+    current_qty = position.get("quantity", 1.0)
+    if not all(math.isfinite(value) for value in (current_qty, step, minimum)) or current_qty <= 0 or min(step, minimum) < 0:
         raise ValueError("Invalid futures partial quantity")
-    half = Decimal(str(quantity)) / 2
+    original = position.get("original_quantity", current_qty)
+    target_qty = Decimal(str(original)) * Decimal(str(fraction))
+    if target_qty >= Decimal(str(current_qty)):
+        return 0.0
     if step:
         unit = Decimal(str(step))
-        half = (half / unit).to_integral_value(rounding=ROUND_DOWN) * unit
-    half = float(half)
-    return half if 0 < half < quantity and min(half, quantity - half) >= minimum else 0.0
+        target_qty = (target_qty / unit).to_integral_value(rounding=ROUND_DOWN) * unit
+    target_f = float(target_qty)
+    return target_f if 0 < target_f < current_qty and min(target_f, current_qty - target_f) >= minimum else 0.0
 
 def adaptive_target(position, candles):
     target = position["target"]
@@ -142,8 +230,6 @@ def protective_stop(position, candles, fee, slip):
     if entry <= 0 or risk <= 0 or not 0 <= fee < 1 or not 0 <= slip < 1:
         raise ValueError("Invalid futures exit prices/costs")
     profit_r = direction * (close - entry) / risk
-    if profit_r < 1:
-        return stop
     quantity = position.get("quantity", 1.0)
     if quantity <= 0 or not math.isfinite(quantity):
         raise ValueError("Invalid futures exit quantity")
@@ -152,15 +238,56 @@ def protective_stop(position, candles, fee, slip):
     if not math.isfinite(costs):
         raise ValueError("Invalid futures exit costs")
     breakeven = (direction * entry + costs) / (direction - fee) / (1 - direction * slip)
-    proposed = breakeven
-    contiguous = (len(candles) >= 15 and all(
-        right.time - left.time == 900 for left, right in zip(candles[-15:-1], candles[-14:])
-    ))
-    if policy in ("trail", "adaptive") and profit_r >= 1.5 and contiguous:
-        recent = candles[-3:]
-        swing = (min(row.low for row in recent) - 0.1 * atr14(candles) if direction == 1
-                 else max(row.high for row in recent) + 0.1 * atr14(candles))
-        proposed = max(breakeven, swing) if direction == 1 else min(breakeven, swing)
+    params = exit_parameters(policy, position.get("exit_params"))
+    if policy == "atr_chandelier":
+        h1 = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
+        atr = atr14(h1) if len(h1) >= 5 else atr14(candles)
+        lookback = min(len(candles), 20)
+        extreme = (max(c.high for c in candles[-lookback:]) if direction == 1
+                   else min(c.low for c in candles[-lookback:]))
+        chandelier = extreme - direction * params["atr_multiple"] * atr
+        proposed = (max(breakeven, chandelier) if direction == 1
+                    else min(breakeven, chandelier)) if profit_r >= 1 else chandelier
+    elif policy == "volatility_stop":
+        if profit_r < 1:
+            return stop
+        atr = atr14(candles)
+        trail_vol = close - direction * params["atr_multiple"] * atr
+        proposed = max(breakeven, trail_vol) if direction == 1 else min(breakeven, trail_vol)
+    elif policy == "runner":
+        if profit_r < params["partial_r"]:
+            return stop
+        h1 = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
+        atr = atr14(h1) if len(h1) >= 5 else atr14(candles)
+        lookback = min(len(candles), 20)
+        extreme = (max(c.high for c in candles[-lookback:]) if direction == 1
+                   else min(c.low for c in candles[-lookback:]))
+        chandelier = extreme - direction * params["atr_multiple"] * atr
+        proposed = max(breakeven, chandelier) if direction == 1 else min(breakeven, chandelier)
+    elif policy == "scale_out_ladder":
+        if profit_r < params["step_r"]:
+            return stop
+        proposed = breakeven
+        contiguous = (len(candles) >= 15 and all(
+            right.time - left.time == 900 for left, right in zip(candles[-15:-1], candles[-14:])
+        ))
+        if profit_r >= 2 * params["step_r"] and contiguous:
+            recent = candles[-3:]
+            swing = (min(row.low for row in recent) - 0.1 * atr14(candles) if direction == 1
+                     else max(row.high for row in recent) + 0.1 * atr14(candles))
+            proposed = max(breakeven, swing) if direction == 1 else min(breakeven, swing)
+    else:
+        if profit_r < 1:
+            return stop
+        proposed = breakeven
+        contiguous = (len(candles) >= 15 and all(
+            right.time - left.time == 900 for left, right in zip(candles[-15:-1], candles[-14:])
+        ))
+        if policy in ("trail", "adaptive") and profit_r >= 1.5 and contiguous:
+            recent = candles[-3:]
+            swing = (min(row.low for row in recent) - 0.1 * atr14(candles) if direction == 1
+                     else max(row.high for row in recent) + 0.1 * atr14(candles))
+            proposed = max(breakeven, swing) if direction == 1 else min(breakeven, swing)
     if proposed <= 0 or not direction * (close - proposed) > 0:
         return stop
     return max(stop, proposed) if direction == 1 else min(stop, proposed)

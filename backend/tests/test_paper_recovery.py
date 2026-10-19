@@ -9,7 +9,7 @@ from backend.app.db import AutoPaperState, PaperFunding, PaperTrade, PaperWallet
 from backend.app.feed import save_candles
 from backend.app.main import app
 from backend.app.market import Candle
-from backend.app.paper import sync_paper_quote
+from backend.app.paper import sync_paper_quote, sync_paper_stops
 from backend.tests.test_paper import Market
 
 client = TestClient(app)
@@ -137,6 +137,34 @@ def test_live_stop_still_runs_when_history_missing(recovery):
     sync_paper_quote(Market(93))
     with Session() as session:
         assert session.get(PaperTrade, 1).exit_reason == "stop_loss"
+
+@pytest.mark.parametrize("side,high,low,reason", [
+    ("long", 101, 94, "recovered_stop_loss"),
+    ("short", 106, 99, "recovered_stop_loss"),
+    ("long", 111, 99, "recovered_take_profit"),
+    ("short", 101, 89, "recovered_take_profit"),
+])
+def test_historical_stops_run_without_fresh_quote_or_network(recovery, monkeypatch, side, high, low, reason):
+    clock, seed = recovery
+    cursor = seed(side)
+    with Session.begin() as session:
+        save_candles(session, [Candle(cursor, 100, high, low, 100, 1)])
+        wallet = session.get(PaperWallet, 1)
+        wallet.quote = None
+        wallet.error = "Cannot reach MEXC after 3 attempts"
+    def no_network(*args, **kwargs):
+        pytest.fail("Historical stop must not fetch ticker")
+    monkeypatch.setattr("backend.app.paper.MexcFuturesAdapter.ticker", no_network)
+    sync_paper_stops(clock[0])
+    with Session() as session:
+        trade = session.get(PaperTrade, 1)
+        assert trade.exit_reason == reason
+        assert trade.exit_time == cursor + 899
+        assert not session.get(AutoPaperState, 1).enabled
+        balance = session.get(PaperWallet, 1).balance
+    sync_paper_stops(clock[0])
+    with Session() as session:
+        assert session.get(PaperWallet, 1).balance == balance
 
 def test_historical_stop_precedes_present_target_and_has_no_96_bar_limit(recovery):
     clock, seed = recovery

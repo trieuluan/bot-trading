@@ -1,0 +1,58 @@
+import random
+
+import pytest
+
+from backend.app.futures_exits import (EVOLVABLE_EXITS, discretionary_exit, exit_parameters,
+                                       has_target, partial_size, protective_stop)
+from backend.app.futures_strategies import RULE_SEEDS, mutate, validate_genome
+from backend.app.market import Candle
+
+def bars(count=40, close=100.0, start=0):
+    return [Candle(start + i * 900, 100, max(close, 101), min(close, 99), close, 1) for i in range(count)]
+
+def pos(policy, **extra):
+    base = dict(side="long", entry=100, risk=2, stop=98, exit_policy=policy, quantity=10,
+                entry_time=0)
+    return {**base, **extra}
+
+def test_params_validated():
+    assert exit_parameters("time_stop")["max_bars"] == 32
+    with pytest.raises(ValueError):
+        exit_parameters("time_stop", {"max_bars": 1})
+    with pytest.raises(ValueError):
+        exit_parameters("fixed", {"x": 1})
+
+def test_time_stop_only_when_stalled():
+    assert discretionary_exit(pos("time_stop"), bars(40, 100.5)) == "time_stop"
+    assert discretionary_exit(pos("time_stop"), bars(40, 105)) is None
+    assert discretionary_exit(pos("time_stop"), bars(10, 100.5)) is None
+
+def test_runner_has_no_target_and_partial_once():
+    assert not has_target(pos("runner")) and has_target(pos("adaptive"))
+    assert partial_size(pos("runner"), bars(40, 102.5)) == 5
+    assert partial_size(pos("runner", partial_exits=[1]), bars(40, 102.5)) == 0
+
+def test_ladder_two_partials_then_complete():
+    assert partial_size(pos("scale_out_ladder"), bars(40, 102.5)) == 3
+    second = pos("scale_out_ladder", partial_exits=[1], original_quantity=10, quantity=7)
+    assert partial_size(second, bars(40, 104.5)) == 3
+    assert discretionary_exit(pos("scale_out_ladder"), bars(40, 106.5)) == "ladder_complete"
+
+def test_chandelier_and_volatility_only_tighten():
+    for policy in ("atr_chandelier", "volatility_stop", "runner"):
+        stop = protective_stop(pos(policy), bars(40, 105), 0.0005, 0.0002)
+        assert 98 <= stop < 105
+        assert protective_stop({**pos(policy), "stop": 104.9}, bars(40, 105), 0.0005, 0.0002) >= 104.9
+
+def test_funding_exit():
+    assert discretionary_exit(pos("funding_exit", funding_cost=5), bars(40, 100.5)) == "funding_exit"
+    assert discretionary_exit(pos("funding_exit", funding_cost=0), bars(40, 100.5)) is None
+
+def test_genomes_evolve_into_all_exits():
+    seen = set()
+    for seed in RULE_SEEDS[:3]:
+        for index in range(300):
+            child = mutate(seed, random.Random(index))
+            validate_genome(child)
+            seen.add(child.get("exit_policy", "fixed"))
+    assert set(EVOLVABLE_EXITS) - {"fixed"} <= seen | {"adaptive"}

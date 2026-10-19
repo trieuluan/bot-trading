@@ -313,3 +313,12 @@ engine = create_engine(
     **({"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}),
 )
 Session = sessionmaker(engine)
+
+
+class PaperNotification(Base):
+    __tablename__ = "paper_notifications"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    message: Mapped[str] = mapped_column(String(4000))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    retry_at: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[int | None] = mapped_column(Integer, nullable=True)

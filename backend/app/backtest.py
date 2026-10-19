@@ -6,7 +6,8 @@ from dataclasses import asdict, dataclass
 from .market import Candle
 from .mexc import validate_candles
 from .strategy import breakout, retest
-from .futures_exits import EXIT_POLICIES, adaptive_target, partial_size, protective_stop
+from .futures_exits import (EXIT_POLICIES, adaptive_target, partial_size, protective_stop,
+                           discretionary_exit, has_target, exit_parameters)
 
 
 @dataclass(frozen=True)
@@ -27,11 +28,14 @@ def simulate(
     signal=breakout,
     window: int = 21,
     exit_policy: str = "fixed",
+    exit_params: dict | None = None,
+    exit_rule: dict | None = None,
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
     if exit_policy not in EXIT_POLICIES:
         raise ValueError("Invalid futures exit policy")
+    exit_parameters(exit_policy, exit_params)
     if len(candles) <= warmup:
         raise ValueError("Not enough candles after strategy warmup")
     cash = config.initial_capital
@@ -92,6 +96,8 @@ def simulate(
                         "target": setup.target,
                         "risk": abs(entry - setup.stop),
                         "exit_policy": exit_policy,
+                        "exit_params": exit_params,
+                        "exit_rule": exit_rule,
                     }
         pending = None
 
@@ -103,7 +109,8 @@ def simulate(
             reason = ""
             gap_stop = candle.open <= stop if direction == 1 else candle.open >= stop
             touch_stop = candle.low <= stop if direction == 1 else candle.high >= stop
-            touch_target = candle.high >= target if direction == 1 else candle.low <= target
+            touch_target = has_target(position) and (candle.high >= target if direction == 1 else candle.low <= target)
+            history = candles[max(0, index - 1599):index + 1]
             if gap_stop:
                 exit_price, reason = candle.open, "stop_gap"
             elif touch_stop:
@@ -112,6 +119,10 @@ def simulate(
                 exit_price, reason = target, "target"
             elif index == len(candles) - 1:
                 exit_price, reason = candle.close, "end_of_period"
+            else:
+                reason = discretionary_exit(position, history)
+                if reason:
+                    exit_price = candle.close
             if exit_price is not None:
                 exit_price *= 1 - direction * slip
                 gross = direction * (exit_price - position["entry"]) * position["quantity"]
@@ -130,18 +141,19 @@ def simulate(
                 )
                 position = None
             else:
-                history = candles[max(0, index - 99):index + 1]
                 quantity = partial_size(position, history, size * lot, size * float(contract["minVol"]))
                 if quantity:
                     fill = candle.close * (1 - direction * slip)
                     gross = direction * (fill - position["entry"]) * quantity
                     exit_fee = fill * quantity * fee
                     cash += gross - exit_fee
-                    position.update(original_quantity=position["quantity"],
+                    position.update(original_quantity=position.get("original_quantity", position["quantity"]),
                                     quantity=position["quantity"] - quantity,
                                     contracts=(position["quantity"] - quantity) / size,
-                                    realized_gross=gross, realized_exit_fee=exit_fee,
-                                    partial_exits=[dict(time=candle.time + 900, price=fill, quantity=quantity)])
+                                    realized_gross=position.get("realized_gross", 0) + gross,
+                                    realized_exit_fee=position.get("realized_exit_fee", 0) + exit_fee,
+                                    partial_exits=[*(position.get("partial_exits") or []),
+                                                   dict(time=candle.time + 900, price=fill, quantity=quantity)])
                 position["target"] = adaptive_target(position, history)
                 position["stop"] = protective_stop(
                     {**position, "entry_fee": position["entry_fee"] * position["quantity"]

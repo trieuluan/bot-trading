@@ -1,11 +1,15 @@
 import type { PaperTrade } from '../types/paper';
 import { formatPrice } from '../lib/format';
-import { exitLabel } from '../lib/futures-strategy-info';
+import { exitLabel, tradeStrategy } from '../lib/futures-strategy-info';
 
 export const exitLabels: Record<string, string> = {
   manual: 'Đóng thủ công',
   stop_loss: 'Stop-loss (SL)',
   take_profit: 'Take-profit (TP)',
+  time_stop: 'Time-stop (lệnh chết)',
+  ladder_complete: 'Hoàn tất bậc chốt',
+  signal_invalidation: 'Tín hiệu HTF bị phá',
+  funding_exit: 'Funding quá cao',
   recovered_stop_loss: 'SL lịch sử (đối soát)',
   recovered_take_profit: 'TP lịch sử (đối soát)',
 };
@@ -17,6 +21,7 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
   const reward = Math.abs(trade.target - trade.entry) * trade.quantity;
   const closed = trade.exit_time !== null;
   const audit = trade.audit;
+  const strategy = tradeStrategy(audit);
   return (
     <div className="paper-trade-details">
       <div className="section-head">
@@ -29,6 +34,15 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
       </div>
       {trade.monitoring?.exit_policy && (
         <p className="micro">Quản lý lệnh: {exitLabel(trade.monitoring.exit_policy)}</p>
+      )}
+      {strategy && (
+        <p className="micro">
+          {strategy.source} · <code>{audit?.strategy}</code>
+          {audit?.parents?.length ? ` · Cha mẹ: ${audit.parents.join(', ')}` : ''}
+          {audit?.initial_stop != null && audit.initial_target != null
+            ? ` · SL/TP ban đầu: ${formatPrice(audit.initial_stop)} / ${formatPrice(audit.initial_target)}`
+            : ' · Chưa lưu SL/TP ban đầu; các mức bên dưới là mức cập nhật gần nhất.'}
+        </p>
       )}
       {trade.monitoring?.partial_exits?.map((leg) => (
         <p key={leg.time} className="micro">
@@ -47,7 +61,7 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
           </span>
         )}
         {trade.origin === 'manual'
-          ? 'Bạn mở lệnh Market thủ công; lệnh này không có tín hiệu breakout của bot.'
+          ? 'Bạn mở lệnh Market thủ công; lệnh này không có tín hiệu của bot.'
           : (trade.entry_reason ?? 'Lệnh auto cũ chưa lưu lý do vào lệnh.')}
       </p>
       {trade.signal_time !== null && (
@@ -58,16 +72,14 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
       )}
       {audit ? (
         <p className="micro">
-          {audit.strategy === 'breakout_20_v1' && audit.range_low !== undefined && audit.range_high !== undefined
-            ? `Breakout 20 nến trước: đáy ${formatPrice(audit.range_low)} — đỉnh ${formatPrice(audit.range_high)}.`
-            : `Chiến thuật: ${audit.strategy}.`} Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}.
+          Chiến thuật: {strategy?.title} {strategy?.generation && `(${strategy.generation})`}. {strategy?.detail} Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}.
           Ngân sách SL lúc vào: {formatPrice(audit.risk_budget)} USDT (cấu hình {audit.risk_percent}
           % equity, có giới hạn lỗ ngày).
         </p>
       ) : (
         trade.origin === 'auto' && (
           <p className="micro">
-            Lệnh cũ chưa có bản lưu vùng breakout và ngân sách rủi ro tại thời điểm vào.
+            Lệnh cũ chưa có bản lưu chiến thuật và ngân sách rủi ro tại thời điểm vào.
           </p>
         )
       )}

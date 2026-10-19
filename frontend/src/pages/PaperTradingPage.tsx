@@ -8,6 +8,7 @@ import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart, strategyColor } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
+import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import {
   fetchPaperWallet,
   fetchPaperTradeCandles,
@@ -30,7 +31,7 @@ function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
 }
 
 const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
-const strategyName = (strategy: string) => strategy.replace(/_/g, ' ').replace(':', ' · ');
+
 
 export function PaperTradingPage({
   board,
@@ -276,32 +277,25 @@ export function PaperTradingPage({
     .filter((row) => row !== undefined)
     .map((row) => row.strategy);
   const positionName = wallet?.position?.audit?.strategy;
-  const watchNames = strategyRows
-    .filter(
-      (row, index, rows) =>
-        rows.findIndex((other) => other.strategy.split(':')[0] === row.strategy.split(':')[0]) ===
-        index,
-    )
-    .map((row) => row.strategy);
   const autoNames =
     positionName && strategyRows.some((row) => row.strategy === positionName)
       ? [positionName]
-      : signalNames.length
-        ? signalNames
-        : watchNames;
+      : signalNames;
   const shownNames = chartAuto ? autoNames : chartStrategies;
   const observations = botFresh
     ? strategyRows
         .filter((row) => shownNames.includes(row.strategy))
         .map((row) => ({ ...row, time: learningDecision!.time }))
     : [];
+  const selectedRow = strategyRows.find((row) => row.strategy === learningDecision?.selected);
+  const selectedTitle = selectedRow ? chartStrategyText(selectedRow).title : '';
   const nextCloseSeconds = 900 - (Math.floor(clock / 1000) % 900);
   const modeLabel =
     auto?.auto_mode === 'paper_learning'
       ? 'Bot học · Paper thử nghiệm'
       : auto?.auto_mode === 'learner'
         ? 'Bot học · Chỉ chiến thuật đã duyệt'
-        : 'Structure Breakout';
+        : 'Bot học · đang tải';
   return (
     <div className="futures-desk">
       <div className="desk-sticky-header">
@@ -451,8 +445,8 @@ export function PaperTradingPage({
                 {strategyRows.length} biến thể · {signalNames.length} có tín hiệu ·{' '}
                 {strategyRows.filter((row) => row.status === 'no_signal').length} đang chờ
               </span>
-              {chartAuto && !signalNames.length && (
-                <span>Đang vẽ 1 đại diện mỗi họ chiến thuật; vùng chờ không phải lệnh vào.</span>
+              {chartAuto && !autoNames.length && (
+                <span>Chưa có lệnh hoặc tín hiệu; chọn Chiến thuật để xem vùng chờ.</span>
               )}
             </div>
           )}
@@ -493,7 +487,7 @@ export function PaperTradingPage({
                       .filter(Boolean)
                       .join('\n')}
                   >
-                    <strong>{strategyName(row.strategy)}</strong>
+                    <strong>{chartStrategyText(row).title}</strong>
                     <span className="micro">
                       {row.strategy === positionName
                         ? 'Đang giữ vị thế'
@@ -505,6 +499,13 @@ export function PaperTradingPage({
                               ? 'Chờ khởi tạo'
                               : 'Đang chờ tín hiệu'}
                     </span>
+                    {row.overlay_details?.map((detail, index) => (
+                      <span className="micro" key={`${detail.feature}-${detail.frame}-${index}`}>
+                        {detail.drawn ? '●' : '○'} {detail.label}
+                        {detail.matched.length ? ` · đang khớp ${detail.matched.join('/')}` : ''}
+                        {detail.message ? ` · ${detail.message}` : ''}
+                      </span>
+                    ))}
                   </article>
                 ))}
               </div>
@@ -563,7 +564,7 @@ export function PaperTradingPage({
                   <div className="chart-legend">
                     <strong>
                       Đang giữ #{wallet.position.id} ·{' '}
-                      {wallet.position.audit?.strategy ??
+                      {tradeStrategy(wallet.position.audit)?.title ??
                         (wallet.position.origin === 'manual' ? 'Thủ công' : 'Auto')}{' '}
                       · {wallet.position.side.toUpperCase()}
                     </strong>
@@ -581,7 +582,7 @@ export function PaperTradingPage({
                       </strong>
                       <span>
                         {learningDecision.selected
-                          ? `Chọn ${strategyName(learningDecision.selected)} ${learningDecision.setup?.side.toUpperCase() ?? ''}`
+                          ? `Chọn ${selectedTitle} ${learningDecision.setup?.side.toUpperCase() ?? ''}`
                           : 'Chưa có tín hiệu · đứng ngoài'}
                       </span>
                       <span>
@@ -619,7 +620,7 @@ export function PaperTradingPage({
                                   : undefined
                               }
                             >
-                              <td title={row.strategy}>{strategyName(row.strategy)}</td>
+                              <td>{chartStrategyText(row).title}</td>
                               <td>
                                 <span className={`pill ${row.status === 'signal' ? 'green' : ''}`}>
                                   {positions.some(
@@ -727,9 +728,9 @@ export function PaperTradingPage({
                   </span>
                   <span className="micro">
                     {wallet?.position?.audit?.strategy
-                      ? `Đang giữ ${strategyName(wallet.position.audit.strategy)}`
+                      ? `Đang giữ ${tradeStrategy(wallet.position.audit)?.title}`
                       : auto.learner_decision?.selected
-                        ? `Chờ ${strategyName(auto.learner_decision.selected)}`
+                        ? `Chờ ${selectedTitle}`
                         : 'Đang chờ tín hiệu'}
                   </span>
                 </div>
@@ -949,8 +950,8 @@ export function PaperTradingPage({
               Market fill tại bid/ask quan sát được cộng trượt giá cố định; toàn bộ khối lượng khớp
               ngay. SL/TP kích hoạt theo bid/ask lấy mẫu khoảng 5 giây và khớp tại giá quan sát kế
               tiếp, có thể vượt mức đặt. Không tái dựng tick bị bỏ lỡ khi mất kết nối. Chưa mô phỏng
-              lệnh Limit, khớp một phần, liquidation, margin tiers hay ADL. Một vị thế, notional +
-              phí tối đa số dư ví. Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật
+              lệnh Limit hoặc khớp một phần tại sàn, liquidation, margin tiers hay ADL. Nhiều vị thế dùng chung một ví Cross;
+              ký quỹ và phí bị giới hạn theo cấu hình ví. Chốt từng phần theo chính sách quản lý lệnh của cây. Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật
               cả lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi tới MEXC.
             </p>
           </details>

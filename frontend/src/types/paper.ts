@@ -1,4 +1,5 @@
 import type { Candle } from './trading';
+import type { Genome } from '../lib/futures-strategy-info';
 
 export type PaperTrade = {
   monitoring: {
@@ -27,6 +28,13 @@ export type PaperTrade = {
     range_low?: number;
     risk_percent: number;
     risk_budget: number;
+    genome?: Genome | null;
+    generation?: number;
+    parents?: string[];
+    exit_policy?: string;
+    strategy_source?: 'entry_snapshot' | 'registry' | 'missing';
+    initial_stop?: number;
+    initial_target?: number;
   } | null;
   entry_reason: string | null;
   id: number;
@@ -103,15 +111,25 @@ export type AutoDecision = {
     reason: string;
   } | null;
   trade_id: number | null;
-  parameters: AutoPaperConfig;
+  parameters: AutoPaperConfig & { audit?: PaperTrade['audit'] };
 };
 export type FuturesStrategyObservation = {
   strategy: string;
+  genome?: Genome | null;
   status: string;
   side: string | null;
   setup?: AutoDecision['setup'];
   levels?: { title: string; price: number; from?: number; to?: number }[];
   curves?: { title: string; points: { time: number; value: number }[] }[];
+  markers?: { time: number; side: 'long' | 'short'; title: string }[];
+  overlay_details?: {
+    feature: string;
+    frame: string;
+    label: string;
+    matched: string[];
+    drawn: boolean;
+    message: string;
+  }[];
   note?: string;
 };
 export type AutoPaperState = AutoPaperConfig & {

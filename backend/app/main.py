@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 
 from .alerts import watchdog
+from .notifications import notifications_loop
 from .auto_paper import router as auto_router
 from .db import (
     AutoPaperState,
@@ -55,12 +56,16 @@ async def lifespan(app):
     validate_mode()
     quotes.start()
     alert_task = asyncio.create_task(watchdog())
+    notification_task = asyncio.create_task(notifications_loop())
     try:
         yield
     finally:
         alert_task.cancel()
+        notification_task.cancel()
         with suppress(asyncio.CancelledError):
             await alert_task
+        with suppress(asyncio.CancelledError):
+            await notification_task
         await quotes.stop()
 
 

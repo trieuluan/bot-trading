@@ -98,7 +98,9 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                       "side": setup.side, "stop": setup.stop, "target": setup.target,
                       "regime": context, "status": "open", "entry": None, "net_r": None,
                       "label_available_at": None,
-                      "exit_policy": candidate["genome"].get("exit_policy", "fixed")}
+                      "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
+                      "exit_params": candidate["genome"].get("exit_params"),
+                      "exit_rule": candidate["genome"].get("rule")}
             rows[name][partition].append(sample)
             active[name] = sample
         completed = index - WARMUP + 1

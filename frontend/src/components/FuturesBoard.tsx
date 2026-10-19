@@ -1,14 +1,64 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
+import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
+import { exitLabel, tradeStrategy, strategyShortTitle, type Genome } from '../lib/futures-strategy-info';
+
+function StrategyCell({ trade }: { trade: PaperTrade }) {
+  const info = tradeStrategy(trade.audit);
+  const id = `strat-${useId().replace(/:/g, '')}`;
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  if (!info) return <>{trade.origin === 'manual' ? 'Thủ công' : 'Auto · thiếu dữ liệu cây'}<small>{trade.entry_reason ?? ''}</small></>;
+  return (
+    <>
+      <span className="strat-title">
+        <strong>{info.title}</strong>
+        {info.generation && <span className="strat-gen">{info.generation}</span>}
+      </span>
+      <small className="strat-exit">{trade.monitoring?.exit_policy ? exitLabel(trade.monitoring.exit_policy) : exitLabel(trade.audit?.exit_policy ?? trade.audit?.genome?.exit_policy)}</small>
+      <button
+        type="button"
+        className="text-button strategy-detail-btn"
+        popoverTarget={id}
+        aria-haspopup="dialog"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setPos({
+            top: Math.max(8, Math.min(r.bottom + 8, window.innerHeight - 308)),
+            left: Math.max(8, Math.min(r.left, window.innerWidth - 388)),
+          });
+        }}
+      >
+        Chi tiết
+      </button>
+      <div id={id} popover="auto" role="dialog" aria-label={`Chi tiết ${info.title}`} className="tsp" style={pos}>
+        <header className="tsp-head">
+          <span className="tsp-title">{info.title}</span>
+          {info.generation && <span className="tsp-gen">{info.generation}</span>}
+          <button type="button" className="tsp-close" popoverTarget={id} popoverTargetAction="hide" aria-label="Đóng chi tiết chiến thuật">×</button>
+        </header>
+        <div className="tsp-body">
+          <div className="tsp-sec"><span className="tsp-label">Chiến thuật</span><span>{info.detail}</span></div>
+          {(trade.audit?.reason ?? trade.entry_reason) && (
+            <div className="tsp-sec"><span className="tsp-label">Lý do vào lệnh</span><span>{trade.audit?.reason ?? trade.entry_reason}</span></div>
+          )}
+          <div className="tsp-sec"><span className="tsp-label">Nguồn dữ liệu</span><span>{info.source}</span></div>
+        </div>
+        <footer className="tsp-foot"><code>{trade.audit?.strategy}</code></footer>
+      </div>
+    </>
+  );
+}
 import type { AutoPaperState, PaperTrade, PaperWallet } from '../types/paper';
 
 export type PairInfo = {
   wallet: PaperWallet | null;
   auto: AutoPaperState | null;
-  learning: { population: number; promoted: number; samples: number; error: string | null } | null;
+  learning: { population: number; promoted: number; samples: number; error: string | null;
+    strategies: { strategy: string; genome: Genome; resolved: number; mean_r: number | null; paused?: boolean; open_trades?: unknown[] }[];
+  } | null;
 };
 export type Board = Record<FuturesSymbol, PairInfo>;
 
@@ -122,11 +172,8 @@ export function TradeHistoryTable({
                   <span className={`side-tag ${t.side}`}>{t.side.toUpperCase()}</span>
                   <small className="trade-origin">{t.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}</small>
                 </td>
-                <td title={t.audit?.reason ?? t.entry_reason ?? ''}>
-                  {t.audit?.strategy
-                    ? t.audit.strategy.replace(/_/g, ' ').replace(':', ' · ')
-                    : 'Thủ công'}
-                  <small>{t.audit?.reason ?? t.entry_reason ?? ''}</small>
+                <td>
+                  <StrategyCell trade={t} />
                 </td>
                 <td>
                   {formatPrice(margin)} × {lev}x = {formatPrice(notional)} USDT
@@ -224,11 +271,8 @@ export function PositionsTable({
                     {p.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
                   </small>
                 </td>
-                <td title={p.audit?.reason}>
-                  {p.audit?.strategy
-                    ? p.audit.strategy.replace(/_/g, ' ').replace(':', ' · ')
-                    : 'Thủ công'}
-                  <small>{p.audit?.reason ?? p.entry_reason ?? ''}</small>
+                <td>
+                  <StrategyCell trade={p} />
                 </td>
                 <td
                   title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatPrice(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
@@ -282,17 +326,19 @@ export function PairStrip({
       {FUTURES_SYMBOLS.map((s) => {
         const w = board[s].wallet;
         const open = w?.positions.length ?? 0;
+        const sigs = liveSignals(board[s].auto).length;
         return (
           <button
             key={s}
             type="button"
             aria-pressed={s === symbol}
             onClick={() => onSelect(s)}
-            title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'}`}
+            title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'} · ${sigs} cây có tín hiệu`}
           >
             <strong>{short(s)}</strong>
             <small>{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</small>
             {open > 0 && <span className="pair-badge">{open}</span>}
+            {sigs > 0 && <span className="pair-signal" aria-label={`${sigs} cây có tín hiệu mới`}>S {sigs}</span>}
             <span
               className={`pair-dot ${board[s].auto?.enabled && board[s].auto?.worker_online ? 'on' : ''}`}
             />
@@ -348,12 +394,17 @@ export function AllPairsPanel({
                 <th>Vị thế</th>
                 <th>Auto</th>
                 <th>Lệnh hôm nay</th>
+                <th>Tín hiệu</th>
+                <th>Cây giữ lệnh</th>
+                <th>Top cây · Mean R</th>
                 <th>Bộ học</th>
               </tr>
             </thead>
             <tbody>
               {FUTURES_SYMBOLS.map((s) => {
                 const { wallet: w, auto: a, learning: l } = board[s];
+                const top = [...(l?.strategies ?? [])].filter((r) => !r.paused && r.mean_r !== null && r.resolved > 0)
+                  .sort((first, second) => second.mean_r! - first.mean_r!)[0];
                 return (
                   <tr key={s}>
                     <td>
@@ -372,6 +423,9 @@ export function AllPairsPanel({
                       </span>
                     </td>
                     <td>{a ? `${a.daily_trades}/${a.max_daily_trades}` : '—'}</td>
+                    <td>{a?.learner_decision ? liveSignals(a).length : '—'}</td>
+                    <td>{l ? l.strategies.filter((r) => r.open_trades?.length).length : '—'}</td>
+                    <td>{top ? <>{strategyShortTitle(top.genome, top.strategy)}<small>{top.mean_r!.toFixed(2)}R · {top.resolved} lệnh đã xét</small></> : 'Chưa có mẫu'}</td>
                     <td>
                       {l
                         ? l.error
@@ -386,6 +440,7 @@ export function AllPairsPanel({
           </table>
         </div>
       )}
+      {tab === 'evolution' && <FamilySummary board={board} />}
       {tab === 'position' && (
         <>
           <h3>Vị thế đang mở ({positions.length})</h3>
@@ -459,5 +514,56 @@ export function AllPairsPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function FamilySummary({ board }: { board: Board }) {
+  const fam = new Map<string, { pairs: Set<string>; trees: number; sig: number; hold: number; n: number; sumR: number }>();
+  for (const s of FUTURES_SYMBOLS) {
+    const sigNames = new Set(liveSignals(board[s].auto).map((r) => r.strategy));
+    for (const r of board[s].learning?.strategies ?? []) {
+      const key = strategyShortTitle(r.genome);
+      const f = fam.get(key) ?? { pairs: new Set(), trees: 0, sig: 0, hold: 0, n: 0, sumR: 0 };
+      f.pairs.add(s);
+      f.trees += 1;
+      if (sigNames.has(r.strategy)) f.sig += 1;
+      if (r.open_trades?.length) f.hold += 1;
+      if (r.mean_r !== null && r.resolved > 0) {
+        f.n += r.resolved;
+        f.sumR += r.mean_r * r.resolved;
+      }
+      fam.set(key, f);
+    }
+  }
+  const rows = [...fam.entries()].sort((a, b) => b[1].sig + b[1].hold - (a[1].sig + a[1].hold) || b[1].n - a[1].n);
+  if (!rows.length) return null;
+  return (
+    <>
+      <h3>Gộp theo họ · 10 cặp</h3>
+      <p className="micro">Cùng họ không đồng nghĩa cùng điều kiện cây. Mean R gộp theo số lệnh đã xét của cây trong danh mục, không phải PnL ví hay bảo đảm hiệu quả. Top cây chưa áp ngưỡng số mẫu.</p>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Họ</th><th>Số cặp</th><th>Cây</th><th>Có tín hiệu</th><th>Đang giữ</th><th>Lệnh đã xét</th><th>Mean R</th></tr>
+          </thead>
+          <tbody>
+            {rows.map(([name, f]) => {
+              const r = f.n ? f.sumR / f.n : null;
+              return (
+                <tr key={name}>
+                  <td><strong>{name}</strong></td>
+                  <td>{f.pairs.size}/10</td>
+                  <td>{f.trees}</td>
+                  <td>{f.sig || '—'}</td>
+                  <td>{f.hold || '—'}</td>
+                  <td>{f.n}</td>
+                  <td className={r === null ? undefined : sign(r)}>{r === null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

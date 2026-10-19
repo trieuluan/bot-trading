@@ -95,7 +95,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
       ? 'Bot học · Paper thử nghiệm'
       : state?.auto_mode === 'learner'
         ? 'Bot học · Chiến thuật đã duyệt'
-        : 'Structure Breakout';
+        : 'Bot học · đang tải';
   const locked = busy || !!state?.enabled;
   const riskUsed =
     state?.portfolio_capital && state.portfolio_capital > 0
@@ -110,7 +110,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
             <h2>Auto Paper</h2>
             <p>
               <strong className="auto-strategy">{modeLabel}</strong>
-              <span>{getFuturesSymbol()} · 15m · Cross</span>
+              <span>{getFuturesSymbol()} · H4/H1 · vào M15 · Cross</span>
             </p>
           </div>
         </div>
@@ -348,7 +348,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
         <p>
           Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto.{' '}
           Vào bằng bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP
-          hoặc đang có vị thế. Khối lượng theo rủi ro còn lại; tự động chặn nếu ký quỹ một lệnh vượt
+          hoặc không đủ ngân sách. Có thể giữ nhiều vị thế trên cùng cặp. Khối lượng theo rủi ro còn lại; tự động chặn nếu ký quỹ một lệnh vượt
           10% vốn ví chung. Trần tổng rủi ro SL danh mục theo cấu hình ví chung ở trên. Bước hợp
           đồng MEXC. Phí/trượt giá có thể khiến lỗ vượt ngân sách SL dự kiến.
         </p>

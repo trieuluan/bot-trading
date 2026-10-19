@@ -1,4 +1,5 @@
 import type { AutoDecision } from '../types/paper';
+import { tradeStrategy } from '../lib/futures-strategy-info';
 
 const actions = { opened: 'Đã mở lệnh', skipped: 'Bỏ qua', no_setup: 'Chưa có setup' };
 export function AutoDecisionList({
@@ -23,6 +24,7 @@ export function AutoDecisionList({
               <tr>
                 <th>Nến tín hiệu (UTC)</th>
                 <th>Kết quả</th>
+                <th>Cây chiến thuật</th>
                 <th>Lý do</th>
                 <th>Lệnh</th>
               </tr>
@@ -40,6 +42,10 @@ export function AutoDecisionList({
                     <span className={`pill ${decision.action === 'opened' ? 'green' : ''}`}>
                       {actions[decision.action]}
                     </span>
+                  </td>
+                  <td>
+                    {tradeStrategy(decision.parameters.audit)?.title ?? 'Chưa lưu cây được chọn'}
+                    <small>{tradeStrategy(decision.parameters.audit)?.generation}</small>
                   </td>
                   <td className="auto-decision-reason">{decision.reason}</td>
                   <td>

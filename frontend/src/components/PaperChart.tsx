@@ -19,7 +19,9 @@ import {
 import type { Candle } from '../types/trading';
 import { exitLabels } from './PaperTradeDetails';
 import { placeChartTags } from '../lib/chart-tags';
+import { ChartLabels, type ChartLabel } from '../lib/chart-labels';
 import { formatPrice } from '../lib/format';
+import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
 
@@ -38,9 +40,11 @@ export function strategyColor(strategy: string) {
     'squeeze',
     'trend_pullback',
   ];
-  return ['#327d9c', '#ad7730', '#a26991', '#65823d', '#907740', '#5b78b7', '#bb6a4c', '#298b80'][
-    Math.max(0, families.indexOf(strategy.split(':')[0]))
-  ];
+  const colors = ['#327d9c', '#ad7730', '#a26991', '#65823d', '#907740', '#5b78b7', '#bb6a4c', '#298b80'];
+  let hash = 0;
+  for (const character of strategy) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  const index = families.indexOf(strategy.split(':')[0]);
+  return colors[index < 0 ? hash % colors.length : index];
 }
 
 function markerLabel(label: string, trade: PaperTrade) {
@@ -94,6 +98,7 @@ export function PaperChart({
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const labels = useRef<ChartLabels | null>(null);
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
   const fitted = useRef(false);
@@ -175,6 +180,11 @@ export function PaperChart({
       borderVisible: false,
     });
     markers.current = createSeriesMarkers(series.current, []);
+    labels.current = new ChartLabels();
+    series.current.attachPrimitive(labels.current);
+    chart.current.subscribeCrosshairMove((param) =>
+      labels.current?.hover(param.point && typeof param.time === 'number' ? param.time : null),
+    );
     chart.current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
       if (range && range.from < 30) loadOlder.current?.(stepRef.current / 900);
     });
@@ -183,6 +193,7 @@ export function PaperChart({
       chart.current = null;
       series.current = null;
       markers.current = null;
+      labels.current = null;
       lines.current = [];
       ranges.current = [];
       fitted.current = false;
@@ -344,10 +355,10 @@ export function PaperChart({
     }
     for (const observation of observations) {
       const color = strategyColor(observation.strategy);
-      const title = observation.strategy.replace(':', ' · ').slice(0, 32);
+      const title = chartStrategyText(observation).title;
       const heldByTrade = openTrades.some((open) => open.audit?.strategy === observation.strategy);
       if (observation.setup && !heldByTrade) {
-        const family = observation.strategy.split(':')[0].replace(/_/g, ' ');
+        const family = title;
         allLevels.push(
           {
             title: `${family} ENTRY`,
@@ -414,6 +425,17 @@ export function PaperChart({
         );
         ranges.current.push(indicator);
       }
+      for (const marker of observation.markers ?? []) {
+        const bucket = Math.floor(marker.time / step) * step;
+        if (marker.time > observation.time || !candles.some((candle) => candle.time === bucket)) continue;
+        points.push({
+          time: bucket as UTCTimestamp,
+          position: marker.side === 'long' ? 'belowBar' : 'aboveBar',
+          shape: 'circle',
+          color,
+          text: `${title} · Điều kiện ${marker.title} · ${marker.side.toUpperCase()}`,
+        });
+      }
       if (
         observation.setup &&
         !heldByTrade &&
@@ -461,7 +483,24 @@ export function PaperChart({
     } else {
       priceSeries.applyOptions({ autoscaleInfoProvider: undefined });
     }
-    markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
+    const sorted = points.sort((a, b) => Number(a.time) - Number(b.time));
+    const byTime = new Map(candles.map((candle) => [candle.time, candle]));
+    const texts: ChartLabel[] = [];
+    for (const point of sorted) {
+      const bar = byTime.get(Number(point.time));
+      if (!point.text || !bar) continue;
+      const above = point.position === 'aboveBar';
+      texts.push({
+        time: bar.time,
+        price: above ? bar.high : bar.low,
+        above,
+        color: point.color ?? '#17231c',
+        text: point.text,
+      });
+      point.text = undefined;
+    }
+    labels.current?.set(texts);
+    markers.current?.setMarkers(sorted);
   }, [trade, observations, candles, positions, step]);
   return (
     <div className="trade-chart-wrap">
@@ -657,7 +696,7 @@ export function PaperChart({
             #{trade.id} {trade.side.toUpperCase()} ·{' '}
             {trade.exit_time === null ? 'Đang mở' : 'Đã đóng'} ·{' '}
             {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
-            {trade.audit?.strategy ? ` · ${trade.audit.strategy}` : ''}
+            {trade.audit?.strategy ? ` · ${tradeStrategy(trade.audit)?.title}` : ''}
           </strong>
         )}
         {trade && (
