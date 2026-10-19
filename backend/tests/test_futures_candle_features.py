@@ -6,7 +6,7 @@ def rows(*ohlc):
 
 def test_new_features_validate_and_match():
     for f in FEATURES[7:]:
-        frame = "H1" if f in ("pdh_pdl", "adx_regime") else "M15"
+        frame = "H1" if f in ("pdh_pdl", "adx_regime", "pdh_pdl_sweep") else "M15"
         assert validate_rule({"feature": f, "frame": frame}) == 1
     base = [(100, 101, 99, 100)] * 40
     eng = rows(*base, (101, 101.2, 99.8, 100), (99.8, 102, 99.7, 101.5))
@@ -87,7 +87,7 @@ def test_wedge_and_ema_bounce():
 
 def test_every_seed_rule_is_valid():
     from backend.app.futures_rule_tree import RULES
-    assert len(RULES) == 25 and all(validate_rule(rule) <= 11 for rule in RULES)
+    assert len(RULES) == 26 and all(validate_rule(rule) <= 11 for rule in RULES)
 
 def test_bb_pierce_and_volume_dryup():
     base = [(100, 101, 99, 100 + (i % 2) * 0.2) for i in range(30)]

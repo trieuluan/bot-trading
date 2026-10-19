@@ -153,10 +153,18 @@ Tree có thêm hai feature H1/H4 (không cho dùng M15): `pdh_pdl` đóng cắt 
 đỉnh/đáy ngày UTC trước, cần đủ nến cả ngày trước và thân nến cùng chiều;
 `adx_regime` dùng Wilder ADX(14) > 25, cộng DI thuận chiều lệnh, tối thiểu 42 nến
 đã đóng. ADX đo sức mạnh; DI xác nhận hướng. Mốc ngày lấy từ nến H1/H4 đã gom
-từ M15, không cần feed D1 riêng. Hai G0 mới: H4 trend + H1 ADX/PDH-PDL + M15 volume;
-H4 trend + H1 ADX/EMA50 pullback + M15 pin bar. Seed đồng bộ vào learner hiện có;
+từ M15, không cần feed D1 riêng. Ba G0 mới: H4 trend + H1 ADX/PDH-PDL + M15 volume;
+H4 trend + H1 ADX/EMA50 pullback + M15 pin bar; H4 trend + H1 (quét PDL/PDH + OI surge)
+và M15 pin bar (`pdh_pdl_sweep`). Seed đồng bộ vào learner hiện có;
 replay `--signal-seeds` chỉ xuất báo cáo nghiên cứu, không thay lịch sử learner,
 không cộng mẫu replay thành forward và không tự thăng hạng.
+
+`pdh_pdl_sweep` là leaf riêng H1/H4: long quét dưới PDL rồi đóng lại giữa PDL/PDH,
+short quét trên PDH rồi đóng lại trong vùng; giá mở phải ở phía trong mốc quét,
+thân nến cùng chiều lệnh. Không ghép `pdh_pdl` breakout với sweep vì khác điều kiện.
+OI tăng không xác nhận lệnh thanh lý: seed chỉ lọc `oi_surge` tăng >=1% trong 1h,
+dùng mẫu OI đã biết và còn mới; thiếu dữ liệu thì không phát tín hiệu. Cache replay
+340 ngày không có OI, nên không dùng replay đó để kết luận hiệu quả seed này.
 
 1. Mở **Kết nối sàn**, chọn MEXC Futures để xem chart giá hợp đồng thật. Lần đầu tải 120 nến đã đóng. Chuyển nguồn sẽ dừng bot; bật lại nếu muốn ghi nhận tín hiệu mới.
 2. Mở **Backtest**, chọn 7/30/90 ngày, vốn, rủi ro mỗi lệnh, phí và trượt giá; bấm **Chạy backtest**. Không cần bật bot. Báo cáo gần nhất tự tải lại khi mở trang.

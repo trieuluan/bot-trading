@@ -16,7 +16,8 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
             "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge",
             "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap",
-            "pdh_pdl", "adx_regime")
+            "pdh_pdl", "adx_regime", "pdh_pdl_sweep")
+DAILY_FEATURES = ("pdh_pdl", "adx_regime", "pdh_pdl_sweep")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -32,7 +33,7 @@ def validate_rule(rule, depth=1, retest_allowed=False):
     if "feature" in rule:
         if (set(rule) != {"feature", "frame"} or rule["feature"] not in FEATURES
                 or not isinstance(rule["frame"], str) or rule["frame"] not in FRAMES
-                or rule["feature"] in ("pdh_pdl", "adx_regime") and rule["frame"] == "M15"
+                or rule["feature"] in DAILY_FEATURES and rule["frame"] == "M15"
                 or rule["feature"] == "retest" and not retest_allowed):
             raise ValueError("Invalid rule predicate")
         return 1
@@ -229,7 +230,7 @@ def ema_bounce(rows, direction):
                for level in (fast, slow))
 
 CLASSIC_FEATURES = ("fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap",
-                    "pdh_pdl", "adx_regime")
+                    "pdh_pdl", "adx_regime", "pdh_pdl_sweep")
 
 def adx_state(rows, period=14):
     """Wilder ADX and DI spread (+DI - -DI) of the last closed row; None when history is short."""
@@ -333,7 +334,7 @@ def session_vwap_points(rows, seconds):
     return points
 
 def classic_matches(feature, rows, direction, lookback, seconds):
-    if len(rows) < 2 or feature in ("pdh_pdl", "adx_regime") and seconds < 3600:
+    if len(rows) < 2 or feature in DAILY_FEATURES and seconds < 3600:
         return False
     last = rows[-1]
     if feature == "fib_retrace":
@@ -366,6 +367,13 @@ def classic_matches(feature, rows, direction, lookback, seconds):
         level, previous = levels[0 if direction == 1 else 1], rows[-2]
         return (direction * (last.close - level) > 0 and direction * (previous.close - level) <= 0
                 and direction * (last.close - last.open) > 0)
+    if feature == "pdh_pdl_sweep":
+        levels = prior_day_range(rows, seconds)
+        if levels is None:
+            return False
+        high, low = levels
+        return (low < last.close < high and direction * (last.close - last.open) > 0
+                and (last.low < low <= last.open if direction == 1 else last.high > high >= last.open))
     points = session_vwap_points(rows, seconds)
     if len(points) < 2 or points[-2]["time"] != rows[-2].time:
         return False
@@ -577,6 +585,7 @@ def describe_rule(rule):
                   "fvg": "Chạm lần đầu FVG 3 nến, không xuyên biên xa, thân nến cùng chiều",
                   "bos": "Đóng phá swing đã xác nhận 2 nến, chưa từng đóng phá trước đó",
                   "pdh_pdl": "Đóng phá đỉnh/đáy ngày UTC trước (cần đủ nến cả ngày), nến cùng chiều",
+                  "pdh_pdl_sweep": "Mở trong biên quét, râu quét PDL/PDH rồi đóng trong vùng ngày UTC trước, thân cùng chiều (chỉ H1/H4)",
                   "adx_regime": "ADX14 > 25 và +DI/-DI cùng chiều (chỉ H1/H4)",
                   "session_vwap": "Đóng cắt lại VWAP theo volume nến từ 00:00 UTC (xấp xỉ, không phải từng giao dịch)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
@@ -712,6 +721,16 @@ HTF_RULES.extend([
         {"feature": "pin_bar", "frame": "M15"},
     ]},
 ])
+
+HTF_RULES.append(
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "pdh_pdl_sweep", "frame": "H1"},
+            {"feature": "oi_surge", "frame": "H1"},
+        ]},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]})
 
 HTF_RULES.extend([
     {"op": "all", "children": [

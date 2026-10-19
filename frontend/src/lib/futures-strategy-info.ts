@@ -52,7 +52,7 @@ function htfProfile(rule?: Rule): string | null {
   if (has('volume_dryup')) return 'htf_dryup';
   if (has('breakout')) return 'htf_breakout';
   if (has('trend')) return 'htf_trend_align';
-  if (has('wick_sweep', 'sweep')) return 'htf_sweep';
+  if (has('wick_sweep', 'sweep', 'pdh_pdl_sweep')) return 'htf_sweep';
   if (has('ema_touch', 'ema_bounce')) return 'htf_pullback';
   if (has('ema_cross_n', 'ema_cross')) return 'htf_ema_cross';
   if (has('wedge')) return 'htf_wedge';
@@ -121,6 +121,7 @@ export function ruleName(rule: Rule): string {
       bos: 'Đóng phá swing đã xác nhận, chưa bị phá trước đó',
       session_vwap: 'Đóng cắt lại VWAP ngày UTC, xấp xỉ theo volume nến',
       pdh_pdl: 'Đóng phá đỉnh/đáy ngày UTC trước, nến cùng chiều',
+      pdh_pdl_sweep: 'Quét PDL/PDH rồi đóng trở lại vùng ngày UTC trước (H1/H4)',
       adx_regime: 'ADX14 > 25, +DI/-DI cùng chiều (chỉ H1/H4)',
       bb_pierce: 'Chọc ra ngoài BB20 rồi đóng lại',
       volume_dryup: 'Hồi cạn volume',

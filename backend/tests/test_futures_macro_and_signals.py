@@ -76,8 +76,9 @@ def test_oi_surge_seed_registration():
 
     seeds = [seed for seed in RULE_SEEDS
              if any(node.get("feature") == "oi_surge" for _, node in nodes(seed["rule"]))]
-    assert len(seeds) == 1
-    seed = seeds[0]
+    assert len(seeds) == 2
+    seed = next(seed for seed in seeds if any(
+        node.get("feature") == "breakout" for _, node in nodes(seed["rule"])))
     validate_genome(seed)
     validate_htf_rule(seed["rule"])
     assert seed["exit_policy"] == "adaptive"

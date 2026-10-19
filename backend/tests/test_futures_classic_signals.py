@@ -99,7 +99,7 @@ def test_all_signal_seeds_registered_and_valid():
     new_features = {"fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap", "pdh_pdl", "adx_regime"}
     found = {n["feature"] for s in RULE_SEEDS for _, n in nodes(s["rule"]) if n.get("feature") in new_features}
     assert found == new_features
-    assert len(RULE_SEEDS) == 25
+    assert len(RULE_SEEDS) == 26
 
 def test_pdh_pdl_predicate():
     rule = {"feature": "pdh_pdl", "frame": "H1"}
@@ -120,7 +120,7 @@ def test_adx_regime_predicate():
     assert matches(rule, to15(rise), 1, 20) and not matches(rule, to15(rise), -1, 20)
     assert not matches(rule, to15(flat), 1, 20)
 
-@pytest.mark.parametrize("feature", ("pdh_pdl", "adx_regime"))
+@pytest.mark.parametrize("feature", ("pdh_pdl", "adx_regime", "pdh_pdl_sweep"))
 def test_daily_features_reject_m15(feature):
     with pytest.raises(ValueError, match="Invalid rule predicate"):
         validate_rule({"feature": feature, "frame": "M15"})
@@ -161,10 +161,58 @@ def test_new_seeds_are_generation_zero_and_htf_valid():
 
     state = new_state(1800000000)
     seeds = [seed for seed in RULE_SEEDS if any(
-        node.get("feature") in ("pdh_pdl", "adx_regime") for _, node in nodes(seed["rule"]))]
-    assert len(seeds) == 2
+        node.get("feature") in ("pdh_pdl", "adx_regime", "pdh_pdl_sweep")
+        for _, node in nodes(seed["rule"]))]
+    assert len(seeds) == 3
     for seed in seeds:
         validate_genome(seed)
         validate_htf_rule(seed["rule"])
         candidate = state["candidates"][genome_name(seed)]
         assert candidate["generation"] == 0 and candidate["parents"] == []
+
+def test_pdh_pdl_sweep_predicate():
+    rule = {"feature": "pdh_pdl_sweep", "frame": "H1"}
+    prior = [c(i * 3600, 100, 115 if i == 5 else 105, 85 if i == 10 else 95, 100)
+             for i in range(24)]
+    def to15(bars):
+        return [c(bar.time + step * 900, bar.open, bar.high, bar.low, bar.close, bar.volume / 4)
+                for bar in bars for step in range(4)]
+    long = [*prior, c(86400, 90, 96, 82, 95)]
+    short = [*prior, c(86400, 110, 120, 107, 108)]
+    assert matches(rule, to15(long), 1, 20) and not matches(rule, to15(long), -1, 20)
+    assert matches(rule, to15(short), -1, 20) and not matches(rule, to15(short), 1, 20)
+    assert not matches(rule, to15([*prior, c(86400, 90, 91, 78, 80)]), 1, 20)
+    assert not matches(rule, to15(long)[:-1], 1, 20)
+    assert not matches(rule, to15(long)[4:], 1, 20)
+    assert not matches(rule, to15([*prior, c(86400, 90, 96, 85, 95)]), 1, 20)
+    assert not matches(rule, to15([*prior, c(86400, 80, 96, 78, 95)]), 1, 20)
+
+def test_sweep_oi_seed_requires_known_fresh_oi_and_can_breed():
+    import copy
+    import random
+
+    from backend.app.futures_rule_tree import HTF_CONTEXT_FEATURES
+    from backend.app.futures_strategies import crossover, mutate
+
+    seed = next(seed for seed in RULE_SEEDS if any(
+        node.get("feature") == "pdh_pdl_sweep" for _, node in nodes(seed["rule"])))
+    frozen = copy.deepcopy(seed)
+    assert "pdh_pdl_sweep" in HTF_CONTEXT_FEATURES
+    candles = [c(index * 900, 60, 61, 59, 60) for index in range(8 * 96)]
+    candles += [c(index * 900, 100, 110, 90, 100) for index in range(8 * 96, 9 * 96)]
+    candles += [c(index * 900, 95, 102, 85, 100) for index in range(9 * 96, 9 * 96 + 4)]
+    now = candles[-1].time + 900
+    context = {"htf": True, "oi_history": [(now - 3600, 1000), (now, 1020)]}
+    assert matches(seed["rule"], candles, 1, 20, context=context)
+    assert not matches(seed["rule"], candles, -1, 20, context=context)
+    for oi in ([], [(now - 3600, 1000), (now, 1000)],
+               [(now - 3600, 1000), (now + 1, 1020)],
+               [(now - 3600, 1000), (now - 901, 1020)]):
+        assert not matches(seed["rule"], candles, 1, 20,
+                           context={"htf": True, "oi_history": oi})
+    child = crossover(RULE_SEEDS[0], seed)
+    assert child["rule"]["children"][1] == seed["rule"]["children"][1]
+    for variant in [child, *(mutate(seed, random.Random(index)) for index in range(32))]:
+        validate_genome(variant)
+        validate_htf_rule(variant["rule"])
+    assert seed == frozen
