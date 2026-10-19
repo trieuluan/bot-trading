@@ -9,7 +9,14 @@ export type PaperTrade = {
     original_quantity?: number;
     original_entry_fee?: number;
     realized_net?: number;
-    partial_exits?: { time: number; price: number; quantity: number; entry_fee: number; exit_fee: number; gross: number }[];
+    partial_exits?: {
+      time: number;
+      price: number;
+      quantity: number;
+      entry_fee: number;
+      exit_fee: number;
+      gross: number;
+    }[];
     trigger_bar?: number;
     ambiguous?: boolean;
     fill_basis?: 'level' | 'gap_open';

@@ -574,7 +574,8 @@ export function PaperTradingPage({
               <span className="desk-bot-next">
                 <Clock3 size={13} /> Nến kế tiếp{' '}
                 <strong>
-                  {Math.floor(nextCloseSeconds / 60)}:{String(nextCloseSeconds % 60).padStart(2, '0')}
+                  {Math.floor(nextCloseSeconds / 60)}:
+                  {String(nextCloseSeconds % 60).padStart(2, '0')}
                 </strong>
               </span>
             </div>
