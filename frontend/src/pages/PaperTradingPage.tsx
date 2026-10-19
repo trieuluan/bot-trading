@@ -36,6 +36,13 @@ function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
   return [...bars.values()].sort((a, b) => a.time - b.time);
 }
 
+function fundingCountdown(seconds: number) {
+  const s = Math.max(0, Math.floor(seconds));
+  return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60]
+    .map((n) => String(n).padStart(2, '0'))
+    .join(':');
+}
+
 export function PaperTradingPage({
   board,
   onSelect,
@@ -334,6 +341,45 @@ export function PaperTradingPage({
             </strong>
             <span className="mexc-fair-price">
               Fair {quote ? formatQuote(quote.fairPrice) : '—'}
+            </span>
+            {quote?.fundingRate !== undefined && (
+              <span
+                className="mexc-fair-price"
+                title={quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'}
+              >
+                Funding{' '}
+                <b className={quote.fundingRate >= 0 ? 'negative' : 'positive'}>
+                  {quote.fundingRate >= 0 ? '+' : ''}
+                  {(quote.fundingRate * 100).toFixed(4)}%
+                </b>
+                {quote.nextFundingTime && (
+                  <> / {fundingCountdown(quote.nextFundingTime - clock / 1000)}</>
+                )}
+              </span>
+            )}
+            <span
+              className="mexc-fair-price"
+              title="Open Interest: số hợp đồng còn mở trên MEXC. Chỉ tham khảo bối cảnh, không kích hoạt lệnh."
+            >
+              OI{' '}
+              <b>
+                {wallet?.open_interest
+                  ? wallet.open_interest.contracts.toLocaleString('en-US', {
+                      notation: 'compact',
+                      maximumFractionDigits: 2,
+                    })
+                  : '—'}
+              </b>{' '}
+              hợp đồng · 24h{' '}
+              {wallet?.open_interest?.change_24h_pct != null && !wallet.stale ? (
+                <b>
+                  {wallet.open_interest.change_24h_pct > 0 ? '+' : ''}
+                  {wallet.open_interest.change_24h_pct.toFixed(2)}%
+                </b>
+              ) : (
+                <span>—</span>
+              )}
+              {wallet?.stale && ' · dữ liệu cũ'}
             </span>
             <span className={`pill ${stream.live ? 'green' : 'amber'}`}>
               {stream.live ? 'LIVE 15m' : 'REST'}

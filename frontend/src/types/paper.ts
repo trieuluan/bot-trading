@@ -73,11 +73,17 @@ export type PaperWallet = {
   margin_mode?: 'cross';
   fee_bps: number;
   slippage_bps: number;
+  open_interest?: {
+    contracts: number;
+    change_24h_pct: number | null;
+  } | null;
   quote: {
     lastPrice: number;
     bid1: number;
     ask1: number;
     fairPrice: number;
+    fundingRate?: number;
+    nextFundingTime?: number;
     time: number;
     received_at: number;
   } | null;

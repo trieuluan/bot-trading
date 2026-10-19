@@ -269,3 +269,18 @@ def test_double_cross_uses_m1_order_else_stop_first(monkeypatch):
 
     monkeypatch.setattr(paper, "MexcFuturesAdapter", Down)
     assert paper.resolve_with_m1(trade, candle) is None
+
+def test_paper_wallet_reports_open_interest_context():
+    from backend.app.db import FuturesOpenInterest
+    now = 1_792_432_000
+    with Session.begin() as session:
+        session.add(FuturesOpenInterest(symbol="BTC_USDT", time=now - 86400, hold_vol=1000.0))
+
+    class OiMarket(Market):
+        def ticker(self):
+            return {**super().ticker(), "holdVol": 1100.0, "time": now}
+
+    sync_paper_quote(OiMarket(100, timestamp=now))
+    wallet = client.get("/api/paper/wallet").json()
+    assert wallet["open_interest"]["contracts"] == 1100.0
+    assert wallet["open_interest"]["change_24h_pct"] == pytest.approx(10.0)

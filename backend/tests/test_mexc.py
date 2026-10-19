@@ -341,3 +341,19 @@ def test_paused_feed_does_not_replay_paused_bars_and_sources_do_not_collide():
         snapshot = client.get("/api/dashboard").json()
         assert snapshot["signal_count"] == 1
         assert snapshot["signals"][0]["source"] == SOURCE
+
+def test_ticker_funding_rate_and_next_settlement():
+    import time
+    now = int(time.time() * 1000)
+
+    def handler(request):
+        if request.url.path.endswith("/ticker"):
+            data = {"symbol": "BTC_USDT", "lastPrice": 100, "bid1": 99.9, "ask1": 100.1,
+                    "fairPrice": 100, "fundingRate": 0.000095, "timestamp": now}
+        else:
+            data = {"symbol": "BTC_USDT", "nextSettleTime": now + 3_600_000}
+        return httpx.Response(200, json={"success": True, "data": data})
+
+    client = adapter(handler)
+    assert client.ticker()["fundingRate"] == 0.000095
+    assert client.funding_next() == (now + 3_600_000) // 1000

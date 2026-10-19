@@ -420,8 +420,16 @@ def sync_paper_quote(adapter=None):
             if wallet.retry_at and wallet.retry_at.replace(tzinfo=utcnow().tzinfo) > utcnow():
                 return
             needs_contract = wallet.contract is None
+            settle = (wallet.quote or {}).get("nextFundingTime")
         contract = adapter.contract_info() if needs_contract else None
         quote = adapter.ticker()
+        if (not settle or settle <= quote["time"]) and hasattr(adapter, "funding_next"):
+            try:
+                settle = adapter.funding_next()
+            except MarketDataError:
+                pass  # countdown is display-only; never block the quote
+        if settle and settle > quote["time"]:
+            quote["nextFundingTime"] = settle
         with Session.begin() as session:
             wallet = lock_wallet(session)
             if wallet.quote and quote["time"] < wallet.quote["time"]:
@@ -669,6 +677,7 @@ def get_wallet():
             fee_bps=wallet.fee_bps,
             slippage_bps=wallet.slippage_bps,
             quote=quote,
+            open_interest=open_interest_context(session, quote),
             stale=stale,
             error=wallet.error,
             funding_error=wallet.funding_error,
@@ -681,6 +690,20 @@ def get_wallet():
             candles=candles,
         )
 
+
+def open_interest_context(session, quote):
+    if not quote or not quote.get("holdVol"):
+        return None
+    target = int(quote["time"]) - 86400
+    previous = session.scalar(select(FuturesOpenInterest)
+        .where(FuturesOpenInterest.symbol == current_symbol(),
+               FuturesOpenInterest.time <= target,
+               FuturesOpenInterest.time >= target - 300)
+        .order_by(FuturesOpenInterest.time.desc()).limit(1))
+    change = None
+    if previous and math.isfinite(previous.hold_vol) and previous.hold_vol > 0:
+        change = (quote["holdVol"] / previous.hold_vol - 1) * 100
+    return {"contracts": quote["holdVol"], "change_24h_pct": change}
 
 def replay_command(session, request_id, payload):
     existing = session.get(PaperCommand, str(request_id))

@@ -93,10 +93,26 @@ class MexcFuturesAdapter:
                 hold = float(data.get("holdVol", 0))
             except (TypeError, ValueError, OverflowError):
                 hold = 0
+            try:
+                rate = float(data["fundingRate"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                rate = None
             return {**quote, "time": timestamp, "received_at": time.time(),
+                    **({"fundingRate": rate} if rate is not None and math.isfinite(rate) else {}),
                     **({"holdVol": hold} if hold and math.isfinite(hold) and hold > 0 else {})}
         except (KeyError, TypeError, ValueError) as exc:
             raise MarketDataError("Invalid or stale MEXC ticker") from exc
+
+    def funding_next(self) -> int:
+        """Next funding settlement, UTC seconds (ticker has no countdown field)."""
+        data = self._get("/api/v1/contract/funding_rate/" + self.symbol)
+        try:
+            settle = int(data["nextSettleTime"]) // 1000
+            if data["symbol"] != self.symbol or settle <= 0:
+                raise ValueError("Invalid funding settlement")
+            return settle
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MarketDataError("Invalid MEXC funding rate") from exc
 
     def server_time(self) -> int:
         try:
