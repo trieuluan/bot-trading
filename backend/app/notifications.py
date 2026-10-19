@@ -28,6 +28,10 @@ def queue(session, key, message):
 def price(value):
     return f"{value:,.8f}".rstrip("0").rstrip(".")
 
+def signed_price(value):
+    formatted = f"{value:+,.8f}".rstrip("0").rstrip(".")
+    return formatted if formatted not in ("+", "-", "") else "0"
+
 def when(timestamp):
     return datetime.fromtimestamp(timestamp, timezone(timedelta(hours=7))).strftime("%d/%m/%Y %H:%M:%S UTC+7")
 
@@ -136,7 +140,7 @@ def notify_partial(session, trade, fill, quantity, net, left, candle_time):
         f"🕒 Nến {when(candle_time + 900)}",
     ]))
 
-def notify_stop_update(session, trade, old_stop, new_stop, candle_time, old_target=None):
+def notify_stop_update(session, trade, old_stop, new_stop, candle_time, old_target=None, ref_price=None):
     """Một tin mỗi nến cho dời SL và/hoặc TP (trade.target đã là giá trị mới)."""
     audit = audit_of(session, trade)
     sign = 1 if trade.side == "long" else -1
@@ -144,9 +148,26 @@ def notify_stop_update(session, trade, old_stop, new_stop, candle_time, old_targ
     target_moved = old_target is not None and trade.target != old_target
     if not stop_moved and not target_moved:
         return
-    risk = (trade.monitoring or {}).get("risk") or abs(trade.entry - old_stop)
+    risk = (trade.monitoring or {}).get("risk")
+    def level_r(level):
+        return f"{sign * (level - trade.entry) / risk:+.2f}R" if risk and risk > 0 else "chưa có R gốc"
+
+    def move_r(old, new, kind="sl"):
+        if not risk or risk <= 0:
+            return "chưa có R gốc"
+        change = sign * (new - old) / risk
+        verb = ("nâng" if change > 0 else "hạ") if kind == "sl" else ("nới thêm" if change > 0 else "thu hẹp")
+        return f"{level_r(old)} → {level_r(new)} ({verb} {change:+.2f}R)"
+
+    def distance(level, label):
+        if ref_price is None or ref_price <= 0:
+            return []
+        gap = abs(level - ref_price)
+        r_gap = f" · {gap / risk:.2f}R" if risk and risk > 0 else ""
+        side = "phía trên" if level > ref_price else "phía dưới" if level < ref_price else "đúng tại"
+        return [f"📏 Khoảng cách tới {label}: <b>{price(gap)}</b> "
+                f"({gap / ref_price * 100:.2f}%{r_gap}), {side} close nến"]
     est_pnl = sign * (new_stop - trade.entry) * trade.quantity
-    secured_r = sign * (new_stop - trade.entry) / risk if risk else 0.0
     title = "SL/TP" if stop_moved and target_moved else "SL" if stop_moved else "TP"
     icon = "🎯" if not stop_moved else "🛡" if est_pnl >= 0 else "📍"
     lines = [
@@ -155,17 +176,37 @@ def notify_stop_update(session, trade, old_stop, new_stop, candle_time, old_targ
         "",
     ]
     if stop_moved:
-        lines.append(f"🛑 SL: <code>{price(old_stop)}</code> → <code>{price(new_stop)}</code>")
+        lines.append(
+            f"🛑 SL: <code>{price(old_stop)}</code> → <code>{price(new_stop)}</code> "
+            f"<i>(Δ giá {signed_price(new_stop - old_stop)})</i>"
+        )
+        lines.append(f"R tại SL: {move_r(old_stop, new_stop)}")
+        if est_pnl > 0:
+            sl_badge = f"✅ Khóa lãi gộp: <b>{est_pnl:+,.2f} USDT</b> ({level_r(new_stop)})"
+        elif est_pnl == 0:
+            sl_badge = "⚖️ Hòa vốn giá: <b>0.00 USDT</b> (chưa trừ chi phí)"
+        else:
+            sl_badge = f"🔻 PnL gộp tại SL: <b>{est_pnl:+,.2f} USDT</b> ({level_r(new_stop)})"
+        lines.append(sl_badge)
+        lines.extend(distance(new_stop, "SL"))
     if target_moved:
-        lines.append(f"🎯 TP: <code>{price(old_target)}</code> → <code>{price(trade.target)}</code>")
+        delta_tp = sign * (trade.target - old_target)
+        est_tp = sign * (trade.target - trade.entry) * trade.quantity
+        tp_verb = "Tăng mục tiêu" if delta_tp > 0 else "Giảm mục tiêu"
+        lines.append(
+            f"🎯 TP: <code>{price(old_target)}</code> → <code>{price(trade.target)}</code> "
+            f"<i>(Δ giá {signed_price(trade.target - old_target)})</i>"
+        )
+        lines.append(f"{tp_verb}: {move_r(old_target, trade.target, kind='tp')}")
+        lines.append(f"🎯 PnL gộp tại TP: <b>{est_tp:+,.2f} USDT</b> ({level_r(trade.target)})")
+        lines.extend(distance(trade.target, "TP"))
+    lines.append("")
     lines.append(f"▫️ Entry <code>{price(trade.entry)}</code>"
                  + ("" if target_moved else f" · TP <code>{price(trade.target)}</code>")
                  + ("" if stop_moved else f" · SL <code>{price(new_stop)}</code>"))
-    if stop_moved:
-        lines += [
-            f"{'✅ Khóa lãi' if est_pnl > 0 else '⚖️ Hòa vốn' if est_pnl == 0 else '🔻 Giảm rủi ro còn'} <b>{est_pnl:+,.2f} USDT</b> ({secured_r:+.2f}R)",
-            "PnL gộp tại SL, chưa trừ phí, funding và trượt giá.",
-        ]
+    if ref_price is not None:
+        lines.append(f"▫️ Close nến tham chiếu <code>{price(ref_price)}</code> (không phải giá live)")
+    lines.append("<i>PnL gộp trên phần đang giữ, chưa trừ phí, funding và trượt giá. R theo rủi ro giá ban đầu.</i>")
     lines += [f"📦 Khối lượng giữ: {trade.quantity:g}", f"🕒 Nến {when(candle_time + 900)}"]
     queue(session, f"{trade.entry_time:010d}-{trade.symbol}-{trade.id}-1-stop-{candle_time}", "\n".join(lines))
 

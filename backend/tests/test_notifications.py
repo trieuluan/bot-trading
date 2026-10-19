@@ -160,7 +160,7 @@ def test_notify_stop_update_formats_and_queues(monkeypatch):
         id=138, symbol="ETH_USDT", side="short", entry=2428.48, stop=2451.51, target=2394.0,
         quantity=3.45, entry_time=1700000000, origin="auto", monitoring={"risk": 23.03},
     )
-    notify_stop_update(None, trade, 2451.51, 2420.0, 1700000900)
+    notify_stop_update(None, trade, 2451.51, 2420.0, 1700000900, ref_price=2415.0)
     assert len(sent) == 1
     key, msg = sent[0]
     assert "1-stop-1700000900" in key
@@ -168,6 +168,9 @@ def test_notify_stop_update_formats_and_queues(monkeypatch):
     assert "2,451.51" in msg and "2,420" in msg
     assert "✅ Khóa lãi" in msg
     assert "+29.26 USDT" in msg
+    assert "Δ giá -31.51" in msg
+    assert "-1.00R → +0.37R (nâng +1.37R)" in msg
+    assert "Khoảng cách tới SL: <b>5</b>" in msg and "phía trên close nến" in msg
 
     sent.clear()
     notify_stop_update(None, trade, 2451.51, 2428.48, 1700000900)

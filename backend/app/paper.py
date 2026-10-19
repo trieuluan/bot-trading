@@ -391,7 +391,7 @@ def reconcile_stops(session, wallet, trade, now):
                               "previous_stop": old_stop}
                 trade.stop = next_stop
             if next_stop != old_stop or trade.target != old_target:
-                notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target)
+                notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target, candle.close)
         cursor += 900
     status = "history_pending" if cursor < end else "watching"
     if status == "history_pending" and monitoring.get("status") != status:
