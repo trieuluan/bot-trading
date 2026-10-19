@@ -20,7 +20,7 @@ import type { Candle } from '../types/trading';
 import { exitLabels } from './PaperTradeDetails';
 import { groupNearbyTags, placeChartTags } from '../lib/chart-tags';
 import { ChartLabels, type ChartLabel } from '../lib/chart-labels';
-import { formatPrice } from '../lib/format';
+import { formatQuote } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
@@ -161,7 +161,7 @@ export function PaperChart({
           if (visible) occupied.push(group.y);
           group.members.forEach((level, index) => {
             const ids = group.members.map((member) => member.title.match(/^#\d+/)?.[0]).filter(Boolean);
-            const title = ids.length > 1 ? `${ids.join('·')} ${group.kind}` : level.title;
+            const title = ids.length > 1 ? `${ids.length}× ${group.kind}` : level.title;
             const axisLabelVisible = visible && index === 0;
             const key = `${axisLabelVisible}:${title}`;
             if (axisOptions.get(level.line) !== key) {
@@ -198,6 +198,7 @@ export function PaperChart({
       wickUpColor: '#2c856c',
       wickDownColor: '#bd7164',
       borderVisible: false,
+      priceFormat: { type: 'custom', formatter: formatQuote, minMove: 0.00001 },
     });
     markers.current = createSeriesMarkers(series.current, []);
     labels.current = new ChartLabels(true);
@@ -311,7 +312,7 @@ export function PaperChart({
             time: bucket as UTCTimestamp,
             position: trade.side === 'long' ? 'aboveBar' : 'belowBar',
             color: '#2c856c', shape: 'circle',
-            text: `#${trade.id} CHỐT MỘT PHẦN ${formatPrice(leg.price)}`,
+            text: `#${trade.id} CHỐT MỘT PHẦN ${formatQuote(leg.price)}`,
           });
         }
       }
@@ -587,14 +588,18 @@ export function PaperChart({
             const left = 8 + tag.column * 200;
             const isSelected = members.some((p) => p.id === trade?.id);
             return (
-              <div key={tagKey}>
+              <div key={tagKey} onMouseLeave={() => setHover(null)} onKeyDown={(event) => {
+                if (event.key === 'Escape') setHover(null);
+              }}>
                 <div
                   className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''}`}
                   style={{ top: tag.displayY, left }}
                   onMouseEnter={() => setHover(tagKey)}
                   tabIndex={0}
                   onFocus={() => setHover(tagKey)}
-                  onBlur={() => setHover(null)}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setHover(null);
+                  }}
                   onClick={() => onSelectPosition?.(open.id)}
                   role="button"
                   onKeyDown={(event) => {
@@ -603,7 +608,6 @@ export function PaperChart({
                       onSelectPosition?.(open.id);
                     }
                   }}
-                  onMouseLeave={() => setHover(null)}
                 >
                   <span>
                     {countLabel}{open.side.toUpperCase()} {label}
@@ -614,15 +618,25 @@ export function PaperChart({
                   </strong>
                 </div>
                 {hover === tagKey && (
-                  <dl
+                  <section
                     className="position-tip"
+                    aria-label="Chi tiết vị thế"
+                    onFocus={() => setHover(tagKey)}
+                    onBlur={(event) => {
+                      if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setHover(null);
+                    }}
                     style={
                       tag.displayY > (container.current?.clientHeight ?? 430) * 0.48
                         ? {
-                            bottom: (container.current?.clientHeight ?? 430) - tag.displayY + 16,
-                            left,
+                            bottom: (container.current?.clientHeight ?? 430) - tag.displayY + 10,
+                            left: Math.max(8, Math.min(left, (container.current?.clientWidth ?? 380) - 368)),
+                            maxHeight: Math.min(440, Math.max(80, tag.displayY - 18)),
                           }
-                        : { top: tag.displayY + 16, left }
+                        : {
+                            top: tag.displayY + 10,
+                            left: Math.max(8, Math.min(left, (container.current?.clientWidth ?? 380) - 368)),
+                            maxHeight: Math.min(440, Math.max(80, (container.current?.clientHeight ?? 430) - tag.displayY - 28)),
+                          }
                     }
                   >
                     <h4>
@@ -630,32 +644,39 @@ export function PaperChart({
                       {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
                       {tag.kind === 'entry' ? 'Giá hiện tại' : tag.kind === 'stop' ? 'Nếu chạm SL' : 'Nếu chạm TP'}
                     </h4>
+                    <div className="position-tip-list" tabIndex={0} aria-label="Danh sách lệnh, cuộn để xem thêm">
                     {members.map((p) => {
                       const price = tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
                       const gross = estimatedPaperPnl(p, price, feeBps, false);
+                      const tradeNet = estimatedPaperPnl(p, price, feeBps, true);
                       const exitFee = price === null ? null : (price * p.quantity * feeBps) / 10000;
                       const move = price === null ? null : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
                       const unit = getFuturesSymbol().split('_')[0];
                       return (
                         <div key={p.id} className="position-tip-trade">
-                          <h5>#{p.id} · {tradeStrategy(p.audit)?.title ?? (p.origin === 'manual' ? 'Thủ công' : 'Auto')}</h5>
-                          <div><dt>Giá {tag.kind === 'entry' ? 'hiện tại' : 'chốt'} / vào</dt><dd>{price === null ? '—' : formatPrice(price)} / {formatPrice(p.entry)}</dd></div>
-                          <div><dt>SL / TP</dt><dd>{formatPrice(p.stop)} / {formatPrice(p.target)}</dd></div>
+                          <h5><b>#{p.id}</b> {tradeStrategy(p.audit)?.title ?? (p.origin === 'manual' ? 'Thủ công' : 'Auto')}</h5>
+                          <dl>
+                          <div><dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt><dd>{price === null ? '—' : formatQuote(price)} <i>({fmt(move)}%)</i></dd></div>
+                          <div><dt>Entry</dt><dd>{formatQuote(p.entry)}</dd></div>
+                          <div><dt>SL · TP</dt><dd>{formatQuote(p.stop)} · {formatQuote(p.target)}</dd></div>
                           <div><dt>Khối lượng</dt><dd>{p.quantity} {unit}</dd></div>
-                          <div><dt>Biến động</dt><dd>{fmt(move)}%</dd></div>
-                          <div><dt>PnL giá · phí vào/ra</dt><dd>{fmt(gross)} · −{p.entry_fee.toFixed(2)}/−{exitFee === null ? '—' : exitFee.toFixed(2)}</dd></div>
-                          <div><dt>Funding đã ghi</dt><dd>{fmt(-p.funding_cost)}</dd></div>
+                          <div><dt>PnL giá</dt><dd>{fmt(gross)}</dd></div>
+                          <div><dt>Phí vào · ra</dt><dd>−{p.entry_fee.toFixed(2)} · −{exitFee === null ? '—' : exitFee.toFixed(2)}</dd></div>
+                          <div><dt>Funding</dt><dd>{fmt(-p.funding_cost)}</dd></div>
+                          <div><dt>Ròng nếu chốt</dt><dd>{fmt(tradeNet)} USDT</dd></div>
+                          </dl>
                         </div>
                       );
                     })}
-                    <div className="total">
-                      <dt>PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''} · phí {feeBps} bps</dt>
-                      <dd>{fmt(net)} USDT</dd>
                     </div>
+                    <dl className="total">
+                      <dt>PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}<small>Phí đóng ước tính {feeBps} bps</small></dt>
+                      <dd>{fmt(net)} USDT</dd>
+                    </dl>
                     <p>
                       Chưa gồm trượt giá và funding tương lai{markStale ? ' · giá đang chậm' : ''}.
                     </p>
-                  </dl>
+                  </section>
                 )}
               </div>
             );

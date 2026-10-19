@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { groupNearbyTags, placeChartTags } from '../src/lib/chart-tags.ts';
 import { drawOrder, stackLabels } from '../src/lib/chart-labels.ts';
+import { formatPrice, formatQuote } from '../src/lib/format.ts';
+
+assert.equal(formatPrice(0.99), '0.99');
+assert.equal(formatQuote(0.9912), '0.9912');
+assert.notEqual(formatQuote(0.9912), formatQuote(0.9945));
+assert.equal(formatQuote(81891), '81,891.00');
+assert.equal(formatQuote(1.012), '1.012');
 
 const labels = [
   { time: 1, above: true, text: 'Signal' },

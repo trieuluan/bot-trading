@@ -4116,10 +4116,14 @@ footer {
 .position-tip {
   position: absolute;
   z-index: 10;
-  width: 250px;
-  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
   margin: 0;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: 6px;
   background: #0b100e;
   border: 1px solid #23332c;
@@ -4130,32 +4134,43 @@ footer {
     SFMono-Regular,
     Menlo,
     monospace;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .position-tip h4 {
   margin: 0 0 5px;
   font-size: 12px;
   color: #8dbde2;
 }
-.position-tip div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+.position-tip-trade dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 8px;
   padding: 1.5px 0;
 }
+.position-tip-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.position-tip-trade dl { margin: 0; }
 .position-tip dt {
   color: #899b91;
 }
 .position-tip dd {
   margin: 0;
   text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 .position-tip .total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin: 0;
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid #33443d;
   font-weight: 700;
 }
+.position-tip .total small { display: block; font-size: 10px; font-weight: 400; margin-top: 3px; }
+.position-tip h4, .position-tip .total, .position-tip p { flex-shrink: 0; }
+.position-tip dd i { color: #899b91; font-style: normal; }
 .position-tip p {
   margin: 5px 0 0;
   color: #899b91;
@@ -5703,7 +5718,9 @@ main:has(.futures-desk) {
   font-size: 22px;
 }
 
-.position-tip-trade { padding: 4px 0; border-bottom: 1px solid #23332c; }
-.position-tip-trade h5 { margin: 0 0 2px; font-size: 11px; color: #d8e2dc; }
+.position-tip-trade { padding: 8px 0; border-bottom: 1px solid #23332c; }
+.position-tip-trade h5 { margin: 0 0 5px; font-size: 12px; color: #d8e2dc; overflow-wrap: anywhere; }
+.position-tip-trade h5 b { color: #8dbde2; margin-right: 4px; }
 .position-tag { font-size: 12px; max-width: 190px; }
 .position-tag > * { padding: 2px 7px; white-space: nowrap; }
+

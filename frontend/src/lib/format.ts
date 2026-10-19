@@ -1,6 +1,11 @@
 export const formatPrice = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+export const formatQuote = (v: number) => {
+  const digits = Math.abs(v) >= 100 ? 2 : Math.abs(v) >= 1 ? 3 : Math.abs(v) >= 0.1 ? 4 : 5;
+  return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+};
+
 export const observationStatusLabels: Record<string, string> = {
   waiting_breakout: 'Đang chờ breakout 1h',
   waiting_retest: 'Đã breakout 1h · Chờ retest 15m',
