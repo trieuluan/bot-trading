@@ -7,7 +7,7 @@ from backend.app.backtest import BacktestConfig, simulate
 from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session
 from backend.app.feed import save_candles
 from backend.app.futures_exits import adaptive_levels, adaptive_target, partial_size, protective_stop
-from backend.app.futures_exits import resistance_ahead
+from backend.app.futures_exits import h1_view, resistance_ahead
 from backend.app.futures_rules import atr14
 from backend.app.futures_learner import FEE, SLIP, advance
 from backend.app.futures_strategies import RULE_SEEDS, crossover, mutate, strategy_setup, validate_genome
@@ -15,6 +15,11 @@ from backend.app.market import Candle
 from backend.app.paper import close_position, reconcile_stops
 from backend.app.strategy import Setup
 from backend.tests.test_paper_recovery import recovery
+
+def hourly_history(rows):
+    return [Candle(index * 3600 + quarter * 900, row.open, row.high, row.low,
+                   row.close, row.volume / 4)
+            for index, row in enumerate(rows) for quarter in range(4)]
 
 
 def history(side):
@@ -94,13 +99,14 @@ def test_initial_levels_and_target_stop_only_tighten(side):
     # Place barrier well above 1.5R (risk is ~1.25, barrier at 105 is >3R away)
     rows[10] = Candle(9000, 100, 106 if side == "long" else 101,
                       99 if side == "long" else 94, 100, 1)
+    rows = hourly_history(rows)
     stop, target = adaptive_levels(side, rows)
     assert direction * (100 - stop) > 0
     assert direction * (target - 100) >= 1.5 * abs(100 - stop)
     sample = dict(side=side, entry=100, risk=2, stop=100 - direction * 2,
                   target=100 + direction * 20, exit_policy="adaptive")
     # At index 20, candle moves in profit but closes with opposite body (weak close)
-    weak_bar = Candle(18000, 100 + direction * 3.5,
+    weak_bar = Candle(rows[-1].time, 100 + direction * 3.5,
                       max(100 + direction * 3.6, 100 + direction * 2.9),
                       min(100 + direction * 3.6, 100 + direction * 2.9),
                       100 + direction * 3.0, 1)
@@ -109,7 +115,7 @@ def test_initial_levels_and_target_stop_only_tighten(side):
     assert direction * (next_stop - sample["stop"]) > 0
     sample["stop"] = next_stop
     assert protective_stop(sample, rows, FEE, SLIP) == next_stop
-    rows.append(Candle(18900, 100 + direction * 3.0,
+    rows.append(Candle(rows[-1].time + 900, 100 + direction * 3.0,
                        max(100 + direction * 4.0, 100 + direction * 2.8),
                        min(100 + direction * 4.0, 100 + direction * 2.8),
                        100 + direction * 3.0, 1))
@@ -174,6 +180,7 @@ def test_entry_target_stops_before_barrier_and_rejects_close_barrier(side):
     rows = [Candle(index * 900, 100, 100.5, 99.5, 100, 1) for index in range(21)]
     rows[10] = Candle(9000, 100, 102.2 if side == "long" else 100.5,
                       99.5 if side == "long" else 97.8, 100, 1)
+    rows = hourly_history(rows)
     stop, target = adaptive_levels(side, rows, 2.0)
     risk = abs(100 - stop)
     assert 1.5 * risk <= direction * (target - 100) < 2 * risk
@@ -183,11 +190,13 @@ def test_entry_target_stops_before_barrier_and_rejects_close_barrier(side):
     near = [Candle(i * 900, 100, 100.5, 99.5, 100, 1) for i in range(21)]
     near[10] = Candle(9000, 100, 101.1 if side == "long" else 100.5,
                       99.5 if side == "long" else 98.9, 100, 1)
+    near = hourly_history(near)
     assert adaptive_levels(side, near, 2.0) is None
 
-    far = list(rows)
+    far = [Candle(index * 900, 100, 100.5, 99.5, 100, 1) for index in range(21)]
     far[10] = Candle(9000, 100, 105 if side == "long" else 100.5,
-                     99.5 if side == "long" else 95, 100, 1)
+                    99.5 if side == "long" else 95, 100, 1)
+    far = hourly_history(far)
     stop, target = adaptive_levels(side, far, 1.5)
     assert target == pytest.approx(100 + direction * 2 * abs(100 - stop))
 
@@ -198,6 +207,7 @@ def test_initial_target_without_barrier_uses_r_cap(side):
     rows = [Candle(index * 900, 100, 100.5, 99.5, 100, 1) for index in range(21)]
     rows[-1] = (Candle(18000, 100, 102, 100, 102, 1) if direction == 1
                 else Candle(18000, 100, 100, 98, 98, 1))
+    rows = hourly_history(rows)
     assert resistance_ahead({"side": side}, rows) is None
     stop, target = adaptive_levels(side, rows, 3.0)
     assert target == pytest.approx(rows[-1].close + direction * 3 * abs(rows[-1].close - stop))
@@ -214,7 +224,7 @@ def test_hourly_barrier_and_strong_close_does_not_reduce_target(side):
     position = dict(side=side, entry=100, risk=1, target=100 + direction * 10,
                     exit_policy="adaptive")
     barrier = resistance_ahead(position, rows)
-    assert barrier == pytest.approx(100 + direction * (3 - 0.1 * atr14(rows)))
+    assert barrier == pytest.approx(100 + direction * (3 - 0.1 * h1_view(rows)[1]))
     assert resistance_ahead(position, rows[-21:]) is None
     assert adaptive_target(position, rows) == position["target"]
     assert partial_size(position, rows) == 0
@@ -228,6 +238,7 @@ def test_tree_setup_preserves_structural_target_and_checks_final_stop_buffer(mon
     rows = [Candle(index * 900, 100, 100.5, 99.5, 100, 1) for index in range(21)]
     rows[10] = (Candle(9000, 100, 102.2, 99.5, 100, 1) if direction == 1
                 else Candle(9000, 100, 100.5, 97.8, 100, 1))
+    rows = hourly_history(rows)
     genome = {**RULE_SEEDS[0], "exit_policy": "adaptive"}
     setup = strategy_setup(genome, rows, [])
     assert setup is not None

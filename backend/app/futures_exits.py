@@ -50,7 +50,7 @@ def discretionary_exit(position, candles):
     direction = 1 if position["side"] == "long" else -1
     progress = direction * (candles[-1].close - position["entry"]) / position["risk"]
     if policy == "time_stop":
-        elapsed = (candles[-1].time + 900 - position["entry_time"]) // 900
+        elapsed = (candles[-1].time + 900 - position["entry_time"]) // 3600
         if elapsed >= params["max_bars"] and progress < params["min_progress_r"]:
             return "time_stop"
     if policy == "scale_out_ladder" and progress >= 3 * params["step_r"]:
@@ -79,16 +79,12 @@ def discretionary_exit(position, candles):
 def adaptive_levels(side, candles, target_r=2.0, stop_buffer=0.0):
     """Stop from swing; TP = target_r cap, pulled in front of the nearest barrier. None if barrier < 1.5R."""
     direction = 1 if side == "long" else -1
+    h1_bars, atr = h1_view(candles)
+    if atr is None:
+        return None
     entry = candles[-1].close
-    h1_bars = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
-    if len(h1_bars) >= 5:
-        atr = atr14(h1_bars)
-        swing = (min(row.low for row in h1_bars[-5:]) if direction == 1
-                 else max(row.high for row in h1_bars[-5:]))
-    else:
-        atr = atr14(candles)
-        swing = (min(row.low for row in candles[-20:]) if direction == 1
-                 else max(row.high for row in candles[-20:]))
+    swing = (min(row.low for row in h1_bars[-5:]) if direction == 1
+             else max(row.high for row in h1_bars[-5:]))
     risk = max(direction * (entry - swing) + atr * 0.25, atr) + stop_buffer * atr
     stop = entry - direction * risk
     target = entry + direction * max(2.0, target_r) * risk
@@ -100,13 +96,14 @@ def adaptive_levels(side, candles, target_r=2.0, stop_buffer=0.0):
     return stop, target
 
 def resistance_ahead(position, candles):
-    """Nearest prior M15/H1 swing or range barrier, using closed candles only."""
-    if len(candles) < 21:
+    """Nearest prior closed H1/H4 swing or range barrier."""
+    h1, atr = h1_view(candles)
+    if atr is None:
         return None
     direction = 1 if position["side"] == "long" else -1
-    close, buffer = candles[-1].close, atr14(candles) * 0.1
+    close, buffer = candles[-1].close, atr * 0.1
     levels = []
-    for prior in (candles[-21:-1], aggregate(candles[-100:-1], 3600)[-20:]):
+    for prior in (h1[-21:-1], aggregate(candles[-1600:], 14400)[-21:-1]):
         if len(prior) < 5:
             continue
         levels.append(max(row.high for row in prior) if direction == 1 else min(row.low for row in prior))
@@ -215,6 +212,14 @@ def structural_target(side, entry, stop, target, candles):
     return target
 
 
+def h1_view(candles):
+    """Use only contiguous closed H1 bars; never substitute M15 history."""
+    h1 = aggregate(candles[-1600:], 3600)
+    if (len(h1) >= 15 and all(after.time - before.time == 3600
+                              for before, after in zip(h1[-15:-1], h1[-14:]))):
+        return h1, atr14(h1)
+    return [], None
+
 def protective_stop(position, candles, fee, slip):
     policy = position.get("exit_policy", "fixed")
     if policy not in EXIT_POLICIES:
@@ -239,29 +244,25 @@ def protective_stop(position, candles, fee, slip):
         raise ValueError("Invalid futures exit costs")
     breakeven = (direction * entry + costs) / (direction - fee) / (1 - direction * slip)
     params = exit_parameters(policy, position.get("exit_params"))
+    view, atr = h1_view(candles)
+    if policy in ("atr_chandelier", "volatility_stop", "runner") and atr is None:
+        return stop
     if policy == "atr_chandelier":
-        h1 = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
-        atr = atr14(h1) if len(h1) >= 5 else atr14(candles)
-        lookback = min(len(candles), 20)
-        extreme = (max(c.high for c in candles[-lookback:]) if direction == 1
-                   else min(c.low for c in candles[-lookback:]))
+        extreme = (max(c.high for c in view[-20:]) if direction == 1
+                   else min(c.low for c in view[-20:]))
         chandelier = extreme - direction * params["atr_multiple"] * atr
         proposed = (max(breakeven, chandelier) if direction == 1
                     else min(breakeven, chandelier)) if profit_r >= 1 else chandelier
     elif policy == "volatility_stop":
         if profit_r < 1:
             return stop
-        atr = atr14(candles)
         trail_vol = close - direction * params["atr_multiple"] * atr
         proposed = max(breakeven, trail_vol) if direction == 1 else min(breakeven, trail_vol)
     elif policy == "runner":
         if profit_r < params["partial_r"]:
             return stop
-        h1 = aggregate(candles[-80:], 3600) if len(candles) >= 80 else []
-        atr = atr14(h1) if len(h1) >= 5 else atr14(candles)
-        lookback = min(len(candles), 20)
-        extreme = (max(c.high for c in candles[-lookback:]) if direction == 1
-                   else min(c.low for c in candles[-lookback:]))
+        extreme = (max(c.high for c in view[-20:]) if direction == 1
+                   else min(c.low for c in view[-20:]))
         chandelier = extreme - direction * params["atr_multiple"] * atr
         proposed = max(breakeven, chandelier) if direction == 1 else min(breakeven, chandelier)
     elif policy == "scale_out_ladder":
@@ -271,10 +272,10 @@ def protective_stop(position, candles, fee, slip):
         contiguous = (len(candles) >= 15 and all(
             right.time - left.time == 900 for left, right in zip(candles[-15:-1], candles[-14:])
         ))
-        if profit_r >= 2 * params["step_r"] and contiguous:
-            recent = candles[-3:]
-            swing = (min(row.low for row in recent) - 0.1 * atr14(candles) if direction == 1
-                     else max(row.high for row in recent) + 0.1 * atr14(candles))
+        if profit_r >= 2 * params["step_r"] and contiguous and atr is not None:
+            recent = view[-3:]
+            swing = (min(row.low for row in recent) - 0.1 * atr if direction == 1
+                     else max(row.high for row in recent) + 0.1 * atr)
             proposed = max(breakeven, swing) if direction == 1 else min(breakeven, swing)
     else:
         if profit_r < 1:
@@ -283,10 +284,10 @@ def protective_stop(position, candles, fee, slip):
         contiguous = (len(candles) >= 15 and all(
             right.time - left.time == 900 for left, right in zip(candles[-15:-1], candles[-14:])
         ))
-        if policy in ("trail", "adaptive") and profit_r >= 1.5 and contiguous:
-            recent = candles[-3:]
-            swing = (min(row.low for row in recent) - 0.1 * atr14(candles) if direction == 1
-                     else max(row.high for row in recent) + 0.1 * atr14(candles))
+        if policy in ("trail", "adaptive") and profit_r >= 1.5 and contiguous and atr is not None:
+            recent = view[-3:]
+            swing = (min(row.low for row in recent) - 0.1 * atr if direction == 1
+                     else max(row.high for row in recent) + 0.1 * atr)
             proposed = max(breakeven, swing) if direction == 1 else min(breakeven, swing)
     if proposed <= 0 or not direction * (close - proposed) > 0:
         return stop

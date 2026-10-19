@@ -325,7 +325,7 @@ def reconcile_stops(session, wallet, trade, now):
             return
         policy = monitoring.get("exit_policy", "fixed")
         if policy != "fixed":
-            history = load_candles(session, limit=100, until=candle.time + 900)
+            history = load_candles(session, limit=1600, until=candle.time + 900)
             settled_funding = sum(session.scalars(select(PaperFunding.cost).where(
                 PaperFunding.trade_id == trade.id, PaperFunding.time <= candle.time,
             )))

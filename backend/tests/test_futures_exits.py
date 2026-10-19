@@ -10,6 +10,7 @@ from backend.app.futures_strategies import SEEDS, crossover, exit_policy_enabled
 from backend.app.market import Candle
 from backend.app.strategy import Setup
 from backend.tests.test_paper_recovery import recovery as recovery_fixture
+from backend.tests.test_futures_adaptive_exits import hourly_history
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def test_breakeven_accounts_for_exact_fills_fees_and_settled_funding(side, fundi
 def test_trail_uses_swing_with_atr_buffer_and_only_tightens(side):
     direction = 1 if side == "long" else -1
     history = [Candle(index * 900, 104, 106, 103, 105, 1) if side == "long" else
-               Candle(index * 900, 96, 97, 94, 95, 1) for index in range(15)]
+               Candle(index * 900, 96, 97, 94, 95, 1) for index in range(60)]
     stop = protective_stop(pos("trail", side), history, FEE, SLIP)
     assert stop == pytest.approx(102.7 if direction == 1 else 97.3)
     assert protective_stop({**pos("trail", side), "stop": stop},
@@ -177,13 +178,14 @@ def test_adaptive_levels_partial_once_and_target_pulls_to_resistance():
     from backend.app.futures_exits import adaptive_levels, adaptive_target, partial_size
     history = [Candle(i * 900, 100, 100.5, 99.5, 100, 1) for i in range(21)]
     history[10] = Candle(9000, 100, 105, 99.5, 100, 1)
+    history = hourly_history(history)
     levels = adaptive_levels("long", history)
     assert levels is not None
     stop, target = levels
     assert stop < 100 < target
     position = {**pos("adaptive"), "target": 120, "quantity": 3}
-    candles = history[:-1] + [Candle(18000, 104, 104.2, 102.9, 103, 1)]
+    candles = history[:-1] + [Candle(history[-1].time, 104, 104.2, 102.9, 103, 1)]
     assert partial_size(position, candles, 1, 1) == 1
     assert partial_size({**position, "partial_exits": [1]}, candles, 1, 1) == 0
-    resistance = candles[:-2] + [Candle(17100, 100, 105, 99, 100, 1), candles[-1]]
+    resistance = candles[:-2] + [Candle(candles[-2].time, 100, 105, 99, 100, 1), candles[-1]]
     assert adaptive_target({**position, "entry": 100, "risk": 2}, resistance) < 120

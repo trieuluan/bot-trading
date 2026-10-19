@@ -3,8 +3,8 @@ import random
 import pytest
 
 from backend.app.futures_exits import (EVOLVABLE_EXITS, discretionary_exit, exit_parameters,
-                                       has_target, partial_size, protective_stop)
-from backend.app.futures_strategies import RULE_SEEDS, mutate, validate_genome
+                                       has_target, partial_size, protective_stop, adaptive_levels, h1_view)
+from backend.app.futures_strategies import RULE_SEEDS, mutate, validate_genome, strategy_setup
 from backend.app.market import Candle
 
 def bars(count=40, close=100.0, start=0):
@@ -23,8 +23,9 @@ def test_params_validated():
         exit_parameters("fixed", {"x": 1})
 
 def test_time_stop_only_when_stalled():
-    assert discretionary_exit(pos("time_stop"), bars(40, 100.5)) == "time_stop"
-    assert discretionary_exit(pos("time_stop"), bars(40, 105)) is None
+    assert discretionary_exit(pos("time_stop"), bars(128, 100.5)) == "time_stop"
+    assert discretionary_exit(pos("time_stop"), bars(128, 105)) is None
+    assert discretionary_exit(pos("time_stop"), bars(40, 100.5)) is None
     assert discretionary_exit(pos("time_stop"), bars(10, 100.5)) is None
 
 def test_runner_has_no_target_and_partial_once():
@@ -56,3 +57,25 @@ def test_genomes_evolve_into_all_exits():
             validate_genome(child)
             seen.add(child.get("exit_policy", "fixed"))
     assert set(EVOLVABLE_EXITS) - {"fixed"} <= seen | {"adaptive"}
+
+def test_missing_hourly_history_never_falls_back_to_m15():
+    assert h1_view(bars(59))[1] is None
+    assert adaptive_levels("long", bars(59)) is None
+    assert protective_stop(pos("atr_chandelier"), bars(59, 105), 0.0005, 0.0002) == 98
+
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_all_policies_start_from_identical_hourly_stop(monkeypatch, side):
+    direction = 1 if side == "long" else -1
+    monkeypatch.setattr("backend.app.futures_strategies.matches",
+                        lambda rule, rows, candidate, lookback, context: candidate == direction)
+    rows = bars(80)
+    rows[72] = Candle(72 * 900, 100, 108, 92, 100, 1)
+    expected_stop, expected_target = adaptive_levels(side, rows)
+    for policy in EVOLVABLE_EXITS:
+        genome = {**RULE_SEEDS[0], "exit_policy": policy}
+        setup = strategy_setup(genome, rows, [])
+        assert setup is not None
+        assert setup.stop == expected_stop
+        if has_target({"exit_policy": policy}):
+            assert setup.target == expected_target
+        assert strategy_setup(genome, rows[-21:], []) is None

@@ -8,6 +8,7 @@ export type Genome = {
   lookback: number;
   target_r: number;
   stop_buffer: number;
+  exit_params?: Record<string, number>;
   exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive' | 'atr_chandelier' | 'time_stop' | 'scale_out_ladder' | 'signal_invalidation' | 'runner' | 'volatility_stop' | 'funding_exit';
   max_er?: number;
   funding_threshold?: number;
@@ -284,31 +285,38 @@ export function strategyInfo(g: Genome): Info {
   );
 }
 
-export function riskText(g: Genome, stop: string) {
+export function riskText(g: Genome, _stop: string) {
+  const initial = `SL theo swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
+    `TP trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Thiếu H1 thì chờ, không dùng SL M15 thay thế. `;
   if (g.exit_policy === 'adaptive') {
     return (
-      `SL theo swing 5 nến H1 + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
-      `TP ban đầu trước cản M15/H1 gần nhất (đệm 0.1 ATR14), không quá ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Khi đạt 1R: chốt 50% chỉ lúc nến yếu (thân ngược, râu từ chối, hoặc chững lại sát cản); nến khỏe giữ chạy tới cản/TP. Hòa vốn ngay từ 1R, ` +
-      'SL hòa vốn có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến + 0.1 ATR14. ' +
+      initial + 'Khi đạt 1R: chốt 50% chỉ lúc nến yếu; nến khỏe giữ chạy tới cản/TP. Hòa vốn từ 1R, ' +
+      'có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến H1 + 0.1 ATR14 H1. ' +
       'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.'
     );
   }
-  const buf = g.stop_buffer ? ` (cộng thêm ${g.stop_buffer}×ATR14 đệm)` : '';
-  const tp =
-    profileOf(g) === 'mean_reversion'
-      ? 'Chốt lời tại đường trung bình SMA20 H1'
-      : `Chốt lời ${g.target_r}R (lợi nhuận = ${g.target_r}× khoảng cách cắt lỗ)`;
   const policy = g.exit_policy ?? 'fixed';
+  const params = g.exit_params ?? {};
+  const extra: Record<string, string> = {
+    atr_chandelier: `SL trail theo đỉnh/đáy 20 nến H1 trừ ${params.atr_multiple ?? 3} ATR14 H1.`,
+    volatility_stop: `Từ 1R: SL theo giá đóng nến và ${params.atr_multiple ?? 2} ATR14 H1.`,
+    time_stop: `Thoát nếu sau ${params.max_bars ?? 32} giờ chưa đạt ${params.min_progress_r ?? 0.5}R.`,
+    signal_invalidation: 'Thoát khi bộ lọc xu hướng H1/H4 đảo ngược đủ số lần xác nhận.',
+    runner: `TP chỉ tham chiếu, không kích hoạt đóng lệnh. Chốt ${(params.partial_fraction ?? 0.5) * 100}% tại ${params.partial_r ?? 1}R; phần còn lại trail theo H1.`,
+    scale_out_ladder: `Không đóng theo TP cố định. Chốt từng phần tại ${params.step_r ?? 1}R và ${(params.step_r ?? 1) * 2}R; trail H1 rồi đóng hết tại ${(params.step_r ?? 1) * 3}R.`,
+    funding_exit: `Thoát khi funding đã trả vượt ${params.funding_r ?? 0.1}R.`,
+  };
+  if (extra[policy]) return initial + extra[policy] + ' SL không nới.';
   const management =
     policy === 'fixed'
       ? 'Giữ nguyên SL/TP đến khi thoát.'
       : 'M15 đóng đạt 1R: dời SL về hòa vốn có đệm phí, funding đã ghi nhận và trượt giá. ' +
         (policy === 'trail'
-          ? 'Từ 1.5R: trailing theo đỉnh/đáy 3 nến M15 + đệm 0.1 ATR14.'
+          ? 'Từ 1.5R: trailing theo đỉnh/đáy 3 nến H1 + đệm 0.1 ATR14 H1.'
           : policy === 'structure'
             ? 'TP giới hạn trước cản H1/H4, không vượt mục tiêu R; bỏ tín hiệu nếu dưới 1.5R.'
             : 'Không trailing.');
-  return `Cắt lỗ ban đầu: ${stop}${buf}. ${tp}. ${management}`;
+  return initial + management;
 }
 
 export function exitLabel(policy?: string) {

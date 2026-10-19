@@ -241,8 +241,6 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     if len(found) != 1:
         return None
     direction, last = found[0], candles[-1]
-    # Every exit policy starts from the same H1 geometry (H1 swing + ATR H1, TP before nearest barrier);
-    # policies differ only in how the trade is managed after entry.
     levels = adaptive_levels("long" if direction == 1 else "short", candles,
                              genome["target_r"], genome["stop_buffer"])
     if levels is None:
