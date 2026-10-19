@@ -418,3 +418,29 @@ def test_rule_tree_can_enter_auto_paper(ready):
         handled, picked_setup, picked_name = learner.select_for_auto(session, 2000, 2000)
         assert handled and picked_name == rule_name and picked_setup.entry == 100
 
+
+def test_sync_seeds_reserves_room_for_new_roots_at_previous_capacity():
+    state = learner.new_state(1000)
+    new = [seed for seed in RULE_SEEDS if any(
+        node.get("feature") in ("pdh_pdl", "adx_regime")
+        for _, node in learner.nodes(seed["rule"]))]
+    for seed in new:
+        state["candidates"].pop(genome_name(seed), None)
+    previous_cap = 96 + len(learner.EXIT_SEEDS)
+    rng = random.Random(42)
+    for _ in range(1000):
+        if len(state["candidates"]) >= previous_cap:
+            break
+        learner.add_candidate(state, mutate(SEEDS[0], rng), 1000, (genome_name(SEEDS[0]),))
+    assert len(state["candidates"]) == previous_cap
+    before = copy.deepcopy(state["candidates"])
+    learner.sync_seeds(state, 2000)
+    for seed in new:
+        added = state["candidates"][genome_name(seed)]
+        assert added["generation"] == 0 and added["parents"] == []
+        assert added["born_at"] > 2000
+    assert all(state["candidates"][name] == candidate for name, candidate in before.items())
+    assert len(state["candidates"]) <= learner.CAP
+    frozen = copy.deepcopy(state)
+    learner.sync_seeds(state, 2000)
+    assert state == frozen

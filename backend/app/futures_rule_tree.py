@@ -15,7 +15,8 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme",
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
             "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge",
-            "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
+            "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap",
+            "pdh_pdl", "adx_regime")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
@@ -31,6 +32,7 @@ def validate_rule(rule, depth=1, retest_allowed=False):
     if "feature" in rule:
         if (set(rule) != {"feature", "frame"} or rule["feature"] not in FEATURES
                 or not isinstance(rule["frame"], str) or rule["frame"] not in FRAMES
+                or rule["feature"] in ("pdh_pdl", "adx_regime") and rule["frame"] == "M15"
                 or rule["feature"] == "retest" and not retest_allowed):
             raise ValueError("Invalid rule predicate")
         return 1
@@ -226,7 +228,43 @@ def ema_bounce(rows, direction):
     return any(last.high >= level - reach and last.high <= level + 2 * reach and last.close < level
                for level in (fast, slow))
 
-CLASSIC_FEATURES = ("fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
+CLASSIC_FEATURES = ("fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap",
+                    "pdh_pdl", "adx_regime")
+
+def adx_state(rows, period=14):
+    """Wilder ADX and DI spread (+DI - -DI) of the last closed row; None when history is short."""
+    if len(rows) < 3 * period:
+        return None
+    tr, plus, minus = [], [], []
+    for prev, row in zip(rows, rows[1:]):
+        up, down = row.high - prev.high, prev.low - row.low
+        tr.append(max(row.high - row.low, abs(row.high - prev.close), abs(row.low - prev.close)))
+        plus.append(up if up > down and up > 0 else 0.0)
+        minus.append(down if down > up and down > 0 else 0.0)
+    smooth = [sum(series[:period]) for series in (tr, plus, minus)]
+    dx = []
+    for index in range(period, len(tr) + 1):
+        if index > period:
+            smooth = [old - old / period + series[index - 1] for old, series in zip(smooth, (tr, plus, minus))]
+        di_plus, di_minus = ((100 * smooth[1] / smooth[0], 100 * smooth[2] / smooth[0])
+                             if smooth[0] > 0 else (0.0, 0.0))
+        total = di_plus + di_minus
+        dx.append((100 * abs(di_plus - di_minus) / total if total else 0.0, di_plus - di_minus))
+    adx = sum(value for value, _ in dx[:period]) / period
+    for value, _ in dx[period:]:
+        adx = (adx * (period - 1) + value) / period
+    return adx, dx[-1][1]
+
+def prior_day_range(rows, seconds):
+    """High/low of the complete previous UTC day; None unless every bar of that day is present."""
+    if not rows:
+        return None
+    day = rows[-1].time // 86400 * 86400
+    prior = [row for row in rows if day - 86400 <= row.time < day]
+    if len(prior) != 86400 // seconds or any(
+            row.time != day - 86400 + index * seconds for index, row in enumerate(prior)):
+        return None
+    return max(row.high for row in prior), min(row.low for row in prior)
 
 def confirmed_pivots(rows, direction, lookback):
     values = [row.high if direction == 1 else row.low for row in rows]
@@ -295,7 +333,7 @@ def session_vwap_points(rows, seconds):
     return points
 
 def classic_matches(feature, rows, direction, lookback, seconds):
-    if len(rows) < 2:
+    if len(rows) < 2 or feature in ("pdh_pdl", "adx_regime") and seconds < 3600:
         return False
     last = rows[-1]
     if feature == "fib_retrace":
@@ -318,6 +356,16 @@ def classic_matches(feature, rows, direction, lookback, seconds):
     if feature == "bos":
         level = structure_level(rows, direction, lookback)
         return level is not None and direction * (last.close - level[0]) > 0
+    if feature == "adx_regime":
+        state = adx_state(rows)
+        return state is not None and state[0] > 25 and direction * state[1] > 0
+    if feature == "pdh_pdl":
+        levels = prior_day_range(rows, seconds)
+        if levels is None:
+            return False
+        level, previous = levels[0 if direction == 1 else 1], rows[-2]
+        return (direction * (last.close - level) > 0 and direction * (previous.close - level) <= 0
+                and direction * (last.close - last.open) > 0)
     points = session_vwap_points(rows, seconds)
     if len(points) < 2 or points[-2]["time"] != rows[-2].time:
         return False
@@ -528,6 +576,8 @@ def describe_rule(rule):
                   "rsi_divergence": "Phân kỳ RSI14 >2 điểm giữa 2 pivot đã xác nhận; pivot mới cách ≤4 nến",
                   "fvg": "Chạm lần đầu FVG 3 nến, không xuyên biên xa, thân nến cùng chiều",
                   "bos": "Đóng phá swing đã xác nhận 2 nến, chưa từng đóng phá trước đó",
+                  "pdh_pdl": "Đóng phá đỉnh/đáy ngày UTC trước (cần đủ nến cả ngày), nến cùng chiều",
+                  "adx_regime": "ADX14 > 25 và +DI/-DI cùng chiều (chỉ H1/H4)",
                   "session_vwap": "Đóng cắt lại VWAP theo volume nến từ 00:00 UTC (xấp xỉ, không phải từng giao dịch)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}
@@ -642,6 +692,25 @@ HTF_RULES.extend([
         ]},
         {"feature": "volume", "frame": "M15"},
     ]} for feature in ("session_active", "basis_aligned", "oi_surge")
+])
+
+HTF_RULES.extend([
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "adx_regime", "frame": "H1"},
+            {"feature": "pdh_pdl", "frame": "H1"},
+        ]},
+        {"feature": "volume", "frame": "M15"},
+    ]},
+    {"op": "all", "children": [
+        {"feature": "trend", "frame": "H4"},
+        {"op": "all", "children": [
+            {"feature": "adx_regime", "frame": "H1"},
+            {"feature": "ema_touch", "frame": "H1"},
+        ]},
+        {"feature": "pin_bar", "frame": "M15"},
+    ]},
 ])
 
 HTF_RULES.extend([

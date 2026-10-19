@@ -61,7 +61,7 @@ def run_pair(symbol, signal_seeds=False):
 
     if signal_seeds:
         candidates = {genome_name(seed): {"genome": seed} for seed in RULE_SEEDS if any(
-            node.get("feature") in ("relative_strength", "funding_aligned", "macro_safe", "session_active", "basis_aligned", "oi_surge", "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap")
+            node.get("feature") in ("relative_strength", "funding_aligned", "macro_safe", "session_active", "basis_aligned", "oi_surge", "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap", "pdh_pdl", "adx_regime")
             for _, node in futures_rule_tree.nodes(seed["rule"]))}
 
     data = pickle.loads(CACHE.read_bytes())
@@ -110,7 +110,7 @@ def run_pair(symbol, signal_seeds=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--signal-seeds", action="store_true",
-                        help="Replay the three new signal seeds without replacing learner history")
+                        help="Replay signal seeds without replacing learner history")
     args = parser.parse_args()
     output = (OUTPUT.with_name("futures-signal-seeds-340d.json")
               if args.signal_seeds else OUTPUT)

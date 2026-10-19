@@ -149,6 +149,15 @@ compose.yaml            frontend, api, bot, migrate, postgres
 
 ## Dữ liệu MEXC Futures và backtest
 
+Tree có thêm hai feature H1/H4 (không cho dùng M15): `pdh_pdl` đóng cắt qua
+đỉnh/đáy ngày UTC trước, cần đủ nến cả ngày trước và thân nến cùng chiều;
+`adx_regime` dùng Wilder ADX(14) > 25, cộng DI thuận chiều lệnh, tối thiểu 42 nến
+đã đóng. ADX đo sức mạnh; DI xác nhận hướng. Mốc ngày lấy từ nến H1/H4 đã gom
+từ M15, không cần feed D1 riêng. Hai G0 mới: H4 trend + H1 ADX/PDH-PDL + M15 volume;
+H4 trend + H1 ADX/EMA50 pullback + M15 pin bar. Seed đồng bộ vào learner hiện có;
+replay `--signal-seeds` chỉ xuất báo cáo nghiên cứu, không thay lịch sử learner,
+không cộng mẫu replay thành forward và không tự thăng hạng.
+
 1. Mở **Kết nối sàn**, chọn MEXC Futures để xem chart giá hợp đồng thật. Lần đầu tải 120 nến đã đóng. Chuyển nguồn sẽ dừng bot; bật lại nếu muốn ghi nhận tín hiệu mới.
 2. Mở **Backtest**, chọn 7/30/90 ngày, vốn, rủi ro mỗi lệnh, phí và trượt giá; bấm **Chạy backtest**. Không cần bật bot. Báo cáo gần nhất tự tải lại khi mở trang.
 3. Xem toàn bộ, 70% đầu hoặc 30% kiểm chứng. Phần **Quan sát lệnh trên chart** có nến tương tác, volume, marker entry/exit và đường SL/TP. Chọn lệnh trong dropdown, chuyển trước/sau, kéo chart hoặc zoom; bấm **Về lệnh đã chọn** để căn lại vùng nến. Đây là lệnh mô phỏng trong backtest, không phải lệnh đặt trên MEXC. JSON theo ID chứa báo cáo, nến giao dịch, nến fair price, funding và snapshot thông số hợp đồng, đủ để tái lập lần chạy.

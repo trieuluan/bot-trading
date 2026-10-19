@@ -33,6 +33,7 @@ export const HTF_LABELS: Record<string, string> = {
   htf_fvg: 'Fair Value Gap HTF',
   htf_bos: 'Phá vỡ cấu trúc BOS HTF',
   htf_vwap: 'VWAP phiên HTF',
+  htf_pdh_pdl: 'PDH/PDL HTF',
   htf_other: 'Trend + nến',
 };
 
@@ -61,6 +62,7 @@ function htfProfile(rule?: Rule): string | null {
   if (has('fvg')) return 'htf_fvg';
   if (has('bos')) return 'htf_bos';
   if (has('session_vwap')) return 'htf_vwap';
+  if (has('pdh_pdl')) return 'htf_pdh_pdl';
   return 'htf_other';
 }
 
@@ -118,6 +120,8 @@ export function ruleName(rule: Rule): string {
       fvg: 'Chạm lần đầu FVG 3 nến, không xuyên biên xa, nến cùng chiều',
       bos: 'Đóng phá swing đã xác nhận, chưa bị phá trước đó',
       session_vwap: 'Đóng cắt lại VWAP ngày UTC, xấp xỉ theo volume nến',
+      pdh_pdl: 'Đóng phá đỉnh/đáy ngày UTC trước, nến cùng chiều',
+      adx_regime: 'ADX14 > 25, +DI/-DI cùng chiều (chỉ H1/H4)',
       bb_pierce: 'Chọc ra ngoài BB20 rồi đóng lại',
       volume_dryup: 'Hồi cạn volume',
       retest_seq: 'Breakout + retest + xác nhận',
