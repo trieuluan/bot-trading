@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react';
+import { Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
@@ -333,15 +334,27 @@ export function PairStrip({
             type="button"
             aria-pressed={s === symbol}
             onClick={() => onSelect(s)}
-            title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'} · ${sigs} cây có tín hiệu`}
+            title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'} · ⚡ ${sigs} cây có tín hiệu · ${open} vị thế mở`}
           >
-            <strong>{short(s)}</strong>
-            <small>{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</small>
-            {open > 0 && <span className="pair-badge">{open}</span>}
-            {sigs > 0 && <span className="pair-signal" aria-label={`${sigs} cây có tín hiệu mới`}>S {sigs}</span>}
-            <span
-              className={`pair-dot ${board[s].auto?.enabled && board[s].auto?.worker_online ? 'on' : ''}`}
-            />
+            <strong className="pair-sym">{short(s)}</strong>
+            <small className="pair-price">{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</small>
+            <span className="pair-indicators">
+              {sigs > 0 && (
+                <span className="pair-signal" title={`${sigs} cây có tín hiệu vào ở nến đóng mới nhất`}>
+                  <Zap size={10} aria-hidden="true" />
+                  {sigs}
+                </span>
+              )}
+              {open > 0 && (
+                <span className="pair-badge" title={`${open} vị thế đang mở`}>
+                  {open}
+                </span>
+              )}
+              <span
+                className={`pair-dot ${board[s].auto?.enabled && board[s].auto?.worker_online ? 'on' : ''}`}
+                title={board[s].auto?.enabled ? 'Auto Paper đang chạy' : 'Auto Paper đang tắt'}
+              />
+            </span>
           </button>
         );
       })}

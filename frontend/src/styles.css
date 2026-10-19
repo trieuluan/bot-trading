@@ -5578,17 +5578,16 @@ main:has(.futures-desk) {
 .strategy-detail-btn { font-size: 12px; padding: 0; }
 
 .pair-signal {
-  position: absolute;
-  top: 1px;
-  left: 6px;
-  min-width: 16px;
-  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
   border-radius: 8px;
   background: #1e8f68;
   color: #fff;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
-  text-align: center;
+  line-height: 16px;
   animation: pair-signal-pulse 1.8s ease-in-out infinite;
 }
 @keyframes pair-signal-pulse { 50% { box-shadow: 0 0 0 3px rgb(30 143 104 / 25%); } }
@@ -5616,3 +5615,31 @@ main:has(.futures-desk) {
   font-size: 12px;
   line-height: 1.3;
 }
+
+/* Pair strip: indicators sit in their own flow slot, never over the symbol/price text */
+.pair-strip button,
+.desk-sticky-header .pair-strip button {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.pair-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+.pair-strip .pair-badge,
+.pair-strip .pair-dot,
+.desk-sticky-header .pair-strip .pair-badge,
+.desk-sticky-header .pair-strip .pair-dot {
+  position: static;
+}
+.pair-strip .pair-badge {
+  padding: 0 5px;
+  line-height: 16px;
+}
+.pair-strip .pair-dot { flex: none; }
