@@ -20,7 +20,19 @@ type Row = {
     lookback: number;
     target_r: number;
     stop_buffer: number;
-    exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive' | 'atr_chandelier' | 'time_stop' | 'scale_out_ladder' | 'signal_invalidation' | 'runner' | 'volatility_stop' | 'funding_exit';
+    exit_policy?:
+      | 'fixed'
+      | 'breakeven'
+      | 'trail'
+      | 'structure'
+      | 'adaptive'
+      | 'atr_chandelier'
+      | 'time_stop'
+      | 'scale_out_ladder'
+      | 'signal_invalidation'
+      | 'runner'
+      | 'volatility_stop'
+      | 'funding_exit';
     max_er?: number;
     funding_threshold?: number;
     rule?: Rule;
@@ -57,6 +69,8 @@ type Learning = {
     mode: string;
     selected: string | null;
     candidates: number;
+    time?: number;
+    strategies?: { strategy: string; status: string; side?: 'long' | 'short' }[];
   } | null;
   strategies: Row[];
 };
@@ -117,6 +131,16 @@ export function FuturesLearningPage() {
   const generations = [...new Set(all.map((row) => row.generation))].sort((a, b) => a - b);
   const needles = searchText(query).trim().split(/\s+/).filter(Boolean);
   const selected = data?.last_decision?.selected;
+  const decision = data?.last_decision;
+  const fresh = !!decision?.time && decision.time === Math.floor(Date.now() / 900000) * 900 - 900;
+  const signalSides = new Map(
+    fresh
+      ? (decision?.strategies ?? [])
+          .filter((r) => r.status === 'signal')
+          .map((r) => [r.strategy, r.side] as const)
+      : [],
+  );
+  const signalSet = new Set(signalSides.keys());
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
   const familyName = (name: string) =>
     name === 'default' ? 'Cây luật tự sinh' : (HTF_LABELS[name] ?? name.replace(/_/g, ' '));
@@ -126,6 +150,7 @@ export function FuturesLearningPage() {
       (status === 'all' ? !row.paused || (row.open_trades?.length ?? 0) > 0 : true) &&
       (status === 'all' ||
         status === 'all_with_paused' ||
+        (status === 'signal' && signalSet.has(row.strategy)) ||
         (status === 'holding' && (row.open_trades?.length ?? 0) > 0) ||
         (status === 'active' && !row.paused) ||
         (status === 'paused' && row.paused) ||
@@ -151,7 +176,11 @@ export function FuturesLearningPage() {
         (filter === 'child' && row.generation > 0) ||
         (filter === 'good' && (row.learned_mean_r ?? -1) > 0)),
   );
+  // ponytail: priority pinned (holding > signal > idle); add toggle/config if user wants pure score order.
+  const rank = (row: Row) =>
+    (row.open_trades?.length ?? 0) > 0 ? 0 : signalSet.has(row.strategy) ? 1 : 2;
   const sorted = [...rows].sort((a, b) => {
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
     if (sort === 'name') return strategyName(a.genome).localeCompare(strategyName(b.genome), 'vi');
     if (sort === 'samples') return b.learned_samples - a.learned_samples;
     if (sort === 'generation') return b.generation - a.generation;
@@ -309,6 +338,7 @@ export function FuturesLearningPage() {
                 <option value="all">Đang dùng (ẩn ngừng thử)</option>
                 <option value="all_with_paused">Tất cả kể cả ngừng thử</option>
                 <option value="active">Đang thử</option>
+                <option value="signal">Có tín hiệu mới ({signalSet.size})</option>
                 <option value="holding">Có lệnh đang mở</option>
                 <option value="selected">Được chọn gần nhất</option>
                 <option value="promoted">Đã duyệt</option>
@@ -361,7 +391,7 @@ export function FuturesLearningPage() {
               return (
                 <article
                   key={row.strategy}
-                  className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''}`}
+                  className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''} ${signalSet.has(row.strategy) ? 'signaling' : ''}`}
                 >
                   <div className="evo-card-top">
                     <div>
@@ -384,6 +414,15 @@ export function FuturesLearningPage() {
                       >
                         <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length} lệnh
                         Paper
+                      </span>
+                    )}
+                    {signalSet.has(row.strategy) && (
+                      <span
+                        className="pill evo-signal"
+                        title="Có tín hiệu ở nến 15m vừa đóng. Chưa chắc đã vào lệnh: cần được bộ chọn ưu tiên và qua kiểm tra rủi ro."
+                      >
+                        ⚡ Tín hiệu {signalSides.get(row.strategy)?.toUpperCase() ?? ''}
+                        {openTrades.length === 0 ? ' · chưa vào lệnh' : ''}
                       </span>
                     )}
                     {row.strategy === selected && (

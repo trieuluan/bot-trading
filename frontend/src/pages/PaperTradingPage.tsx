@@ -22,7 +22,13 @@ import type { AutoPaperState, PaperWallet } from '../types/paper';
 import { useMexcLiveCandle } from '../hooks/useMexcLiveCandle';
 import { withLiveCandle } from '../lib/mexc-stream';
 import { getFuturesSymbol, type FuturesSymbol } from '../lib/futures-symbol';
-import { AllPairsPanel, PairStrip, PositionsTable, TradeHistoryTable, type Board } from '../components/FuturesBoard';
+import {
+  AllPairsPanel,
+  PairStrip,
+  PositionsTable,
+  TradeHistoryTable,
+  type Board,
+} from '../components/FuturesBoard';
 
 function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
   const bars = new Map<number, Candle>();
@@ -31,7 +37,6 @@ function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
 }
 
 const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
-
 
 export function PaperTradingPage({
   board,
@@ -125,7 +130,9 @@ export function PaperTradingPage({
       setOlder((current) => [...page.candles, ...current]);
       setHasMore(page.has_more);
     } catch (cause) {
-      setOlderError(cause instanceof Error ? cause.message : 'Không tải được nến cũ; kéo trái để thử lại.');
+      setOlderError(
+        cause instanceof Error ? cause.message : 'Không tải được nến cũ; kéo trái để thử lại.',
+      );
     } finally {
       loadingOlder.current = false;
     }
@@ -269,18 +276,28 @@ export function PaperTradingPage({
     auto?.worker_online &&
     !auto?.learner_error &&
     decisionFresh;
-  // Chart shows only the strategy the bot picked; others stay available in the picker.
-  const signalNames = [
+  // "Theo bot": every strategy holding an open position, else the one the bot picked / first signal.
+  // Tab #id focuses that position's strategy only.
+  const openNames = [
+    ...new Set(
+      (selected && !selected.exit_time ? [selected] : positions)
+        .map((trade) => trade.audit?.strategy)
+        .filter(
+          (name): name is string => !!name && strategyRows.some((row) => row.strategy === name),
+        ),
+    ),
+  ];
+  const picked = (
     strategyRows.find((row) => row.strategy === learningDecision?.selected) ??
-      strategyRows.find((row) => row.status === 'signal'),
-  ]
-    .filter((row) => row !== undefined)
-    .map((row) => row.strategy);
-  const positionName = wallet?.position?.audit?.strategy;
-  const autoNames =
-    positionName && strategyRows.some((row) => row.strategy === positionName)
-      ? [positionName]
-      : signalNames;
+    strategyRows.find((row) => row.status === 'signal')
+  )?.strategy;
+  const signalNames = picked ? [picked] : [];
+  const autoNames = openNames.length ? openNames : signalNames;
+  const allOpenNames = [
+    ...new Set(
+      positions.map((trade) => trade.audit?.strategy).filter((name): name is string => !!name),
+    ),
+  ];
   const shownNames = chartAuto ? autoNames : chartStrategies;
   const observations = botFresh
     ? strategyRows
@@ -371,7 +388,8 @@ export function PaperTradingPage({
             )}
             {Boolean(wallet?.portfolio_stale_symbols?.length) && (
               <span className="negative">
-                Vị thế chưa có giá mark mới: {wallet?.portfolio_stale_symbols?.join(', ')}. Tạm dừng mở thêm lệnh.
+                Vị thế chưa có giá mark mới: {wallet?.portfolio_stale_symbols?.join(', ')}. Tạm dừng
+                mở thêm lệnh.
               </span>
             )}
             {error && <span className="negative">{error}</span>}
@@ -425,6 +443,7 @@ export function PaperTradingPage({
                 </label>
                 <FuturesStrategyMenu
                   rows={strategyRows}
+                  holding={allOpenNames}
                   selected={shownNames}
                   onChange={(names) => {
                     setChartAuto(false);
@@ -455,18 +474,22 @@ export function PaperTradingPage({
           )}
           {(historicalId === null || history?.id === historicalId) && (
             <>
-            <PaperChart
-              candles={chartCandles}
-              trade={selected ?? (historicalId === null ? (wallet?.position ?? null) : null)}
-              positions={historicalId === null ? positions : []}
-              onSelectPosition={setSelectedId}
-              observations={observations}
-              markPrice={wallet?.quote?.fairPrice ?? null}
-              feeBps={wallet?.fee_bps ?? 0}
-              markStale={stale}
-              onLoadOlder={historicalId === null ? (bars) => void loadOlder(bars) : undefined}
-            />
-            {olderError && <p className="negative" role="alert">{olderError}</p>}
+              <PaperChart
+                candles={chartCandles}
+                trade={selected ?? (historicalId === null ? (wallet?.position ?? null) : null)}
+                positions={historicalId === null ? positions : []}
+                onSelectPosition={setSelectedId}
+                observations={observations}
+                markPrice={wallet?.quote?.fairPrice ?? null}
+                feeBps={wallet?.fee_bps ?? 0}
+                markStale={stale}
+                onLoadOlder={historicalId === null ? (bars) => void loadOlder(bars) : undefined}
+              />
+              {olderError && (
+                <p className="negative" role="alert">
+                  {olderError}
+                </p>
+              )}
             </>
           )}
           <details className="desk-analysis-details">
@@ -489,7 +512,7 @@ export function PaperTradingPage({
                   >
                     <strong>{chartStrategyText(row).title}</strong>
                     <span className="micro">
-                      {row.strategy === positionName
+                      {allOpenNames.includes(row.strategy)
                         ? 'Đang giữ vị thế'
                         : row.strategy === learningDecision?.selected
                           ? 'Bộ học chọn · chưa đồng nghĩa đã khớp'
@@ -656,9 +679,7 @@ export function PaperTradingPage({
                     </p>
                   </details>
                 ) : (
-                  <p className="micro">
-                    Chờ bộ học đánh giá nến đóng đầu tiên.
-                  </p>
+                  <p className="micro">Chờ bộ học đánh giá nến đóng đầu tiên.</p>
                 )}
                 <p className="micro">
                   Đường THAM CHIẾU là phân tích nến đã đóng, không phải lệnh chờ hay cam kết vào
@@ -950,9 +971,11 @@ export function PaperTradingPage({
               Market fill tại bid/ask quan sát được cộng trượt giá cố định; toàn bộ khối lượng khớp
               ngay. SL/TP kích hoạt theo bid/ask lấy mẫu khoảng 5 giây và khớp tại giá quan sát kế
               tiếp, có thể vượt mức đặt. Không tái dựng tick bị bỏ lỡ khi mất kết nối. Chưa mô phỏng
-              lệnh Limit hoặc khớp một phần tại sàn, liquidation, margin tiers hay ADL. Nhiều vị thế dùng chung một ví Cross;
-              ký quỹ và phí bị giới hạn theo cấu hình ví. Chốt từng phần theo chính sách quản lý lệnh của cây. Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật
-              cả lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi tới MEXC.
+              lệnh Limit hoặc khớp một phần tại sàn, liquidation, margin tiers hay ADL. Nhiều vị thế
+              dùng chung một ví Cross; ký quỹ và phí bị giới hạn theo cấu hình ví. Chốt từng phần
+              theo chính sách quản lý lệnh của cây. Funding dùng rate lịch sử và fair-price open 15m
+              xấp xỉ, cập nhật cả lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi
+              tới MEXC.
             </p>
           </details>
         </section>

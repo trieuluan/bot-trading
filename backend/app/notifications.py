@@ -1,5 +1,6 @@
 """Transactional paper alerts. Delivery is at least once after DB commit."""
 
+import html
 import os
 import asyncio
 import logging
@@ -46,45 +47,93 @@ HTF_VN = {
     "htf_other": "Trend + nến",
 }
 
+# Mirror of frontend htfProfile(): seed trees = H4 filter, H1 setup (child 1), M15 trigger.
+PROFILE_RULES = (
+    ("htf_retest", ("retest", "retest_seq")), ("htf_squeeze", ("compression", "compression_current")),
+    ("htf_bollinger", ("bb_pierce",)), ("htf_dryup", ("volume_dryup",)), ("htf_breakout", ("breakout",)),
+    ("htf_trend_align", ("trend",)), ("htf_sweep", ("wick_sweep", "sweep")),
+    ("htf_pullback", ("ema_touch", "ema_bounce")), ("htf_ema_cross", ("ema_cross_n", "ema_cross")),
+    ("htf_wedge", ("wedge",)), ("htf_swing", ("swing_zone",)), ("htf_fib", ("fib_retrace",)),
+    ("htf_divergence", ("rsi_divergence",)), ("htf_fvg", ("fvg",)), ("htf_bos", ("bos",)),
+    ("htf_vwap", ("session_vwap",)),
+)
+
+def leaf_features(rule):
+    return [rule["feature"]] if "feature" in rule else [f for c in rule.get("children", []) for f in leaf_features(c)]
+
+def profile_of(genome):
+    profile = genome.get("exit_profile") or "default"
+    if profile != "default":
+        return profile
+    rule = genome.get("rule") or {}
+    if rule.get("op") != "all" or len(rule.get("children", [])) != 3:
+        return "default"
+    used = leaf_features(rule["children"][1])
+    return next((name for name, names in PROFILE_RULES if any(f in used for f in names)), "htf_other")
+
 def strategy_line(audit):
     if not audit:
         return "Chưa có snapshot chiến thuật"
     genome = audit.get("genome") or {}
     name = audit.get("strategy", "")
     code = name.split(":")[-1][:6]
-    profile = genome.get("exit_profile") or genome.get("family") or "rule_tree"
-    label = HTF_VN.get(profile, profile)
+    profile = profile_of(genome) if genome.get("family", "rule_tree") == "rule_tree" else genome.get("family", "rule_tree")
+    label = "Cây tự sinh" if profile == "default" else HTF_VN.get(profile, profile.replace("_", " "))
     return f"{label} #{code} · G{audit.get('generation', 0)}"
 
 def exit_text(policy):
     return {"fixed": "SL/TP cố định", "breakeven": "Hòa vốn 1R", "trail": "Hòa vốn + trailing",
             "structure": "TP cấu trúc + hòa vốn",
-            "adaptive": "SL/TP tự tính + chốt phần + trailing"}.get(policy or "fixed", policy or "fixed")
+            "adaptive": "SL/TP tự tính + chốt phần + trailing",
+            "atr_chandelier": "Trailing Chandelier theo ATR H1",
+            "time_stop": "Thoát theo thời gian",
+            "scale_out_ladder": "Chốt theo bậc + trailing H1",
+            "signal_invalidation": "Thoát khi tín hiệu HTF bị phá",
+            "runner": "Giữ phần chạy theo xu hướng + trailing H1",
+            "volatility_stop": "Thoát theo biến động",
+            "funding_exit": "Thoát khi funding quá cao"}.get(policy or "fixed", policy or "fixed")
+
+def esc(value):
+    return html.escape(str(value), quote=False)
+
+EXIT_ICONS = {"stop_loss": "🛑", "recovered_stop_loss": "🛑", "take_profit": "🎯", "recovered_take_profit": "🎯",
+              "manual": "✋", "liquidation": "💥", "time_stop": "⏱", "ladder_complete": "🪜",
+              "signal_invalidation": "⚠️", "funding_exit": "💸"}
+
+def strategy_html(trade, audit):
+    return esc(strategy_line(audit)) if trade.origin == "auto" else "Thủ công"
 
 def notify_open(session, trade, audit, balance, reason=None):
     notional = trade.entry * trade.quantity
     risk = abs(trade.entry - trade.stop) * trade.quantity
     reward = abs(trade.target - trade.entry) * trade.quantity
+    icon, side = ("🟢 📈", "LONG") if trade.side == "long" else ("🔴 📉", "SHORT")
     queue(session, f"{trade.entry_time:010d}-{trade.symbol}-{trade.id}-0-open", "\n".join([
-        f"PAPER · MỞ LỆNH #{trade.id} · {trade.symbol} {trade.side.upper()} ({'AUTO' if trade.origin == 'auto' else 'THỦ CÔNG'})",
-        f"Chiến thuật: {strategy_line(audit) if trade.origin == 'auto' else 'Thủ công'}",
-        f"Entry {price(trade.entry)} · SL {price(trade.stop)} · TP {price(trade.target)}",
-        f"Khối lượng {trade.quantity:g} ({trade.contracts:g} hợp đồng) · Giá trị {notional:,.2f} USDT",
-        f"Ký quỹ {notional / (trade.leverage or 1):,.2f} USDT x{trade.leverage} Cross · Phí mở {trade.entry_fee:.2f}",
-        f"Ước tính gộp: SL -{risk:,.2f} USDT · TP +{reward:,.2f} USDT (chưa trừ phí/funding)" + (f" · {reward / risk:.2f}R" if risk else ""),
-        f"Thoát lệnh: {exit_text((audit or {}).get('exit_policy'))}",
-        *([f"Lý do: {reason}"] if reason else []),
-        f"Số dư ví chung: {balance:,.2f} USDT · {when(trade.entry_time)}",
+        f"{icon} <b>MỞ LỆNH {side}</b> · {esc(trade.symbol)} · #{trade.id} ({'AUTO' if trade.origin == 'auto' else 'THỦ CÔNG'})",
+        f"🧠 {strategy_html(trade, audit)}",
+        "",
+        f"▫️ Entry <code>{price(trade.entry)}</code>",
+        f"🛑 SL <code>{price(trade.stop)}</code>  <i>(-{risk:,.2f} USDT)</i>",
+        f"🎯 TP <code>{price(trade.target)}</code>  <i>(+{reward:,.2f} USDT" + (f" · {reward / risk:.2f}R" if risk else "") + ")</i>",
+        "",
+        f"💰 Giá trị <b>{notional:,.2f}</b> USDT · KL {trade.quantity:g} ({trade.contracts:g} hợp đồng)",
+        f"🔒 Ký quỹ {notional / (trade.leverage or 1):,.2f} USDT · x{trade.leverage} Cross · Phí mở {trade.entry_fee:.2f}",
+        f"🧭 Thoát: {esc(exit_text((audit or {}).get('exit_policy')))}",
+        *([f"<blockquote expandable>Lý do: {esc(reason)}</blockquote>"] if reason else []),
+        f"👛 Ví chung {balance:,.2f} USDT · {when(trade.entry_time)}",
+        "<i>SL/TP ước tính gộp, chưa trừ phí/funding.</i>",
     ]))
 
 def notify_partial(session, trade, fill, quantity, net, left, candle_time):
     audit = audit_of(session, trade)
     queue(session, f"{trade.entry_time:010d}-{trade.symbol}-{trade.id}-1-partial-{candle_time}", "\n".join([
-        f"PAPER · CHỐT MỘT PHẦN #{trade.id} · {trade.symbol} {trade.side.upper()}",
-        f"Chiến thuật: {strategy_line(audit) if trade.origin == 'auto' else 'Thủ công'}",
-        f"Chốt {quantity:g} tại {price(fill)} (entry {price(trade.entry)}) · PnL sau phí {net:+,.2f} USDT (chưa phân bổ funding)",
-        f"Còn giữ {left:g} · SL {price(trade.stop)} · TP {price(trade.target)}",
-        f"Thời điểm nến {when(candle_time + 900)}",
+        f"🟡 <b>CHỐT MỘT PHẦN {trade.side.upper()}</b> · {esc(trade.symbol)} · #{trade.id}",
+        f"🧠 {strategy_html(trade, audit)}",
+        "",
+        f"💵 Chốt {quantity:g} tại <code>{price(fill)}</code> (entry <code>{price(trade.entry)}</code>)",
+        f"{'✅' if net > 0 else '❌' if net < 0 else '➖'} PnL sau phí <b>{net:+,.2f} USDT</b> <i>(chưa phân bổ funding)</i>",
+        f"📦 Còn giữ {left:g} · 🛑 SL <code>{price(trade.stop)}</code> · 🎯 TP <code>{price(trade.target)}</code>",
+        f"🕒 Nến {when(candle_time + 900)}",
     ]))
 
 def notify_close(session, trade):
@@ -94,14 +143,18 @@ def notify_close(session, trade):
     risk = (trade.monitoring or {}).get("risk")
     original = (trade.monitoring or {}).get("original_quantity") or trade.quantity
     r_text = f" · {net / (risk * original):+.2f}R" if risk else ""
+    icon, word = ("✅", "LÃI") if net > 0 else ("❌", "LỖ") if net < 0 else ("➖", "HÒA")
+    reason = EXIT_LABELS.get(trade.exit_reason, trade.exit_reason)
     queue(session, f"{trade.entry_time:010d}-{trade.symbol}-{trade.id}-2-close", "\n".join([
-        f"PAPER · ĐÓNG LỆNH #{trade.id} · {trade.symbol} {trade.side.upper()} · {EXIT_LABELS.get(trade.exit_reason, trade.exit_reason)}",
-        f"Chiến thuật: {strategy_line(audit) if trade.origin == 'auto' else 'Thủ công'}",
-        f"{price(trade.entry)} -> {price(trade.exit)} · Giữ {max(0, (trade.exit_time - trade.entry_time) // 60)} phút",
-        f"PnL ròng {net:+,.2f} USDT{r_text} · {'LÃI' if net > 0 else 'LỖ' if net < 0 else 'HÒA'}",
-        f"Phí đóng {trade.exit_fee:.2f} · Funding {trade.funding_cost:.2f}"
+        f"{icon} <b>ĐÓNG LỆNH {trade.side.upper()} · {word}</b> · {esc(trade.symbol)} · #{trade.id}",
+        f"{EXIT_ICONS.get(trade.exit_reason, '🔔')} {esc(reason)}",
+        f"🧠 {strategy_html(trade, audit)}",
+        "",
+        f"💰 PnL ròng <b>{net:+,.2f} USDT</b>{r_text}",
+        f"▫️ <code>{price(trade.entry)}</code> → <code>{price(trade.exit)}</code> · Giữ {max(0, (trade.exit_time - trade.entry_time) // 60)} phút",
+        f"🧾 Phí đóng {trade.exit_fee:.2f} · Funding {trade.funding_cost:.2f}"
         + (f" · Đã chốt từng phần {realized:+,.2f}" if realized else ""),
-        f"Kết thúc {when(trade.exit_time)}",
+        f"🕒 {when(trade.exit_time)}",
     ]))
 
 def deliver(now=None):

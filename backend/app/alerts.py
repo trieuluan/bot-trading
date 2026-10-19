@@ -6,6 +6,8 @@ import logging
 import os
 import time
 from datetime import timezone
+import re
+from html import unescape
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -17,19 +19,32 @@ STALE_SECONDS = 90
 CHECK_SECONDS = 30
 
 
-def send_alert(message):
+def worker_message(down):
+    if down:
+        return "🚨 <b>CẢNH BÁO: WORKER BOT DỪNG</b>\nKhông nhận được heartbeat &gt; 90s. Tiến trình có thể đã crash hoặc máy ngủ."
+    return "✅ <b>THÔNG BÁO: WORKER BOT HOẠT ĐỘNG LẠI</b>\nHeartbeat đã phục hồi bình thường."
+
+
+def send_alert(message, parse_mode="HTML"):
     token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return False
+    use_html = parse_mode == "HTML" and "<b>" in message
     request = Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat, "text": message}).encode(),
+        data=json.dumps({"chat_id": chat, "text": message, "disable_web_page_preview": True,
+                         **({"parse_mode": "HTML"} if use_html else {})}).encode(),
         headers={"Content-Type": "application/json"}, method="POST",
     )
     try:
         with urlopen(request, timeout=10) as response:
             return json.load(response).get("ok") is True
-    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
+    except HTTPError as exc:
+        if use_html and exc.code == 400:
+            return send_alert(unescape(re.sub(r"</?[a-z][^>]*>", "", message)), parse_mode=None)
+        logging.error("Telegram alert failed; retrying without logging credentials")
+        return False
+    except (URLError, TimeoutError, ValueError, OSError):
         logging.error("Telegram alert failed; retrying without logging credentials")
         return False
 
@@ -50,8 +65,7 @@ async def watchdog():
         try:
             now_down = await asyncio.to_thread(worker_down)
             if now_down != down:
-                message = ("Worker bot-trading DỪNG: không có heartbeat > 90s" if now_down
-                           else "Worker bot-trading đã hoạt động lại")
+                message = worker_message(now_down)
                 if await asyncio.to_thread(send_alert, message):
                     down = now_down
         except Exception:

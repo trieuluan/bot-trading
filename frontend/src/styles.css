@@ -3452,6 +3452,10 @@ footer {
   color: #899b91;
   font-size: 10px;
 }
+.strategy-item-row.is-holding .status-pill-sub {
+  color: #8cc4f0;
+  font-weight: 700;
+}
 .status-pill-sub.status-confirmed {
   color: #74dca0;
 }
@@ -4389,6 +4393,16 @@ footer {
   outline: 2px solid #3976aa;
   background: linear-gradient(145deg, #f0f7fd, #fff 55%);
   box-shadow: 0 4px 14px rgba(57, 118, 170, 0.14);
+}
+.evo-card.signaling:not(.holding) {
+  outline: 2px solid #d49a1f;
+  background: linear-gradient(145deg, #fff8e6, #fff 55%);
+}
+.evo-card .evo-signal {
+  background: #fff1cc;
+  color: #7a5200;
+  border: 1px solid #e3be6a;
+  font-weight: 700;
 }
 .evo-card .evo-open-trades {
   background: #e2effb;

@@ -6,10 +6,12 @@ import { chartStrategyText, searchText } from '../lib/futures-strategy-info';
 
 export function FuturesStrategyMenu({
   rows,
+  holding = [],
   selected,
   onChange,
 }: {
   rows: FuturesStrategyObservation[];
+  holding?: string[];
   selected: string[];
   onChange: (names: string[]) => void;
 }) {
@@ -18,12 +20,18 @@ export function FuturesStrategyMenu({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [position, setPosition] = useState({ top: 0, left: 0 });
-  const visible = rows.filter(
-    (row) =>
-      (filter !== 'selected' || selected.includes(row.strategy)) &&
-      (filter !== 'signal' || row.status === 'signal') &&
-      chartStrategyText(row).search.includes(searchText(query.trim())),
-  );
+  // Pinned order: holding a position > fresh signal > rest (stable within group).
+  const rank = (row: FuturesStrategyObservation) =>
+    holding.includes(row.strategy) ? 0 : row.status === 'signal' ? 1 : 2;
+  const visible = rows
+    .filter(
+      (row) =>
+        (filter !== 'holding' || holding.includes(row.strategy)) &&
+        (filter !== 'selected' || selected.includes(row.strategy)) &&
+        (filter !== 'signal' || row.status === 'signal') &&
+        chartStrategyText(row).search.includes(searchText(query.trim())),
+    )
+    .sort((a, b) => rank(a) - rank(b));
   return (
     <div className="strategy-menu-wrapper">
       <button
@@ -76,6 +84,10 @@ export function FuturesStrategyMenu({
           <div className="strategy-filter-tabs" role="group" aria-label="Lọc chiến thuật">
             {[
               ['all', `Tất cả (${rows.length})`],
+              [
+                'holding',
+                `Có lệnh (${rows.filter((row) => holding.includes(row.strategy)).length})`,
+              ],
               ['signal', `Tín hiệu (${rows.filter((row) => row.status === 'signal').length})`],
               ['selected', `Đang vẽ (${selected.length})`],
             ].map(([key, label]) => (
@@ -99,7 +111,7 @@ export function FuturesStrategyMenu({
             return (
               <label
                 key={row.strategy}
-                className={`strategy-item-row ${checked ? 'is-selected' : ''}`}
+                className={`strategy-item-row ${checked ? 'is-selected' : ''} ${holding.includes(row.strategy) ? 'is-holding' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -115,15 +127,16 @@ export function FuturesStrategyMenu({
                 <div className="strategy-item-meta">
                   <div className="strategy-item-title-line">
                     <span className="strategy-item-name">
-                      <span style={{ color: strategyColor(row.strategy) }}>■</span>{' '}
-                      {text.title}
+                      <span style={{ color: strategyColor(row.strategy) }}>■</span> {text.title}
                     </span>
                     <span className="status-pill-sub">
-                      {row.status === 'signal'
-                        ? 'Có tín hiệu'
-                        : row.status === 'warming_up'
-                          ? 'Khởi tạo'
-                          : 'Đang chờ'}
+                      {holding.includes(row.strategy)
+                        ? 'Đang có lệnh'
+                        : row.status === 'signal'
+                          ? 'Có tín hiệu'
+                          : row.status === 'warming_up'
+                            ? 'Khởi tạo'
+                            : 'Đang chờ'}
                     </span>
                   </div>
                   <small className="strategy-item-sub">
