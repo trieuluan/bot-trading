@@ -21,7 +21,7 @@ from .futures_context import load_signal_context
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop, discretionary_exit, has_target
 from .futures_rule_tree import describe_rule, nodes, validate_rule
-from .futures_strategies import (RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
+from .futures_strategies import (EXIT_SEEDS, RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
                                  strategy_setup, to_rule_tree)
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
@@ -30,7 +30,7 @@ from .strategy import Setup
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 8 / 10000, 2 / 10000
-WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96
+WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS)
 RULE_TRIAL_CAP = 256
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
@@ -58,6 +58,8 @@ def new_state(now):
     }
     born = (now // 900 + 1) * 900
     for seed in [*SEEDS, *RULE_SEEDS]:
+        add_candidate(state, seed, born)
+    for seed in EXIT_SEEDS:
         add_candidate(state, seed, born)
     rng = random.Random(now)
     for seed in [*SEEDS, *RULE_SEEDS]:
@@ -219,6 +221,9 @@ def sync_seeds(state, now):
     migrate_to_trees(state)
     born, rng = (now // 900 + 1) * 900, random.Random(now)
     existing = {genome_name(candidate["genome"]) for candidate in state["candidates"].values()}
+    for seed in EXIT_SEEDS:
+        if genome_name(seed) not in existing and len(state["candidates"]) < CAP:
+            add_candidate(state, seed, born)
     for seed in [*SEEDS, *RULE_SEEDS]:
         name = genome_name(seed)
         if name not in existing and len(state["candidates"]) < CAP:

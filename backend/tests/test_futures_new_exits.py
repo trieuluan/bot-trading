@@ -81,3 +81,14 @@ def test_all_policies_start_from_identical_hourly_stop(monkeypatch, side):
         if has_target({"exit_policy": policy}):
             assert setup.target == expected_target
         assert strategy_setup(genome, rows[-21:], []) is None
+
+
+def test_exit_seeds_cover_every_other_exit_mode_with_same_entry():
+    from backend.app.futures_exits import EVOLVABLE_EXITS
+    from backend.app.futures_strategies import EXIT_SEEDS
+    assert len(EXIT_SEEDS) == 3 * (len(EVOLVABLE_EXITS) - 1)
+    for seed in EXIT_SEEDS:
+        validate_genome(seed)
+    for base in (RULE_SEEDS[0], RULE_SEEDS[1], RULE_SEEDS[7]):
+        modes = {s.get("exit_policy", "fixed") for s in EXIT_SEEDS if s["rule"] == base["rule"]}
+        assert modes == set(EVOLVABLE_EXITS) - {"adaptive"}

@@ -85,7 +85,7 @@ def test_gate_requires_all_forward_criteria(field, value):
 def test_bounded_unique_children_and_frozen_parents():
     state = learner.new_state(1000)
     before = copy.deepcopy(state["candidates"])
-    seeds = len(SEEDS) + len(RULE_SEEDS)
+    seeds = len(SEEDS) + len(RULE_SEEDS) + len(learner.EXIT_SEEDS)
     assert seeds < len(before) <= 2 * seeds
     for name, rule in before.items():
         validate_genome(rule["genome"])

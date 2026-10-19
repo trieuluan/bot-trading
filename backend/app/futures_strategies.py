@@ -74,6 +74,23 @@ RULE_SEEDS = [
 ]
 SEEDS = copy.deepcopy(RULE_SEEDS)
 
+def _exit_seeds():
+    # Same entry trees (breakout, EMA pullback, sweep) x every other exit mode, so exit modes compare cleanly.
+    out = []
+    for base in (RULE_SEEDS[0], RULE_SEEDS[1], RULE_SEEDS[7]):
+        for policy in EVOLVABLE_EXITS:
+            if policy == "adaptive":
+                continue
+            genome = {key: value for key, value in base.items() if key != "exit_policy"}
+            if policy != "fixed":
+                genome["exit_policy"] = policy
+            if policy in EXIT_DEFAULTS:
+                genome["exit_params"] = dict(EXIT_DEFAULTS[policy])
+            out.append(genome)
+    return out
+
+EXIT_SEEDS = _exit_seeds()
+
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
     last, buffer = candles[-1], atr14(candles) * 0.1
