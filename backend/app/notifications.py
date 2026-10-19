@@ -136,6 +136,39 @@ def notify_partial(session, trade, fill, quantity, net, left, candle_time):
         f"🕒 Nến {when(candle_time + 900)}",
     ]))
 
+def notify_stop_update(session, trade, old_stop, new_stop, candle_time, old_target=None):
+    """Một tin mỗi nến cho dời SL và/hoặc TP (trade.target đã là giá trị mới)."""
+    audit = audit_of(session, trade)
+    sign = 1 if trade.side == "long" else -1
+    stop_moved = new_stop != old_stop
+    target_moved = old_target is not None and trade.target != old_target
+    if not stop_moved and not target_moved:
+        return
+    risk = (trade.monitoring or {}).get("risk") or abs(trade.entry - old_stop)
+    est_pnl = sign * (new_stop - trade.entry) * trade.quantity
+    secured_r = sign * (new_stop - trade.entry) / risk if risk else 0.0
+    title = "SL/TP" if stop_moved and target_moved else "SL" if stop_moved else "TP"
+    icon = "🎯" if not stop_moved else "🛡" if est_pnl >= 0 else "📍"
+    lines = [
+        f"{icon} <b>DỜI {title} {trade.side.upper()}</b> · {esc(trade.symbol)} · #{trade.id}",
+        f"🧠 {strategy_html(trade, audit)}",
+        "",
+    ]
+    if stop_moved:
+        lines.append(f"🛑 SL: <code>{price(old_stop)}</code> → <code>{price(new_stop)}</code>")
+    if target_moved:
+        lines.append(f"🎯 TP: <code>{price(old_target)}</code> → <code>{price(trade.target)}</code>")
+    lines.append(f"▫️ Entry <code>{price(trade.entry)}</code>"
+                 + ("" if target_moved else f" · TP <code>{price(trade.target)}</code>")
+                 + ("" if stop_moved else f" · SL <code>{price(new_stop)}</code>"))
+    if stop_moved:
+        lines += [
+            f"{'✅ Khóa lãi' if est_pnl > 0 else '⚖️ Hòa vốn' if est_pnl == 0 else '🔻 Giảm rủi ro còn'} <b>{est_pnl:+,.2f} USDT</b> ({secured_r:+.2f}R)",
+            "PnL gộp tại SL, chưa trừ phí, funding và trượt giá.",
+        ]
+    lines += [f"📦 Khối lượng giữ: {trade.quantity:g}", f"🕒 Nến {when(candle_time + 900)}"]
+    queue(session, f"{trade.entry_time:010d}-{trade.symbol}-{trade.id}-1-stop-{candle_time}", "\n".join(lines))
+
 def notify_close(session, trade):
     audit = audit_of(session, trade)
     net = trade.net_pnl or 0

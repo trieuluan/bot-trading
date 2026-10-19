@@ -6,7 +6,7 @@ import { AutoDecisionList } from '../components/AutoDecisionList';
 import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
-import { PaperChart, strategyColor } from '../components/PaperChart';
+import { PaperChart } from '../components/PaperChart';
 import { formatPrice } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import {
@@ -35,8 +35,6 @@ function mergeBars(history: Candle[], recent: Candle[]): Candle[] {
   for (const bar of [...history, ...recent]) bars.set(bar.time, bar);
   return [...bars.values()].sort((a, b) => a.time - b.time);
 }
-
-const timeLabel = (time: number) => new Date(time * 1000).toLocaleString('vi-VN');
 
 export function PaperTradingPage({
   board,
@@ -73,6 +71,7 @@ export function PaperTradingPage({
   } | null>(null);
   const [historyError, setHistoryError] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [chartStrategies, setChartStrategies] = useState<string[]>([]);
   const [chartAuto, setChartAuto] = useState(true);
   const [clock, setClock] = useState(Date.now());
@@ -81,11 +80,18 @@ export function PaperTradingPage({
   const activitySection = useRef<HTMLDivElement | null>(null);
   function viewTrade(id: number) {
     setSelectedId(id);
+    setDetailOpen(true);
     chartSection.current?.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
     });
   }
+  useEffect(() => {
+    if (!detailOpen) return;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setDetailOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailOpen]);
   useEffect(() => {
     if (chartTrade !== null) viewTrade(chartTrade);
   }, [chartTrade]);
@@ -307,12 +313,6 @@ export function PaperTradingPage({
   const selectedRow = strategyRows.find((row) => row.strategy === learningDecision?.selected);
   const selectedTitle = selectedRow ? chartStrategyText(selectedRow).title : '';
   const nextCloseSeconds = 900 - (Math.floor(clock / 1000) % 900);
-  const modeLabel =
-    auto?.auto_mode === 'paper_learning'
-      ? 'Bot học · Paper thử nghiệm'
-      : auto?.auto_mode === 'learner'
-        ? 'Bot học · Chỉ chiến thuật đã duyệt'
-        : 'Bot học · đang tải';
   return (
     <div className="futures-desk">
       <div className="desk-sticky-header">
@@ -492,216 +492,47 @@ export function PaperTradingPage({
               )}
             </>
           )}
-          <details className="desk-analysis-details">
-            <summary>Chi tiết bot, chiến thuật & lệnh {selected ? `#${selected.id}` : ''}</summary>
-            {observations.length > 0 && (
-              <div
-                className="futures-chart-explanations"
-                aria-label="Chú giải chiến thuật trên chart"
+          {historicalId === null && (
+            <div className="desk-bot-line" role="status" aria-label="Trạng thái bot Futures">
+              <Bot size={14} />
+              <span
+                className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'}`}
               >
-                {observations.map((row) => (
-                  <article
-                    key={row.strategy}
-                    style={{ borderColor: strategyColor(row.strategy) }}
-                    title={[
-                      row.setup?.reason ?? row.note ?? '',
-                      ...(row.levels ?? []).map((l) => `${l.title}: ${formatPrice(l.price)}`),
-                    ]
-                      .filter(Boolean)
-                      .join('\n')}
-                  >
-                    <strong>{chartStrategyText(row).title}</strong>
-                    <span className="micro">
-                      {allOpenNames.includes(row.strategy)
-                        ? 'Đang giữ vị thế'
-                        : row.strategy === learningDecision?.selected
-                          ? 'Bộ học chọn · chưa đồng nghĩa đã khớp'
-                          : row.status === 'signal'
-                            ? 'Có tín hiệu · chưa được chọn'
-                            : row.status === 'warming_up'
-                              ? 'Chờ khởi tạo'
-                              : 'Đang chờ tín hiệu'}
-                    </span>
-                    {row.overlay_details?.map((detail, index) => (
-                      <span className="micro" key={`${detail.feature}-${detail.frame}-${index}`}>
-                        {detail.drawn ? '●' : '○'} {detail.label}
-                        {detail.matched.length ? ` · đang khớp ${detail.matched.join('/')}` : ''}
-                        {detail.message ? ` · ${detail.message}` : ''}
-                      </span>
-                    ))}
-                  </article>
-                ))}
-              </div>
-            )}
-            {historicalId === null && (
-              <div className="paper-bot-status" aria-label="Chiến thuật bot Futures">
-                <div className="desk-bot-heading" role="status">
-                  <div className="desk-bot-identity">
-                    <Bot size={19} />
-                    <div>
-                      <span>BỘ ĐIỀU PHỐI CHIẾN THUẬT</span>
-                      <strong>{modeLabel}</strong>
-                    </div>
-                  </div>
-                  <span
-                    className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'}`}
-                  >
-                    {!online
-                      ? 'Mất kết nối'
-                      : !auto
-                        ? 'Đang tải'
-                        : !auto.enabled
-                          ? 'Đã dừng'
-                          : !auto.worker_online
-                            ? 'Worker ngoại tuyến'
-                            : auto.learner_error
-                              ? 'Lỗi bộ học'
-                              : 'Đã bật Auto'}
-                  </span>
-                </div>
-                <div className="desk-bot-context">
-                  <span className="desk-bot-message">
-                    {!online
-                      ? 'Mất kết nối · trạng thái có thể cũ'
-                      : !auto
-                        ? 'Đang tải trạng thái bot'
-                        : !auto.enabled
-                          ? 'Đã dừng vào lệnh mới'
-                          : !auto.worker_online
-                            ? 'Worker ngoại tuyến'
-                            : auto.learner_error
-                              ? `Lỗi bộ học: ${auto.learner_error}`
-                              : !auto.learner_enabled
-                                ? 'Bộ học đã tạm dừng'
-                                : auto.status}
-                  </span>
-                  <span>
-                    <Clock3 size={13} /> Nến kế tiếp{' '}
-                    <strong>
-                      {Math.floor(nextCloseSeconds / 60)}:
-                      {String(nextCloseSeconds % 60).padStart(2, '0')}
-                    </strong>
-                  </span>
-                </div>
-                {wallet?.position && (
-                  <div className="chart-legend">
-                    <strong>
-                      Đang giữ #{wallet.position.id} ·{' '}
-                      {tradeStrategy(wallet.position.audit)?.title ??
-                        (wallet.position.origin === 'manual' ? 'Thủ công' : 'Auto')}{' '}
-                      · {wallet.position.side.toUpperCase()}
-                    </strong>
-                    <span>
-                      Entry {formatPrice(wallet.position.entry)} · SL{' '}
-                      {formatPrice(wallet.position.stop)} · TP {formatPrice(wallet.position.target)}
-                    </span>
-                  </div>
-                )}
-                {learningDecision ? (
-                  <details>
-                    <summary className="chart-legend">
-                      <strong>
-                        Bot quan sát · {learningDecision.candidates} chiến thuật có tín hiệu
-                      </strong>
-                      <span>
-                        {learningDecision.selected
-                          ? `Chọn ${selectedTitle} ${learningDecision.setup?.side.toUpperCase() ?? ''}`
-                          : 'Chưa có tín hiệu · đứng ngoài'}
-                      </span>
-                      <span>
-                        {(
-                          {
-                            range: 'Đi ngang',
-                            trend_up: 'Xu hướng tăng',
-                            trend_down: 'Xu hướng giảm',
-                            uptrend: 'Xu hướng tăng',
-                            downtrend: 'Xu hướng giảm',
-                          } as Record<string, string>
-                        )[learningDecision.regime] ?? learningDecision.regime}
-                      </span>
-                      <span>
-                        Nến {timeLabel(learningDecision.time)}
-                        {!decisionFresh ? ' · Dữ liệu cũ, chờ đánh giá mới' : ''}
-                      </span>
-                    </summary>
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Chiến thuật</th>
-                            <th>Trạng thái tại nến đánh giá</th>
-                            <th>Hướng</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(learningDecision.strategies ?? []).map((row) => (
-                            <tr
-                              key={row.strategy}
-                              className={
-                                row.strategy === learningDecision.selected
-                                  ? 'desk-strategy-selected'
-                                  : undefined
-                              }
-                            >
-                              <td>{chartStrategyText(row).title}</td>
-                              <td>
-                                <span className={`pill ${row.status === 'signal' ? 'green' : ''}`}>
-                                  {positions.some(
-                                    (position) => position.audit?.strategy === row.strategy,
-                                  )
-                                    ? 'Đang giữ vị thế'
-                                    : row.strategy === learningDecision.selected
-                                      ? learningDecision.mode === 'shadow'
-                                        ? 'Được chọn · chưa đủ điều kiện'
-                                        : 'Được bộ học chọn'
-                                      : row.status === 'signal'
-                                        ? 'Có tín hiệu · chưa được chọn'
-                                        : row.status === 'warming_up'
-                                          ? 'Chờ nến sau khởi tạo'
-                                          : 'Chờ tín hiệu'}
-                                </span>
-                              </td>
-                              <td>{row.side?.toUpperCase() ?? '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="micro">
-                      {learningDecision.setup?.reason ?? 'Không có setup tại nến đánh giá.'}
-                    </p>
-                    <p className="micro">
-                      {learningDecision.selection_reason === 'explore_unseen_context'
-                        ? 'Bộ học đang khám phá bối cảnh chưa có mẫu.'
-                        : learningDecision.selection_reason === 'contextual_ucb'
-                          ? 'Lựa chọn theo điểm UCB của bối cảnh.'
-                          : 'Chưa chọn chiến thuật.'}
-                    </p>
-                  </details>
-                ) : (
-                  <p className="micro">Chờ bộ học đánh giá nến đóng đầu tiên.</p>
-                )}
-                <p className="micro">
-                  Đường THAM CHIẾU là phân tích nến đã đóng, không phải lệnh chờ hay cam kết vào
-                  lệnh. Entry/SL/TP của vị thế Paper luôn được giữ khi chọn lớp chiến thuật khác.
-                </p>
-              </div>
-            )}
-            {selected ? (
-              <PaperTradeDetails trade={selected} />
-            ) : (
-              <details className="desk-chart-notes">
-                <summary>Nguồn giá & cách khớp lệnh Paper</summary>
-                <p className="micro">
-                  {stream.live
-                    ? 'Nến đang chạy từ WebSocket MEXC.'
-                    : 'Chưa có WebSocket mới; hiển thị dữ liệu REST của worker, có thể đã cũ.'}{' '}
-                  Nến đóng đối soát qua REST. Chart live không thay giá khớp Paper hoặc SL/TP của
-                  worker. Chọn lệnh lịch sử để xem Entry, Exit và lý do giao dịch.
-                </p>
-              </details>
-            )}
-          </details>
+                {!online
+                  ? 'Mất kết nối'
+                  : !auto
+                    ? 'Đang tải'
+                    : !auto.enabled
+                      ? 'Đã dừng'
+                      : !auto.worker_online
+                        ? 'Worker ngoại tuyến'
+                        : auto.learner_error
+                          ? 'Lỗi bộ học'
+                          : 'Auto ON'}
+              </span>
+              <span className="desk-bot-message">
+                {!online
+                  ? 'Mất kết nối · trạng thái có thể cũ'
+                  : !auto
+                    ? 'Đang tải trạng thái bot'
+                    : !auto.enabled
+                      ? 'Đã dừng vào lệnh mới'
+                      : !auto.worker_online
+                        ? 'Worker ngoại tuyến'
+                        : auto.learner_error
+                          ? `Lỗi bộ học: ${auto.learner_error}`
+                          : !auto.learner_enabled
+                            ? 'Bộ học đã tạm dừng'
+                            : auto.status}
+              </span>
+              <span className="desk-bot-next">
+                <Clock3 size={13} /> Nến kế tiếp{' '}
+                <strong>
+                  {Math.floor(nextCloseSeconds / 60)}:{String(nextCloseSeconds % 60).padStart(2, '0')}
+                </strong>
+              </span>
+            </div>
+          )}
           <div className="paper-book">
             <span>
               Bid (worker) <strong>{quote ? formatPrice(quote.bid1) : '—'}</strong>
@@ -717,6 +548,26 @@ export function PaperTradingPage({
             </a>
           </p>
         </section>
+        {detailOpen && selected && (
+          <div className="trade-drawer-backdrop" onClick={() => setDetailOpen(false)}>
+            <aside
+              className="trade-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Chi tiết lệnh #${selected.id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                className="icon-button close"
+                aria-label="Đóng chi tiết lệnh"
+                onClick={() => setDetailOpen(false)}
+              >
+                ×
+              </button>
+              <PaperTradeDetails trade={selected} />
+            </aside>
+          </div>
+        )}
         <aside className="desk-controls" aria-label="Điều khiển giao dịch Paper">
           <div className="desk-mode-switch" role="group" aria-label="Chế độ đặt lệnh">
             <button

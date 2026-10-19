@@ -34,7 +34,7 @@ from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
 from .futures_exits import (EXIT_POLICIES, adaptive_target, partial_size, protective_stop,
                            discretionary_exit, has_target, exit_parameters)
 from .feed import load_candles
-from .notifications import notify_close, notify_open, notify_partial
+from .notifications import notify_close, notify_open, notify_partial, notify_stop_update
 from .mexc import MarketDataError, MexcFuturesAdapter
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
@@ -380,14 +380,18 @@ def reconcile_stops(session, wallet, trade, now):
                 session.add(Event(kind="paper", message=f"PAPER #{trade.id}: chốt {quantity:g} tại {fill:.4f}"))
                 notify_partial(session, trade, fill, quantity, gross - fee - entry_fee,
                                trade.quantity, candle.time)
+            old_target = trade.target
             if has_target(position):
                 trade.target = adaptive_target(position, history)
             next_stop = protective_stop(
                 position, history, wallet.fee_bps / 10000, wallet.slippage_bps / 10000)
-            if next_stop != trade.stop:
+            old_stop = trade.stop
+            if next_stop != old_stop:
                 monitoring = {**monitoring, "last_stop_update": candle.time + 900,
-                              "previous_stop": trade.stop}
+                              "previous_stop": old_stop}
                 trade.stop = next_stop
+            if next_stop != old_stop or trade.target != old_target:
+                notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target)
         cursor += 900
     status = "history_pending" if cursor < end else "watching"
     if status == "history_pending" and monitoring.get("status") != status:

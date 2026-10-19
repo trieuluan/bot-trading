@@ -4,7 +4,7 @@ import json
 import pytest
 
 from backend.app.db import PaperNotification, PaperTrade, PaperWallet, Session
-from backend.app.notifications import deliver, notify_open, notify_partial, notify_close, queue
+from backend.app.notifications import deliver, notify_open, notify_partial, notify_close, notify_stop_update, queue
 from backend.app.paper import close_position
 
 def test_notifications_queue_and_deliver(monkeypatch):
@@ -147,3 +147,106 @@ def test_strategy_line_uses_readable_profile():
     assert strategy_line(audit) == "Cây tự sinh #3a1709 · G1"
     audit["genome"]["exit_profile"] = "htf_fib"
     assert strategy_line(audit) == "Fibonacci thoái lui HTF #3a1709 · G1"
+
+
+def test_notify_stop_update_formats_and_queues(monkeypatch):
+    sent = []
+    monkeypatch.setattr("backend.app.notifications.queue", lambda s, k, msg: sent.append((k, msg)))
+    monkeypatch.setattr("backend.app.notifications.audit_of", lambda s, t: {
+        "strategy": "rule_tree:3a1709ff", "generation": 1,
+        "genome": {"exit_profile": "htf_sweep", "family": "rule_tree"}
+    })
+    trade = SimpleNamespace(
+        id=138, symbol="ETH_USDT", side="short", entry=2428.48, stop=2451.51, target=2394.0,
+        quantity=3.45, entry_time=1700000000, origin="auto", monitoring={"risk": 23.03},
+    )
+    notify_stop_update(None, trade, 2451.51, 2420.0, 1700000900)
+    assert len(sent) == 1
+    key, msg = sent[0]
+    assert "1-stop-1700000900" in key
+    assert "🛡 <b>DỜI SL SHORT</b>" in msg
+    assert "2,451.51" in msg and "2,420" in msg
+    assert "✅ Khóa lãi" in msg
+    assert "+29.26 USDT" in msg
+
+    sent.clear()
+    notify_stop_update(None, trade, 2451.51, 2428.48, 1700000900)
+    assert "⚖️ Hòa vốn" in sent[0][1]
+
+
+@pytest.mark.parametrize("side,stop,next_stop", [("long", 90, 95), ("short", 110, 105)])
+def test_reconcile_stop_update_queues_once_after_commit(monkeypatch, side, stop, next_stop):
+    from backend.app.market import Candle
+    from backend.app.paper import reconcile_stops
+
+    candle_time = 1700000100
+    candle = Candle(candle_time, 100, 101, 99, 100, 1)
+    monkeypatch.setattr("backend.app.paper.load_candles", lambda *args, **kwargs: [candle])
+    monkeypatch.setattr("backend.app.paper.discretionary_exit", lambda *args: None)
+    monkeypatch.setattr("backend.app.paper.partial_size", lambda *args: 0)
+    monkeypatch.setattr("backend.app.paper.adaptive_target", lambda position, history: position["target"])
+    monkeypatch.setattr("backend.app.paper.protective_stop", lambda *args: next_stop)
+
+    with Session.begin() as session:
+        wallet = session.get(PaperWallet, 1)
+        trade = PaperTrade(
+            symbol="BTC_USDT", side=side, entry_time=candle_time - 900, origin="auto",
+            entry=100, quantity=1, contracts=1, leverage=1, stop=stop,
+            target=120 if side == "long" else 80, entry_fee=0, exit_fee=0, funding_cost=0,
+            monitoring={"exit_policy": "trail", "risk": 10, "next_bar": candle_time},
+        )
+        session.add(trade)
+        session.flush()
+        reconcile_stops(session, wallet, trade, candle_time + 900)
+        assert trade.stop == next_stop
+        reconcile_stops(session, wallet, trade, candle_time + 900)
+
+    with Session() as session:
+        messages = session.scalars(select(PaperNotification)).all()
+        assert len(messages) == 1
+        assert f"DỜI SL {side.upper()}" in messages[0].message
+        assert messages[0].sent_at is None
+
+
+def test_notify_target_update_only_and_both(monkeypatch):
+    sent = []
+    monkeypatch.setattr("backend.app.notifications.queue", lambda s, k, msg: sent.append(msg))
+    monkeypatch.setattr("backend.app.notifications.audit_of", lambda s, t: None)
+    trade = SimpleNamespace(id=1, symbol="ETH_USDT", side="long", entry=100, stop=95,
+                            target=108, quantity=2, entry_time=1700000000, origin="auto",
+                            monitoring={"risk": 5})
+    notify_stop_update(None, trade, 95, 95, 1700000900, old_target=112)
+    assert "DỜI TP LONG" in sent[0] and "112" in sent[0] and "108" in sent[0]
+    assert "Khóa lãi" not in sent[0]
+    sent.clear()
+    notify_stop_update(None, trade, 95, 101, 1700000900, old_target=112)
+    assert "DỜI SL/TP LONG" in sent[0] and "Khóa lãi" in sent[0]
+    sent.clear()
+    notify_stop_update(None, trade, 95, 101, 1700000900, old_target=108)
+    assert "DỜI SL LONG" in sent[0] and "🎯 TP:" not in sent[0]
+    sent.clear()
+    notify_stop_update(None, trade, 95, 95, 1700000900, old_target=108)
+    assert sent == []
+
+@pytest.mark.parametrize("side,target,new_target", [("long", 120, 112), ("short", 80, 88)])
+def test_reconcile_target_update_queues(monkeypatch, side, target, new_target):
+    from backend.app.market import Candle
+    from backend.app.paper import reconcile_stops
+    t = 1700000100
+    monkeypatch.setattr("backend.app.paper.load_candles", lambda *a, **k: [Candle(t, 100, 101, 99, 100, 1)])
+    monkeypatch.setattr("backend.app.paper.discretionary_exit", lambda *a: None)
+    monkeypatch.setattr("backend.app.paper.partial_size", lambda *a: 0)
+    monkeypatch.setattr("backend.app.paper.adaptive_target", lambda p, h: new_target)
+    monkeypatch.setattr("backend.app.paper.protective_stop", lambda p, *a: p["stop"])
+    with Session.begin() as session:
+        trade = PaperTrade(symbol="BTC_USDT", side=side, entry_time=t - 900, origin="auto",
+            entry=100, quantity=1, contracts=1, leverage=1, stop=90 if side == "long" else 110,
+            target=target, entry_fee=0, exit_fee=0, funding_cost=0,
+            monitoring={"exit_policy": "adaptive", "risk": 10, "next_bar": t})
+        session.add(trade); session.flush()
+        reconcile_stops(session, session.get(PaperWallet, 1), trade, t + 900)
+        assert trade.target == new_target
+        reconcile_stops(session, session.get(PaperWallet, 1), trade, t + 900)
+    with Session() as session:
+        msgs = session.scalars(select(PaperNotification)).all()
+        assert len(msgs) == 1 and f"DỜI TP {side.upper()}" in msgs[0].message
