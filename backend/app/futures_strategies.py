@@ -241,33 +241,22 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     if len(found) != 1:
         return None
     direction, last = found[0], candles[-1]
-    stop = (min(bar.low for bar in candles[-5:]) if direction == 1
-            else max(bar.high for bar in candles[-5:]))
-    target = last.close + direction * 2 * abs(last.close - stop)
-    custom = profile_exit(tree.get("exit_profile", "default"), candles, direction, lookback,
-                          genome, funding)
-    if custom:
-        stop, target = custom
-    adaptive = genome.get("exit_policy") == "adaptive"
-    if adaptive:
-        levels = adaptive_levels("long" if direction == 1 else "short", candles,
-                                 genome["target_r"], genome["stop_buffer"])
-        if levels is None:
-            return None
-        stop, target = levels
+    # Every exit policy starts from the same H1 geometry (H1 swing + ATR H1, TP before nearest barrier);
+    # policies differ only in how the trade is managed after entry.
+    levels = adaptive_levels("long" if direction == 1 else "short", candles,
+                             genome["target_r"], genome["stop_buffer"])
+    if levels is None:
+        return None
+    stop, target = levels
     setup = Setup("long" if direction == 1 else "short", last.close, stop, target,
                   describe_rule(tree["rule"]))
     direction = 1 if setup.side == "long" else -1
-    stop = setup.stop if adaptive else setup.stop - direction * genome["stop_buffer"] * atr14(candles)
     risk = direction * (setup.entry - stop)
     policy = genome.get("exit_policy", "fixed")
     if policy == "runner":
         target = setup.entry + direction * max(6.0, genome["target_r"] * 2.5) * risk
     elif policy == "scale_out_ladder":
         target = setup.entry + direction * max(3.0, genome["target_r"]) * risk
-    else:
-        target = (setup.target if adaptive or tree.get("exit_profile") == "mean_reversion"
-                  else setup.entry + direction * genome["target_r"] * risk)
     if genome.get("exit_policy") == "structure":
         target = structural_target(setup.side, setup.entry, stop, target, candles)
         if target is None:

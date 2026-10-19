@@ -12,6 +12,7 @@ from backend.app.futures_symbols import SYMBOLS
 import scripts.futures_replay_340d as base
 
 OUTPUT = Path("/app/research-output/futures-exit-policies-340d.json")
+PAIR_DIR = Path("/app/research-output/exit-policy-pairs")
 
 def variants():
     result = {}
@@ -42,14 +43,20 @@ def run(symbol):
     t0 = time.time()
     report = futures_history.replay(variants(), clip(candles), clip(fair), funding, start, end,
                                     btc_candles=btc, benchmarks=peers)
-    print(f"{symbol} {time.time() - t0:.0f}s", flush=True)
+    duration = time.time() - t0
+    print(f"{symbol} finished in {duration:.0f}s", flush=True)
+    PAIR_DIR.mkdir(parents=True, exist_ok=True)
+    (PAIR_DIR / f"{symbol}.json").write_text(json.dumps(report, allow_nan=False))
     out = {}
     for row in report["strategies"]:
         policy = row["genome"].get("exit_policy", "fixed")
         for part in ("train", "validation"):
             stats = out.setdefault(policy, {}).setdefault(part, {"n": 0, "sum_r": 0.0})
-            stats["n"] += row[part]["resolved"]
-            stats["sum_r"] += row[part]["resolved"] * row[part]["mean_r"]
+            resolved = row[part]["resolved"]
+            mean_r = row[part]["mean_r"]
+            stats["n"] += resolved
+            if resolved > 0 and mean_r is not None:
+                stats["sum_r"] += resolved * mean_r
     return symbol, out
 
 if __name__ == "__main__":
