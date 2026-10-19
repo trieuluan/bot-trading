@@ -18,7 +18,7 @@ import {
 } from 'lightweight-charts';
 import type { Candle } from '../types/trading';
 import { exitLabels } from './PaperTradeDetails';
-import { placeChartTags } from '../lib/chart-tags';
+import { groupNearbyTags, placeChartTags } from '../lib/chart-tags';
 import { ChartLabels, type ChartLabel } from '../lib/chart-labels';
 import { formatPrice } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
@@ -101,6 +101,7 @@ export function PaperChart({
   const labels = useRef<ChartLabels | null>(null);
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
+  const axisLevels = useRef<{ line: IPriceLine; title: string; price: number; color: string }[]>([]);
   const fitted = useRef(false);
   const previousCandles = useRef<Candle[]>([]);
   function showRecentCandles() {
@@ -110,7 +111,7 @@ export function PaperChart({
   const snap = (time: number) => Math.floor(time / step) * step;
   const [hover, setHover] = useState<string | null>(null);
   const [tags, setTags] = useState<
-    { id: number; kind: 'entry' | 'stop' | 'target'; y: number; displayY: number; column: number }[]
+    { id: number; ids: number[]; kind: 'entry' | 'stop' | 'target'; y: number; displayY: number; column: number }[]
   >([]);
   const openTrades = positions.length
     ? positions
@@ -118,44 +119,63 @@ export function PaperChart({
       ? [trade]
       : [];
   useEffect(() => {
-    if (!openTrades.length) {
-      setTags([]);
-      return;
-    }
     let frame = 0;
     let last = '';
+    const axisOptions = new Map<IPriceLine, string>();
     const tick = () => {
       const priceSeries = series.current;
       if (priceSeries) {
         const next = openTrades.flatMap((open) =>
           (
             [
-              ['entry', open.entry],
+              ['entry', markPrice ?? open.entry],
               ['stop', open.stop],
               ['target', open.target],
             ] as const
           ).flatMap(([kind, price]) => {
             const y = priceSeries.priceToCoordinate(price);
-            return y === null ? [] : [{ id: open.id, kind, y: Math.round(y) }];
+            return y === null ? [] : [{ id: open.id, kind, side: open.side, y: Math.round(y) }];
           }),
         );
         const placed = placeChartTags(
-          next,
+          groupNearbyTags(next).map((group) => ({
+            id: group.members[0].id, ids: group.members.map((member) => member.id),
+            kind: group.members[0].kind, y: group.y,
+          })),
           Math.max(0, (container.current?.clientHeight ?? 0) - 30),
         );
         const key = placed
-          .map((tag) => `${tag.id}:${tag.kind}:${tag.displayY}:${tag.column}`)
+          .map((tag) => `${tag.ids.join(',')}:${tag.kind}:${tag.displayY}:${tag.column}`)
           .join('|');
         if (key !== last) {
           last = key;
           setTags(placed);
+        }
+        const levels = axisLevels.current.flatMap((level) => {
+          const y = priceSeries.priceToCoordinate(level.price);
+          return y === null ? [] : [{ ...level, y, kind: level.title.split(' ').at(-1) ?? '', side: level.color }];
+        });
+        const occupied: number[] = [];
+        for (const group of groupNearbyTags(levels)) {
+          const visible = !occupied.some((y) => Math.abs(y - group.y) < 18);
+          if (visible) occupied.push(group.y);
+          group.members.forEach((level, index) => {
+            const ids = group.members.map((member) => member.title.match(/^#\d+/)?.[0]).filter(Boolean);
+            const title = ids.length > 1 ? `${ids.join('·')} ${group.kind}` : level.title;
+            const axisLabelVisible = visible && index === 0;
+            const key = `${axisLabelVisible}:${title}`;
+            if (axisOptions.get(level.line) !== key) {
+              level.line.applyOptions({ axisLabelVisible, title });
+              axisOptions.set(level.line, key);
+            }
+          });
         }
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [positions, trade]);
+  }, [positions, trade, markPrice]);
   useEffect(() => {
     if (!container.current) return;
     chart.current = createChart(container.current, {
@@ -180,7 +200,7 @@ export function PaperChart({
       borderVisible: false,
     });
     markers.current = createSeriesMarkers(series.current, []);
-    labels.current = new ChartLabels();
+    labels.current = new ChartLabels(true);
     series.current.attachPrimitive(labels.current);
     chart.current.subscribeCrosshairMove((param) =>
       labels.current?.hover(param.point && typeof param.time === 'number' ? param.time : null),
@@ -195,6 +215,7 @@ export function PaperChart({
       markers.current = null;
       labels.current = null;
       lines.current = [];
+      axisLevels.current = [];
       ranges.current = [];
       fitted.current = false;
       previousCandles.current = [];
@@ -257,6 +278,7 @@ export function PaperChart({
     if (!priceSeries) return;
     lines.current.forEach((line) => priceSeries.removePriceLine(line));
     lines.current = [];
+    axisLevels.current = [];
     ranges.current.forEach((range) => chart.current?.removeSeries(range));
     ranges.current = [];
     const points: SeriesMarker<Time>[] = [];
@@ -460,6 +482,7 @@ export function PaperChart({
         axisLabelVisible: true,
       }),
     );
+    axisLevels.current = allLevels.map((level, index) => ({ ...level, line: lines.current[index] }));
     if (allLevels.length > 0) {
       priceSeries.applyOptions({
         autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
@@ -547,29 +570,26 @@ export function PaperChart({
         />
         <div className="position-tag-layer">
           {tags.map((tag) => {
-            const open = openTrades.find((position) => position.id === tag.id);
-            if (!open) return null;
-            const tagKey = `${tag.id}-${tag.kind}`;
-            const price =
-              tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? open.stop : open.target;
-            const value = estimatedPaperPnl(open, price, feeBps, false);
-            const net = estimatedPaperPnl(open, price, feeBps);
-            const label =
-              tag.kind === 'entry'
-                ? 'HIỆN TẠI'
-                : tag.kind === 'stop'
-                  ? 'NẾU SL'
-                  : 'NẾU TP';
-            const sign = open.side === 'long' ? 1 : -1;
-            const fmt = (n: number | null, d = 2) =>
-              n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
-            const exitFee = price === null ? null : (price * open.quantity * feeBps) / 10000;
-            const move = price === null ? null : ((price - open.entry) / open.entry) * 100 * sign;
-            const left = 12 + tag.column * 300;
+            const members = tag.ids.map((id) => openTrades.find((p) => p.id === id)).filter((p): p is PaperTrade => p != null);
+            if (!members.length) return null;
+            const open = members[0];
+            const tagKey = `${tag.ids.join(',')}-${tag.kind}`;
+            const sumPnl = (net = false) => members.reduce<number | null>((acc, p) => {
+              const price = tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
+              const val = estimatedPaperPnl(p, price, feeBps, net);
+              return acc === null || val === null ? null : acc + val;
+            }, 0);
+            const value = sumPnl(false);
+            const net = sumPnl(true);
+            const label = tag.kind === 'entry' ? 'HIỆN TẠI' : tag.kind === 'stop' ? 'NẾU SL' : 'NẾU TP';
+            const countLabel = members.length > 1 ? `${members.length}× ` : `#${open.id} `;
+            const fmt = (n: number | null, d = 2) => n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
+            const left = 8 + tag.column * 200;
+            const isSelected = members.some((p) => p.id === trade?.id);
             return (
               <div key={tagKey}>
                 <div
-                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${open.id === trade?.id ? 'is-selected' : ''}`}
+                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''}`}
                   style={{ top: tag.displayY, left }}
                   onMouseEnter={() => setHover(tagKey)}
                   tabIndex={0}
@@ -586,13 +606,11 @@ export function PaperChart({
                   onMouseLeave={() => setHover(null)}
                 >
                   <span>
-                    #{open.id} {open.side.toUpperCase()} {label}
-                    {tag.kind === 'entry' && markStale ? ' · GIÁ CŨ' : ''}
+                    {countLabel}{open.side.toUpperCase()} {label}
+                    {tag.kind === 'entry' && markStale ? ' · CŨ' : ''}
                   </span>
                   <strong>
-                    {value === null
-                      ? '—'
-                      : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)} USDT`}
+                    {value === null ? '—' : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)} USDT`}
                   </strong>
                 </div>
                 {hover === tagKey && (
@@ -608,52 +626,30 @@ export function PaperChart({
                     }
                   >
                     <h4>
-                      #{open.id} · {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
-                      {tag.kind === 'entry'
-                        ? 'Giá hiện tại'
-                        : tag.kind === 'stop'
-                          ? 'Nếu chạm SL'
-                          : 'Nếu chạm TP'}
+                      {members.length > 1 ? `${members.length} lệnh` : `#${open.id}`} ·{' '}
+                      {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
+                      {tag.kind === 'entry' ? 'Giá hiện tại' : tag.kind === 'stop' ? 'Nếu chạm SL' : 'Nếu chạm TP'}
                     </h4>
-                    <div>
-                      <dt>Giá {tag.kind === 'entry' ? 'hiện tại' : 'chốt'}</dt>
-                      <dd>{price === null ? '—' : formatPrice(price)}</dd>
-                    </div>
-                    <div>
-                      <dt>Giá vào</dt>
-                      <dd>{formatPrice(open.entry)}</dd>
-                    </div>
-                    <div>
-                      <dt>SL / TP</dt>
-                      <dd>
-                        {formatPrice(open.stop)} / {formatPrice(open.target)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Khối lượng</dt>
-                      <dd>{open.quantity} BTC</dd>
-                    </div>
-                    <div>
-                      <dt>Biến động giá</dt>
-                      <dd>{fmt(move)}%</dd>
-                    </div>
-                    <div>
-                      <dt>PnL theo giá</dt>
-                      <dd>{fmt(value)} USDT</dd>
-                    </div>
-                    <div>
-                      <dt>Phí vào / ra ({feeBps} bps)</dt>
-                      <dd>
-                        −{open.entry_fee.toFixed(2)} / −
-                        {exitFee === null ? '—' : exitFee.toFixed(2)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Funding đã ghi</dt>
-                      <dd>{fmt(-open.funding_cost)}</dd>
-                    </div>
+                    {members.map((p) => {
+                      const price = tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
+                      const gross = estimatedPaperPnl(p, price, feeBps, false);
+                      const exitFee = price === null ? null : (price * p.quantity * feeBps) / 10000;
+                      const move = price === null ? null : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
+                      const unit = getFuturesSymbol().split('_')[0];
+                      return (
+                        <div key={p.id} className="position-tip-trade">
+                          <h5>#{p.id} · {tradeStrategy(p.audit)?.title ?? (p.origin === 'manual' ? 'Thủ công' : 'Auto')}</h5>
+                          <div><dt>Giá {tag.kind === 'entry' ? 'hiện tại' : 'chốt'} / vào</dt><dd>{price === null ? '—' : formatPrice(price)} / {formatPrice(p.entry)}</dd></div>
+                          <div><dt>SL / TP</dt><dd>{formatPrice(p.stop)} / {formatPrice(p.target)}</dd></div>
+                          <div><dt>Khối lượng</dt><dd>{p.quantity} {unit}</dd></div>
+                          <div><dt>Biến động</dt><dd>{fmt(move)}%</dd></div>
+                          <div><dt>PnL giá · phí vào/ra</dt><dd>{fmt(gross)} · −{p.entry_fee.toFixed(2)}/−{exitFee === null ? '—' : exitFee.toFixed(2)}</dd></div>
+                          <div><dt>Funding đã ghi</dt><dd>{fmt(-p.funding_cost)}</dd></div>
+                        </div>
+                      );
+                    })}
                     <div className="total">
-                      <dt>PnL ròng nếu chốt</dt>
+                      <dt>PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''} · phí {feeBps} bps</dt>
                       <dd>{fmt(net)} USDT</dd>
                     </div>
                     <p>
@@ -669,10 +665,10 @@ export function PaperChart({
               .filter((tag) => tag.y !== tag.displayY)
               .map((tag) => (
                 <line
-                  key={`${tag.id}-${tag.kind}`}
+                  key={`${tag.ids.join(",")}-${tag.kind}`}
                   x1={6}
                   y1={tag.y}
-                  x2={12 + tag.column * 300}
+                  x2={8 + tag.column * 200}
                   y2={tag.displayY}
                 />
               ))}

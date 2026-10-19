@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { placeChartTags } from '../src/lib/chart-tags.ts';
+import { groupNearbyTags, placeChartTags } from '../src/lib/chart-tags.ts';
 import { drawOrder, stackLabels } from '../src/lib/chart-labels.ts';
 
 const labels = [
@@ -40,4 +40,11 @@ assert.deepEqual(
   placeChartTags([{ y: 100 }, { y: 200 }], 400).map((tag) => tag.displayY),
   [100, 200],
 );
+const near = groupNearbyTags([
+  { id: 1, kind: 'stop', side: 'short', y: 120 },
+  { id: 2, kind: 'stop', side: 'short', y: 124 },
+  { id: 3, kind: 'target', side: 'short', y: 122 },
+  { id: 4, kind: 'stop', side: 'long', y: 121 },
+]);
+assert.deepEqual(near.map((group) => group.members.map((tag) => tag.id)), [[1, 2], [4], [3]]);
 console.log('Chart tag checks passed: overlaps, bounds, overflow columns, offscreen prices.');

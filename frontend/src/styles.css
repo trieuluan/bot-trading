@@ -5702,3 +5702,8 @@ main:has(.futures-desk) {
   right: 12px;
   font-size: 22px;
 }
+
+.position-tip-trade { padding: 4px 0; border-bottom: 1px solid #23332c; }
+.position-tip-trade h5 { margin: 0 0 2px; font-size: 11px; color: #d8e2dc; }
+.position-tag { font-size: 12px; max-width: 190px; }
+.position-tag > * { padding: 2px 7px; white-space: nowrap; }

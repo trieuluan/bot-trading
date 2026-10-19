@@ -35,6 +35,12 @@ export class ChartLabels implements ISeriesPrimitive<Time> {
   private param: SeriesAttachedParameter<Time> | null = null;
   private series: ISeriesApi<'Candlestick'> | null = null;
 
+  private hoverOnly: boolean;
+
+  constructor(hoverOnly = false) {
+    this.hoverOnly = hoverOnly;
+  }
+
   attached(param: SeriesAttachedParameter<Time>) {
     this.param = param;
     this.series = param.series as ISeriesApi<'Candlestick'>;
@@ -71,6 +77,7 @@ export class ChartLabels implements ISeriesPrimitive<Time> {
               ctx.textBaseline = 'middle';
               for (const label of drawOrder(stackLabels(this.labels), this.hovered)) {
                 const active = label.time === this.hovered;
+                if (this.hoverOnly && !active) continue;
                 const x = chart.timeScale().timeToCoordinate(label.time as Time);
                 const y = series.priceToCoordinate(label.price);
                 if (x === null || y === null || x < 0 || x > mediaSize.width || y < 0 || y > mediaSize.height) continue;
