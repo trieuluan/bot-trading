@@ -250,3 +250,14 @@ def test_reconcile_target_update_queues(monkeypatch, side, target, new_target):
     with Session() as session:
         msgs = session.scalars(select(PaperNotification)).all()
         assert len(msgs) == 1 and f"DỜI TP {side.upper()}" in msgs[0].message
+
+
+def test_blocked_signal_alert_once_per_bar():
+    from backend.app.notifications import notify_blocked
+    setup = SimpleNamespace(side="long", entry=100.0, stop=95.0, target=110.0)
+    with Session.begin() as session:
+        for _ in range(2):
+            notify_blocked(session, "SUI_USDT", 1700000000, setup, "margin", "Không đủ ký quỹ khả dụng: cần 5.00, còn 1.00 USDT")
+            session.flush()
+        rows = session.scalars(select(PaperNotification).where(PaperNotification.id.like("%SUI_USDT-blocked-margin"))).all()
+        assert len(rows) == 1 and "THIẾU KÝ QUỸ" in rows[0].message and "SUI_USDT" in rows[0].message

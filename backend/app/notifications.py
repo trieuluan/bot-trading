@@ -190,6 +190,18 @@ def notify_close(session, trade):
         f"🕒 {when(trade.exit_time)}",
     ]))
 
+def notify_blocked(session, symbol, candle_time, setup, kind, detail, strategy=None):
+    """Tín hiệu hợp lệ nhưng không vào được lệnh (hết ký quỹ / chạm trần rủi ro). Một tin mỗi cặp mỗi nến."""
+    title = {"margin": "THIẾU KÝ QUỸ", "risk_cap": "CHẠM TRẦN RỦI RO", "daily_loss": "CHẠM TRẦN LỖ NGÀY"}[kind]
+    queue(session, f"{candle_time:010d}-{symbol}-blocked-{kind}", "\n".join([
+        f"⛔ <b>BỎ LỠ TÍN HIỆU {setup.side.upper()} · {title}</b> · {esc(symbol)}",
+        *([f"🧠 {esc(strategy)}"] if strategy else []),
+        "",
+        f"▫️ Entry <code>{price(setup.entry)}</code> · 🛑 SL <code>{price(setup.stop)}</code> · 🎯 TP <code>{price(setup.target)}</code>",
+        f"⚠️ {esc(detail)}",
+        f"🕒 Nến {when(candle_time + 900)}",
+    ]))
+
 def deliver(now=None):
     """Lock only outbox rows, never wallet rows, while sending."""
     if not enabled():

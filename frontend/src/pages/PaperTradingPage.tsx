@@ -7,7 +7,7 @@ import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart } from '../components/PaperChart';
-import { formatPrice } from '../lib/format';
+import { formatPrice, formatQuote } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import {
   fetchPaperWallet,
@@ -327,13 +327,13 @@ export function PaperTradingPage({
             </span>
             <strong className="mexc-last-price">
               {stream.candle
-                ? formatPrice(stream.candle.close)
+                ? formatQuote(stream.candle.close)
                 : quote
-                  ? formatPrice(quote.lastPrice)
+                  ? formatQuote(quote.lastPrice)
                   : '—'}
             </strong>
             <span className="mexc-fair-price">
-              Fair {quote ? formatPrice(quote.fairPrice) : '—'}
+              Fair {quote ? formatQuote(quote.fairPrice) : '—'}
             </span>
             <span className={`pill ${stream.live ? 'green' : 'amber'}`}>
               {stream.live ? 'LIVE 15m' : 'REST'}
@@ -535,10 +535,10 @@ export function PaperTradingPage({
           )}
           <div className="paper-book">
             <span>
-              Bid (worker) <strong>{quote ? formatPrice(quote.bid1) : '—'}</strong>
+              Bid (worker) <strong>{quote ? formatQuote(quote.bid1) : '—'}</strong>
             </span>
             <span>
-              Ask (worker) <strong>{quote ? formatPrice(quote.ask1) : '—'}</strong>
+              Ask (worker) <strong>{quote ? formatQuote(quote.ask1) : '—'}</strong>
             </span>
           </div>
           <p className="chart-attribution">

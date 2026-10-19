@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import { Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
-import { formatPrice } from '../lib/format';
+import { formatPrice, formatQuote } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
@@ -183,15 +183,15 @@ export function TradeHistoryTable({
                   </small>
                 </td>
                 <td>
-                  {formatPrice(t.entry)} → {t.exit === null ? '—' : formatPrice(t.exit)}
+                  {formatQuote(t.entry)} → {t.exit === null ? '—' : formatQuote(t.exit)}
                   <small>
                     {fmtTime(t.entry_time)}
                     {t.exit_time ? ` → ${fmtTime(t.exit_time)}` : ' · đang mở'}
                   </small>
                 </td>
                 <td>
-                  <span className="negative">{formatPrice(t.stop)}</span> /{' '}
-                  <span className="positive">{formatPrice(t.target)}</span>
+                  <span className="negative">{formatQuote(t.stop)}</span> /{' '}
+                  <span className="positive">{formatQuote(t.target)}</span>
                   <small>Rủi ro SL {formatPrice(risk)} USDT</small>
                 </td>
                 <td>
@@ -276,7 +276,7 @@ export function PositionsTable({
                   <StrategyCell trade={p} />
                 </td>
                 <td
-                  title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatPrice(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
+                  title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatQuote(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
                 >
                   {formatPrice(margin)} × {lev}x = {formatPrice(notional)} USDT
                   <small>
@@ -285,15 +285,15 @@ export function PositionsTable({
                   <small className="negative">Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)</small>
                 </td>
                 <td>
-                  {formatPrice(p.entry)} → {mark ? formatPrice(mark) : '—'}
+                  {formatQuote(p.entry)} → {mark ? formatQuote(mark) : '—'}
                   <small>{new Date(p.entry_time * 1000).toLocaleString('vi-VN')}</small>
                 </td>
                 <td>
                   <span className="negative">
-                    {formatPrice(p.stop)} {toSl !== null && `(${toSl.toFixed(2)}%)`}
+                    {formatQuote(p.stop)} {toSl !== null && `(${toSl.toFixed(2)}%)`}
                   </span>
                   <small className="positive">
-                    {formatPrice(p.target)} {toTp !== null && `(${toTp.toFixed(2)}%)`}
+                    {formatQuote(p.target)} {toTp !== null && `(${toTp.toFixed(2)}%)`}
                   </small>
                 </td>
                 <td className={net === null ? undefined : sign(net)}>
@@ -337,7 +337,7 @@ export function PairStrip({
             title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'} · ⚡ ${sigs} cây có tín hiệu · ${open} vị thế mở`}
           >
             <strong className="pair-sym">{short(s)}</strong>
-            <small className="pair-price">{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</small>
+            <small className="pair-price">{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</small>
             <span className="pair-indicators">
               {sigs > 0 && (
                 <span className="pair-signal" title={`${sigs} cây có tín hiệu vào ở nến đóng mới nhất`}>
@@ -425,7 +425,7 @@ export function AllPairsPanel({
                         {s.replace('_', ' / ')}
                       </button>
                     </td>
-                    <td>{w?.quote ? formatPrice(w.quote.lastPrice) : '—'}</td>
+                    <td>{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</td>
                     <td className={w ? sign(w.pair_unrealized_pnl) : undefined}>
                       {w ? formatPrice(w.pair_unrealized_pnl) : '—'}
                     </td>

@@ -18,7 +18,7 @@ from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles, save_market_signal
 from .futures_learner import read_state, select_for_auto
 from .mexc import SOURCE, MarketDataError, validate_candles
-from .notifications import notify_open
+from .notifications import notify_blocked, notify_open
 from .paper import (
     MAX_ORDER_MARGIN_PERCENT,
     create_position,
@@ -234,11 +234,15 @@ def auto_tick(now=None):
             max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget, headroom
         )
         if risk_cash <= 0:
-            record_decision(
-                session, state, candle_time, "skipped",
-                f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {cap:g}% ví chung",
-                setup,
-            )
+            if headroom <= 0:
+                kind, reason = "risk_cap", f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {cap:g}% ví chung"
+            elif remaining_budget <= 0:
+                kind, reason = "daily_loss", "Hết ngân sách lỗ ngày của ví chung"
+            else:
+                kind, reason = None, "Equity ví chung không còn để tính rủi ro"
+            record_decision(session, state, candle_time, "skipped", reason, setup)
+            if kind:
+                notify_blocked(session, current_symbol(), candle_time, setup, kind, reason, strat_name)
             return
         cash, _, margin = portfolio(session)
         free = cash - margin
@@ -267,6 +271,10 @@ def auto_tick(now=None):
             )
         except HTTPException as exc:
             record_decision(session, state, candle_time, "skipped", exc.detail, setup)
+            kind = ("margin" if exc.detail.startswith(("Không đủ ký quỹ", "Ký quỹ mỗi lệnh"))
+                    else "risk_cap" if exc.detail.startswith("Tổng rủi ro") else None)
+            if kind:
+                notify_blocked(session, current_symbol(), candle_time, setup, kind, exc.detail, strat_name)
             return
         record_decision(
             session,
