@@ -1,3 +1,4 @@
+import { useRoute, setRoute } from './lib/router';
 import { useFuturesBoard } from './components/FuturesBoard';
 import { getFuturesSymbol, setFuturesSymbol, type FuturesSymbol } from './lib/futures-symbol';
 import { useEffect, useState } from 'react';
@@ -90,7 +91,8 @@ export interface ForexDashboard {
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [selected, setSelected] = useState('mexc_futures');
+  const [route] = useRoute();
+  const selected = route.workspace;
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
@@ -114,7 +116,9 @@ export default function App() {
         id="venue-workspace"
         value={selected}
         disabled={workspaces.length === 0}
-        onChange={(event) => setSelected(event.target.value)}
+        onChange={(event) =>
+          setRoute({ workspace: event.target.value, page: undefined, tab: undefined })
+        }
       >
         {workspaces.length === 0 && <option value="mexc_futures">MEXC · Crypto Futures</option>}
         {workspaces.map((workspace) => (
@@ -336,7 +340,11 @@ function ForexResearchWorkspace({
   disconnected: boolean;
   revision: number;
 }) {
-  const [tab, setTab] = useState<'backtest' | 'paper' | 'log'>('backtest');
+  const [route] = useRoute();
+  type Tab = 'backtest' | 'paper' | 'log';
+  const tab: Tab =
+    (['backtest', 'paper', 'log'] as const).find((key) => key === route.tab) ?? 'backtest';
+  const setTab = (next: Tab) => setRoute({ tab: next });
   const tabs: [typeof tab, string, string][] = [
     ['backtest', 'Báo cáo cũ (đã ngừng)', 'Replay family cũ, chỉ để đọc lịch sử'],
     ['paper', 'Paper cũ (đã ngừng)', 'Lịch sử ví paper family cũ, không sinh lệnh mới'],
@@ -369,7 +377,9 @@ function ForexResearchWorkspace({
 }
 
 function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
-  const [page, setPage] = useState('Tổng quan');
+  const [route] = useRoute();
+  const page = route.page;
+  const setPage = (next: string) => setRoute({ page: next, tab: undefined });
   const [menu, setMenu] = useState(false);
   const [help, setHelp] = useState(false);
   const [dashboard, setDashboard] = useState<ForexDashboard | null>(null);
@@ -614,7 +624,9 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     setSymbol(next);
     setChartTrade(tradeId);
   };
-  const [page, setPage] = useState('Giao dịch & Bot');
+  const [route] = useRoute();
+  const page = route.page;
+  const setPage = (next: string) => setRoute({ page: next, tab: undefined });
   const [menu, setMenu] = useState(false);
   const [filter, setFilter] = useState('all');
   const [notice, setNotice] = useState(false);

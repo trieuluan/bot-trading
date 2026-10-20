@@ -1,3 +1,4 @@
+import { useRoute, setRoute } from '../lib/router';
 import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
@@ -66,7 +67,10 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [panel, setPanel] = useState<Panel>('chart');
+  const [route] = useRoute();
+  const panel: Panel =
+    (['chart', 'orders', 'learning'] as const).find((k) => k === route.tab) ?? 'chart';
+  const setPanel = (next: Panel) => setRoute({ tab: next });
   const [filter, setFilter] = useState<Filter>('all');
   useEffect(() => {
     const controller = new AbortController();
