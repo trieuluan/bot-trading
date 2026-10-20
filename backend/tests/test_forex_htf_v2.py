@@ -68,6 +68,24 @@ def test_crossover_mutation_children_valid():
     assert "fixed_structural" in EXIT_POLICIES
 
 
+def test_all_adaptive_exit_policies_validated_and_mutated():
+    import random
+    from backend.app.forex_exits import DEFAULTS
+    rng = random.Random(42)
+    tree = g0_trees()[0]
+    seen_policies = set()
+    seen_params = False
+    for _ in range(500):
+        child = mutate(tree, rng)
+        validate_htf2_tree(child)
+        pol = child["root"]["children"][3]["policy"]
+        seen_policies.add(pol)
+        if "params" in child["root"]["children"][3]:
+            seen_params = True
+    assert set(DEFAULTS) <= seen_policies
+    assert seen_params
+
+
 def test_h1_sweep_detector_has_invalidation_and_no_future():
     bars = [bar(i * 3600, high=102, low=98) for i in range(30)]
     bars[-1] = bar(29 * 3600, close=99.0, open=98.5, high=99.5, low=96.0)
@@ -206,3 +224,14 @@ def test_v2_execution_validation_blocks_when_disabled(monkeypatch, tmp_path):
     # 4. No candidates in ledger
     with pytest.raises(ExnessError, match="v2_execution_source_unavailable"):
         validate_execution_signal({"strategy": "hast2_test", "shadow_only": False}, account)
+
+def test_every_exit_policy_has_traits_and_is_reachable_by_mutation():
+    import random
+    from backend.app.forex_htf_v2 import EXIT_TRAITS
+    assert set(EXIT_TRAITS) == set(EXIT_POLICIES)
+    rng, seen = random.Random(3), set()
+    for _ in range(600):
+        child = mutate(g0_trees()[0], rng)
+        validate_htf2_tree(child)
+        seen.add(child["root"]["children"][3]["policy"])
+    assert {"evidence_h1", "evidence_m15", "barrier_partial_h1", "fixed_structural"} <= seen

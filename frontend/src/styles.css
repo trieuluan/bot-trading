@@ -5956,25 +5956,25 @@ main:has(.futures-desk) {
   margin-right: 6px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #1c2823;
-  color: #899b91;
+  background: #e9ede3;
+  color: #40594c;
   font-size: 11px;
 }
 .gen-1 {
-  background: #1d3a2c;
-  color: #74dca0;
+  background: #e3efe6;
+  color: #1e5b47;
 }
 .gen-2 {
-  background: #2b3a1d;
-  color: #b6dc74;
+  background: #eef1dd;
+  color: #526423;
 }
 .gen-3 {
-  background: #3a2f1d;
-  color: #dcb674;
+  background: #f6ecd9;
+  color: #80591f;
 }
 .gen-ok {
-  background: #1d3a2c;
-  color: #74dca0;
+  background: #e3efe6;
+  color: #1e5b47;
   margin-left: 6px;
 }
 .lineage-gen > button {
@@ -5984,7 +5984,7 @@ main:has(.futures-desk) {
   width: 100%;
   padding: 8px 0;
   border: 0;
-  border-top: 1px solid #1c2823;
+  border-top: 1px solid #e9ede3;
   background: none;
   color: inherit;
   cursor: pointer;
@@ -5994,27 +5994,31 @@ main:has(.futures-desk) {
   display: inline-block;
   margin-right: 4px;
   padding: 1px 6px;
-  border: 1px solid #2a3a32;
+  border: 1px solid #d9dfd2;
   border-radius: 4px;
   font-family: monospace;
   font-size: 11px;
 }
 
+.lineage {
+  padding: 0 18px 18px;
+  min-width: 0;
+}
 .lineage-gens {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 12px 0 10px;
+  padding: 16px 0;
 }
 .lineage-gen-card {
   display: flex;
   align-items: baseline;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid #2a3a32;
+  border: 1px solid #d9dfd2;
   border-radius: 6px;
-  background: #111a15;
+  background: #ffffff;
 }
 .lineage-gen-card.is-empty {
   opacity: 0.5;
@@ -6022,7 +6026,7 @@ main:has(.futures-desk) {
 .lineage-hint {
   flex: 1 1 260px;
   margin: 0;
-  color: #899b91;
+  color: #6b786f;
 }
 .lineage-toolbar {
   display: flex;
@@ -6032,26 +6036,38 @@ main:has(.futures-desk) {
   padding-bottom: 12px;
 }
 .lineage-toolbar input {
+  flex: 1 1 240px;
+  min-height: 40px;
+  font: inherit;
   min-width: 220px;
   padding: 6px 10px;
-  border: 1px solid #26382f;
+  border: 1px solid #d9dfd2;
   border-radius: 6px;
-  background: #0d1411;
-  color: #d5e2da;
+  background: #ffffff;
+  color: #263d35;
+}
+.lineage-toolbar input::placeholder {
+  color: #6b786f;
+  opacity: 1;
+}
+.lineage-toolbar input:focus-visible {
+  outline: 3px solid #a4bd60;
+  outline-offset: 2px;
 }
 .lineage-seg {
   display: inline-flex;
-  border: 1px solid #26382f;
+  border: 1px solid #d9dfd2;
   border-radius: 6px;
   overflow: hidden;
-  background: #0d1411;
+  background: #ffffff;
 }
 .lineage-seg button {
+  min-height: 38px;
   padding: 5px 11px;
   border: 0;
-  border-right: 1px solid #26382f;
+  border-right: 1px solid #d9dfd2;
   background: transparent;
-  color: #899b91;
+  color: #6b786f;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -6060,8 +6076,8 @@ main:has(.futures-desk) {
   border-right: 0;
 }
 .lineage-seg button[aria-pressed='true'] {
-  background: #1d3a2c;
-  color: #74dca0;
+  background: #e3efe6;
+  color: #1e5b47;
   font-weight: 500;
 }
 
@@ -6069,12 +6085,13 @@ main:has(.futures-desk) {
 .lineage-detail {
   margin: 10px 0 16px;
   padding: 16px 18px;
-  background: #0f1613;
-  border: 1px solid #23342b;
+  background: #ffffff;
+  border: 1px solid #d9dfd2;
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(38, 61, 53, 0.08);
 }
 .lineage-detail-head {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -6083,28 +6100,28 @@ main:has(.futures-desk) {
 .lineage-detail-id {
   font-family: monospace;
   font-size: 13px;
-  color: #74dca0;
+  color: #1e5b47;
 }
 .lineage-status-tag {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #1c2823;
-  color: #899b91;
+  background: #e9ede3;
+  color: #6b786f;
 }
 .lineage-close-btn {
   margin-left: auto;
   padding: 3px 10px;
   font-size: 12px;
-  border: 1px solid #2a3a32;
+  border: 1px solid #d9dfd2;
   border-radius: 4px;
   background: transparent;
-  color: #899b91;
+  color: #6b786f;
   cursor: pointer;
 }
 .lineage-close-btn:hover {
-  color: #d5e2da;
-  border-color: #3b5247;
+  color: #263d35;
+  border-color: #d9dfd2;
 }
 
 /* Path flow */
@@ -6114,8 +6131,8 @@ main:has(.futures-desk) {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: #131c18;
-  border: 1px solid #1c2823;
+  background: #f6f8f2;
+  border: 1px solid #e9ede3;
   border-radius: 6px;
   margin-bottom: 14px;
 }
@@ -6123,7 +6140,7 @@ main:has(.futures-desk) {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #6f8178;
+  color: #6b786f;
   font-weight: 600;
 }
 .lineage-path-flow {
@@ -6139,16 +6156,16 @@ main:has(.futures-desk) {
 }
 .lineage-path-node small {
   font-size: 10px;
-  color: #6f8178;
+  color: #6b786f;
   text-transform: uppercase;
 }
 .lineage-path-node.is-self strong {
-  color: #74dca0;
+  color: #1e5b47;
   font-family: monospace;
   font-size: 12px;
 }
 .lineage-path-arrow {
-  color: #43574d;
+  color: #a3aea6;
   font-size: 12px;
 }
 
@@ -6164,8 +6181,8 @@ main:has(.futures-desk) {
   display: flex;
   gap: 10px;
   padding: 10px 12px;
-  background: #131d18;
-  border: 1px solid #1f2c25;
+  background: #f6f8f2;
+  border: 1px solid #d9dfd2;
   border-radius: 6px;
 }
 .step-num {
@@ -6175,8 +6192,8 @@ main:has(.futures-desk) {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #1c2e25;
-  color: #74dca0;
+  background: #e9ede3;
+  color: #1e5b47;
   font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;
@@ -6189,7 +6206,7 @@ main:has(.futures-desk) {
 }
 .step-content strong {
   font-size: 12px;
-  color: #d5e2da;
+  color: #263d35;
 }
 .step-tag {
   display: inline-block;
@@ -6197,14 +6214,14 @@ main:has(.futures-desk) {
   padding: 1px 6px;
   font-size: 11px;
   border-radius: 3px;
-  background: #1c2a23;
-  color: #92b8a2;
+  background: #e9ede3;
+  color: #3f6b57;
 }
 .step-content p {
   margin: 3px 0 0;
   font-size: 11.5px;
   line-height: 1.45;
-  color: #899b91;
+  color: #6b786f;
 }
 
 /* Stats strip */
@@ -6213,8 +6230,8 @@ main:has(.futures-desk) {
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 8px;
   padding: 10px 12px;
-  background: #131c18;
-  border: 1px solid #1c2823;
+  background: #f6f8f2;
+  border: 1px solid #e9ede3;
   border-radius: 6px;
 }
 .lineage-stat-box {
@@ -6224,58 +6241,61 @@ main:has(.futures-desk) {
 }
 .lineage-stat-box span {
   font-size: 10.5px;
-  color: #6f8178;
+  color: #6b786f;
   text-transform: uppercase;
 }
 .lineage-stat-box strong {
   font-size: 14px;
   font-family: monospace;
-  color: #d5e2da;
+  color: #263d35;
 }
 
 /* Accordion & Row styling */
 .lineage-group {
-  margin-bottom: 2px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 .lineage-group > button {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 9px 10px;
+  padding: 13px 14px;
   border: 0;
-  border-top: 1px solid #18241e;
+  border-top: 0;
   background: transparent;
-  color: #d5e2da;
+  color: #263d35;
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease;
   border-radius: 4px;
 }
 .lineage-group > button:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(30, 91, 71, 0.05);
 }
 .lineage-caret {
-  color: #6f8178;
+  color: #6b786f;
   font-size: 11px;
   width: 12px;
 }
 .lineage-group-title {
   font-weight: 600;
   font-size: 13px;
-  color: #d5e2da;
+  color: #263d35;
 }
 .lineage-count-pill {
   padding: 1px 7px;
   font-size: 11px;
   border-radius: 10px;
-  background: #18241e;
-  color: #899b91;
+  background: #e9ede3;
+  color: #6b786f;
 }
 .lineage-group-stats {
   margin-left: auto;
   font-size: 12px;
-  color: #6f8178;
+  color: #6b786f;
 }
 .lineage-rows-list {
   margin: 0;
@@ -6291,24 +6311,25 @@ main:has(.futures-desk) {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #d5e2da;
+  color: #263d35;
   text-align: left;
   cursor: pointer;
   transition: background 0.12s ease;
 }
 .lineage-row-btn:hover {
-  background: #141e19;
+  background: #f6f8f2;
 }
 .lineage-row-btn.is-selected {
-  background: #1a2821;
-  outline: 1px solid #2a4034;
+  background: #f6f8f2;
+  outline: 1px solid #b9cfc0;
 }
 .lineage-row-id {
   font-size: 12px;
-  color: #8dbde2;
+  color: #2f6690;
   min-width: 52px;
 }
 .lineage-tags-inline {
+  flex-wrap: wrap;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -6320,34 +6341,58 @@ main:has(.futures-desk) {
   border-radius: 3px;
 }
 .tag-h1 {
-  background: #1e293b;
-  color: #94a3b8;
+  background: #e6edf6;
+  color: #47617f;
 }
 .tag-m15 {
-  background: #1e3328;
-  color: #86efac;
+  background: #e3efe6;
+  color: #1e6b47;
 }
 .tag-exit {
-  background: #2b271d;
-  color: #fde047;
+  background: #f6efd4;
+  color: #8a6d0a;
 }
 .lineage-row-meta {
   margin-left: auto;
   font-size: 11.5px;
-  color: #6f8178;
+  color: #6b786f;
   white-space: nowrap;
 }
 .lineage-parents-brief {
-  color: #899b91;
+  color: #6b786f;
   font-family: monospace;
 }
 .lineage-child-badge {
-  color: #74dca0;
+  color: #1e5b47;
 }
 .lineage-row-metric {
   min-width: 90px;
   text-align: right;
   font-size: 12.5px;
+}
+@media (max-width: 700px) {
+  .lineage {
+    padding: 0 12px 12px;
+  }
+  .lineage-seg {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .lineage-group > button,
+  .lineage-row-btn {
+    flex-wrap: wrap;
+  }
+  .lineage-group-stats {
+    flex-basis: 100%;
+    margin-left: 22px;
+  }
+  .lineage-row-meta {
+    margin-left: 0;
+    white-space: normal;
+  }
+  .lineage-steps-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .parent-chip.is-gone {
   opacity: 0.5;

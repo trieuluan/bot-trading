@@ -68,7 +68,8 @@ def split_bodies(body, condition, entry, partial_be=True):
     if half < max(minimum, Decimal("0.01")) or rest < max(minimum, Decimal("0.01")) or (rest - minimum) % step:
         return [{**body, "role": "runner"}]
     stop = Decimal(body["stop_loss_price"])
-    target = (entry + (entry - stop)).quantize(Decimal(1).scaleb(-condition["point_digits"]))
+    target = (entry + (entry - stop))
+    target = target.quantize(Decimal(1).scaleb(-condition["point_digits"]))
     return [
         {**body, "volume": format(half, "f"), "take_profit_price": format(target, "f"), "role": "tp1"},
         {**body, "volume": format(rest, "f"), "role": "runner"},

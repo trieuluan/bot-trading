@@ -155,3 +155,34 @@ def test_new_samples_share_learning_context_but_keep_session_slots():
     second = new_variants(SIGNAL, minutes, hours, higher, {**FEATURES, "utc_session": 3}, minutes[-1], COND)[0]
     assert first["context"] == second["context"] == "trend_pullback:long:up"
     assert first["slot"] != second["slot"]
+
+def _htf_signal(policy, target=2630.0):
+    return {"strategy": "hast2_x", "shadow_only": True, "htf_ast_v2": True, "exit_policy": policy,
+            "management_frame": "M15", "side": "long", "stop": 2590.0, "target": target,
+            "split": policy == "ladder_h1", "generated": True,
+            "target_context": {"barriers": [], "buffer": 0.1},
+            "htf_structure": {"atr": 10.0, "target_reason": "H1 swing high"},
+            "exit_params": {"trail_r": 1.5, "atr_multiple": 2.0} if policy.startswith("runner_") else {}}
+
+def _open_row(monkeypatch, policy):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    minutes, hours, higher = make_rows()
+    row = new_variants(_htf_signal(policy), minutes, hours, higher, FEATURES, minutes[-1], COND)[0]
+    entry_bar = bar(minutes[-1].time + 900, 2600, 2601, 2599, 2600)
+    advance_variant(row, entry_bar, entry_bar, minutes + [entry_bar], 0, 0)
+    return row, minutes, entry_bar
+
+def test_runner_policy_keeps_single_leg_open(monkeypatch):
+    row, minutes, entry_bar = _open_row(monkeypatch, "runner_h1")
+    assert row["status"] == "open" and [leg["role"] for leg in row["legs"]] == ["runner"]
+
+def test_adaptive_management_applies_to_next_bar_only(monkeypatch):
+    row, minutes, entry_bar = _open_row(monkeypatch, "runner_h1")
+    stop_before = row["legs"][0]["stop_loss_price"]
+    row["pending_management"] = {"stop": "2601.000", "close_roles": [], "reason": "management"}
+    bar2 = bar(entry_bar.time + 900, 2600, 2603, 2599, 2602)
+    advance_variant(row, bar2, bar2, minutes + [entry_bar, bar2], 0, 0)
+    assert stop_before != row["legs"][0]["stop_loss_price"] == "2601.000"
+    assert "pending_management" not in row or row["pending_management"] != {"stop": "2601.000"}

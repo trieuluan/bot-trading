@@ -256,6 +256,30 @@ def test_reconciles_intent_older_than_one_day():
     with Session() as session:
         assert session.get(ExnessExecutionTrade, (api.account_id, old)).snapshot["status"] == "closed"
 
+
+def test_adaptive_signal_splits_and_manages_via_broker(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    adaptive_sig = {
+        **signal(),
+        "htf_ast_v2": True,
+        "exit_policy": "evidence_h1",
+        "exit_params": {"fraction": 0.3, "min_r": 1.0, "trail_r": 1.5},
+        "management_frame": "H1",
+    }
+    monkeypatch.setattr(ee, "evaluate", lambda *_: adaptive_sig)
+    bodies = []
+    def request(method, url, **kwargs):
+        bodies.append(json.loads(kwargs["content"]))
+        return SimpleNamespace(status_code=202, json=lambda: {"operation_id": str(len(bodies))})
+    api.client.request.side_effect = request
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
+        assert [leg["role"] for leg in row.snapshot["legs"]] == ["partial1", "runner"]
+
 @pytest.mark.parametrize("copies", [1, 2])
 def test_reconciles_when_broker_drops_comment(copies):
     api = dummy_api()

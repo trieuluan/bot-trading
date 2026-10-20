@@ -128,6 +128,7 @@ export interface ExnessExecution {
         h1_setup: string;
         m15_trigger: string;
         exit_policy: string;
+        exit_params?: Record<string, number>;
         generation?: number;
         parents?: string[];
         eligible?: boolean;

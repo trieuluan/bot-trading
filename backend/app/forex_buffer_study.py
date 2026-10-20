@@ -14,6 +14,11 @@ from .exness_management import (
     split_bodies,
     structure_stop_buffer,
 )
+from .forex_htf_v2 import EXIT_TRAITS
+from .forex_exits import action as exits_action
+from .forex_exits import closed_rows as exits_closed_rows
+from .forex_exits import plan_legs
+from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .exness_sessions import regular_session_gap, session_closed_ahead
 from .exness_targets import structural_target, target_context
 
@@ -99,7 +104,7 @@ def new_variants(signal, minutes, hours, higher, features, candle, condition):
     if signal.get("htf_ast_v2"):
         policy = signal.get("exit_policy")
         if (not signal.get("shadow_only") or not signal["strategy"].startswith("hast2_")
-                or policy not in ("partial_be_h1", "partial_be_m15", "fixed_structural")):
+                or policy not in EXIT_TRAITS):
             raise ExnessError("invalid_htf_shadow_signal")
         return [{"status": "pending", "variant": DEFAULT_VARIANT,
                  "context": context_key(signal, features), "slot": slot_key(signal, features),
@@ -178,18 +183,21 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             return
         body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
                 "stop_loss_price": str(stop), "take_profit_price": str(target)}
-        legs = split_bodies(body, condition, entry, partial_be=signal.get("partial_be", True))
+        if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
+            legs = plan_legs(signal, body, condition, entry)
+        else:
+            legs = split_bodies(body, condition, entry, partial_be=signal.get("split", signal.get("partial_be", True)))
         for leg in legs:
             leg["weight"] = float(Decimal(leg["volume"]) / volume)
             leg["open"] = True
         row.update(status="open", entry=float(entry), entry_time=bid.time, risk=float(risk),
                    initial_stop=str(stop), legs=legs, bars=0, net_r=0.0, tp_reason=reason)
         if signal.get("htf_ast_v2"):
-            row.update(partial_split=len(legs) == 2, management_history=[])
+            row.update(partial_split=len(legs) > 1, management_history=[])
     row["bars"] += 1
     management_rows = minutes if len(minutes) >= 21 and all(
         after.time - before.time == 900 for before, after in zip(minutes, minutes[1:])) else []
-    if signal.get("htf_ast_v2") and signal.get("exit_policy") == "partial_be_h1":
+    if signal.get("htf_ast_v2") and signal.get("management_frame") == "H1":
         management_rows = sorted((hour for hour in hours if hour.time + 3600 <= bid.time + 900),
                                  key=lambda hour: hour.time)[-60:]
         if (len(management_rows) < 21 or management_rows[-1].time + 7200 <= bid.time + 900 or
@@ -197,7 +205,13 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
                     for before, after in zip(management_rows, management_rows[1:]))):
             management_rows = []
     policy = signal.get("exit_policy")
-    early = None if signal.get("htf_ast") or policy == "fixed_structural" else exit_reason(
+    adaptive = signal.get("htf_ast_v2") and policy in ADAPTIVE_EXITS
+    pending_management = row.pop("pending_management", None) if adaptive else None
+    if pending_management and pending_management.get("stop"):
+        for leg in row["legs"]:
+            if leg["open"] and direction * (float(pending_management["stop"]) - float(leg["stop_loss_price"])) > 0:
+                leg["stop_loss_price"] = pending_management["stop"]
+    early = None if adaptive or signal.get("htf_ast") or policy == "fixed_structural" else exit_reason(
         "buy" if direction == 1 else "sell", row["entry_time"], management_rows)
     pending_exit = row.pop("pending_exit", None) if signal.get("htf_ast_v2") else None
     if signal.get("htf_ast_v2"):
@@ -219,6 +233,8 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             price, outcome = target, "target"
         elif pending_exit:
             price, outcome = exit_bar.open, pending_exit
+        elif pending_management and leg["role"] in pending_management["close_roles"]:
+            price, outcome = exit_bar.open, pending_management["reason"]
         elif stop_hit:
             price, outcome = stop, "stop"
         elif target_hit:
@@ -237,6 +253,19 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
         return
     if row["bars"] >= horizon:
         row.update(status="excluded", reason="unresolved_horizon")
+        return
+    if adaptive:
+        ex_rows = exits_closed_rows(signal, minutes, hours, bid.time + 900)
+        first_open = next((leg for leg in row["legs"] if leg["open"]), None)
+        if first_open and ex_rows and ex_rows[-1].time > row.get("managed_candle", -1):
+            act = exits_action(signal, ex_rows, row["entry"], row["risk"], row["entry_time"],
+                               float(first_open["stop_loss_price"]), condition,
+                               bid.close if direction == 1 else ask.close, slip, commission)
+            if act:
+                row["managed_candle"] = ex_rows[-1].time
+                row["pending_management"] = act
+                row["management_history"].append({**act, "effective_at": bid.time + 900,
+                                                  "frame": signal["management_frame"]})
         return
     if signal.get("partial_be") is False:
         return

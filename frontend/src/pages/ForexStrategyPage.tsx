@@ -351,9 +351,20 @@ const familyLabels: Record<string, string> = {
   partial_be_h1: 'BE / Trail theo H1',
   partial_be_m15: 'BE / Trail theo M15',
   fixed_structural: 'Cố định theo cản',
+  evidence_h1: 'Giữ 100%, thoát khi nến H1 yếu',
+  evidence_m15: 'Giữ 100%, thoát khi nến M15 yếu',
+  barrier_partial_h1: 'Chốt tại cản H1 gần nhất',
+  runner_h1: 'Gồng 100% + trail ATR H1',
+  ladder_h1: 'Chốt từng nấc +1R/+2R',
 };
 
-
+const paramLabels: Record<string, string> = {
+  fraction: 'Tỷ lệ chốt',
+  min_r: 'R tối thiểu',
+  trail_r: 'Bắt đầu trail ở R',
+  atr_multiple: 'Trail × ATR',
+  step_r: 'Bước R',
+};
 
 const label = (key: string) => familyLabels[key] ?? key;
 
@@ -518,7 +529,11 @@ export function HtfLineage({
             ) : (
               <span className="lineage-status-tag">Chờ gom mẫu ({detail.resolved}/40)</span>
             )}
-            <button type="button" className="secondary lineage-close-btn" onClick={() => setSelected(null)}>
+            <button
+              type="button"
+              className="secondary lineage-close-btn"
+              onClick={() => setSelected(null)}
+            >
               ✕ Đóng
             </button>
           </div>
@@ -537,7 +552,9 @@ export function HtfLineage({
               <span className="lineage-path-arrow">→</span>
               <span className="lineage-path-node is-self">
                 <small>Cây này</small>
-                <strong>G{detail.generation ?? 0} · {shortId(detail.id)}</strong>
+                <strong>
+                  G{detail.generation ?? 0} · {shortId(detail.id)}
+                </strong>
               </span>
               <span className="lineage-path-arrow">→</span>
               <span className="lineage-path-node">
@@ -557,7 +574,10 @@ export function HtfLineage({
               <div className="step-content">
                 <strong>Bối cảnh H4</strong>
                 <span className="step-tag">Xu hướng EMA50</span>
-                <p>Nến H4 đóng thuận chiều EMA50 (trên EMA50 chỉ Buy, dưới EMA50 chỉ Sell). Ngược trend thì bỏ qua.</p>
+                <p>
+                  Nến H4 đóng thuận chiều EMA50 (trên EMA50 chỉ Buy, dưới EMA50 chỉ Sell). Ngược
+                  trend thì bỏ qua.
+                </p>
               </div>
             </div>
 
@@ -566,7 +586,11 @@ export function HtfLineage({
               <div className="step-content">
                 <strong>Setup H1</strong>
                 <span className="step-tag">{label(detail.h1_setup)}</span>
-                <p>{forexSetupGuides[detail.h1_setup] ?? 'Cấu trúc hình thành trên khung H1 đã đóng.'} SL đặt tại mức vô hiệu cấu trúc H1 + 0.25 ATR buffer (hiệu lực 4h).</p>
+                <p>
+                  {forexSetupGuides[detail.h1_setup] ??
+                    'Cấu trúc hình thành trên khung H1 đã đóng.'}{' '}
+                  SL đặt tại mức vô hiệu cấu trúc H1 + 0.25 ATR buffer (hiệu lực 4h).
+                </p>
               </div>
             </div>
 
@@ -575,7 +599,11 @@ export function HtfLineage({
               <div className="step-content">
                 <strong>Trigger M15</strong>
                 <span className="step-tag">{label(detail.m15_trigger)}</span>
-                <p>{forexTriggerGuides[detail.m15_trigger] ?? 'Xác nhận thời điểm vào lệnh tại nến M15 đóng.'} M15 chỉ trigger, không quyết định SL/TP.</p>
+                <p>
+                  {forexTriggerGuides[detail.m15_trigger] ??
+                    'Xác nhận thời điểm vào lệnh tại nến M15 đóng.'}{' '}
+                  M15 chỉ trigger, không quyết định SL/TP.
+                </p>
               </div>
             </div>
 
@@ -584,7 +612,18 @@ export function HtfLineage({
               <div className="step-content">
                 <strong>Quản lý lệnh</strong>
                 <span className="step-tag">{label(detail.exit_policy)}</span>
-                <p>{forexExitGuides[detail.exit_policy] ?? 'Quản lý rủi ro theo cấu trúc HTF.'} TP runner bám theo cản H1/H4 gần nhất (R/R tối thiểu 1.5R).</p>
+                <p>
+                  {forexExitGuides[detail.exit_policy] ?? 'Quản lý rủi ro theo cấu trúc HTF.'} TP
+                  runner bám theo cản H1/H4 gần nhất (R/R tối thiểu 1.5R).
+                </p>
+                {!!Object.keys(detail.exit_params ?? {}).length && (
+                  <p className="micro">
+                    Tham số tiến hoá:{' '}
+                    {Object.entries(detail.exit_params ?? {})
+                      .map(([name, value]) => `${paramLabels[name] ?? name} ${value}`)
+                      .join(' · ')}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -608,14 +647,26 @@ export function HtfLineage({
             </div>
             <div className="lineage-stat-box">
               <span>R trung bình</span>
-              <strong className={detail.mean_r == null ? '' : detail.mean_r >= 0 ? 'positive' : 'negative'}>
-                {detail.mean_r == null ? '—' : `${detail.mean_r >= 0 ? '+' : ''}${detail.mean_r.toFixed(2)}R`}
+              <strong
+                className={
+                  detail.mean_r == null ? '' : detail.mean_r >= 0 ? 'positive' : 'negative'
+                }
+              >
+                {detail.mean_r == null
+                  ? '—'
+                  : `${detail.mean_r >= 0 ? '+' : ''}${detail.mean_r.toFixed(2)}R`}
               </strong>
             </div>
             <div className="lineage-stat-box">
               <span>Cận dưới 95%</span>
-              <strong className={detail.lower_r == null ? '' : detail.lower_r >= 0 ? 'positive' : 'negative'}>
-                {detail.lower_r == null ? '—' : `${detail.lower_r >= 0 ? '+' : ''}${detail.lower_r.toFixed(2)}R`}
+              <strong
+                className={
+                  detail.lower_r == null ? '' : detail.lower_r >= 0 ? 'positive' : 'negative'
+                }
+              >
+                {detail.lower_r == null
+                  ? '—'
+                  : `${detail.lower_r >= 0 ? '+' : ''}${detail.lower_r.toFixed(2)}R`}
               </strong>
             </div>
           </div>
@@ -658,19 +709,29 @@ export function HtfLineage({
 
                       <span className="lineage-row-meta">
                         {row.parents?.length ? (
-                          <span className="lineage-parents-brief">từ {row.parents.map(shortId).join(' × ')}</span>
+                          <span className="lineage-parents-brief">
+                            từ {row.parents.map(shortId).join(' × ')}
+                          </span>
                         ) : (
                           <span className="muted">hạt giống gốc</span>
                         )}
                         {children.get(row.id)?.length ? (
-                          <span className="lineage-child-badge"> · {children.get(row.id)!.length} con</span>
+                          <span className="lineage-child-badge">
+                            {' '}
+                            · {children.get(row.id)!.length} con
+                          </span>
                         ) : null}
                       </span>
 
                       <span className="lineage-row-metric font-mono">
                         {row.resolved ? (
-                          <span className={row.mean_r != null && row.mean_r >= 0 ? 'positive' : 'negative'}>
-                            {row.mean_r != null && row.mean_r >= 0 ? '+' : ''}{row.mean_r?.toFixed(2)}R
+                          <span
+                            className={
+                              row.mean_r != null && row.mean_r >= 0 ? 'positive' : 'negative'
+                            }
+                          >
+                            {row.mean_r != null && row.mean_r >= 0 ? '+' : ''}
+                            {row.mean_r?.toFixed(2)}R
                           </span>
                         ) : (
                           <span className="muted">{row.signals} tín hiệu</span>

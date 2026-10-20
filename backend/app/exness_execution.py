@@ -38,6 +38,7 @@ from .exness_management import (
     risk_budget,
     split_bodies,
 )
+from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
 from .forex_htf_v2 import execution_candidates, validate_execution_signal
@@ -47,6 +48,9 @@ router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
 ACTIVE = ("submitting", "submitted", "uncertain", "open", "closing")
 
+
+def initial_stop_of(data):
+    return data.get("body", {}).get("stop_loss_price")
 
 def enabled():
     return (os.getenv("EXNESS_DEMO_EXECUTION_ENABLED") == "true"
@@ -422,12 +426,71 @@ def _execution_tick(api, now=None):
             entry_time = int(datetime.fromisoformat(position.get("create_time", utc(now)).replace("Z", "+00:00")).timestamp())
             sig = row.snapshot.get("signal", {})
             if sig.get("management_frame") == "H1":
-                from .forex_buffer_study import closed_h1_rows
-                h1_rows = closed_h1_rows([r for r in frames.get("1h", []) if r.price_type == "bid"], now)
-                mgmt_rows = h1_rows if len(h1_rows) >= 20 else []
+                from .forex_exits import closed_rows
+                mgmt_rows = closed_rows(sig, [], frames.get("1h", []), now)
             else:
                 mgmt_rows = minutes
-            early = exit_reason(position.get("direction"), entry_time, mgmt_rows)
+            manual = row.snapshot.get("close_requested") or data.get("close_requested")
+            required_close = "session_close" if near_close else "missing_protection" if not protections else "manual" if manual else None
+            if required_close:
+                key = f"rr-close-{api.account_id}-{row.signal_time}-{index}"
+                persist_leg(api.account_id, row.signal_time, index,
+                            {"status": "closing", "close_key": key, "close_reason": required_close})
+                ack = client.mutate("DELETE", key, position_id=pid)
+                persist_leg(api.account_id, row.signal_time, index, {"close_ack": ack})
+                return "closing"
+            if sig.get("exit_policy") in ADAPTIVE_EXITS:
+                from .forex_exits import action as exits_action
+                from .forex_exits import closed_rows as exits_closed_rows
+                ex_rows = exits_closed_rows(sig, frames.get("15m", []), frames.get("1h", []), now)
+                stop_str = initial_stop_of(data)
+                if not stop_str:
+                    raise ExnessError("missing_initial_stop_for_management")
+                stop_val = float(stop_str)
+                open_val = float(position["open_price"])
+                risk_val = abs(open_val - stop_val)
+                act = data.get("adaptive_decision")
+                duration = 3600 if sig["management_frame"] == "H1" else 900
+                if ex_rows and ex_rows[-1].time + duration > (act or {}).get("at", 0):
+                    source = frames.get("1h" if duration == 3600 else "15m", [])
+                    ask_close = next((bar.close for bar in source if bar.price_type == "ask"
+                                      and bar.time == ex_rows[-1].time), None)
+                    mark = ex_rows[-1].close if sig["side"] == "long" else ask_close
+                    if mark is not None:
+                        from .forex_samples import slippage_estimate
+                        act = exits_action(sig, ex_rows, open_val, risk_val, entry_time,
+                                           float(protections[0]["stop_loss_price"]), condition, float(mark),
+                                           slippage_estimate()["bps"] / 10000,
+                                           float(condition.get("commission_per_unit") or 0))
+                        if act:
+                            persist_leg(api.account_id, row.signal_time, index, {"adaptive_decision": act})
+                if act and act.get("close_roles") and data.get("role") in act["close_roles"]:
+                    key = f"rr-close-{api.account_id}-{row.signal_time}-{index}"
+                    persist_leg(api.account_id, row.signal_time, index,
+                                {"status": "closing", "close_key": key, "close_reason": act["reason"]})
+                    ack = client.mutate("DELETE", key, position_id=pid)
+                    persist_leg(api.account_id, row.signal_time, index, {"close_ack": ack})
+                    return "closing"
+                pending_management = data.get("management", {}).get("status") in ("submitting", "submitted")
+                failed_stop = data.get("management", {}).get("status") == "failed" and data["management"].get("stop") == (act or {}).get("stop")
+                if act and act.get("stop") and not pending_management and not failed_stop and client.can_modify and protections[0].get("order_id"):
+                    direction = 1 if sig["side"] == "long" else -1
+                    if direction * (float(act["stop"]) - float(protections[0]["stop_loss_price"])) <= 0:
+                        continue
+                    action = {"stop": act["stop"], "stage": "adaptive_stop"}
+                    order_id = str(protections[0]["order_id"])
+                    key = f"sl-{pid}-{action['stop']}"
+                    def on_modify(submission):
+                        persist_leg(api.account_id, row.signal_time, index,
+                                    {"management": {**action, "status": "submitting", "key": key}})
+                    ack = client.mutate("PATCH", key, body={"stop_loss_price": action["stop"]}, order_id=order_id,
+                                        quote_source=live_quote, on_submit=on_modify)
+                    persist_leg(api.account_id, row.signal_time, index,
+                                {"management": {**action, "status": "submitted", "key": key, "ack": ack}})
+                    return "managing_stop"
+                continue
+            early = None if sig.get("exit_policy") == "fixed_structural" else exit_reason(
+                position.get("direction"), entry_time, mgmt_rows)
             manual = row.snapshot.get("close_requested") or data.get("close_requested")
             reason = ("session_close" if near_close else "missing_protection" if not protections
                       else "manual" if manual else early)
@@ -541,8 +604,12 @@ def _execution_tick(api, now=None):
             quote = live_quote()
             body = client.strategy_body(signal, condition, quote, key)
             late_drift_ok(signal, quote["ask" if body["side"] == "buy" else "bid"], now)
-            bodies = split_bodies(body, condition, Decimal(str(quote["ask" if body["side"] == "buy" else "bid"])),
-                                  partial_be=signal.get("partial_be", True))
+            if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
+                from .forex_exits import plan_legs
+                bodies = plan_legs(signal, body, condition, Decimal(str(quote["ask" if body["side"] == "buy" else "bid"])))
+            else:
+                bodies = split_bodies(body, condition, Decimal(str(quote["ask" if body["side"] == "buy" else "bid"])),
+                                      partial_be=signal.get("split", signal.get("partial_be", True)))
         except ExnessError as exc:
             detail["reason"] = str(exc)[:200]
             record_journal(state, detail, "blocked:preflight_failed", now)

@@ -22,6 +22,9 @@ from .exness import ExnessError
 from .exness_sessions import regular_session_gap
 from .exness_targets import structural_target, target_context
 from .forex_detectors import H1_DETECTORS, M15_TRIGGERS, family_context
+from .forex_exits import BOUNDS as EXIT_BOUNDS
+from .forex_exits import DEFAULTS as EXIT_DEFAULTS
+from .forex_exits import barrier_runner, parameters
 
 SCHEMA = "forex_htf_ast_v2"
 RUNTIME = "htf_v2_only_1"
@@ -34,7 +37,16 @@ M15_FAMILIES = (
     "channel", "rsi", "fvg", "session", "squeeze", "sweep",
     "pullback", "range", "retest", "router", "orb", "vsa", "mss", "vwap"
 )
-EXIT_POLICIES = ("partial_be_h1", "partial_be_m15", "fixed_structural")
+EXIT_POLICIES = ("partial_be_h1", "partial_be_m15", "fixed_structural", *EXIT_DEFAULTS)
+# policy -> (management frame, legacy split TP1 flag)
+EXIT_TRAITS = {
+    "partial_be_h1": ("H1", True), "partial_be_m15": ("M15", True),
+    "fixed_structural": ("none", False),
+    "evidence_h1": ("H1", False), "evidence_m15": ("M15", False),
+    "barrier_partial_h1": ("H1", True),
+    "runner_h1": ("H1", False),
+    "ladder_h1": ("H1", True),
+}
 
 # G0 initial mapping from M15 trigger family to H1 setup
 TRIGGER_TO_H1_SETUP = {
@@ -141,9 +153,16 @@ def validate_htf2_tree(tree):
         raise ValueError("Invalid M15 trigger node")
     validate_params(M15_BOUNDS, m15["family"], m15["params"])
 
-    if (not isinstance(exit_node, dict) or set(exit_node) != {"frame", "policy"}
+    if (not isinstance(exit_node, dict) or set(exit_node) not in ({"frame", "policy"}, {"frame", "policy", "params"})
             or exit_node["frame"] != "exit" or exit_node["policy"] not in EXIT_POLICIES):
         raise ValueError("Invalid exit policy node")
+    if exit_node["policy"] in EXIT_DEFAULTS:
+        try:
+            parameters(exit_node["policy"], exit_node.get("params"))
+        except ExnessError as exc:
+            raise ValueError(str(exc)) from exc
+    elif "params" in exit_node:
+        raise ValueError("Unused exit params")
 
     if len(children) == 5:
         flt = children[4]
@@ -171,6 +190,11 @@ def describe(tree):
         "partial_be_h1": "Quản lý H1 (TP1 +1R, BE)",
         "partial_be_m15": "Quản lý M15 (TP1 +1R, BE)",
         "fixed_structural": "Cấu trúc thuần (không BE)",
+        "evidence_h1": "Chốt khi nến H1 yếu, giữ runner tới cản",
+        "evidence_m15": "Chốt khi nến M15 yếu, giữ runner tới cản",
+        "barrier_partial_h1": "Chốt tại cản H1, runner tới cản xa hơn",
+        "runner_h1": "Giữ 100%, trail ATR H1",
+        "ladder_h1": "Chốt từng nấc R, trail H1",
     }
     return f"H4 EMA50 ({side}) + H1 {h1_name} + M15 {m15_name} + {exit_map.get(exit_policy, exit_policy)}"
 
@@ -334,7 +358,11 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     # 5. Structural TP & R/R
     try:
         ctx = target_context(candle, hours, higher)
-        target, label = structural_target(side, entry, stop, ctx, Decimal("0.001"))
+        runner = barrier_runner(side, entry, stop, ctx) if exit_node["policy"] == "barrier_partial_h1" else None
+        if runner:
+            target, label = Decimal(str(runner[0])).quantize(Decimal("0.001")), runner[1]
+        else:
+            target, label = structural_target(side, entry, stop, ctx, Decimal("0.001"))
     except ExnessError as exc:
         text = str(exc)
         return None, "poor_rr" if "poor_rr" in text else "no_target" if "Need" not in text else "h1_not_closed"
@@ -343,7 +371,7 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
 
     target_r = float((target - entry) / risk)
     policy = exit_node["policy"]
-    management_frame = "H1" if policy == "partial_be_h1" else ("M15" if policy == "partial_be_m15" else "none")
+    management_frame, split = EXIT_TRAITS[policy]
 
     signal = {
         "strategy": tree_id(tree),
@@ -353,7 +381,8 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
         "target": float(target),
         "target_r": target_r,
         "exit_policy": policy,
-        "partial_be": policy.startswith("partial_be"),
+        "partial_be": policy != "fixed_structural",
+        "split": split,
         "management_frame": management_frame,
         "target_context": ctx,
         "candle_time": candle.time,
@@ -387,6 +416,8 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     except ExnessError as exc:
         return None, str(exc)
 
+    if policy in EXIT_DEFAULTS:
+        signal["exit_params"] = parameters(policy, exit_node.get("params"))
     return signal, None
 
 
@@ -417,7 +448,19 @@ def mutate(tree, rng=None):
     if index == 0:
         nodes[0]["side"] = "short" if nodes[0]["side"] == "long" else "long"
     elif index == 3:
-        nodes[3]["policy"] = rng.choice([policy for policy in EXIT_POLICIES if policy != nodes[3]["policy"]])
+        node = nodes[3]
+        if node["policy"] in EXIT_DEFAULTS and rng.random() < 0.5:
+            params = parameters(node["policy"], node.get("params"))
+            name = rng.choice(list(params))
+            choices = [value for value in EXIT_BOUNDS[name] if value != params[name]
+                       and not (node["policy"] == "ladder_h1" and name == "fraction" and value > 0.4)]
+            params[name] = rng.choice(choices)
+            node["params"] = params
+        else:
+            node["policy"] = rng.choice([policy for policy in EXIT_POLICIES if policy != node["policy"]])
+            node.pop("params", None)
+            if node["policy"] in EXIT_DEFAULTS:
+                node["params"] = parameters(node["policy"])
     elif index == 4:
         if len(nodes) == 5:
             nodes.pop()
@@ -444,7 +487,7 @@ def mutate(tree, rng=None):
 
 def logic_version():
     names = ("forex_htf_v2.py", "forex_detectors.py", "forex_buffer_study.py",
-             "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py")
+             "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py", "forex_exits.py")
     return hashlib.sha256(b"".join(Path(__file__).with_name(name).read_bytes() for name in names)).hexdigest()[:16]
 
 
@@ -696,6 +739,7 @@ def _htf_ast2_summary(account):
             "generation": members.get(tid, {}).get("generation", 0), "parents": members.get(tid, {}).get("parents", []),
             "fitness": stats, "eligible": stats["eligible"],
             "h1_setup": c[1]["family"], "m15_trigger": c[2]["family"], "exit_policy": c[3]["policy"],
+            "exit_params": parameters(c[3]["policy"], c[3].get("params")) if c[3]["policy"] in EXIT_DEFAULTS else {},
             "last_levels": {"stop": last["signal"]["stop"], "target": last["signal"]["target"],
                             "reason": last["signal"]["reason"], "time": last["confirm_time"]} if last else None,
             "costs_verified": bool(samples) and all(sample["costs"]["verified"] for sample in samples),
