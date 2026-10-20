@@ -34,6 +34,7 @@ services:
     <<: *python
     environment:
       <<: *python-environment
+      APP_PASSWORD: ${APP_PASSWORD:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       EXNESS_API_KEY: ${EXNESS_API_KEY:-}

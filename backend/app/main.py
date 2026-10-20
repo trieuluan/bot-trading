@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import hmac
+import os
 from contextlib import suppress
 import json
 import math
@@ -10,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
@@ -80,6 +83,41 @@ app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
 
+COOKIE = "signal_desk_auth"
+
+def auth_token():
+    password = os.getenv("APP_PASSWORD", "")
+    return hmac.new(password.encode(), b"signal-desk", hashlib.sha256).hexdigest()
+
+def authenticated(request):
+    return not os.getenv("APP_PASSWORD") or hmac.compare_digest(
+        request.cookies.get(COOKIE, ""), auth_token())
+
+class Login(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    return {"required": bool(os.getenv("APP_PASSWORD")), "authenticated": authenticated(request)}
+
+@app.post("/api/auth/login")
+async def auth_login(payload: Login, request: Request):
+    expected = os.getenv("APP_PASSWORD", "")
+    if not expected or not hmac.compare_digest(payload.password.encode(), expected.encode()):
+        await asyncio.sleep(1)  # ponytail: global slowdown only; add per-IP limiter if exposed widely
+        return JSONResponse(status_code=401, content={"detail": "Sai mật khẩu"})
+    response = JSONResponse({"ok": True})
+    response.set_cookie(COOKIE, auth_token(), httponly=True, samesite="strict", max_age=30 * 86400,
+                        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
+    return response
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE)
+    return response
+
 @app.get("/api/workspaces/exness_forex/paper/trades.csv")
 def forex_journal(channel: Literal["live", "replay", "trend", "range", "router"] = "live"):
     return StreamingResponse(journal_csv(channel), media_type="text/csv", headers={
@@ -113,6 +151,14 @@ async def legacy_workspace_guard(request, call_next):
             })
     return await call_next(request)
 
+
+@app.middleware("http")
+async def password_gate(request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/auth/") \
+            and not authenticated(request):
+        return JSONResponse(status_code=401, content={"detail": "Cần đăng nhập"})
+    return await call_next(request)
 
 class Control(BaseModel):
     model_config = ConfigDict(extra="forbid")

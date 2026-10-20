@@ -12,6 +12,7 @@ os.environ["TRADING_MODE"] = "paper"
 
 @pytest.fixture(autouse=True)
 def database(monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("EXNESS_COMMISSION_PER_LOT_USD", raising=False)

@@ -4,9 +4,9 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
-from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session
+from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session, engine
 from backend.app.main import app
 from backend.app.market import Candle
 from backend.app.mexc import MarketDataError, MexcFuturesAdapter
@@ -44,6 +44,30 @@ def order(side="long", **changes):
     )
     return {**data, **changes}
 
+
+def test_wallet_poll_does_not_lock_or_write():
+    from backend.app.futures_symbols import symbol_scope
+    from backend.app.paper import get_wallet
+
+    with Session.begin() as session:
+        session.get(PaperWallet, 1).fee_bps = 9
+        session.get(PaperWallet, 2).fee_bps = 3
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement.upper())
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with symbol_scope("ETH_USDT"):
+            wallet = get_wallet()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert wallet["fee_bps"] == 9
+    assert not any("FOR UPDATE" in statement or statement.lstrip().startswith(
+        ("INSERT", "UPDATE", "DELETE")) for statement in statements)
+    with Session() as session:
+        assert session.get(PaperWallet, 2).fee_bps == 3
 
 def test_wallet_long_costs_and_idempotent_commands():
     sync_paper_quote(Market())
@@ -284,3 +308,12 @@ def test_paper_wallet_reports_open_interest_context():
     wallet = client.get("/api/paper/wallet").json()
     assert wallet["open_interest"]["contracts"] == 1100.0
     assert wallet["open_interest"]["change_24h_pct"] == pytest.approx(10.0)
+
+def test_password_gate(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "s3cret")
+    anon = TestClient(app)
+    assert anon.get("/api/paper/wallet").status_code == 401
+    assert anon.get("/api/health").status_code == 200
+    assert anon.post("/api/auth/login", json={"password": "bad"}).status_code == 401
+    assert anon.post("/api/auth/login", json={"password": "s3cret"}).status_code == 200
+    assert anon.get("/api/paper/wallet").status_code == 200

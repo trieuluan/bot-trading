@@ -630,9 +630,18 @@ def get_trade_candles(trade_id: int):
 
 @router.get("/wallet")
 def get_wallet():
-    # Keep balance, position and ledger from the same serialized wallet state.
-    with Session.begin() as session:
-        wallet = lock_wallet(session)
+    with Session() as session:
+        if session.get_bind().dialect.name == "postgresql":
+            session.connection(execution_options={
+                "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+            })
+        account = master(session)
+        wallet = session.get(PaperWallet, state_id())
+        if wallet is None:
+            raise HTTPException(503, "Chạy migration để khởi tạo ví mô phỏng")
+        session.expunge(wallet)
+        wallet.fee_bps = account.fee_bps
+        wallet.slippage_bps = account.slippage_bps
         learning_state = session.get(FuturesLearningState, state_id())
         learning_payload = (learning_state.payload or {}) if learning_state else {}
         candidates = {**learning_payload.get("rule_archive", {}), **learning_payload.get("candidates", {})}
