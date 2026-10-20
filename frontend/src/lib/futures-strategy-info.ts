@@ -9,7 +9,19 @@ export type Genome = {
   target_r: number;
   stop_buffer: number;
   exit_params?: Record<string, number>;
-  exit_policy?: 'fixed' | 'breakeven' | 'trail' | 'structure' | 'adaptive' | 'atr_chandelier' | 'time_stop' | 'scale_out_ladder' | 'signal_invalidation' | 'runner' | 'volatility_stop' | 'funding_exit';
+  exit_policy?:
+    | 'fixed'
+    | 'breakeven'
+    | 'trail'
+    | 'structure'
+    | 'adaptive'
+    | 'atr_chandelier'
+    | 'time_stop'
+    | 'scale_out_ladder'
+    | 'signal_invalidation'
+    | 'runner'
+    | 'volatility_stop'
+    | 'funding_exit';
   max_er?: number;
   funding_threshold?: number;
   rule?: Rule;
@@ -110,7 +122,8 @@ export function ruleName(rule: Rule): string {
       ema_touch: 'Chạm EMA50',
       wick_sweep: 'Quét vùng rồi đóng trở lại',
       session_active: 'Khung giờ cố định 07:00-21:00 UTC, không đổi theo DST',
-      basis_aligned: 'Lọc lệch giá trade/fair cùng nến: long premium tối đa 5 bps, short discount tối đa 5 bps; không phải index basis',
+      basis_aligned:
+        'Lọc lệch giá trade/fair cùng nến: long premium tối đa 5 bps, short discount tối đa 5 bps; không phải index basis',
       macro_safe: 'Tránh giờ tin vĩ mô lớn (CPI, FOMC, NFP)',
       relative_strength: 'Sức mạnh tương đối so với BTC',
       funding_aligned: 'Funding rate thuận chiều',
@@ -183,7 +196,9 @@ export function chartStrategyText(row: {
   return {
     title,
     description,
-    search: searchText([title, description, profile, featList, row.strategy, row.note, row.setup?.reason].join(' ')),
+    search: searchText(
+      [title, description, profile, featList, row.strategy, row.note, row.setup?.reason].join(' '),
+    ),
   };
 }
 
@@ -291,11 +306,13 @@ export function strategyInfo(g: Genome): Info {
 }
 
 export function riskText(g: Genome, _stop: string) {
-  const initial = `SL theo swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
+  const initial =
+    `SL theo swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
     `TP trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Thiếu H1 thì chờ, không dùng SL M15 thay thế. `;
   if (g.exit_policy === 'adaptive') {
     return (
-      initial + 'Khi đạt 1R: chốt 50% chỉ lúc nến yếu; nến khỏe giữ chạy tới cản/TP. Hòa vốn từ 1R, ' +
+      initial +
+      'Khi đạt 1R: chốt 50% chỉ lúc nến yếu; nến khỏe giữ chạy tới cản/TP. Hòa vốn từ 1R, ' +
       'có phí, funding và trượt giá. Từ 1.5R trailing theo 3 nến H1 + 0.1 ATR14 H1. ' +
       'Chỉ kéo TP gần khi nến yếu và cản còn ít nhất 1.5R; SL không nới. Thay đổi áp dụng từ nến sau.'
     );
@@ -348,13 +365,16 @@ export function exitLabel(policy?: string) {
 export type TradeStrategy = { title: string; detail: string; generation: string; source: string };
 
 export function tradeStrategy(
-  audit: {
-    strategy: string;
-    genome?: Genome | null;
-    generation?: number;
-    exit_policy?: string;
-    strategy_source?: 'entry_snapshot' | 'registry' | 'missing';
-  } | null | undefined,
+  audit:
+    | {
+        strategy: string;
+        genome?: Genome | null;
+        generation?: number;
+        exit_policy?: string;
+        strategy_source?: 'entry_snapshot' | 'registry' | 'missing';
+      }
+    | null
+    | undefined,
 ): TradeStrategy | null {
   if (!audit?.strategy) return null;
   const { genome } = audit;
@@ -373,8 +393,9 @@ export function tradeStrategy(
     title: strategyShortTitle(genome, audit.strategy),
     detail: `${strategyName(genome)} · ${exitLabel(audit.exit_policy ?? genome.exit_policy)}`,
     generation,
-    source: audit.strategy_source === 'registry'
-      ? 'Tra cứu danh mục cây · không phải snapshot lúc vào'
-      : 'Bản lưu chiến thuật lúc vào lệnh',
+    source:
+      audit.strategy_source === 'registry'
+        ? 'Tra cứu danh mục cây · không phải snapshot lúc vào'
+        : 'Bản lưu chiến thuật lúc vào lệnh',
   };
 }

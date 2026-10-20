@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
-import { ForexStrategyPage } from './ForexStrategyPage';
+import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 
 const url = '/api/workspaces/exness_forex/execution';
 const amount = (value: number | string | null | undefined) =>
@@ -48,16 +48,16 @@ const outcomeClass = (outcome: string) =>
         ? 'negative'
         : 'muted';
 
-type Panel = 'chart' | 'orders' | 'learning' | 'strategies';
+type Panel = 'chart' | 'orders' | 'learning';
 const panels: [Panel, string, string][] = [
   ['chart', 'Chart & Quan sát', 'Biểu đồ, cản H1/H4 và phân tích bot'],
   ['orders', 'Lệnh trên sàn', 'Vị thế mở và lịch sử deal khớp'],
-  ['learning', 'Bộ học & Thích ứng', 'Giả thuyết, bối cảnh SL/TP và R thực tế'],
-  ['strategies', 'Chiến lược MTF', 'Chi tiết điều kiện 4h/1h/15m từng chiến lược'],
+  ['learning', 'Tiến hoá & Cây HTF', 'Thế hệ G0/G1, dòng dõi phả hệ và phân tích nến'],
 ];
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
-const isBot = (source: string) => source === 'learning' || source === 'regime_router';
+const isBot = (source: string) =>
+  source === 'learning' || source === 'hast2' || source === 'regime_router';
 
 export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard }) {
   const [data, setData] = useState<ExnessExecution | null>(null);
@@ -132,9 +132,6 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
     (position) => position.status === 'closed' && position.pnl != null,
   );
   const wins = closedRows.filter((position) => (position.pnl ?? 0) > 0).length;
-  const strategies = Object.entries(data?.learning?.strategy_summary ?? {})
-    .filter(([, stats]) => stats.signals > 0)
-    .sort((x, y) => (y[1].mean_r ?? -99) - (x[1].mean_r ?? -99));
   const picked = data?.learning?.latest?.selected;
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
   const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
@@ -353,6 +350,29 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   </p>
                 )}
               </div>
+              {data.learning?.htf_ast2_shadow && (
+                <div className="learning-section-card">
+                  <div className="card-header">
+                    <div>
+                      <h4>Quần thể HTF V2 · dòng dõi G0 → G1…</h4>
+                      <span className="muted-desc">
+                        Thế hệ {data.learning.htf_ast2_shadow.generation} ·{' '}
+                        {data.learning.htf_ast2_shadow.tree_count} cây ·{' '}
+                        {data.learning.htf_ast2_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
+                        swap
+                      </span>
+                    </div>
+                    <span className="badge-count">
+                      {data.learning.htf_ast2_shadow.resolved} đã đóng ·{' '}
+                      {data.learning.htf_ast2_shadow.pending} đang chạy
+                    </span>
+                  </div>
+                  <HtfLineage
+                    trees={data.learning.htf_ast2_shadow.trees}
+                    nextEvolutionAt={data.learning.htf_ast2_shadow.next_evolution_at}
+                  />
+                </div>
+              )}
             </section>
             <section
               hidden={panel !== 'orders'}
@@ -475,9 +495,9 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                                 <span className="pos-id">#{position.position_id}</span>
                                 <span className="pos-source">
                                   {position.source === 'learning'
-                                    ? 'Bot · Learning'
+                                    ? 'Bot · HTF V2'
                                     : position.source === 'regime_router'
-                                      ? 'Bot · Router cũ'
+                                      ? 'Bot · Cũ'
                                       : 'Thủ công / Probe'}
                                 </span>
                               </div>
@@ -630,9 +650,9 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </details>
               )}
               <p className="micro">
-                SL/TP gửi kèm lệnh; TP theo 2R từ quote gửi lệnh. Tạm dừng không đóng vị thế đang
-                mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn vẫn có hiệu lực; khi mở
-                lại sẽ đối soát fill thật.
+                SL theo vô hiệu H1 + ATR buffer; TP theo barrier cấu trúc H1/H4 (tối thiểu 1.5R).
+                Tạm dừng không đóng vị thế đang mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP
+                trên sàn vẫn có hiệu lực; khi mở lại sẽ đối soát fill thật.
               </p>
               <details>
                 <summary>Lệnh chờ sàn & nhật ký gửi lệnh</summary>
@@ -709,32 +729,6 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   );
               }}
             />
-          </section>
-          <section
-            hidden={panel !== 'strategies'}
-            id="execution-panel-strategies"
-            role="tabpanel"
-            aria-labelledby="execution-tab-strategies"
-            tabIndex={0}
-            className="execution-tab-content"
-          >
-            <div className="execution-selection">
-              <div>
-                <span className="execution-eyebrow">QUAN SÁT PRICE ACTION</span>
-                <h3>Phân tích đa khung 4h · 1h · 15m</h3>
-                <p>
-                  Theo dõi trực tiếp điều kiện kích hoạt Breakout + Retest, Trend Pullback, Range
-                  Rejection.
-                </p>
-              </div>
-            </div>
-            {panel === 'strategies' && (
-              <ForexStrategyPage
-                dashboard={dashboard}
-                disconnected={!!error}
-                includeReplay={false}
-              />
-            )}
           </section>
         </>
       )}

@@ -1,3 +1,4 @@
+import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, FlaskConical, AlertTriangle } from 'lucide-react';
 import type { ForexDashboard } from '../App';
@@ -209,10 +210,26 @@ const rejectLabels: Record<string, [string, string]> = {
   h4_stale: ['H4 cũ', 'Dữ liệu H4 không còn mới'],
 };
 
+type Tree2 = NonNullable<
+  NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']
+>['trees'][number];
+
+const shortId = (id: string) => id.replace('hast2_', '').slice(0, 6);
+
+function GenBadge({ tree }: { tree?: Tree2 }) {
+  return tree ? (
+    <span className={`gen-badge gen-${Math.min(tree.generation ?? 0, 3)}`}>
+      G{tree.generation ?? 0}
+    </span>
+  ) : null;
+}
+
 function BotAnalysisBreakdown({
   strategies,
+  lineage,
 }: {
   strategies: NonNullable<LearnerAnalysis['strategies']>;
+  lineage: Map<string, Tree2>;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
@@ -251,8 +268,8 @@ function BotAnalysisBreakdown({
       </div>
       {confirmed.map(([name, row]) => (
         <div key={name} className="bot-breakdown-hit">
-          <strong>{name}</strong> · {row.side?.toUpperCase()} · SL {row.stop ?? '—'} · mức{' '}
-          {row.level ?? '—'}
+          <GenBadge tree={lineage.get(name)} /> <strong>{name}</strong> · {row.side?.toUpperCase()}{' '}
+          · SL {row.stop ?? '—'} · mức {row.level ?? '—'}
           <small>{note(row)}</small>
         </div>
       ))}
@@ -261,7 +278,9 @@ function BotAnalysisBreakdown({
           <tbody>
             {matches.slice(0, 30).map(([name, row]) => (
               <tr key={name}>
-                <td>{name}</td>
+                <td>
+                  <GenBadge tree={lineage.get(name)} /> {name}
+                </td>
                 <td>{row.status === 'confirmed' ? 'xác nhận' : 'loại'}</td>
                 <td>
                   {row.status === 'confirmed'
@@ -299,7 +318,8 @@ function BotAnalysisBreakdown({
                 <ul>
                   {names.map((name) => (
                     <li key={name}>
-                      <code>{name}</code> <small>{note(strategies[name])}</small>
+                      <GenBadge tree={lineage.get(name)} /> <code>{name}</code>{' '}
+                      <small>{note(strategies[name])}</small>
                     </li>
                   ))}
                 </ul>
@@ -312,6 +332,361 @@ function BotAnalysisBreakdown({
   );
 }
 
+const familyLabels: Record<string, string> = {
+  channel_breakout: 'Phá kênh',
+  channel: 'Phá kênh',
+  sweep: 'Quét thanh khoản',
+  rsi: 'RSI đảo chiều',
+  fvg: 'Khoảng trống FVG',
+  squeeze: 'Nén biến động',
+  pullback: 'Hồi về xu hướng',
+  retest: 'Retest',
+  mss: 'Đổi cấu trúc MSS',
+  session: 'Phá phiên UTC',
+  orb: 'Phá vùng mở phiên ORB',
+  range: 'Biên range',
+  vwap: 'Hồi quy VWAP',
+  vsa: 'Khối lượng VSA',
+  router: 'Bộ định tuyến Router',
+  partial_be_h1: 'BE / Trail theo H1',
+  partial_be_m15: 'BE / Trail theo M15',
+  fixed_structural: 'Cố định theo cản',
+};
+
+
+
+const label = (key: string) => familyLabels[key] ?? key;
+
+type GroupBy = 'm15_trigger' | 'h1_setup' | 'exit_policy';
+const groupTitles: Record<GroupBy, string> = {
+  m15_trigger: 'Trigger M15',
+  h1_setup: 'Setup H1',
+  exit_policy: 'Quản lệnh',
+};
+
+export function HtfLineage({
+  trees,
+  nextEvolutionAt,
+}: {
+  trees: Tree2[];
+  nextEvolutionAt?: number | null;
+}) {
+  const byId = new Map(trees.map((tree) => [tree.id, tree]));
+  const children = new Map<string, Tree2[]>();
+  trees.forEach((tree) =>
+    (tree.parents ?? []).forEach((id) => children.set(id, [...(children.get(id) ?? []), tree])),
+  );
+  const maxGen = Math.max(0, ...trees.map((tree) => tree.generation ?? 0));
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'signal' | 'eligible' | 'child'>('all');
+  const [groupBy, setGroupBy] = useState<GroupBy>('m15_trigger');
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const needle = query.trim().toLowerCase();
+  const visible = trees.filter((tree) => {
+    if (filter === 'signal' && !tree.signals) return false;
+    if (filter === 'eligible' && !tree.eligible) return false;
+    if (filter === 'child' && !(tree.generation ?? 0)) return false;
+    if (!needle) return true;
+    return [
+      tree.id,
+      tree.h1_setup,
+      tree.m15_trigger,
+      tree.exit_policy,
+      label(tree.h1_setup),
+      label(tree.m15_trigger),
+      label(tree.exit_policy),
+    ]
+      .join(' ')
+      .toLowerCase()
+      .includes(needle);
+  });
+
+  const groups = new Map<string, Tree2[]>();
+  visible.forEach((tree) =>
+    groups.set(tree[groupBy], [...(groups.get(tree[groupBy]) ?? []), tree]),
+  );
+  const ordered = [...groups.entries()].sort((x, y) => y[1].length - x[1].length);
+  const detail = selected ? byId.get(selected) : undefined;
+
+  const toggle = (key: string) =>
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+
+  const sum = (rows: Tree2[], field: 'signals' | 'resolved') =>
+    rows.reduce((total, row) => total + row[field], 0);
+
+  const chip = (id: string, key = id) => {
+    const found = byId.get(id);
+    return (
+      <button
+        type="button"
+        key={key}
+        className={`parent-chip ${found ? '' : 'is-gone'}`}
+        disabled={!found}
+        title={found ? `Xem cây ${id}` : 'Cây đã nghỉ, không còn trong quần thể'}
+        onClick={() => found && setSelected(id)}
+      >
+        {found ? `G${found.generation ?? 0} · ` : ''}
+        {shortId(id)}
+        {!found && ' (đã nghỉ)'}
+      </button>
+    );
+  };
+
+  const options: [typeof filter, string][] = [
+    ['all', `Tất cả (${trees.length})`],
+    ['signal', `Có tín hiệu (${trees.filter((t) => t.signals).length})`],
+    ['eligible', `Đủ chuẩn (${trees.filter((t) => t.eligible).length})`],
+    ['child', `Cây con (${trees.filter((t) => (t.generation ?? 0) > 0).length})`],
+  ];
+
+  return (
+    <div className="lineage">
+      <div className="lineage-gens" aria-label="Thế hệ">
+        {Array.from({ length: maxGen + 1 }, (_, gen) => {
+          const count = trees.filter((tree) => (tree.generation ?? 0) === gen).length;
+          return (
+            <div key={gen} className={`lineage-gen-card ${count ? '' : 'is-empty'}`}>
+              <span className={`gen-badge gen-${Math.min(gen, 3)}`}>G{gen}</span>
+              <strong>{count}</strong>
+              <small>{gen === 0 ? 'hạt giống' : 'cây con'}</small>
+            </div>
+          );
+        })}
+        {maxGen === 0 && (
+          <p className="micro lineage-hint">
+            Chưa có cây con. Cần ít nhất 2 cây bố mẹ đủ 40 mẫu đã đóng trên 10 ngày
+            {nextEvolutionAt
+              ? ` · sớm nhất ${new Date(nextEvolutionAt * 1000).toISOString().slice(0, 10)} UTC`
+              : ''}
+            .
+          </p>
+        )}
+      </div>
+
+      <div className="lineage-toolbar">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Tìm ID, setup H1, trigger M15…"
+          aria-label="Tìm cây"
+        />
+        <div className="lineage-seg" role="group" aria-label="Lọc">
+          {options.map(([key, text]) => (
+            <button
+              type="button"
+              key={key}
+              aria-pressed={filter === key}
+              onClick={() => setFilter(key)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+        <div className="lineage-seg" role="group" aria-label="Nhóm theo">
+          {(Object.keys(groupTitles) as GroupBy[]).map((key) => (
+            <button
+              type="button"
+              key={key}
+              aria-pressed={groupBy === key}
+              onClick={() => {
+                setGroupBy(key);
+                setOpenGroups(new Set());
+              }}
+            >
+              {groupTitles[key]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {detail && (
+        <div className="lineage-detail" role="region" aria-label="Chi tiết cây">
+          <div className="lineage-detail-head">
+            <span className={`gen-badge gen-${Math.min(detail.generation ?? 0, 3)}`}>
+              G{detail.generation ?? 0}
+            </span>
+            <code className="lineage-detail-id">{detail.id}</code>
+            {detail.eligible ? (
+              <span className="gen-badge gen-ok">✓ Đủ chuẩn đặt lệnh</span>
+            ) : (
+              <span className="lineage-status-tag">Chờ gom mẫu ({detail.resolved}/40)</span>
+            )}
+            <button type="button" className="secondary lineage-close-btn" onClick={() => setSelected(null)}>
+              ✕ Đóng
+            </button>
+          </div>
+
+          <div className="lineage-path">
+            <span className="lineage-path-label">Dòng dõi:</span>
+            <div className="lineage-path-flow">
+              <span className="lineage-path-node">
+                <small>Bố mẹ</small>
+                {detail.parents?.length ? (
+                  detail.parents.map((id) => chip(id, `p-${id}`))
+                ) : (
+                  <span className="muted">Gốc (khởi nguyên)</span>
+                )}
+              </span>
+              <span className="lineage-path-arrow">→</span>
+              <span className="lineage-path-node is-self">
+                <small>Cây này</small>
+                <strong>G{detail.generation ?? 0} · {shortId(detail.id)}</strong>
+              </span>
+              <span className="lineage-path-arrow">→</span>
+              <span className="lineage-path-node">
+                <small>Thế hệ con</small>
+                {children.get(detail.id)?.length ? (
+                  children.get(detail.id)!.map((child) => chip(child.id, `c-${child.id}`))
+                ) : (
+                  <span className="muted">Chưa sinh con</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="lineage-steps-grid">
+            <div className="lineage-step-card">
+              <span className="step-num">1</span>
+              <div className="step-content">
+                <strong>Bối cảnh H4</strong>
+                <span className="step-tag">Xu hướng EMA50</span>
+                <p>Nến H4 đóng thuận chiều EMA50 (trên EMA50 chỉ Buy, dưới EMA50 chỉ Sell). Ngược trend thì bỏ qua.</p>
+              </div>
+            </div>
+
+            <div className="lineage-step-card">
+              <span className="step-num">2</span>
+              <div className="step-content">
+                <strong>Setup H1</strong>
+                <span className="step-tag">{label(detail.h1_setup)}</span>
+                <p>{forexSetupGuides[detail.h1_setup] ?? 'Cấu trúc hình thành trên khung H1 đã đóng.'} SL đặt tại mức vô hiệu cấu trúc H1 + 0.25 ATR buffer (hiệu lực 4h).</p>
+              </div>
+            </div>
+
+            <div className="lineage-step-card">
+              <span className="step-num">3</span>
+              <div className="step-content">
+                <strong>Trigger M15</strong>
+                <span className="step-tag">{label(detail.m15_trigger)}</span>
+                <p>{forexTriggerGuides[detail.m15_trigger] ?? 'Xác nhận thời điểm vào lệnh tại nến M15 đóng.'} M15 chỉ trigger, không quyết định SL/TP.</p>
+              </div>
+            </div>
+
+            <div className="lineage-step-card">
+              <span className="step-num">4</span>
+              <div className="step-content">
+                <strong>Quản lý lệnh</strong>
+                <span className="step-tag">{label(detail.exit_policy)}</span>
+                <p>{forexExitGuides[detail.exit_policy] ?? 'Quản lý rủi ro theo cấu trúc HTF.'} TP runner bám theo cản H1/H4 gần nhất (R/R tối thiểu 1.5R).</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="lineage-stats-strip">
+            <div className="lineage-stat-box">
+              <span>Tín hiệu</span>
+              <strong>{detail.signals}</strong>
+            </div>
+            <div className="lineage-stat-box">
+              <span>Đang chạy</span>
+              <strong>{detail.pending}</strong>
+            </div>
+            <div className="lineage-stat-box">
+              <span>Đã đóng</span>
+              <strong>{detail.resolved}</strong>
+            </div>
+            <div className="lineage-stat-box">
+              <span>Bị loại</span>
+              <strong>{detail.excluded}</strong>
+            </div>
+            <div className="lineage-stat-box">
+              <span>R trung bình</span>
+              <strong className={detail.mean_r == null ? '' : detail.mean_r >= 0 ? 'positive' : 'negative'}>
+                {detail.mean_r == null ? '—' : `${detail.mean_r >= 0 ? '+' : ''}${detail.mean_r.toFixed(2)}R`}
+              </strong>
+            </div>
+            <div className="lineage-stat-box">
+              <span>Cận dưới 95%</span>
+              <strong className={detail.lower_r == null ? '' : detail.lower_r >= 0 ? 'positive' : 'negative'}>
+                {detail.lower_r == null ? '—' : `${detail.lower_r >= 0 ? '+' : ''}${detail.lower_r.toFixed(2)}R`}
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!ordered.length && <p className="micro">Không có cây khớp bộ lọc.</p>}
+
+      {ordered.map(([key, rows]) => {
+        const open = openGroups.has(key) || !!needle;
+        return (
+          <div key={key} className="lineage-group">
+            <button type="button" aria-expanded={open} onClick={() => toggle(key)}>
+              <span className="lineage-caret">{open ? '▾' : '▸'}</span>
+              <span className="lineage-group-title">{label(key)}</span>
+              <span className="lineage-count-pill">{rows.length} cây</span>
+              <span className="lineage-group-stats">
+                {sum(rows, 'signals')} tín hiệu · {sum(rows, 'resolved')} đã đóng
+              </span>
+            </button>
+            {open && (
+              <ul className="lineage-rows-list">
+                {rows.map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className={`lineage-row-btn ${selected === row.id ? 'is-selected' : ''}`}
+                      onClick={() => setSelected(row.id)}
+                    >
+                      <span className={`gen-badge gen-${Math.min(row.generation ?? 0, 3)}`}>
+                        G{row.generation ?? 0}
+                      </span>
+                      <code className="lineage-row-id">{shortId(row.id)}</code>
+
+                      <div className="lineage-tags-inline">
+                        <span className="lineage-tag tag-h1">H1 {label(row.h1_setup)}</span>
+                        <span className="lineage-tag tag-m15">M15 {label(row.m15_trigger)}</span>
+                        <span className="lineage-tag tag-exit">{label(row.exit_policy)}</span>
+                      </div>
+
+                      <span className="lineage-row-meta">
+                        {row.parents?.length ? (
+                          <span className="lineage-parents-brief">từ {row.parents.map(shortId).join(' × ')}</span>
+                        ) : (
+                          <span className="muted">hạt giống gốc</span>
+                        )}
+                        {children.get(row.id)?.length ? (
+                          <span className="lineage-child-badge"> · {children.get(row.id)!.length} con</span>
+                        ) : null}
+                      </span>
+
+                      <span className="lineage-row-metric font-mono">
+                        {row.resolved ? (
+                          <span className={row.mean_r != null && row.mean_r >= 0 ? 'positive' : 'negative'}>
+                            {row.mean_r != null && row.mean_r >= 0 ? '+' : ''}{row.mean_r?.toFixed(2)}R
+                          </span>
+                        ) : (
+                          <span className="muted">{row.signals} tín hiệu</span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 export function ForexStrategyPage({
   dashboard,
   disconnected,
@@ -1067,7 +1442,10 @@ export function ForexStrategyPage({
                   cây bị loại
                 </span>
               </summary>
-              <BotAnalysisBreakdown strategies={analysis.strategies} />
+              <BotAnalysisBreakdown
+                strategies={analysis.strategies}
+                lineage={new Map((htf2Shadow?.trees ?? []).map((tree) => [tree.id, tree]))}
+              />
               <p>Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.</p>
             </details>
           )}
@@ -1077,161 +1455,22 @@ export function ForexStrategyPage({
           </p>
         </div>
       )}
-      {!executionOnly && (
-        <p className="micro">
-          Vùng và dấu setup hiển thị trên chart Bid 15m. H1/H4 và Ask để đối chiếu nến gốc, không
-          dịch chuyển mức giá của setup.
-        </p>
-      )}
-      {!executionOnly && view !== 'mtf' && (
-        <div style={{ marginTop: 24 }}>
-          <h3>
-            Nhật ký paper ·{' '}
-            {view === 'trend'
-              ? 'trend_pullback'
-              : view === 'range'
-                ? 'range_rejection'
-                : 'regime_router'}
-          </h3>
-          <p>
-            Theo dõi từ khi ví khởi tạo, tự chạy bù nến khi máy mở lại. Kết quả lịch sử ở tab
-            Backtest; không cần backtest có lãi mới được chạy paper.
-          </p>
-          {!shadow?.recent_trades.length ? (
-            <p>Chưa có setup xác nhận từ lúc ví khởi tạo.</p>
-          ) : (
-            <div className="table-scroll">
-              <table>
-                <caption>Tối đa 20 setup gần nhất · UTC · giá USD/oz</caption>
-                <thead>
-                  <tr>
-                    <th>Xác nhận</th>
-                    <th>Chiều</th>
-                    <th>Trạng thái</th>
-                    <th>Vào / SL / TP</th>
-                    <th>P&amp;L USD</th>
-                    <th>Lý do</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shadow.recent_trades.map((trade) => (
-                    <tr key={trade.confirm_time}>
-                      <td>{new Date(trade.confirm_time * 1000).toISOString()}</td>
-                      <td>{trade.side}</td>
-                      <td>
-                        {{
-                          pending: 'Chờ khớp',
-                          open: 'Đang mở',
-                          resolved: 'Đã đóng',
-                          skipped: 'Bỏ qua',
-                          censored: 'Chưa xác định',
-                          invalid: 'Không hợp lệ',
-                        }[trade.status] ?? trade.status}
-                      </td>
-                      <td>
-                        {trade.entry != null ? formatPrice(trade.entry) : '—'} /{' '}
-                        {formatPrice(trade.stop)} /{' '}
-                        {trade.target != null ? formatPrice(trade.target) : '—'}
-                      </td>
-                      <td>{trade.pnl?.toFixed(2) ?? '—'}</td>
-                      <td>{trade.reason ?? trade.signal?.reason ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-      {!executionOnly && view === 'mtf' && (
-        <div className="mtf-rules-wrap">
-          <h3>Quy tắc Breakout + Retest XAUUSD</h3>
-          <ol className="mtf-rules">
-            <li>
-              <strong>Vào setup:</strong> Nến H1 đóng vượt đỉnh/đáy của 20 nến H1 trước đó theo xu
-              hướng EMA50 khung H4.
-            </li>
-            <li>
-              <strong>Chờ retest:</strong> Giá M15 chạm lại vùng breakout; setup tự hủy nếu nến M15
-              đóng phá ngược hoặc quá 12h.
-            </li>
-            <li>
-              <strong>Xác nhận:</strong> Nến M15 đóng xác nhận giữ vùng; SL đặt theo cực trị cấu
-              trúc retest, TP tham chiếu 2R.
-            </li>
-            <li>
-              <strong>Khớp lệnh thực tế:</strong> Cần tính spread bid/ask và trượt giá; mức TP/SL
-              trên chart chỉ là tham chiếu.
-            </li>
-          </ol>
-        </div>
-      )}
       {!executionOnly && htf2Shadow && (
         <div className="learning-section-card">
           <div className="card-header">
             <div>
-              <h4>AST HTF V2 — shadow, có tiến hoá · Execution V2 đang khoá</h4>
+              <h4>AST HTF V2 — Quần thể & Dòng dõi tiến hoá</h4>
               <p className="muted-desc">
                 {htf2Shadow.note}. Thế hệ {htf2Shadow.generation}, {htf2Shadow.tree_count} cây.
-                {htf2Shadow.management_comparison?.paired_count
-                  ? ` So cặp H1/M15 (${htf2Shadow.management_comparison.paired_count} cặp): H1 ${htf2Shadow.management_comparison.h1_mean_r?.toFixed(2) ?? '—'}R, M15 ${htf2Shadow.management_comparison.m15_mean_r?.toFixed(2) ?? '—'}R.`
-                  : ' Chưa có cặp H1/M15 cùng thời điểm để so sánh.'}{' '}
-                {htf2Shadow.excluded} mẫu bị loại
-                {htf2Shadow.rejections && Object.keys(htf2Shadow.rejections).length
-                  ? ` · lý do loại tín hiệu: ${Object.entries(htf2Shadow.rejections)
-                      .map(([reason, count]) => `${reason}: ${count}`)
-                      .join(', ')}`
-                  : ''}
-                . VSA/VWAP dùng tick volume làm proxy.
               </p>
             </div>
             <span className="badge-count">
               {htf2Shadow.status} · {htf2Shadow.resolved} đã đóng · {htf2Shadow.pending} đang chạy
             </span>
           </div>
-          <div className="table-wrap">
-            <table className="learner-clean-table">
-              <thead>
-                <tr>
-                  <th>Cây HTF V2</th>
-                  <th>Setup H1</th>
-                  <th>Trigger M15</th>
-                  <th>Quản lý</th>
-                  <th className="num">Tín hiệu</th>
-                  <th className="num">Đang chạy</th>
-                  <th className="num">Đã đóng</th>
-                  <th className="num">R TB</th>
-                  <th>SL/TP gần nhất</th>
-                </tr>
-              </thead>
-              <tbody>
-                {htf2Shadow.trees.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <span className="strategy-name">{row.id}</span>
-                      <small className="muted"> {row.description}</small>
-                    </td>
-                    <td>{row.h1_setup}</td>
-                    <td>{row.m15_trigger}</td>
-                    <td>{row.exit_policy}</td>
-                    <td className="num">{row.signals}</td>
-                    <td className="num">{row.pending}</td>
-                    <td className="num">{row.resolved}</td>
-                    <td className="num font-mono">{row.mean_r?.toFixed(2) ?? '—'}</td>
-                    <td className="font-mono">
-                      {row.last_levels
-                        ? `SL ${row.last_levels.stop} · TP ${row.last_levels.target}`
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <HtfLineage trees={htf2Shadow.trees} nextEvolutionAt={htf2Shadow.next_evolution_at} />
         </div>
       )}
-
-      {includeReplay && <ForexReplayControl />}
     </section>
   );
 }
@@ -1421,11 +1660,8 @@ export function ForexResearchPage({ revision }: { revision: number }) {
     <section className="panel prose">
       <div className="section-head">
         <div>
-          <h2>Nghiên cứu Replay Lịch sử · XAUUSD</h2>
-          <p>
-            So sánh ví lịch sử cho 4 chiến lược; báo cáo mẫu tín hiệu Breakout + Retest giữ riêng.
-            Khớp nến Bid/Ask, vào ở open M15 kế tiếp. Không gửi lệnh lên sàn.
-          </p>
+          <h2>Báo cáo replay cũ · XAUUSD (đã ngừng)</h2>
+          <p>Báo cáo lưu từ family cũ, chỉ để đọc. Không dùng để cấp quyền cho cây V2.</p>
         </div>
         <span className="pill amber">
           <FlaskConical size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
@@ -1433,8 +1669,16 @@ export function ForexResearchPage({ revision }: { revision: number }) {
         </span>
       </div>
 
-      {loading && <p className="micro">Đang tải báo cáo nghiên cứu...</p>}
-      <ForexReplayControl onComplete={setData} />
+      <div className="replay-discontinued-notice">
+        <p>
+          <strong>Hệ thống đã chuyển sang Forex HTF AST V2 duy nhất.</strong>
+        </p>
+        <p className="micro muted">
+          Replay lịch sử trên các chiến lược family cũ (Breakout, Trend, Range, Router) đã ngừng
+          hoạt động để tránh nạp dữ liệu quá khứ sai lệch vào bộ học sống. Dữ liệu tiến hoá hiện tại
+          được tích luỹ 100% từ nến sống (forward) trong tab Tiến hoá & Cây HTF.
+        </p>
+      </div>
       {data?.comparison && (
         <div className="table-scroll">
           <h3>Đối chiếu chiến lược · 1 ví $10,000, rủi ro 1%, tối đa 1 lệnh, chưa gồm swap</h3>

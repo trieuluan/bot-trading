@@ -276,21 +276,21 @@ function ForexOverviewPage({
           <span className="execution-eyebrow">02 / KIỂM CHỨNG</span>
           <h2>Nghiên cứu</h2>
           <p>
-            Replay trên nến Exness đã lưu, đối chiếu ví mô phỏng nội bộ và kiểm tra nhật ký quan
-            sát. Không gửi lệnh lên sàn.
+            Lịch sử báo cáo, paper và nhật ký của family cũ, chỉ để đọc. Cây HTF V2 xem ở Bot → Tiến
+            hoá & Cây HTF.
           </p>
           <dl className="forex-summary-list">
             <div>
-              <dt>Replay</dt>
-              <dd>So sánh chiến lược và giả định chi phí</dd>
+              <dt>Báo cáo cũ</dt>
+              <dd>Replay family cũ, đã ngừng</dd>
             </div>
             <div>
-              <dt>Ví mô phỏng</dt>
-              <dd>Tách biệt số dư tài khoản demo Exness</dd>
+              <dt>Paper cũ</dt>
+              <dd>Lịch sử ví, không sinh lệnh mới</dd>
             </div>
             <div>
               <dt>Nhật ký</dt>
-              <dd>Truy vết tín hiệu theo nến đã đóng</dd>
+              <dd>Quan sát MTF cũ theo nến đã đóng</dd>
             </div>
           </dl>
           <button type="button" className="secondary" onClick={() => onNavigate('Nghiên cứu')}>
@@ -338,9 +338,9 @@ function ForexResearchWorkspace({
 }) {
   const [tab, setTab] = useState<'backtest' | 'paper' | 'log'>('backtest');
   const tabs: [typeof tab, string, string][] = [
-    ['backtest', 'Backtest & Replay', 'Đối chiếu 4 chiến lược trên nến cũ XAUUSD'],
-    ['paper', 'Ví mô phỏng nội bộ', 'Đối chiếu lệnh paper không gửi lên sàn'],
-    ['log', 'Nhật ký quan sát', 'Lịch sử trigger từng nến M15 đã lưu'],
+    ['backtest', 'Báo cáo cũ (đã ngừng)', 'Replay family cũ, chỉ để đọc lịch sử'],
+    ['paper', 'Paper cũ (đã ngừng)', 'Lịch sử ví paper family cũ, không sinh lệnh mới'],
+    ['log', 'Nhật ký quan sát', 'Lịch sử quan sát MTF cũ, chỉ để đọc'],
   ];
   return (
     <div className="execution-desk">
@@ -463,7 +463,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <span>
               {dashboard?.execution_enabled
                 ? 'Thực thi Demo đã được cấu hình. Trạng thái bật/tạm dừng và lệnh sàn xem tại Bot. Ví mô phỏng nằm riêng trong Nghiên cứu.'
-                : 'MTF XAUUSD + paper cục bộ. Dữ liệu và ví riêng Exness; không gửi lệnh Demo sàn, không dùng ví MEXC.'}
+                : 'HTF AST V2 gom mẫu forward. Dữ liệu riêng Exness, không dùng ví MEXC.'}
             </span>
           </div>
           {error && (

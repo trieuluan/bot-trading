@@ -1,4 +1,10 @@
-import type { IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, SeriesAttachedParameter, Time } from 'lightweight-charts';
+import type {
+  IPrimitivePaneView,
+  ISeriesApi,
+  ISeriesPrimitive,
+  SeriesAttachedParameter,
+  Time,
+} from 'lightweight-charts';
 
 export type ChartLabel = {
   time: number;
@@ -80,7 +86,15 @@ export class ChartLabels implements ISeriesPrimitive<Time> {
                 if (this.hoverOnly && !active) continue;
                 const x = chart.timeScale().timeToCoordinate(label.time as Time);
                 const y = series.priceToCoordinate(label.price);
-                if (x === null || y === null || x < 0 || x > mediaSize.width || y < 0 || y > mediaSize.height) continue;
+                if (
+                  x === null ||
+                  y === null ||
+                  x < 0 ||
+                  x > mediaSize.width ||
+                  y < 0 ||
+                  y > mediaSize.height
+                )
+                  continue;
                 let text = active ? label.text : labelText(label.text);
                 while (text.length > 1 && ctx.measureText(text).width + 12 > mediaSize.width - 8) {
                   text = `${text.slice(0, -2)}…`;

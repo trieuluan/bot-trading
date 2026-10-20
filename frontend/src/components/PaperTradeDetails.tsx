@@ -46,9 +46,9 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
       )}
       {trade.monitoring?.partial_exits?.map((leg) => (
         <p key={leg.time} className="micro">
-          Đã chốt {leg.quantity} tại {formatPrice(leg.price)} · {utcTime(leg.time)} ·
-          PnL sau phí, chưa trừ funding {formatPrice(leg.gross - leg.entry_fee - leg.exit_fee)} USDT.
-          Còn {trade.quantity}; không mở thêm lệnh.
+          Đã chốt {leg.quantity} tại {formatPrice(leg.price)} · {utcTime(leg.time)} · PnL sau phí,
+          chưa trừ funding {formatPrice(leg.gross - leg.entry_fee - leg.exit_fee)} USDT. Còn{' '}
+          {trade.quantity}; không mở thêm lệnh.
         </p>
       ))}
       <p>
@@ -72,9 +72,10 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
       )}
       {audit ? (
         <p className="micro">
-          Chiến thuật: {strategy?.title} {strategy?.generation && `(${strategy.generation})`}. {strategy?.detail} Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}.
-          Ngân sách SL lúc vào: {formatPrice(audit.risk_budget)} USDT (cấu hình {audit.risk_percent}
-          % equity, có giới hạn lỗ ngày).
+          Chiến thuật: {strategy?.title} {strategy?.generation && `(${strategy.generation})`}.{' '}
+          {strategy?.detail} Nến tín hiệu đóng tại {formatPrice(audit.signal_close)}. Ngân sách SL
+          lúc vào: {formatPrice(audit.risk_budget)} USDT (cấu hình {audit.risk_percent}% equity, có
+          giới hạn lỗ ngày).
         </p>
       ) : (
         trade.origin === 'auto' && (
@@ -117,9 +118,16 @@ export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
               {trade.net_pnl === null ? '—' : formatPrice(trade.net_pnl)} USDT
             </span>
           </strong>{' '}
-          · Phí {formatPrice(trade.entry_fee + trade.exit_fee +
-            (trade.monitoring?.partial_exits ?? []).reduce((sum, leg) => sum + leg.entry_fee + leg.exit_fee, 0))} · Funding{' '}
-          {formatPrice(trade.funding_cost)} USDT
+          · Phí{' '}
+          {formatPrice(
+            trade.entry_fee +
+              trade.exit_fee +
+              (trade.monitoring?.partial_exits ?? []).reduce(
+                (sum, leg) => sum + leg.entry_fee + leg.exit_fee,
+                0,
+              ),
+          )}{' '}
+          · Funding {formatPrice(trade.funding_cost)} USDT
         </p>
       )}
       <p className="micro">

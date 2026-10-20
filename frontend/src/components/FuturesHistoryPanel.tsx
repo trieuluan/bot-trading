@@ -53,8 +53,8 @@ export function FuturesHistoryPanel() {
     <section className="futures-history" aria-label="Học từ lịch sử Futures">
       <h3>Học từ lịch sử</h3>
       <p className="micro">
-        {getFuturesSymbol()} · M15 · 70% học / 30% kiểm chứng. Replay độc lập, không tạo lệnh hay đổi số dư. Phí
-        8 bps (MEXC API taker) và trượt giá 2 bps mỗi chiều, có funding.
+        {getFuturesSymbol()} · M15 · 70% học / 30% kiểm chứng. Replay độc lập, không tạo lệnh hay
+        đổi số dư. Phí 8 bps (MEXC API taker) và trượt giá 2 bps mỗi chiều, có funding.
       </p>
       <div className="futures-history-actions">
         <label>

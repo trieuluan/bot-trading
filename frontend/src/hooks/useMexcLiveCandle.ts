@@ -27,9 +27,7 @@ export function useMexcLiveCandle(symbol = getFuturesSymbol()) {
         return;
       }
       socket.onopen = () => {
-        socket?.send(
-          JSON.stringify({ method: 'sub.kline', param: { symbol, interval: 'Min15' } }),
-        );
+        socket?.send(JSON.stringify({ method: 'sub.kline', param: { symbol, interval: 'Min15' } }));
       };
       socket.onmessage = (event) => {
         if (!active || typeof event.data !== 'string') return;

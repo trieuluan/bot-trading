@@ -1,7 +1,14 @@
-export function groupNearbyTags<Tag extends { y: number; kind: string; side: string }>(tags: Tag[], gap = 20) {
+export function groupNearbyTags<Tag extends { y: number; kind: string; side: string }>(
+  tags: Tag[],
+  gap = 20,
+) {
   const groups: { y: number; kind: string; side: string; members: Tag[] }[] = [];
-  for (const tag of [...tags].filter((item) => Number.isFinite(item.y)).sort((left, right) => left.y - right.y)) {
-    const group = groups.find((item) => item.kind === tag.kind && item.side === tag.side && Math.abs(item.y - tag.y) <= gap);
+  for (const tag of [...tags]
+    .filter((item) => Number.isFinite(item.y))
+    .sort((left, right) => left.y - right.y)) {
+    const group = groups.find(
+      (item) => item.kind === tag.kind && item.side === tag.side && Math.abs(item.y - tag.y) <= gap,
+    );
     if (group) group.members.push(tag);
     else groups.push({ y: tag.y, kind: tag.kind, side: tag.side, members: [tag] });
   }

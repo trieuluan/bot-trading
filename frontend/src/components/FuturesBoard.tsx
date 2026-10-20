@@ -5,20 +5,35 @@ import { formatPrice, formatQuote } from '../lib/format';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
-import { exitLabel, tradeStrategy, strategyShortTitle, type Genome } from '../lib/futures-strategy-info';
+import {
+  exitLabel,
+  tradeStrategy,
+  strategyShortTitle,
+  type Genome,
+} from '../lib/futures-strategy-info';
 
 function StrategyCell({ trade }: { trade: PaperTrade }) {
   const info = tradeStrategy(trade.audit);
   const id = `strat-${useId().replace(/:/g, '')}`;
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  if (!info) return <>{trade.origin === 'manual' ? 'Thủ công' : 'Auto · thiếu dữ liệu cây'}<small>{trade.entry_reason ?? ''}</small></>;
+  if (!info)
+    return (
+      <>
+        {trade.origin === 'manual' ? 'Thủ công' : 'Auto · thiếu dữ liệu cây'}
+        <small>{trade.entry_reason ?? ''}</small>
+      </>
+    );
   return (
     <>
       <span className="strat-title">
         <strong>{info.title}</strong>
         {info.generation && <span className="strat-gen">{info.generation}</span>}
       </span>
-      <small className="strat-exit">{trade.monitoring?.exit_policy ? exitLabel(trade.monitoring.exit_policy) : exitLabel(trade.audit?.exit_policy ?? trade.audit?.genome?.exit_policy)}</small>
+      <small className="strat-exit">
+        {trade.monitoring?.exit_policy
+          ? exitLabel(trade.monitoring.exit_policy)
+          : exitLabel(trade.audit?.exit_policy ?? trade.audit?.genome?.exit_policy)}
+      </small>
       <button
         type="button"
         className="text-button strategy-detail-btn"
@@ -34,20 +49,46 @@ function StrategyCell({ trade }: { trade: PaperTrade }) {
       >
         Chi tiết
       </button>
-      <div id={id} popover="auto" role="dialog" aria-label={`Chi tiết ${info.title}`} className="tsp" style={pos}>
+      <div
+        id={id}
+        popover="auto"
+        role="dialog"
+        aria-label={`Chi tiết ${info.title}`}
+        className="tsp"
+        style={pos}
+      >
         <header className="tsp-head">
           <span className="tsp-title">{info.title}</span>
           {info.generation && <span className="tsp-gen">{info.generation}</span>}
-          <button type="button" className="tsp-close" popoverTarget={id} popoverTargetAction="hide" aria-label="Đóng chi tiết chiến thuật">×</button>
+          <button
+            type="button"
+            className="tsp-close"
+            popoverTarget={id}
+            popoverTargetAction="hide"
+            aria-label="Đóng chi tiết chiến thuật"
+          >
+            ×
+          </button>
         </header>
         <div className="tsp-body">
-          <div className="tsp-sec"><span className="tsp-label">Chiến thuật</span><span>{info.detail}</span></div>
+          <div className="tsp-sec">
+            <span className="tsp-label">Chiến thuật</span>
+            <span>{info.detail}</span>
+          </div>
           {(trade.audit?.reason ?? trade.entry_reason) && (
-            <div className="tsp-sec"><span className="tsp-label">Lý do vào lệnh</span><span>{trade.audit?.reason ?? trade.entry_reason}</span></div>
+            <div className="tsp-sec">
+              <span className="tsp-label">Lý do vào lệnh</span>
+              <span>{trade.audit?.reason ?? trade.entry_reason}</span>
+            </div>
           )}
-          <div className="tsp-sec"><span className="tsp-label">Nguồn dữ liệu</span><span>{info.source}</span></div>
+          <div className="tsp-sec">
+            <span className="tsp-label">Nguồn dữ liệu</span>
+            <span>{info.source}</span>
+          </div>
         </div>
-        <footer className="tsp-foot"><code>{trade.audit?.strategy}</code></footer>
+        <footer className="tsp-foot">
+          <code>{trade.audit?.strategy}</code>
+        </footer>
       </div>
     </>
   );
@@ -57,8 +98,19 @@ import type { AutoPaperState, PaperTrade, PaperWallet } from '../types/paper';
 export type PairInfo = {
   wallet: PaperWallet | null;
   auto: AutoPaperState | null;
-  learning: { population: number; promoted: number; samples: number; error: string | null;
-    strategies: { strategy: string; genome: Genome; resolved: number; mean_r: number | null; paused?: boolean; open_trades?: unknown[] }[];
+  learning: {
+    population: number;
+    promoted: number;
+    samples: number;
+    error: string | null;
+    strategies: {
+      strategy: string;
+      genome: Genome;
+      resolved: number;
+      mean_r: number | null;
+      paused?: boolean;
+      open_trades?: unknown[];
+    }[];
   } | null;
 };
 export type Board = Record<FuturesSymbol, PairInfo>;
@@ -165,13 +217,18 @@ export function TradeHistoryTable({
             const net = t.net_pnl;
             const unit = short(s);
             return (
-              <tr key={`${s}${t.id}`} className={selectedId === t.id ? 'selected-trade-row' : undefined}>
+              <tr
+                key={`${s}${t.id}`}
+                className={selectedId === t.id ? 'selected-trade-row' : undefined}
+              >
                 <td>
                   <button className="text-button" onClick={() => onView(row)}>
                     {showPair ? `${unit} ` : ''}#{t.id}
                   </button>
                   <span className={`side-tag ${t.side}`}>{t.side.toUpperCase()}</span>
-                  <small className="trade-origin">{t.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}</small>
+                  <small className="trade-origin">
+                    {t.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
+                  </small>
                 </td>
                 <td>
                   <StrategyCell trade={t} />
@@ -205,7 +262,9 @@ export function TradeHistoryTable({
                 <td className={net === null ? undefined : sign(net)}>
                   {net === null ? 'Chưa chốt' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
                   <small>
-                    {net !== null && margin > 0 ? `${((net / margin) * 100).toFixed(1)}% ký quỹ` : ''}
+                    {net !== null && margin > 0
+                      ? `${((net / margin) * 100).toFixed(1)}% ký quỹ`
+                      : ''}
                     {net !== null && risk > 0 ? ` · ${(net / risk).toFixed(2)}R` : ''}
                   </small>
                 </td>
@@ -282,7 +341,9 @@ export function PositionsTable({
                   <small>
                     {p.quantity} {unit} · {p.contracts} hợp đồng · Cross
                   </small>
-                  <small className="negative">Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)</small>
+                  <small className="negative">
+                    Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)
+                  </small>
                 </td>
                 <td>
                   {formatQuote(p.entry)} → {mark ? formatQuote(mark) : '—'}
@@ -340,7 +401,10 @@ export function PairStrip({
             <small className="pair-price">{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</small>
             <span className="pair-indicators">
               {sigs > 0 && (
-                <span className="pair-signal" title={`${sigs} cây có tín hiệu vào ở nến đóng mới nhất`}>
+                <span
+                  className="pair-signal"
+                  title={`${sigs} cây có tín hiệu vào ở nến đóng mới nhất`}
+                >
                   <Zap size={10} aria-hidden="true" />
                   {sigs}
                 </span>
@@ -416,7 +480,8 @@ export function AllPairsPanel({
             <tbody>
               {FUTURES_SYMBOLS.map((s) => {
                 const { wallet: w, auto: a, learning: l } = board[s];
-                const top = [...(l?.strategies ?? [])].filter((r) => !r.paused && r.mean_r !== null && r.resolved > 0)
+                const top = [...(l?.strategies ?? [])]
+                  .filter((r) => !r.paused && r.mean_r !== null && r.resolved > 0)
                   .sort((first, second) => second.mean_r! - first.mean_r!)[0];
                 return (
                   <tr key={s}>
@@ -438,7 +503,18 @@ export function AllPairsPanel({
                     <td>{a ? `${a.daily_trades}/${a.max_daily_trades}` : '—'}</td>
                     <td>{a?.learner_decision ? liveSignals(a).length : '—'}</td>
                     <td>{l ? l.strategies.filter((r) => r.open_trades?.length).length : '—'}</td>
-                    <td>{top ? <>{strategyShortTitle(top.genome, top.strategy)}<small>{top.mean_r!.toFixed(2)}R · {top.resolved} lệnh đã xét</small></> : 'Chưa có mẫu'}</td>
+                    <td>
+                      {top ? (
+                        <>
+                          {strategyShortTitle(top.genome, top.strategy)}
+                          <small>
+                            {top.mean_r!.toFixed(2)}R · {top.resolved} lệnh đã xét
+                          </small>
+                        </>
+                      ) : (
+                        'Chưa có mẫu'
+                      )}
+                    </td>
                     <td>
                       {l
                         ? l.error
@@ -472,7 +548,11 @@ export function AllPairsPanel({
         <>
           <h3>Lịch sử lệnh · tối đa 100 lệnh gần nhất / cặp</h3>
           {trades.length ? (
-            <TradeHistoryTable showPair rows={trades} onView={({ s, t }) => onSelect(s as FuturesSymbol, t.id)} />
+            <TradeHistoryTable
+              showPair
+              rows={trades}
+              onView={({ s, t }) => onSelect(s as FuturesSymbol, t.id)}
+            />
           ) : (
             <p className="muted">Chưa có lệnh đóng.</p>
           )}
@@ -531,7 +611,10 @@ export function AllPairsPanel({
 }
 
 function FamilySummary({ board }: { board: Board }) {
-  const fam = new Map<string, { pairs: Set<string>; trees: number; sig: number; hold: number; n: number; sumR: number }>();
+  const fam = new Map<
+    string,
+    { pairs: Set<string>; trees: number; sig: number; hold: number; n: number; sumR: number }
+  >();
   for (const s of FUTURES_SYMBOLS) {
     const sigNames = new Set(liveSignals(board[s].auto).map((r) => r.strategy));
     for (const r of board[s].learning?.strategies ?? []) {
@@ -548,29 +631,46 @@ function FamilySummary({ board }: { board: Board }) {
       fam.set(key, f);
     }
   }
-  const rows = [...fam.entries()].sort((a, b) => b[1].sig + b[1].hold - (a[1].sig + a[1].hold) || b[1].n - a[1].n);
+  const rows = [...fam.entries()].sort(
+    (a, b) => b[1].sig + b[1].hold - (a[1].sig + a[1].hold) || b[1].n - a[1].n,
+  );
   if (!rows.length) return null;
   return (
     <>
       <h3>Gộp theo họ · 10 cặp</h3>
-      <p className="micro">Cùng họ không đồng nghĩa cùng điều kiện cây. Mean R gộp theo số lệnh đã xét của cây trong danh mục, không phải PnL ví hay bảo đảm hiệu quả. Top cây chưa áp ngưỡng số mẫu.</p>
+      <p className="micro">
+        Cùng họ không đồng nghĩa cùng điều kiện cây. Mean R gộp theo số lệnh đã xét của cây trong
+        danh mục, không phải PnL ví hay bảo đảm hiệu quả. Top cây chưa áp ngưỡng số mẫu.
+      </p>
       <div className="table-scroll">
         <table>
           <thead>
-            <tr><th>Họ</th><th>Số cặp</th><th>Cây</th><th>Có tín hiệu</th><th>Đang giữ</th><th>Lệnh đã xét</th><th>Mean R</th></tr>
+            <tr>
+              <th>Họ</th>
+              <th>Số cặp</th>
+              <th>Cây</th>
+              <th>Có tín hiệu</th>
+              <th>Đang giữ</th>
+              <th>Lệnh đã xét</th>
+              <th>Mean R</th>
+            </tr>
           </thead>
           <tbody>
             {rows.map(([name, f]) => {
               const r = f.n ? f.sumR / f.n : null;
               return (
                 <tr key={name}>
-                  <td><strong>{name}</strong></td>
+                  <td>
+                    <strong>{name}</strong>
+                  </td>
                   <td>{f.pairs.size}/10</td>
                   <td>{f.trees}</td>
                   <td>{f.sig || '—'}</td>
                   <td>{f.hold || '—'}</td>
                   <td>{f.n}</td>
-                  <td className={r === null ? undefined : sign(r)}>{r === null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`}</td>
+                  <td className={r === null ? undefined : sign(r)}>
+                    {r === null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`}
+                  </td>
                 </tr>
               );
             })}

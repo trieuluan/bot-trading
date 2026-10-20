@@ -285,8 +285,8 @@ export function ForexPaperPage({ paper, paused }: { paper: ForexPaperSummary; pa
     <section className="panel prose forex-paper">
       <div className="section-head">
         <div>
-          <h2>Ví mô phỏng Exness · XAUUSD</h2>
-          <p>Bốn ví độc lập $10,000; không gửi lệnh tới tài khoản Demo sàn.</p>
+          <h2>Paper cũ Exness · XAUUSD (đã ngừng)</h2>
+          <p>Lịch sử ví family cũ, chỉ để đọc; không sinh lệnh mới.</p>
         </div>
         <span className="pill amber">PAPER · CỤC BỘ</span>
       </div>

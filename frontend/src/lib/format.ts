@@ -3,7 +3,10 @@ export const formatPrice = (v: number) =>
 
 export const formatQuote = (v: number) => {
   const digits = Math.abs(v) >= 100 ? 2 : Math.abs(v) >= 1 ? 3 : Math.abs(v) >= 0.1 ? 4 : 5;
-  return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return v.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 };
 
 export const observationStatusLabels: Record<string, string> = {

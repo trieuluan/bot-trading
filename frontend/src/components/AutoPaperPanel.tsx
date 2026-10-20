@@ -163,162 +163,177 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
         </div>
       </div>
       <div className="ap-chips" aria-label="Thông số đang áp dụng">
-        <span>Đòn bẩy <b>{state?.leverage ?? '—'}x</b></span>
-        <span>Rủi ro/lệnh <b>{state?.risk_percent ?? '—'}%</b></span>
-        <span>Tối đa <b>{state?.max_daily_trades ?? '—'}</b>/ngày</span>
-        <span>Lỗ ngày <b>{state?.daily_loss_percent ?? '—'}%</b></span>
-        <span>Trần SL <b>{state?.max_portfolio_risk_percent == null ? '∞' : `${state.max_portfolio_risk_percent}%`}</b></span>
+        <span>
+          Đòn bẩy <b>{state?.leverage ?? '—'}x</b>
+        </span>
+        <span>
+          Rủi ro/lệnh <b>{state?.risk_percent ?? '—'}%</b>
+        </span>
+        <span>
+          Tối đa <b>{state?.max_daily_trades ?? '—'}</b>/ngày
+        </span>
+        <span>
+          Lỗ ngày <b>{state?.daily_loss_percent ?? '—'}%</b>
+        </span>
+        <span>
+          Trần SL{' '}
+          <b>
+            {state?.max_portfolio_risk_percent == null
+              ? '∞'
+              : `${state.max_portfolio_risk_percent}%`}
+          </b>
+        </span>
       </div>
       <details className="ap-config" open={!state?.enabled || undefined}>
         <summary>{state?.enabled ? 'Thông số (khoá khi Auto chạy)' : 'Chỉnh thông số'}</summary>
-      <form className="auto-paper-form ap-form" onSubmit={(event) => void save(event)}>
-        <section className="ap-card">
-          <h3>Kích thước lệnh</h3>
-          <div className="ap-grid">
-            <label>
-              Rủi ro / lệnh (%)
+        <form className="auto-paper-form ap-form" onSubmit={(event) => void save(event)}>
+          <section className="ap-card">
+            <h3>Kích thước lệnh</h3>
+            <div className="ap-grid">
+              <label>
+                Rủi ro / lệnh (%)
+                <input
+                  type="number"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  required
+                  value={risk}
+                  disabled={locked}
+                  onChange={(e) => setRisk(e.target.value)}
+                />
+              </label>
+              <label>
+                Lệnh Auto tối đa / ngày
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  required
+                  value={maxTrades}
+                  disabled={locked}
+                  onChange={(e) => setMaxTrades(e.target.value)}
+                />
+              </label>
+            </div>
+            <fieldset className="leverage-box" disabled={locked || !state?.max_leverage}>
+              <legend>
+                Đòn bẩy <b>{leverage}x</b> · Cross
+              </legend>
+              <div className="leverage-stepper">
+                <button
+                  type="button"
+                  aria-label="Giảm đòn bẩy"
+                  onClick={() => setClamped(leverage - 1)}
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  aria-label="Đòn bẩy"
+                  min={minLeverage}
+                  max={maxLeverage}
+                  step="1"
+                  value={leverage}
+                  onChange={(e) => setClamped(Number(e.target.value))}
+                />
+                <span>x</span>
+                <button
+                  type="button"
+                  aria-label="Tăng đòn bẩy"
+                  onClick={() => setClamped(leverage + 1)}
+                >
+                  +
+                </button>
+              </div>
+              <div className="leverage-presets">
+                {[10, 20, 50, 100, 200]
+                  .filter((value) => value <= maxLeverage)
+                  .map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={leverage === value ? 'active' : ''}
+                      onClick={() => setClamped(value)}
+                    >
+                      {value}x
+                    </button>
+                  ))}
+              </div>
               <input
-                type="number"
-                min="0.1"
-                max="5"
-                step="0.1"
-                required
-                value={risk}
-                disabled={locked}
-                onChange={(e) => setRisk(e.target.value)}
-              />
-            </label>
-            <label>
-              Lệnh Auto tối đa / ngày
-              <input
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                required
-                value={maxTrades}
-                disabled={locked}
-                onChange={(e) => setMaxTrades(e.target.value)}
-              />
-            </label>
-          </div>
-          <fieldset className="leverage-box" disabled={locked || !state?.max_leverage}>
-            <legend>
-              Đòn bẩy <b>{leverage}x</b> · Cross
-            </legend>
-            <div className="leverage-stepper">
-              <button
-                type="button"
-                aria-label="Giảm đòn bẩy"
-                onClick={() => setClamped(leverage - 1)}
-              >
-                −
-              </button>
-              <input
-                type="number"
-                aria-label="Đòn bẩy"
+                className="leverage-slider"
+                type="range"
+                aria-label="Thanh trượt đòn bẩy"
                 min={minLeverage}
                 max={maxLeverage}
                 step="1"
                 value={leverage}
                 onChange={(e) => setClamped(Number(e.target.value))}
               />
-              <span>x</span>
-              <button
-                type="button"
-                aria-label="Tăng đòn bẩy"
-                onClick={() => setClamped(leverage + 1)}
-              >
-                +
-              </button>
+              <p className="micro">
+                {state?.max_leverage
+                  ? `Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}. Ký quỹ = giá trị lệnh ÷ ${leverage}.`
+                  : 'Chờ MEXC trả thông số đòn bẩy của cặp này.'}
+              </p>
+            </fieldset>
+          </section>
+          <section className="ap-card">
+            <h3>Giới hạn ví chung · 10 cặp</h3>
+            <div className="ap-grid">
+              <label>
+                Ngưỡng lỗ ngày (%)
+                <input
+                  type="number"
+                  min="0.1"
+                  max="20"
+                  step="0.1"
+                  required
+                  value={maxLoss}
+                  disabled={locked}
+                  onChange={(e) => setMaxLoss(e.target.value)}
+                />
+              </label>
+              <label>
+                Trần rủi ro SL (% vốn)
+                <input
+                  type="number"
+                  min="0.5"
+                  max="50"
+                  step="0.5"
+                  required={capEnabled}
+                  value={capEnabled ? cap : ''}
+                  placeholder="Không giới hạn"
+                  disabled={locked || !capEnabled}
+                  onChange={(event) => setCap(event.target.value)}
+                />
+              </label>
             </div>
-            <div className="leverage-presets">
-              {[10, 20, 50, 100, 200]
-                .filter((value) => value <= maxLeverage)
-                .map((value) => (
-                  <button
-                    type="button"
-                    key={value}
-                    className={leverage === value ? 'active' : ''}
-                    onClick={() => setClamped(value)}
-                  >
-                    {value}x
-                  </button>
-                ))}
-            </div>
-            <input
-              className="leverage-slider"
-              type="range"
-              aria-label="Thanh trượt đòn bẩy"
-              min={minLeverage}
-              max={maxLeverage}
-              step="1"
-              value={leverage}
-              onChange={(e) => setClamped(Number(e.target.value))}
-            />
-            <p className="micro">
-              {state?.max_leverage
-                ? `Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}. Ký quỹ = giá trị lệnh ÷ ${leverage}.`
-                : 'Chờ MEXC trả thông số đòn bẩy của cặp này.'}
-            </p>
-          </fieldset>
-        </section>
-        <section className="ap-card">
-          <h3>Giới hạn ví chung · 10 cặp</h3>
-          <div className="ap-grid">
-            <label>
-              Ngưỡng lỗ ngày (%)
+            <label className="ap-switch">
               <input
-                type="number"
-                min="0.1"
-                max="20"
-                step="0.1"
-                required
-                value={maxLoss}
+                type="checkbox"
+                checked={capEnabled}
                 disabled={locked}
-                onChange={(e) => setMaxLoss(e.target.value)}
+                onChange={(event) => setCapEnabled(event.target.checked)}
               />
+              Giới hạn tổng rủi ro SL của mọi lệnh đang mở
             </label>
-            <label>
-              Trần rủi ro SL (% vốn)
-              <input
-                type="number"
-                min="0.5"
-                max="50"
-                step="0.5"
-                required={capEnabled}
-                value={capEnabled ? cap : ''}
-                placeholder="Không giới hạn"
-                disabled={locked || !capEnabled}
-                onChange={(event) => setCap(event.target.value)}
-              />
-            </label>
+            <p className="micro">
+              Đang dùng {formatPrice(state?.portfolio_used_risk ?? 0)} USDT. Ký quỹ một lệnh luôn ≤
+              10% vốn. Đổi giới hạn ví chung cần dừng Auto trên mọi cặp.
+            </p>
+          </section>
+          <div className="ap-actions">
+            <button
+              className="secondary"
+              type="submit"
+              disabled={!state || !online || busy || state.enabled || !dirty}
+            >
+              <Save size={15} /> Lưu thông số
+            </button>
+            {dirty && <span className="micro">Lưu trước khi bật Auto.</span>}
           </div>
-          <label className="ap-switch">
-            <input
-              type="checkbox"
-              checked={capEnabled}
-              disabled={locked}
-              onChange={(event) => setCapEnabled(event.target.checked)}
-            />
-            Giới hạn tổng rủi ro SL của mọi lệnh đang mở
-          </label>
-          <p className="micro">
-            Đang dùng {formatPrice(state?.portfolio_used_risk ?? 0)} USDT. Ký quỹ một lệnh luôn ≤
-            10% vốn. Đổi giới hạn ví chung cần dừng Auto trên mọi cặp.
-          </p>
-        </section>
-        <div className="ap-actions">
-          <button
-            className="secondary"
-            type="submit"
-            disabled={!state || !online || busy || state.enabled || !dirty}
-          >
-            <Save size={15} /> Lưu thông số
-          </button>
-          {dirty && <span className="micro">Lưu trước khi bật Auto.</span>}
-        </div>
-      </form>
+        </form>
       </details>
       {error && (
         <p className="negative" role="alert">
@@ -346,11 +361,13 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
           vẫn được worker quản lý. Tắt nút theo dõi tín hiệu ở Tổng quan không dừng Auto Paper.
         </p>
         <p>
-          Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto.{' '}
-          Vào bằng bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP
-          hoặc không đủ ngân sách. Có thể giữ nhiều vị thế trên cùng cặp. Khối lượng theo rủi ro còn lại; tự động chặn nếu ký quỹ một lệnh vượt
-          10% vốn ví chung. Trần tổng rủi ro SL danh mục theo cấu hình ví chung ở trên. Bước hợp
-          đồng MEXC. Phí/trượt giá có thể khiến lỗ vượt ngân sách SL dự kiến.
+          Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP
+          theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto. Vào bằng
+          bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP hoặc
+          không đủ ngân sách. Có thể giữ nhiều vị thế trên cùng cặp. Khối lượng theo rủi ro còn lại;
+          tự động chặn nếu ký quỹ một lệnh vượt 10% vốn ví chung. Trần tổng rủi ro SL danh mục theo
+          cấu hình ví chung ở trên. Bước hợp đồng MEXC. Phí/trượt giá có thể khiến lỗ vượt ngân sách
+          SL dự kiến.
         </p>
         <p>
           Ngày tính theo UTC; mốc equity là lần quan sát đầu tiên trong ngày, gồm PnL chưa chốt.

@@ -107,6 +107,7 @@ export interface ExnessExecution {
       generation: number;
       last_capture: { time: number; at: number; status: string } | null;
       last_evolution: { at: number; generation: number } | null;
+      next_evolution_at?: number | null;
       tree_count: number;
       since: number | null;
       pending: number;
@@ -127,6 +128,9 @@ export interface ExnessExecution {
         h1_setup: string;
         m15_trigger: string;
         exit_policy: string;
+        generation?: number;
+        parents?: string[];
+        eligible?: boolean;
         signals: number;
         pending: number;
         resolved: number;

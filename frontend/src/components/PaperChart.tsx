@@ -25,7 +25,15 @@ import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
 
-import { aggregateCandles, projectOverlayPoints, recentChartRange, RECENT_CHART_BARS, CHART_RIGHT_SPACE, TIMEFRAMES, type ChartTimeframe } from '../lib/chart-timeframes';
+import {
+  aggregateCandles,
+  projectOverlayPoints,
+  recentChartRange,
+  RECENT_CHART_BARS,
+  CHART_RIGHT_SPACE,
+  TIMEFRAMES,
+  type ChartTimeframe,
+} from '../lib/chart-timeframes';
 
 const TIMEFRAME_KEY = 'futures-chart-timeframe';
 
@@ -40,7 +48,16 @@ export function strategyColor(strategy: string) {
     'squeeze',
     'trend_pullback',
   ];
-  const colors = ['#327d9c', '#ad7730', '#a26991', '#65823d', '#907740', '#5b78b7', '#bb6a4c', '#298b80'];
+  const colors = [
+    '#327d9c',
+    '#ad7730',
+    '#a26991',
+    '#65823d',
+    '#907740',
+    '#5b78b7',
+    '#bb6a4c',
+    '#298b80',
+  ];
   let hash = 0;
   for (const character of strategy) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   const index = families.indexOf(strategy.split(':')[0]);
@@ -101,7 +118,9 @@ export function PaperChart({
   const labels = useRef<ChartLabels | null>(null);
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
-  const axisLevels = useRef<{ line: IPriceLine; title: string; price: number; color: string }[]>([]);
+  const axisLevels = useRef<{ line: IPriceLine; title: string; price: number; color: string }[]>(
+    [],
+  );
   const fitted = useRef(false);
   const previousCandles = useRef<Candle[]>([]);
   function showRecentCandles() {
@@ -111,7 +130,14 @@ export function PaperChart({
   const snap = (time: number) => Math.floor(time / step) * step;
   const [hover, setHover] = useState<string | null>(null);
   const [tags, setTags] = useState<
-    { id: number; ids: number[]; kind: 'entry' | 'stop' | 'target'; y: number; displayY: number; column: number }[]
+    {
+      id: number;
+      ids: number[];
+      kind: 'entry' | 'stop' | 'target';
+      y: number;
+      displayY: number;
+      column: number;
+    }[]
   >([]);
   const openTrades = positions.length
     ? positions
@@ -139,8 +165,10 @@ export function PaperChart({
         );
         const placed = placeChartTags(
           groupNearbyTags(next).map((group) => ({
-            id: group.members[0].id, ids: group.members.map((member) => member.id),
-            kind: group.members[0].kind, y: group.y,
+            id: group.members[0].id,
+            ids: group.members.map((member) => member.id),
+            kind: group.members[0].kind,
+            y: group.y,
           })),
           Math.max(0, (container.current?.clientHeight ?? 0) - 30),
         );
@@ -153,14 +181,18 @@ export function PaperChart({
         }
         const levels = axisLevels.current.flatMap((level) => {
           const y = priceSeries.priceToCoordinate(level.price);
-          return y === null ? [] : [{ ...level, y, kind: level.title.split(' ').at(-1) ?? '', side: level.color }];
+          return y === null
+            ? []
+            : [{ ...level, y, kind: level.title.split(' ').at(-1) ?? '', side: level.color }];
         });
         const occupied: number[] = [];
         for (const group of groupNearbyTags(levels)) {
           const visible = !occupied.some((y) => Math.abs(y - group.y) < 18);
           if (visible) occupied.push(group.y);
           group.members.forEach((level, index) => {
-            const ids = group.members.map((member) => member.title.match(/^#\d+/)?.[0]).filter(Boolean);
+            const ids = group.members
+              .map((member) => member.title.match(/^#\d+/)?.[0])
+              .filter(Boolean);
             const title = ids.length > 1 ? `${ids.length}× ${group.kind}` : level.title;
             const axisLabelVisible = visible && index === 0;
             const key = `${axisLabelVisible}:${title}`;
@@ -311,7 +343,8 @@ export function PaperChart({
           points.push({
             time: bucket as UTCTimestamp,
             position: trade.side === 'long' ? 'aboveBar' : 'belowBar',
-            color: '#2c856c', shape: 'circle',
+            color: '#2c856c',
+            shape: 'circle',
             text: `#${trade.id} CHỐT MỘT PHẦN ${formatQuote(leg.price)}`,
           });
         }
@@ -344,10 +377,15 @@ export function PaperChart({
             crosshairMarkerVisible: false,
             pointMarkersVisible: true,
           });
-          range.setData(projectOverlayPoints([
-            { time: audit.range_start!, value },
-            { time: audit.range_end!, value },
-          ], step).map((point) => ({ ...point, time: point.time as UTCTimestamp })));
+          range.setData(
+            projectOverlayPoints(
+              [
+                { time: audit.range_start!, value },
+                { time: audit.range_end!, value },
+              ],
+              step,
+            ).map((point) => ({ ...point, time: point.time as UTCTimestamp })),
+          );
           ranges.current.push(range);
         }
       }
@@ -420,18 +458,25 @@ export function PaperChart({
           pointMarkersVisible: start === end,
           autoscaleInfoProvider: () => null,
         });
-        range.setData(projectOverlayPoints([
-          { time: start as UTCTimestamp, value: level.price },
-          { time: end as UTCTimestamp, value: level.price },
-        ], step).map((point) => ({ ...point, time: point.time as UTCTimestamp })));
+        range.setData(
+          projectOverlayPoints(
+            [
+              { time: start as UTCTimestamp, value: level.price },
+              { time: end as UTCTimestamp, value: level.price },
+            ],
+            step,
+          ).map((point) => ({ ...point, time: point.time as UTCTimestamp })),
+        );
         ranges.current.push(range);
       }
       for (const curve of observation.curves ?? []) {
         if (!chart.current) continue;
-        const visible = projectOverlayPoints(curve.points.filter((point) =>
-            point.time >= (candles[0]?.time ?? 0) &&
-            point.time <= observation.time,
-        ), step);
+        const visible = projectOverlayPoints(
+          curve.points.filter(
+            (point) => point.time >= (candles[0]?.time ?? 0) && point.time <= observation.time,
+          ),
+          step,
+        );
         if (!visible.length) continue;
         const indicator = chart.current.addSeries(LineSeries, {
           title: `${title} · ${curve.title}`,
@@ -450,7 +495,8 @@ export function PaperChart({
       }
       for (const marker of observation.markers ?? []) {
         const bucket = Math.floor(marker.time / step) * step;
-        if (marker.time > observation.time || !candles.some((candle) => candle.time === bucket)) continue;
+        if (marker.time > observation.time || !candles.some((candle) => candle.time === bucket))
+          continue;
         points.push({
           time: bucket as UTCTimestamp,
           position: marker.side === 'long' ? 'belowBar' : 'aboveBar',
@@ -483,7 +529,10 @@ export function PaperChart({
         axisLabelVisible: true,
       }),
     );
-    axisLevels.current = allLevels.map((level, index) => ({ ...level, line: lines.current[index] }));
+    axisLevels.current = allLevels.map((level, index) => ({
+      ...level,
+      line: lines.current[index],
+    }));
     if (allLevels.length > 0) {
       priceSeries.applyOptions({
         autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
@@ -571,26 +620,36 @@ export function PaperChart({
         />
         <div className="position-tag-layer">
           {tags.map((tag) => {
-            const members = tag.ids.map((id) => openTrades.find((p) => p.id === id)).filter((p): p is PaperTrade => p != null);
+            const members = tag.ids
+              .map((id) => openTrades.find((p) => p.id === id))
+              .filter((p): p is PaperTrade => p != null);
             if (!members.length) return null;
             const open = members[0];
             const tagKey = `${tag.ids.join(',')}-${tag.kind}`;
-            const sumPnl = (net = false) => members.reduce<number | null>((acc, p) => {
-              const price = tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
-              const val = estimatedPaperPnl(p, price, feeBps, net);
-              return acc === null || val === null ? null : acc + val;
-            }, 0);
+            const sumPnl = (net = false) =>
+              members.reduce<number | null>((acc, p) => {
+                const price =
+                  tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
+                const val = estimatedPaperPnl(p, price, feeBps, net);
+                return acc === null || val === null ? null : acc + val;
+              }, 0);
             const value = sumPnl(false);
             const net = sumPnl(true);
-            const label = tag.kind === 'entry' ? 'HIỆN TẠI' : tag.kind === 'stop' ? 'NẾU SL' : 'NẾU TP';
+            const label =
+              tag.kind === 'entry' ? 'HIỆN TẠI' : tag.kind === 'stop' ? 'NẾU SL' : 'NẾU TP';
             const countLabel = members.length > 1 ? `${members.length}× ` : `#${open.id} `;
-            const fmt = (n: number | null, d = 2) => n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
+            const fmt = (n: number | null, d = 2) =>
+              n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
             const left = 8 + tag.column * 200;
             const isSelected = members.some((p) => p.id === trade?.id);
             return (
-              <div key={tagKey} onMouseLeave={() => setHover(null)} onKeyDown={(event) => {
-                if (event.key === 'Escape') setHover(null);
-              }}>
+              <div
+                key={tagKey}
+                onMouseLeave={() => setHover(null)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') setHover(null);
+                }}
+              >
                 <div
                   className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''}`}
                   style={{ top: tag.displayY, left }}
@@ -598,7 +657,8 @@ export function PaperChart({
                   tabIndex={0}
                   onFocus={() => setHover(tagKey)}
                   onBlur={(event) => {
-                    if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setHover(null);
+                    if (!event.currentTarget.parentElement?.contains(event.relatedTarget))
+                      setHover(null);
                   }}
                   onClick={() => onSelectPosition?.(open.id)}
                   role="button"
@@ -610,11 +670,14 @@ export function PaperChart({
                   }}
                 >
                   <span>
-                    {countLabel}{open.side.toUpperCase()} {label}
+                    {countLabel}
+                    {open.side.toUpperCase()} {label}
                     {tag.kind === 'entry' && markStale ? ' · CŨ' : ''}
                   </span>
                   <strong>
-                    {value === null ? '—' : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)} USDT`}
+                    {value === null
+                      ? '—'
+                      : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)} USDT`}
                   </strong>
                 </div>
                 {hover === tagKey && (
@@ -623,54 +686,124 @@ export function PaperChart({
                     aria-label="Chi tiết vị thế"
                     onFocus={() => setHover(tagKey)}
                     onBlur={(event) => {
-                      if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setHover(null);
+                      if (!event.currentTarget.parentElement?.contains(event.relatedTarget))
+                        setHover(null);
                     }}
                     style={
                       tag.displayY > (container.current?.clientHeight ?? 430) * 0.48
                         ? {
                             bottom: (container.current?.clientHeight ?? 430) - tag.displayY + 10,
-                            left: Math.max(8, Math.min(left, (container.current?.clientWidth ?? 380) - 368)),
+                            left: Math.max(
+                              8,
+                              Math.min(left, (container.current?.clientWidth ?? 380) - 368),
+                            ),
                             maxHeight: Math.min(440, Math.max(80, tag.displayY - 18)),
                           }
                         : {
                             top: tag.displayY + 10,
-                            left: Math.max(8, Math.min(left, (container.current?.clientWidth ?? 380) - 368)),
-                            maxHeight: Math.min(440, Math.max(80, (container.current?.clientHeight ?? 430) - tag.displayY - 28)),
+                            left: Math.max(
+                              8,
+                              Math.min(left, (container.current?.clientWidth ?? 380) - 368),
+                            ),
+                            maxHeight: Math.min(
+                              440,
+                              Math.max(
+                                80,
+                                (container.current?.clientHeight ?? 430) - tag.displayY - 28,
+                              ),
+                            ),
                           }
                     }
                   >
                     <h4>
                       {members.length > 1 ? `${members.length} lệnh` : `#${open.id}`} ·{' '}
                       {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
-                      {tag.kind === 'entry' ? 'Giá hiện tại' : tag.kind === 'stop' ? 'Nếu chạm SL' : 'Nếu chạm TP'}
+                      {tag.kind === 'entry'
+                        ? 'Giá hiện tại'
+                        : tag.kind === 'stop'
+                          ? 'Nếu chạm SL'
+                          : 'Nếu chạm TP'}
                     </h4>
-                    <div className="position-tip-list" tabIndex={0} aria-label="Danh sách lệnh, cuộn để xem thêm">
-                    {members.map((p) => {
-                      const price = tag.kind === 'entry' ? markPrice : tag.kind === 'stop' ? p.stop : p.target;
-                      const gross = estimatedPaperPnl(p, price, feeBps, false);
-                      const tradeNet = estimatedPaperPnl(p, price, feeBps, true);
-                      const exitFee = price === null ? null : (price * p.quantity * feeBps) / 10000;
-                      const move = price === null ? null : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
-                      const unit = getFuturesSymbol().split('_')[0];
-                      return (
-                        <div key={p.id} className="position-tip-trade">
-                          <h5><b>#{p.id}</b> {tradeStrategy(p.audit)?.title ?? (p.origin === 'manual' ? 'Thủ công' : 'Auto')}</h5>
-                          <dl>
-                          <div><dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt><dd>{price === null ? '—' : formatQuote(price)} <i>({fmt(move)}%)</i></dd></div>
-                          <div><dt>Entry</dt><dd>{formatQuote(p.entry)}</dd></div>
-                          <div><dt>SL · TP</dt><dd>{formatQuote(p.stop)} · {formatQuote(p.target)}</dd></div>
-                          <div><dt>Khối lượng</dt><dd>{p.quantity} {unit}</dd></div>
-                          <div><dt>PnL giá</dt><dd>{fmt(gross)}</dd></div>
-                          <div><dt>Phí vào · ra</dt><dd>−{p.entry_fee.toFixed(2)} · −{exitFee === null ? '—' : exitFee.toFixed(2)}</dd></div>
-                          <div><dt>Funding</dt><dd>{fmt(-p.funding_cost)}</dd></div>
-                          <div><dt>Ròng nếu chốt</dt><dd>{fmt(tradeNet)} USDT</dd></div>
-                          </dl>
-                        </div>
-                      );
-                    })}
+                    <div
+                      className="position-tip-list"
+                      tabIndex={0}
+                      aria-label="Danh sách lệnh, cuộn để xem thêm"
+                    >
+                      {members.map((p) => {
+                        const price =
+                          tag.kind === 'entry'
+                            ? markPrice
+                            : tag.kind === 'stop'
+                              ? p.stop
+                              : p.target;
+                        const gross = estimatedPaperPnl(p, price, feeBps, false);
+                        const tradeNet = estimatedPaperPnl(p, price, feeBps, true);
+                        const exitFee =
+                          price === null ? null : (price * p.quantity * feeBps) / 10000;
+                        const move =
+                          price === null
+                            ? null
+                            : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
+                        const unit = getFuturesSymbol().split('_')[0];
+                        return (
+                          <div key={p.id} className="position-tip-trade">
+                            <h5>
+                              <b>#{p.id}</b>{' '}
+                              {tradeStrategy(p.audit)?.title ??
+                                (p.origin === 'manual' ? 'Thủ công' : 'Auto')}
+                            </h5>
+                            <dl>
+                              <div>
+                                <dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt>
+                                <dd>
+                                  {price === null ? '—' : formatQuote(price)} <i>({fmt(move)}%)</i>
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Entry</dt>
+                                <dd>{formatQuote(p.entry)}</dd>
+                              </div>
+                              <div>
+                                <dt>SL · TP</dt>
+                                <dd>
+                                  {formatQuote(p.stop)} · {formatQuote(p.target)}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Khối lượng</dt>
+                                <dd>
+                                  {p.quantity} {unit}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>PnL giá</dt>
+                                <dd>{fmt(gross)}</dd>
+                              </div>
+                              <div>
+                                <dt>Phí vào · ra</dt>
+                                <dd>
+                                  −{p.entry_fee.toFixed(2)} · −
+                                  {exitFee === null ? '—' : exitFee.toFixed(2)}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Funding</dt>
+                                <dd>{fmt(-p.funding_cost)}</dd>
+                              </div>
+                              <div>
+                                <dt>Ròng nếu chốt</dt>
+                                <dd>{fmt(tradeNet)} USDT</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        );
+                      })}
                     </div>
                     <dl className="total">
-                      <dt>PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}<small>Phí đóng ước tính {feeBps} bps</small></dt>
+                      <dt>
+                        PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}
+                        <small>Phí đóng ước tính {feeBps} bps</small>
+                      </dt>
                       <dd>{fmt(net)} USDT</dd>
                     </dl>
                     <p>
@@ -686,7 +819,7 @@ export function PaperChart({
               .filter((tag) => tag.y !== tag.displayY)
               .map((tag) => (
                 <line
-                  key={`${tag.ids.join(",")}-${tag.kind}`}
+                  key={`${tag.ids.join(',')}-${tag.kind}`}
                   x1={6}
                   y1={tag.y}
                   x2={8 + tag.column * 200}
@@ -733,10 +866,18 @@ export function PaperChart({
         <details className="chart-legend-info">
           <summary>Thông tin chart</summary>
           <ul>
-            <li>PnL trên thẻ: chênh lệch giá × khối lượng, chưa trừ phí. Rê chuột vào thẻ để xem số sau phí.</li>
+            <li>
+              PnL trên thẻ: chênh lệch giá × khối lượng, chưa trừ phí. Rê chuột vào thẻ để xem số
+              sau phí.
+            </li>
             <li>Nét đứt: vùng tham chiếu · nét liền: chỉ báo · marker: tín hiệu nến đóng.</li>
             <li>ENTRY/SL/TP dự kiến không phải lệnh đã khớp.</li>
-            {step !== 900 && <li>Lớp phân tích giữ dữ liệu nguồn, gộp mốc thời gian theo {timeframe}; không tính lại chỉ báo theo khung xem. Nến cuối có thể chưa đóng.</li>}
+            {step !== 900 && (
+              <li>
+                Lớp phân tích giữ dữ liệu nguồn, gộp mốc thời gian theo {timeframe}; không tính lại
+                chỉ báo theo khung xem. Nến cuối có thể chưa đóng.
+              </li>
+            )}
             <li>Nến hiện tại chỉ gồm các giá đã quan sát; giá realtime ở phía trên.</li>
           </ul>
         </details>

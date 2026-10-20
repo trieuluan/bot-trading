@@ -6,7 +6,10 @@ export const RECENT_CHART_BARS = 120;
 export const CHART_RIGHT_SPACE = 12;
 
 export function recentChartRange(count: number) {
-  return { from: Math.max(0, count - RECENT_CHART_BARS) - 0.5, to: count - 0.5 + CHART_RIGHT_SPACE };
+  return {
+    from: Math.max(0, count - RECENT_CHART_BARS) - 0.5,
+    to: count - 0.5 + CHART_RIGHT_SPACE,
+  };
 }
 
 export function projectOverlayPoints(points: { time: number; value: number }[], seconds: number) {
@@ -17,11 +20,16 @@ export function projectOverlayPoints(points: { time: number; value: number }[], 
     const previous = buckets.get(bucket);
     if (!previous || point.time >= previous.time) buckets.set(bucket, point);
   }
-  return [...buckets].sort(([first], [second]) => first - second)
+  return [...buckets]
+    .sort(([first], [second]) => first - second)
     .map(([time, point]) => ({ time, value: point.value }));
 }
 
-export function aggregateCandles(bars: Candle[], seconds: number, now = Date.now() / 1000): Candle[] {
+export function aggregateCandles(
+  bars: Candle[],
+  seconds: number,
+  now = Date.now() / 1000,
+): Candle[] {
   if (!Object.values(TIMEFRAMES).includes(seconds as 900 | 3600 | 14400 | 86400)) {
     throw new Error('Unsupported chart timeframe');
   }
@@ -35,13 +43,14 @@ export function aggregateCandles(bars: Candle[], seconds: number, now = Date.now
   }
   return [...groups.entries()]
     .sort(([first], [second]) => first - second)
-    .filter(([bucket, group]) =>
-      group[0].time === bucket &&
-      group.every((bar, index) => bar.time === bucket + index * 900) &&
-      (group.length === seconds / 900 || (
-        bucket + seconds > now && group.at(-1)!.time === bars.at(-1)!.time &&
-        group.at(-1)!.time >= Math.floor(now / 900) * 900 - 900
-      )),
+    .filter(
+      ([bucket, group]) =>
+        group[0].time === bucket &&
+        group.every((bar, index) => bar.time === bucket + index * 900) &&
+        (group.length === seconds / 900 ||
+          (bucket + seconds > now &&
+            group.at(-1)!.time === bars.at(-1)!.time &&
+            group.at(-1)!.time >= Math.floor(now / 900) * 900 - 900)),
     )
     .map(([bucket, group]) => ({
       time: bucket,

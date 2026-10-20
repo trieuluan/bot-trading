@@ -21,9 +21,7 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
             Quan sát lệnh, SL/TP và nhật ký quyết định trên chart. Dừng auto ngừng vào lệnh mới.
           </li>
         </ol>
-        <p>
-          Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.
-        </p>
+        <p>Nguồn MEXC dùng dữ liệu thật; không gửi lệnh.</p>
         <button className="primary" onClick={onClose}>
           Đã hiểu <Check size={16} />
         </button>
