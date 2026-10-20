@@ -13,7 +13,7 @@ from backend.app.db import (
     WorkspaceFeedState,
 )
 from backend.app.exness_feed import FRAMES, WORKSPACE
-from backend.app.forex_paper import _step_trade, forex_paper_summary, paper_tick, sync_paper_quote
+from backend.app.forex_paper import _step_trade, forex_paper_summary, legacy_paper_tick as paper_tick, sync_paper_quote
 
 NOW = 720000
 
@@ -226,81 +226,6 @@ def trades():
         ]
 
 
-def test_initialization_does_not_trade_old_history():
-    seed([NOW - 1800, NOW - 900], [(NOW - 900, "live")])
-    assert paper_tick(NOW)["processed"] == 0
-    assert trades() == []
-
-
-def test_next_open_persistent_stop_catchup_idempotent_and_isolated():
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    paper_tick(NOW + 900)
-    assert trades()[0]["status"] == "pending"
-    seed([NOW + 900])
-    paper_tick(NOW + 1800)
-    opened = trades()[0]
-    assert opened["status"] == "open"
-    assert opened["entry"] == pytest.approx(100.5 * 1.0002)
-    assert opened["entry_time"] == NOW + 900
-    assert opened["units"] * opened["entry"] <= 10000
-    seed([NOW + 1800, NOW + 2700, NOW + 3600])
-    with Session.begin() as session:
-        hit = session.get(WorkspaceCandle, (WORKSPACE, "XAUUSD", "15m", "bid", NOW + 1800))
-        hit.low = 97
-    paper_tick(NOW + 4500)
-    closed = trades()[0]
-    assert closed["outcome"] == "stop"
-    assert closed["exit_time"] == NOW + 1800
-    assert closed["exit"] == pytest.approx(98 * 0.9998)
-    before = forex_paper_summary()
-    paper_tick(NOW + 4500)
-    assert forex_paper_summary() == before
-    assert before["portfolios"][0]["balance"] < 10000
-    assert before["portfolios"][1]["balance"] == 10000
-    with Session() as session:
-        assert session.get(PaperWallet, 1).balance == 10000
-
-
-def test_late_signals_only_replay_and_overlapping_signal_skipped():
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW, NOW + 900, NOW + 1800], [(NOW, "catch_up"), (NOW + 1800, "catch_up")])
-    paper_tick(NOW + 3600)
-    assert [row["channel"] for row in trades()] == ["replay", "replay"]
-    assert [row["status"] for row in trades()] == ["open", "skipped"]
-    assert trades()[1]["reason"] == "position_already_active"
-
-
-def test_live_pending_entry_missed_during_sleep_routes_to_replay():
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    paper_tick(NOW + 900)
-    seed([NOW + 900, NOW + 1800])
-    paper_tick(NOW + 3600)
-    live, replay = trades()
-    assert live["status"] == "skipped"
-    assert live["reason"] == "missed_entry_while_offline"
-    assert replay["status"] == "open"
-    assert replay["provenance"] == "catch_up"
-
-
-def test_unknown_gap_excludes_trade_without_blocking_wallet():
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    paper_tick(NOW + 900)
-    seed([NOW + 900])
-    paper_tick(NOW + 1800)
-    seed([NOW + 2700], [(NOW + 2700, "live")])
-    paper_tick(NOW + 3600)
-    assert trades()[0]["status"] == "excluded"
-    assert trades()[0]["reason"] == "data_gap"
-    live = forex_paper_summary()["portfolios"][0]
-    assert live["status"] == "tracking" and live["balance"] == 10000
-
 def test_unpaired_feed_prevents_progress():
     seed([NOW - 900])
     paper_tick(NOW)
@@ -370,66 +295,6 @@ def test_api_exposes_separate_paper_and_never_broker_execution():
     result = TestClient(app).get("/api/workspaces/exness_forex/dashboard").json()
     assert result["execution_enabled"] is False
     assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay", "trend", "range", "router"]
-
-
-@pytest.mark.parametrize("outcome", ["stop", "target"])
-def test_sleep_resume_matches_continuous_exit_and_wallet(outcome):
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    paper_tick(NOW + 900)
-    seed([NOW + 900])
-    paper_tick(NOW + 1800)
-    with Session() as session:
-        initial_trade = dict(session.get(ForexPaperTrade, (WORKSPACE, "live", NOW)).snapshot)
-    stamps = [NOW + step * 900 for step in range(2, 110)]
-    seed(stamps)
-    with Session.begin() as session:
-        for side in ("bid", "ask"):
-            hit = session.get(WorkspaceCandle, (WORKSPACE, "XAUUSD", "15m", side, stamps[3]))
-            if outcome == "target":
-                hit.high = 107 if side == "bid" else 107.5
-            else:
-                hit.low = 97 if side == "bid" else 97.5
-    for stamp in stamps:
-        paper_tick(stamp + 900)
-    expected = trades()
-    expected_wallet = forex_paper_summary()
-    assert expected[0]["outcome"] == outcome
-    with Session.begin() as session:
-        row = session.get(ForexPaperTrade, (WORKSPACE, "live", NOW))
-        row.snapshot = initial_trade
-        for channel in ("live", "replay"):
-            account = session.get(ForexPaperAccount, (WORKSPACE, channel))
-            account.last_candle = NOW + 900
-            account.balance = 10000
-    now = stamps[-1] + 900
-    assert paper_tick(now)["processed"] == 96
-    assert paper_tick(now)["processed"] == 12
-    assert trades() == expected
-    assert forex_paper_summary() == expected_wallet
-
-
-def test_failed_tick_rolls_back_balances_trades_and_checkpoint(monkeypatch):
-    from backend.app import forex_paper
-
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    paper_tick(NOW + 900)
-    before = forex_paper_summary()
-    seed([NOW + 900])
-
-    def fail(*args):
-        raise RuntimeError("interrupted tick")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(forex_paper, "_step_trade", fail)
-        with pytest.raises(RuntimeError, match="interrupted"):
-            paper_tick(NOW + 1800)
-    assert forex_paper_summary() == before
-    paper_tick(NOW + 1800)
-    assert trades()[0]["status"] == "open"
 
 
 def test_short_exits_on_ask_not_bid():
@@ -527,30 +392,3 @@ def test_entry_uses_lot_floor_without_increasing_risk_to_reach_minimum(capital, 
         assert trade["lots"] == 0.02
         assert trade["units"] * trade["entry"] <= capital
         assert trade["units"] * trade["risk_per_unit"] <= 100
-
-def test_journal_keeps_signal_costs_and_arithmetic_without_double_counting_spread():
-    seed([NOW - 900])
-    paper_tick(NOW)
-    seed([NOW], [(NOW, "live")])
-    with Session.begin() as session:
-        row = session.get(ForexObservation, (WORKSPACE, NOW))
-        row.snapshot = {**row.snapshot, "strategy": "exness_mtf_v1", "trend": "up",
-                        "ema_4h": 95, "breakout_time": NOW - 3600, "touch_time": NOW - 900,
-                        "reason": "M15 giữ vùng"}
-    paper_tick(NOW + 900)
-    pending = trades()[0]
-    assert pending["signal"]["reason"] == "M15 giữ vùng"
-    assert pending["signal"]["ema_4h"] == 95
-    assert pending["commission_verified"] is False
-    seed([NOW + 900, NOW + 1800])
-    with Session.begin() as session:
-        for side in ("bid", "ask"):
-            bar = session.get(WorkspaceCandle, (WORKSPACE, "XAUUSD", "15m", side, NOW + 1800))
-            bar.low = 97 if side == "bid" else 97.5
-    paper_tick(NOW + 1800)
-    paper_tick(NOW + 2700)
-    trade = trades()[0]
-    assert trade["entry_spread"] == 0.5
-    assert trade["exit_spread"] is None
-    assert trade["exit_time_precision"] == "m15_bucket"
-    assert trade["pnl"] == pytest.approx(trade["gross_pnl"] - trade["total_slippage_usd"] - trade["commission_usd"])

@@ -93,43 +93,5 @@ def test_invalid_comparison_is_safe_and_explicit(tmp_path, monkeypatch, invalid)
     assert response.json()["comparison"] is None and response.json()["error"]
 
 
-def test_research_replay_saves_atomic_report_without_touching_paper(tmp_path, monkeypatch):
-    from backend.app.db import ForexPaperAccount, ForexPaperTrade, Session
-    from scripts import exness_mtf_replay
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    monkeypatch.setattr(exness_mtf_replay, "run_comparison", lambda frames, now: comparison_report())
-    response = TestClient(main.app).post("/api/workspaces/exness_forex/research/replay")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["available"] is True
-    assert len(data["comparison"]["results"]) == 12
-    assert (tmp_path / "exness-strategy-compare.json").exists()
-    assert not list(tmp_path.glob("*.tmp"))
-    with Session() as session:
-        assert session.query(ForexPaperAccount).count() == 0
-        assert session.query(ForexPaperTrade).count() == 0
-
-
-def test_failed_replay_preserves_old_report_and_releases_lock(tmp_path, monkeypatch):
-    from scripts import exness_mtf_replay
-
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    path = tmp_path / "exness-strategy-compare.json"
-    path.write_text("existing report")
-    def insufficient(frames, now):
-        raise ValueError("Insufficient closed warmup history")
-    monkeypatch.setattr(exness_mtf_replay, "run_comparison", insufficient)
-    response = TestClient(main.app).post("/api/workspaces/exness_forex/research/replay")
-    assert response.status_code == 422
-    assert path.read_text() == "existing report"
-    assert not main.FOREX_REPLAY_LOCK.locked()
-
-
-def test_duplicate_replay_is_rejected_without_unlocking_active_run():
-    main.FOREX_REPLAY_LOCK.acquire()
-    try:
-        response = TestClient(main.app).post("/api/workspaces/exness_forex/research/replay")
-        assert response.status_code == 409
-        assert main.FOREX_REPLAY_LOCK.locked()
-    finally:
-        main.FOREX_REPLAY_LOCK.release()
+def test_old_replay_is_gone():
+    assert TestClient(main.app).post("/api/workspaces/exness_forex/research/replay").status_code == 410

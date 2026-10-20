@@ -4,7 +4,7 @@ import os
 from decimal import ROUND_FLOOR, Decimal
 
 from .exness import ExnessError
-from .forex_strategies import ema
+from .forex_indicators import ema
 
 
 def bounded_setting(name, default, maximum):

@@ -397,10 +397,3 @@ def test_late_retry_window_bounds():
     ee.late_drift_ok(sig, 4002.5, NOW + 300)
     with pytest.raises(ExnessError, match="signal_expired"):
         ee.late_drift_ok(sig, 4000.0, NOW + 301)
-
-def test_m1_sync_yields_to_m15_orders():
-    from bot.exness_worker import m1_sync_allowed
-    for second in (0, 120, 300, 329, 840, 899):
-        assert not m1_sync_allowed(second)
-    assert m1_sync_allowed(330)
-    assert m1_sync_allowed(839)

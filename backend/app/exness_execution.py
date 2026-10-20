@@ -23,7 +23,6 @@ from .db import (
     ExnessDeal,
     ExnessExecutionState,
     ExnessExecutionTrade,
-    ForexObservation,
     Session,
     WorkspaceFeedState,
     engine,
@@ -38,13 +37,11 @@ from .exness_management import (
     protective_stop,
     risk_budget,
     split_bodies,
-    structure_stop_buffer,
 )
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
-from .exness_targets import target_context
-from .forex_learner import live_decision
-from .forex_learner import summary as learning_summary
+from .forex_htf_v2 import execution_candidates, validate_execution_signal
+from .forex_learning import summary as learning_summary
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -286,32 +283,26 @@ def evaluate(session, now):
         detail["why"] = "outside_signal_window"
         return None
     candle = minutes[-1]
-    breakout = session.get(ForexObservation, (WORKSPACE, candle.time))
     ask = next((row for row in frames["15m"] if row.price_type == "ask" and row.time == candle.time), None)
     if ask is None:
         detail["why"] = "ask_candle_missing"
         return None
-    hours = [row for row in frames["1h"] if row.price_type == "bid"]
-    higher = [row for row in frames["4h"] if row.price_type == "bid"]
-    result = live_decision(candle, hours, minutes, ask, breakout.snapshot if breakout else None, higher=higher)
-    if result is None:
-        detail.update(candle_time=candle.time, why="policy_missing")
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    try:
+        candidates = execution_candidates(account, now)
+    except (OSError, ValueError, KeyError, TypeError):
+        detail["why"] = "v2_ledger_unavailable"
         return None
-    signal, mode, scored, observations = result
-    shadow = {(row["strategy"], row["side"]): row["shadow_only"] for row in scored}
-    detail.update(candle_time=candle.time, evaluated=True, mode=mode,
-                     selected=signal["strategy"] if signal else None,
-                     confirmed=[{"strategy": row["strategy"], "side": row.get("side"),
-                                 "shadow": shadow.get((row["strategy"], row.get("side")), False)}
-                                for row in observations if row["status"] == "confirmed"],
-                  strategies=[{"strategy": row["strategy"], "status": row["status"], "reason": row.get("reason")}
-                              for row in observations])
-    if signal:
-        signal["ref_price"] = ask.close if signal["side"] == "long" else candle.close
-        signal["stop_buffer"] = structure_stop_buffer(minutes, multiplier=Decimal(str(signal.get("sl_buffer_k", 0.25))))
-        signal["target_context"] = target_context(candle, hours, [row for row in frames["4h"] if row.price_type == "bid"])
-    return signal
-
+    detail.update(candle_time=candle.time, evaluated=True, mode="htf_v2",
+                  confirmed=[{"strategy": signal["strategy"], "side": signal["side"], "shadow": False}
+                             for signal, _ in candidates],
+                  strategies=[{"strategy": signal["strategy"], "status": "confirmed", "reason": None}
+                              for signal, _ in candidates])
+    selected = candidates[0][0] if candidates else None
+    detail["selected"] = selected["strategy"] if selected else None
+    if selected:
+        selected["ref_price"] = ask.close if selected["side"] == "long" else candle.close
+    return selected
 
 def record_journal(state, detail, outcome, now):
     """One row per closed M15: what the learner saw and why the executor did or did not trade."""
@@ -429,7 +420,14 @@ def _execution_tick(api, now=None):
                            and order.get("order_type") == "sltp" and float(order.get("stop_loss_price") or 0) > 0
                            and float(order.get("take_profit_price") or 0) > 0]
             entry_time = int(datetime.fromisoformat(position.get("create_time", utc(now)).replace("Z", "+00:00")).timestamp())
-            early = exit_reason(position.get("direction"), entry_time, minutes)
+            sig = row.snapshot.get("signal", {})
+            if sig.get("management_frame") == "H1":
+                from .forex_buffer_study import closed_h1_rows
+                h1_rows = closed_h1_rows([r for r in frames.get("1h", []) if r.price_type == "bid"], now)
+                mgmt_rows = h1_rows if len(h1_rows) >= 20 else []
+            else:
+                mgmt_rows = minutes
+            early = exit_reason(position.get("direction"), entry_time, mgmt_rows)
             manual = row.snapshot.get("close_requested") or data.get("close_requested")
             reason = ("session_close" if near_close else "missing_protection" if not protections
                       else "manual" if manual else early)
@@ -448,7 +446,7 @@ def _execution_tick(api, now=None):
                 continue
             quote = live_quote()
             validate_quote(quote, now)
-            action = protective_stop(position, initial, quote, protections[0], condition, minutes, partial_done)
+            action = protective_stop(position, initial, quote, protections[0], condition, mgmt_rows, partial_done)
             if not action or (data.get("management", {}).get("status") == "failed"
                               and data["management"].get("stop") == action["stop"]):
                 continue
@@ -512,6 +510,13 @@ def _execution_tick(api, now=None):
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
         signal = evaluate(session, now)
+        if signal and str(signal.get("strategy", "")).startswith("hast2_") and signal.get("shadow_only") is False:
+            try:
+                signal = validate_execution_signal(signal, api.account_id, now)
+            except ExnessError as exc:
+                reason, signal = str(exc), None
+        elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_"))):
+            reason, signal = "shadow_only_signal", None
         detail = session.info.get("execution_evaluation", {
             "candle_time": now // 900 * 900 - 900, "evaluated": False})
         if reason:
@@ -525,6 +530,13 @@ def _execution_tick(api, now=None):
             record_journal(state, detail, "old_or_duplicate_signal", now)
             return "old_or_duplicate_signal"
         key = f"rr-{api.account_id}-{stamp}"
+        if signal.get("setup_id"):
+            duplicate = any(row.snapshot.get("signal", {}).get("setup_id") == signal["setup_id"]
+                            for row in session.scalars(select(ExnessExecutionTrade).where(
+                                ExnessExecutionTrade.account == api.account_id)).all())
+            if duplicate:
+                record_journal(state, detail, "old_or_duplicate_signal", now)
+                return "old_or_duplicate_signal"
         try:
             quote = live_quote()
             body = client.strategy_body(signal, condition, quote, key)

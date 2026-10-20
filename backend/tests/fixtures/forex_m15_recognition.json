@@ -1,0 +1,231 @@
+[
+  {
+    "family": "channel",
+    "params": {
+      "mode": "breakout",
+      "lookback": 20,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "breakout",
+      "lookback": 20,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "breakout",
+      "lookback": 40,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "breakout",
+      "lookback": 40,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "fade",
+      "lookback": 20,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "fade",
+      "lookback": 20,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "fade",
+      "lookback": 40,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "channel",
+    "params": {
+      "mode": "fade",
+      "lookback": 40,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "rsi",
+    "params": {
+      "period": 14,
+      "oversold": 30,
+      "overbought": 70,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "rsi",
+    "params": {
+      "period": 9,
+      "oversold": 25,
+      "overbought": 75,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "fvg",
+    "params": {
+      "min_gap": 0.0,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "fvg",
+    "params": {
+      "min_gap": 0.3,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "session",
+    "params": {
+      "start_hour": 7,
+      "end_hour": 12,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "session",
+    "params": {
+      "start_hour": 8,
+      "end_hour": 12,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "squeeze",
+    "params": {
+      "lookback": 40,
+      "bars": 10,
+      "ratio": 3.0,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "sweep",
+    "params": {
+      "lookback": 20,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "pullback",
+    "params": {
+      "entry_ema": 20,
+      "fast_ema": 20,
+      "trend": true
+    },
+    "side": "long"
+  },
+  {
+    "family": "range",
+    "params": {
+      "lookback": 20,
+      "edge": 0.1,
+      "efficiency": 0.5,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "retest",
+    "params": {
+      "lookback": 20,
+      "wait_hours": 12,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "router",
+    "params": {
+      "separation": 0.5,
+      "trend": false
+    },
+    "side": "long"
+  },
+  {
+    "family": "orb",
+    "params": {
+      "session": "london",
+      "range_bars": 2,
+      "trade_bars": 8,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "orb",
+    "params": {
+      "session": "new_york",
+      "range_bars": 2,
+      "trade_bars": 8,
+      "trend": true
+    },
+    "side": null
+  },
+  {
+    "family": "vsa",
+    "params": {
+      "lookback": 20,
+      "vol_mult": 1.5,
+      "wick_ratio": 0.6,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "mss",
+    "params": {
+      "lookback": 10,
+      "wait_bars": 6,
+      "retrace": 0.5,
+      "trend": false
+    },
+    "side": null
+  },
+  {
+    "family": "vwap",
+    "params": {
+      "lookback": 30,
+      "dev_mult": 2.5,
+      "trend": false
+    },
+    "side": null
+  }
+]

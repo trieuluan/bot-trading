@@ -138,6 +138,12 @@ class ExnessDemoClient:
                 "stop_loss_price": format(stop, "f"), "comment": key[:32]}
 
     def strategy_body(self, signal, condition, quote, key):
+        strategy = str(signal.get("strategy", ""))
+        if strategy.startswith("hast2_"):
+            from .forex_htf_v2 import validate_execution_signal
+            signal = validate_execution_signal(signal, self.api.account_id)
+        elif signal.get("shadow_only") or strategy.startswith(("ast_", "hast_")):
+            raise ExnessError("shadow_only_signal")
         validate_quote(quote)
         if signal.get("side") not in ("long", "short"):
             raise ValueError("Invalid signal side")
@@ -179,7 +185,13 @@ class ExnessDemoClient:
                 or (not long and stop <= positive_decimal(quote["ask"]))):
             raise ExnessError("Invalid structure stop or planned risk out of bounds")
         target = (entry + (2 if long else -2) * risk_distance).quantize(tick)
-        if signal.get("target_context") is not None:
+        if strategy.startswith("hast2_"):
+            from .forex_buffer_study import htf_exit_target
+            from .forex_samples import slippage_estimate
+            slip = Decimal(str(slippage_estimate()["bps"])) / 10000
+            commission = Decimal(str(condition.get("commission_per_unit") or 0))
+            target, signal["tp_reason"] = htf_exit_target(signal, entry, stop, tick, slip, commission)
+        elif signal.get("target_context") is not None:
             target, signal["tp_reason"] = exit_target(signal, entry, stop, tick)
         positive_decimal(target)
         return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": format(volume, "f"),

@@ -4,7 +4,6 @@ import logging
 import os
 import signal
 import threading
-import time
 
 from backend.app.exness import ExnessError
 from backend.app.exness_execution import execution_tick, record_error
@@ -16,17 +15,10 @@ from backend.app.exness_feed import (
     sync_page,
     worker_heartbeat,
 )
-from backend.app.exness_gaps import recheck_gap
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_costs import sync_specs
-from backend.app.forex_learner import forward_tick, learning_tick
-from backend.app.forex_paper import paper_tick
-from backend.app.forex_scalping import scalp_tick
+from backend.app.forex_htf_v2 import safe_htf_ast2_tick
 from backend.app.settings import validate_mode
-
-
-def m1_sync_allowed(now):
-    return 330 <= now % 900 < 840
 
 
 def main():
@@ -60,13 +52,14 @@ def main():
                             break
                     try:
                         observation_tick()
-                        paper_tick()
                     except Exception:
-                        logging.exception("Exness observation/paper unavailable; no broker orders sent")
+                        logging.exception("Exness observation unavailable; no broker orders sent")
+                    safe_htf_ast2_tick()
                     try:
-                        forward_tick()
+                        from backend.app.forex_paper import legacy_paper_tick
+                        legacy_paper_tick()
                     except Exception:
-                        logging.exception("Forward shadow unavailable; persisted samples unchanged")
+                        logging.exception("Legacy Paper management unavailable; no new entries")
                     try:
                         execution_tick(api)
                     except Exception as exc:
@@ -74,23 +67,6 @@ def main():
                         logging.exception("Exness demo execution tick failed; no duplicate orders")
                         if isinstance(exc, ExnessError):
                             stop.wait(exc.retry_after)
-                    try:
-                        learning_tick()
-                    except Exception:
-                        logging.exception("Exness learning paused; executor unchanged")
-                    try:
-                        if m1_sync_allowed(time.time()) and api.rate_limit_until <= time.monotonic():
-                            recheck_gap(api)
-                            synced = sync_page(api, "1m", days=7)
-                            if synced["status"] == "current" and m1_sync_allowed(time.time()):
-                                sync_page(api, "1m", days=30, older=True)
-                    except ExnessError as exc:
-                        logging.warning("Exness M1 sync paused; persisted retry")
-                        delay = max(delay, exc.retry_after)
-                    try:
-                        scalp_tick()
-                    except Exception:
-                        logging.exception("Scalping shadow unavailable; persisted samples unchanged")
                 else:
                     delay = 60
             except Exception as exc:

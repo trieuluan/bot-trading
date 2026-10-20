@@ -7,7 +7,7 @@ import {
 } from '../components/MtfObservationChart';
 import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { formatPrice, observationStatusLabels } from '../lib/format';
-import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
+import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 interface ForexCandle {
   time: number;
@@ -190,6 +190,128 @@ export function ForexCatchupStatus({
   );
 }
 
+const rejectLabels: Record<string, [string, string]> = {
+  h4_trend_opposed: ['Ngược xu hướng H4', 'Hướng setup đi ngược EMA50 H4'],
+  no_h1_setup: ['Chưa có setup H1', 'H1 chưa hình thành cấu trúc cần thiết'],
+  no_m15_trigger: ['Chưa có trigger M15', 'Setup H1 đạt nhưng nến M15 chưa kích hoạt'],
+  no_trigger: ['Chưa có trigger M15', 'Setup H1 đạt nhưng M15 chưa kích hoạt'],
+  h1_setup_expired: ['Setup H1 hết hạn', 'Quá thời hạn hiệu lực của cấu trúc'],
+  session_filtered: ['Ngoài phiên giao dịch', 'Bộ lọc phiên từ chối thời điểm này'],
+  invalid_spread: ['Spread vượt ngưỡng', 'Chi phí vào lệnh quá cao'],
+  invalid_m15: ['Nến M15 không hợp lệ', 'Thiếu dữ liệu nến M15 đóng'],
+  setup_reused: ['Setup đã dùng', 'Mỗi setup chỉ vào một lần'],
+  no_h1_invalidation: ['Thiếu mức vô hiệu H1', 'Không xác định được SL cấu trúc'],
+  sl_too_wide: ['SL quá xa', 'Vượt 3 ATR H1'],
+  sl_too_tight: ['SL quá sát', 'Dưới 0.3 ATR H1'],
+  no_target: ['Không có mục tiêu', 'Không có cản H1/H4 phía trước'],
+  poor_rr: ['R/R kém', 'Dưới 1.5R sau chi phí'],
+  h1_not_closed: ['H1 chưa đóng', 'Chờ nến H1 đóng'],
+  h4_stale: ['H4 cũ', 'Dữ liệu H4 không còn mới'],
+};
+
+function BotAnalysisBreakdown({
+  strategies,
+}: {
+  strategies: NonNullable<LearnerAnalysis['strategies']>;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  const rows = Object.entries(strategies);
+  const confirmed = rows.filter(([, row]) => row.status === 'confirmed');
+  const groups = new Map<string, string[]>();
+  rows
+    .filter(([, row]) => row.status !== 'confirmed')
+    .forEach(([name, row]) => {
+      const code = row.reason ?? 'unknown';
+      groups.set(code, [...(groups.get(code) ?? []), name]);
+    });
+  const sorted = [...groups.entries()].sort((x, y) => y[1].length - x[1].length);
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? rows.filter(
+        ([name, row]) =>
+          name.toLowerCase().includes(needle) ||
+          (row.chart?.note ?? '').toLowerCase().includes(needle),
+      )
+    : [];
+  const note = (row: (typeof rows)[number][1]) => row.chart?.note ?? '';
+  return (
+    <div className="bot-breakdown">
+      <div className="bot-breakdown-head">
+        <strong>
+          {confirmed.length ? `${confirmed.length} cây có tín hiệu` : 'Chưa cây nào có tín hiệu'}
+        </strong>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Tìm ID hoặc setup…"
+          aria-label="Tìm cây"
+        />
+      </div>
+      {confirmed.map(([name, row]) => (
+        <div key={name} className="bot-breakdown-hit">
+          <strong>{name}</strong> · {row.side?.toUpperCase()} · SL {row.stop ?? '—'} · mức{' '}
+          {row.level ?? '—'}
+          <small>{note(row)}</small>
+        </div>
+      ))}
+      {needle ? (
+        <table>
+          <tbody>
+            {matches.slice(0, 30).map(([name, row]) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td>{row.status === 'confirmed' ? 'xác nhận' : 'loại'}</td>
+                <td>
+                  {row.status === 'confirmed'
+                    ? note(row)
+                    : (rejectLabels[row.reason ?? '']?.[0] ?? row.reason ?? '—')}
+                </td>
+              </tr>
+            ))}
+            {!matches.length && (
+              <tr>
+                <td colSpan={3}>Không có cây khớp.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      ) : (
+        sorted.map(([code, names]) => {
+          const [title, hint] = rejectLabels[code] ?? [code, 'Mã lý do chưa có mô tả'];
+          const expanded = open === code;
+          return (
+            <div key={code} className="bot-breakdown-group">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setOpen(expanded ? null : code)}
+              >
+                <span>{title}</span>
+                <small>{hint}</small>
+                <b>
+                  {names.length}/{rows.length} cây
+                </b>
+                <i style={{ width: `${(names.length / rows.length) * 100}%` }} />
+              </button>
+              {expanded && (
+                <ul>
+                  {names.map((name) => (
+                    <li key={name}>
+                      <code>{name}</code> <small>{note(strategies[name])}</small>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 export function ForexStrategyPage({
   dashboard,
   disconnected,
@@ -211,6 +333,8 @@ export function ForexStrategyPage({
 }) {
   const [candles, setCandles] = useState<ForexCandle[]>([]);
   const [analysis, setAnalysis] = useState<LearnerAnalysis | null>(null);
+  const [htf2Shadow, setHtf2Shadow] =
+    useState<NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']>();
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
@@ -218,10 +342,16 @@ export function ForexStrategyPage({
         const res = await fetch('/api/workspaces/exness_forex/learning/analysis', {
           signal: controller.signal,
         });
-        const body = (await res.json()) as LearnerAnalysis | { status: string };
+        const body = (await res.json()) as (LearnerAnalysis | { status: string }) & {
+          htf_ast2_shadow?: typeof htf2Shadow;
+        };
+        setHtf2Shadow(res.ok ? body.htf_ast2_shadow : undefined);
         setAnalysis(res.ok && 'levels' in body ? body : null);
       } catch {
-        if (!controller.signal.aborted) setAnalysis(null);
+        if (!controller.signal.aborted) {
+          setAnalysis(null);
+          setHtf2Shadow(undefined);
+        }
       }
     };
     void load();
@@ -930,23 +1060,14 @@ export function ForexStrategyPage({
                       .length
                   }{' '}
                   xác nhận ·{' '}
-                  {Object.keys(analysis.strategies).filter((n) => n.startsWith('gen_')).length} tự
-                  sinh đang chờ
+                  {
+                    Object.values(analysis.strategies).filter((row) => row.status !== 'confirmed')
+                      .length
+                  }{' '}
+                  cây bị loại
                 </span>
               </summary>
-              <table>
-                <tbody>
-                  {Object.entries(analysis.strategies)
-                    .filter(([name, row]) => !name.startsWith('gen_') || row.status === 'confirmed')
-                    .map(([name, row]) => (
-                      <tr key={name}>
-                        <td>{name}</td>
-                        <td>{row.status}</td>
-                        <td>{row.reason ?? '—'}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+              <BotAnalysisBreakdown strategies={analysis.strategies} />
               <p>Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.</p>
             </details>
           )}
@@ -1045,6 +1166,71 @@ export function ForexStrategyPage({
           </ol>
         </div>
       )}
+      {!executionOnly && htf2Shadow && (
+        <div className="learning-section-card">
+          <div className="card-header">
+            <div>
+              <h4>AST HTF V2 — shadow, có tiến hoá · Execution V2 đang khoá</h4>
+              <p className="muted-desc">
+                {htf2Shadow.note}. Thế hệ {htf2Shadow.generation}, {htf2Shadow.tree_count} cây.
+                {htf2Shadow.management_comparison?.paired_count
+                  ? ` So cặp H1/M15 (${htf2Shadow.management_comparison.paired_count} cặp): H1 ${htf2Shadow.management_comparison.h1_mean_r?.toFixed(2) ?? '—'}R, M15 ${htf2Shadow.management_comparison.m15_mean_r?.toFixed(2) ?? '—'}R.`
+                  : ' Chưa có cặp H1/M15 cùng thời điểm để so sánh.'}{' '}
+                {htf2Shadow.excluded} mẫu bị loại
+                {htf2Shadow.rejections && Object.keys(htf2Shadow.rejections).length
+                  ? ` · lý do loại tín hiệu: ${Object.entries(htf2Shadow.rejections)
+                      .map(([reason, count]) => `${reason}: ${count}`)
+                      .join(', ')}`
+                  : ''}
+                . VSA/VWAP dùng tick volume làm proxy.
+              </p>
+            </div>
+            <span className="badge-count">
+              {htf2Shadow.status} · {htf2Shadow.resolved} đã đóng · {htf2Shadow.pending} đang chạy
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="learner-clean-table">
+              <thead>
+                <tr>
+                  <th>Cây HTF V2</th>
+                  <th>Setup H1</th>
+                  <th>Trigger M15</th>
+                  <th>Quản lý</th>
+                  <th className="num">Tín hiệu</th>
+                  <th className="num">Đang chạy</th>
+                  <th className="num">Đã đóng</th>
+                  <th className="num">R TB</th>
+                  <th>SL/TP gần nhất</th>
+                </tr>
+              </thead>
+              <tbody>
+                {htf2Shadow.trees.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <span className="strategy-name">{row.id}</span>
+                      <small className="muted"> {row.description}</small>
+                    </td>
+                    <td>{row.h1_setup}</td>
+                    <td>{row.m15_trigger}</td>
+                    <td>{row.exit_policy}</td>
+                    <td className="num">{row.signals}</td>
+                    <td className="num">{row.pending}</td>
+                    <td className="num">{row.resolved}</td>
+                    <td className="num font-mono">{row.mean_r?.toFixed(2) ?? '—'}</td>
+                    <td className="font-mono">
+                      {row.last_levels
+                        ? `SL ${row.last_levels.stop} · TP ${row.last_levels.target}`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {includeReplay && <ForexReplayControl />}
     </section>
   );

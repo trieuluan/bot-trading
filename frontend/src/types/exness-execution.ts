@@ -39,6 +39,17 @@ export interface BrokerPosition {
 
 export interface ExnessExecution {
   learning?: {
+    engine?: string;
+    execution_v2?: {
+      enabled: boolean;
+      v2_enabled: boolean;
+      exness_enabled: boolean;
+      account_enabled: boolean;
+      blocked_reason: string | null;
+      eligible_count: number;
+      eligible_ids: string[];
+      selected: string | null;
+    };
     scalping?: {
       status: string;
       strategy?: string;
@@ -70,8 +81,8 @@ export interface ExnessExecution {
       sample_count: number;
       contexts: Record<string, { selected: string; recommended: string; eligible: boolean }>;
     };
-    mode: string;
-    reason: string;
+    mode?: string;
+    reason?: string;
     updated_at?: number;
     processed_bars?: number;
     evolution?: {
@@ -91,6 +102,40 @@ export interface ExnessExecution {
       reasons: string[];
     }[];
     retired_genomes?: string[];
+    htf_ast2_shadow?: {
+      status: string;
+      generation: number;
+      last_capture: { time: number; at: number; status: string } | null;
+      last_evolution: { at: number; generation: number } | null;
+      tree_count: number;
+      since: number | null;
+      pending: number;
+      resolved: number;
+      excluded: number;
+      mean_r: number | null;
+      note: string;
+      excluded_reasons?: Record<string, number>;
+      rejections?: Record<string, number>;
+      management_comparison?: {
+        paired_count: number;
+        h1_mean_r: number | null;
+        m15_mean_r: number | null;
+      };
+      trees: {
+        id: string;
+        description: string;
+        h1_setup: string;
+        m15_trigger: string;
+        exit_policy: string;
+        signals: number;
+        pending: number;
+        resolved: number;
+        excluded: number;
+        mean_r: number | null;
+        lower_r: number | null;
+        last_levels: { stop: number; target: number; reason: string; time: number } | null;
+      }[];
+    };
     forward_shadow?: {
       since: number | null;
       updated_at?: number;
@@ -114,7 +159,11 @@ export interface ExnessExecution {
         status: string;
         outcome?: string;
         net_r_ex_swap?: number;
-        costs: { slippage_bps: number; commission_per_unit: number | null; verified: boolean };
+        costs: {
+          slippage_bps: number;
+          commission_per_unit: number | null;
+          verified: boolean;
+        };
       }[];
       last_capture?: {
         time: number;

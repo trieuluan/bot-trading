@@ -6,7 +6,6 @@ import secrets
 from contextlib import suppress
 import json
 import math
-import tempfile
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -40,10 +39,9 @@ from .exness_observation import observation_summary
 from .exness_quotes import quotes
 from .exness_quotes import router as quotes_router
 from .feed import load_candles, save_candles
-from .forex_learner import router as learning_router
+from .forex_learning import router as learning_router
 from .forex_paper import forex_paper_summary
 from .forex_reporting import journal_csv
-from .forex_strategies import STRATEGIES
 from .futures_symbols import SYMBOLS, market_symbol, symbol_scope
 from .futures_learner import router as futures_learning_router
 from .futures_history import router as futures_history_router
@@ -311,39 +309,13 @@ def workspace_dashboard(workspace_id: str):
 
 
 RESEARCH_DIRECTORY = Path(__file__).resolve().parents[2] / "research-output"
-FOREX_REPLAY_LOCK = Lock()
+LEGACY_STRATEGIES = ("breakout_retest", "trend_pullback", "range_rejection", "donchian_breakout",
+                     "liquidity_sweep", "squeeze_breakout", "session_breakout", "fvg_retest", "rsi_reversion", "regime_router")
 
 
 @app.post("/api/workspaces/exness_forex/research/replay")
 def replay_forex_strategies():
-    if not FOREX_REPLAY_LOCK.acquire(blocking=False):
-        raise HTTPException(409, "Replay đang chạy; chờ kết quả, không gửi lại")
-    temporary = None
-    try:
-        from scripts.exness_mtf_replay import run_comparison
-
-        from .exness_observation import load_frames
-
-        now = int(time.time())
-        with Session() as session:
-            report = run_comparison(load_frames(session, now), now)
-        RESEARCH_DIRECTORY.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=RESEARCH_DIRECTORY,
-                                         prefix="exness-compare-", suffix=".tmp", delete=False) as output:
-            temporary = Path(output.name)
-            json.dump(report, output, ensure_ascii=False, allow_nan=False)
-        temporary.replace(RESEARCH_DIRECTORY / "exness-strategy-compare.json")
-        return exness_research()
-    except ValueError as exc:
-        raise HTTPException(422, "Dữ liệu chưa đủ hoặc không hợp lệ để replay; báo cáo cũ được giữ nguyên") from exc
-    except OSError as exc:
-        raise HTTPException(503, "Không lưu được báo cáo replay; kiểm tra thư mục research-output") from exc
-    finally:
-        try:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-        finally:
-            FOREX_REPLAY_LOCK.release()
+    raise HTTPException(410, "Replay chiến thuật cũ đã ngừng; hệ thống đã chuyển sang HTF AST V2")
 
 @app.get("/api/workspaces/exness_forex/research")
 def exness_research():
@@ -366,7 +338,7 @@ def exness_research():
             identities = set()
             for row in comparison["results"]:
                 identity = (row["strategy"], row["slippage_bps"])
-                if (identity in identities or identity[0] not in STRATEGIES
+                if (identity in identities or identity[0] not in LEGACY_STRATEGIES
                         or type(identity[1]) is not int or identity[1] not in (0, 1, 2)
                         or row["status"] not in ("blocked", "open", "complete")
                         or type(row["equity_verified"]) is not bool):

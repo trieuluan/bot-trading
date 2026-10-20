@@ -41,12 +41,12 @@ const outcomeClass = (outcome: string) =>
     ? 'positive'
     : outcome === 'api_rate_limited'
       ? 'negative'
-    : outcome.startsWith('blocked') ||
-        outcome.startsWith('unavailable') ||
-        outcome === 'worker_error' ||
-        outcome === 'execution_error'
-      ? 'negative'
-      : 'muted';
+      : outcome.startsWith('blocked') ||
+          outcome.startsWith('unavailable') ||
+          outcome === 'worker_error' ||
+          outcome === 'execution_error'
+        ? 'negative'
+        : 'muted';
 
 type Panel = 'chart' | 'orders' | 'learning' | 'strategies';
 const panels: [Panel, string, string][] = [
@@ -257,61 +257,33 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
             >
               <div className="learning-overview-grid">
                 <div className="learning-stat-card">
-                  <span className="card-label">Quần thể gen</span>
-                  <div className="card-value">
-                    {data.learning?.evolution
-                      ? Object.values(data.learning.evolution.families).reduce((a, b) => a + b, 0)
-                      : 0}
-                    <small className="muted"> / {data.learning?.evolution?.cap ?? 40}</small>
+                  <span className="card-label">Execution V2</span>
+                  <div className="card-value" style={{ fontSize: '18px' }}>
+                    {data.learning?.execution_v2?.enabled ? 'Đang bật' : 'Đang tắt'}
                   </div>
                   <div className="card-sub">
-                    {data.learning?.evolution?.shadow ?? 0} shadow ·{' '}
-                    <span className={data.learning?.promoted?.length ? 'positive font-bold' : ''}>
-                      {data.learning?.promoted?.length ?? 0} duyệt demo
-                    </span>
+                    {data.learning?.execution_v2?.blocked_reason ?? 'sẵn sàng'}
                   </div>
                 </div>
-
                 <div className="learning-stat-card">
-                  <span className="card-label">Kiểm định ngoài mẫu (Val)</span>
+                  <span className="card-label">Cây đủ chuẩn</span>
                   <div className="card-value">
-                    {amount(data.learning?.validation?.selected_mean_r)}
-                    <small className="muted"> R TB</small>
-                  </div>
-                  <div className="card-sub">
-                    {data.learning?.validation?.selected_closed ?? 0} mẫu · router cũ{' '}
-                    {amount(data.learning?.validation?.baseline_mean_r)}
-                  </div>
-                </div>
-
-                <div className="learning-stat-card">
-                  <span className="card-label">SL/TP học thích ứng</span>
-                  <div className="card-value">
-                    {
-                      Object.values(data.learning?.exit_learning?.contexts ?? {}).filter(
-                        (row) => row.eligible,
-                      ).length
-                    }
+                    {data.learning?.execution_v2?.eligible_count ?? 0}
                     <small className="muted">
                       {' '}
-                      / {Object.keys(data.learning?.exit_learning?.contexts ?? {}).length || '—'} đủ
-                      chuẩn
+                      / {data.learning?.htf_ast2_shadow?.tree_count ?? 56}
                     </small>
                   </div>
                   <div className="card-sub">
-                    Mặc định: <code>{data.learning?.exit_learning?.default_variant ?? '—'}</code>
+                    Chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
                   </div>
                 </div>
-
                 <div className="learning-stat-card">
-                  <span className="card-label">Dữ liệu huấn luyện</span>
-                  <div className="card-value">
-                    {data.learning?.processed_bars ?? 0}
-                    <small className="muted"> nến M15</small>
-                  </div>
+                  <span className="card-label">Mẫu forward V2</span>
+                  <div className="card-value">{data.learning?.htf_ast2_shadow?.resolved ?? 0}</div>
                   <div className="card-sub">
-                    {data.learning?.broker_learning?.closed_labels ?? 0} lệnh sàn · trượt{' '}
-                    {data.learning?.assumptions?.slippage_bps_each_side ?? 0} bps
+                    {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ{' '}
+                    {data.learning?.htf_ast2_shadow?.generation ?? 0}
                   </div>
                 </div>
               </div>
@@ -381,319 +353,6 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   </p>
                 )}
               </div>
-
-              <div className="learning-section-card">
-                <div className="card-header">
-                  <div>
-                    <h4>Shadow thời gian thực (forward)</h4>
-                    <span className="muted-desc">
-                      Chỉ tín hiệu phát sinh sau{' '}
-                      {date(data.learning?.forward_shadow?.since ?? null)}; khóa phiên bản gen,
-                      không ghi đè kết quả đã đóng. Mô phỏng, không phải lệnh sàn.
-                    </span>
-                  </div>
-                  <span className="badge-count">
-                    {data.learning?.forward_shadow?.signals ?? 0} tín hiệu
-                  </span>
-                </div>
-                {data.learning?.forward_shadow?.strategies.length ? (
-                  <div className="table-wrap">
-                    <table className="learner-clean-table">
-                      <thead>
-                        <tr>
-                          <th>Chiến lược</th>
-                          <th className="num">Tín hiệu</th>
-                          <th className="num">Đang chạy</th>
-                          <th className="num">Đã đóng</th>
-                          <th className="num">R TB</th>
-                          <th className="num">R thấp nhất</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.learning.forward_shadow.strategies.slice(0, 15).map((row) => (
-                          <tr key={row.strategy + row.version}>
-                            <td>
-                              <span className="strategy-name">{row.strategy}</span>
-                              <small className="muted"> {row.version.slice(0, 6)}</small>
-                              {!row.costs_verified && (
-                                <small className="muted"> · chi phí chưa xác minh</small>
-                              )}
-                            </td>
-                            <td className="num">{row.signals}</td>
-                            <td className="num">{row.open}</td>
-                            <td className="num">{row.resolved}</td>
-                            <td className="num font-mono">{amount(row.mean_r)}</td>
-                            <td className="num font-mono">{amount(row.lower_r)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="muted-desc">
-                    Chưa có tín hiệu forward. Nến M15 kế tiếp sẽ được ghi nhận.
-                  </p>
-                )}
-              </div>
-
-              <div className="learning-section-card">
-                <div className="card-header">
-                  <div>
-                    <h4>Scalping M1</h4>
-                    <span className="muted-desc">
-                      {data.learning?.scalping?.rule ?? 'Donchian20 + EMA20/50 trên nến M1'}
-                    </span>
-                  </div>
-                  <span className="badge-count">Mô phỏng · chưa gửi lệnh sàn</span>
-                </div>
-                <div className="scalp-body">
-                  <div className="scalp-meta">
-                    <span>
-                      {data.learning?.scalping?.status === 'waiting_m1_feed'
-                        ? 'Đang tải lịch sử M1'
-                        : 'M1 đã đồng bộ'}
-                    </span>
-                    {data.learning?.scalping?.replay && (
-                      <span>
-                        {amount(data.learning.scalping.replay.candles)} nến ·{' '}
-                        {date(data.learning.scalping.replay.from)} –{' '}
-                        {date(data.learning.scalping.replay.to)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="scalp-tiles">
-                    {(
-                      [
-                        ['Train 70%', data.learning?.scalping?.replay?.train, 30],
-                        ['Validation 30%', data.learning?.scalping?.replay?.validation, 30],
-                        ['Shadow live', data.learning?.scalping?.forward, 30],
-                      ] as const
-                    ).map(([label, stats, need]) => (
-                      <div key={label} className="scalp-tile">
-                        <span className="scalp-tile-label">{label}</span>
-                        <strong
-                          className={
-                            stats?.lower_r == null
-                              ? 'muted'
-                              : stats.lower_r > 0
-                                ? 'positive'
-                                : 'negative'
-                          }
-                        >
-                          {stats?.mean_r == null
-                            ? '—'
-                            : `${stats.mean_r > 0 ? '+' : ''}${amount(stats.mean_r)} R`}
-                        </strong>
-                        <small>
-                          {stats?.resolved ?? 0}/{need} lệnh · cận dưới {amount(stats?.lower_r)} ·
-                          thắng{' '}
-                          {stats?.win_rate == null ? '—' : `${Math.round(stats.win_rate * 100)}%`}
-                        </small>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="table-wrap">
-                    <table className="learner-clean-table">
-                      <thead>
-                        <tr>
-                          <th>Biến thể</th>
-                          <th className="num">Train</th>
-                          <th className="num">Validation</th>
-                          <th className="num">Shadow live</th>
-                          <th>Lý do chưa duyệt</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.learning?.scalping?.variants?.map((row) => (
-                          <tr
-                            key={row.id}
-                            className={row.id === data.learning?.scalping?.train_candidate ? 'active-strat' : ''}
-                          >
-                            <td>
-                              <span className="strategy-name">{row.label}</span>
-                              {row.id === data.learning?.scalping?.train_candidate && (
-                                <span className="active-pill">ứng viên train</span>
-                              )}
-                            </td>
-                            {[row.train, row.validation, row.forward].map((stats, index) => (
-                              <td key={index} className="num">
-                                <span
-                                  className={
-                                    stats.lower_r == null ? '' : stats.lower_r > 0 ? 'positive' : 'negative'
-                                  }
-                                >
-                                  {stats.mean_r == null ? '—' : `${amount(stats.mean_r)} R`}
-                                </span>
-                                <small className="muted"> n={stats.resolved}</small>
-                              </td>
-                            ))}
-                            <td className="scalp-reasons">{row.gate.join(' · ') || 'Đạt'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="scalp-note">
-                    Bid/ask, vào ở giá mở nến kế tiếp; nến chạm cả SL và TP tính SL trước. Slippage
-                    chưa hiệu chuẩn cho M1, chưa mô phỏng tick và độ trễ khớp lệnh.
-                  </p>
-                </div>
-              </div>
-
-              <div className="learning-rule-banner">
-                <div className="rule-badge">Điều kiện duyệt</div>
-                <div className="rule-text">
-                  Chiến lược gen cần <strong>≥30 mẫu train</strong> &{' '}
-                  <strong>≥30 validation</strong>, <strong>lower-bound R &gt; 0</strong> cả hai tập,
-                  và chi phí sàn đã xác minh để được vào lệnh demo.
-                </div>
-              </div>
-
-              <div className="learning-section-card">
-                <div className="card-header">
-                  <div>
-                    <h4>Hiệu suất chiến lược</h4>
-                    <span className="muted-desc">
-                      Tập hợp các chiến lược gốc và gen đã sinh tín hiệu
-                    </span>
-                  </div>
-                  <span className="badge-count">{strategies.length} chiến lược</span>
-                </div>
-                <div className="table-wrap">
-                  <table className="learner-clean-table">
-                    <thead>
-                      <tr>
-                        <th>Chiến lược</th>
-                        <th className="num">Tín hiệu</th>
-                        <th className="num">Đã đóng</th>
-                        <th className="num">R trung bình</th>
-                        <th className="num">Loại</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {strategies.map(([name, stats]) => (
-                        <tr key={name} className={name === picked ? 'active-strat' : ''}>
-                          <td>
-                            <span className="strategy-name">{name}</span>
-                            {name === picked && <span className="active-pill">Đang chọn</span>}
-                          </td>
-                          <td className="num">{stats.signals}</td>
-                          <td className="num">{stats.closed}</td>
-                          <td
-                            className={`num font-mono ${
-                              stats.mean_r == null
-                                ? ''
-                                : stats.mean_r >= 0
-                                  ? 'positive'
-                                  : 'negative'
-                            }`}
-                          >
-                            {amount(stats.mean_r)}
-                          </td>
-                          <td className="num muted">{stats.excluded}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {!!data.learning?.shadow_details?.length && (
-                <div className="learning-section-card">
-                  <div className="card-header">
-                    <div>
-                      <h4>Danh sách Shadow & Lý do chưa duyệt</h4>
-                      <span className="muted-desc">
-                        Theo dõi tiến độ tích lũy mẫu và kiểm định thống kê của từng gen
-                      </span>
-                    </div>
-                    <span className="badge-count">
-                      {data.learning.shadow_details.filter((g) => g.status !== 'promoted').length}{' '}
-                      gen đang shadow
-                    </span>
-                  </div>
-                  <div className="table-wrap">
-                    <table className="learner-clean-table">
-                      <thead>
-                        <tr>
-                          <th>Gen</th>
-                          <th>Trạng thái</th>
-                          <th>Tiến độ Train</th>
-                          <th>Tiến độ Val</th>
-                          <th>R thấp nhất (Train / Val)</th>
-                          <th>Lý do còn shadow</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.learning.shadow_details.map((g) => (
-                          <tr key={g.name} className={g.status === 'retired' ? 'retired-row' : ''}>
-                            <td>
-                              <code className="gen-code">{g.name}</code>
-                            </td>
-                            <td>
-                              <span className={`status-pill status-${g.status}`}>{g.status}</span>
-                            </td>
-                            <td>
-                              <div className="progress-cell">
-                                <span>{g.train}/30</span>
-                                <div className="mini-progress-bar">
-                                  <div
-                                    className="bar-fill"
-                                    style={{ width: `${Math.min(100, (g.train / 30) * 100)}%` }}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="progress-cell">
-                                <span>{g.validation}/30</span>
-                                <div className="mini-progress-bar">
-                                  <div
-                                    className="bar-fill"
-                                    style={{
-                                      width: `${Math.min(100, (g.validation / 30) * 100)}%`,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                            <td className="font-mono">
-                              <span
-                                className={
-                                  g.lower_r_train != null && g.lower_r_train > 0 ? 'positive' : ''
-                                }
-                              >
-                                {amount(g.lower_r_train)}
-                              </span>{' '}
-                              /{' '}
-                              <span
-                                className={
-                                  g.lower_r_validation != null && g.lower_r_validation > 0
-                                    ? 'positive'
-                                    : ''
-                                }
-                              >
-                                {amount(g.lower_r_validation)}
-                              </span>
-                            </td>
-                            <td>
-                              {g.reasons.length > 0 ? (
-                                <ul className="reason-tags">
-                                  {g.reasons.map((r, i) => (
-                                    <li key={i}>{r}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <span className="positive">Đủ điều kiện</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </section>
             <section
               hidden={panel !== 'orders'}

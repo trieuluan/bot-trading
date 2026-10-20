@@ -10,7 +10,6 @@ from collections import Counter
 from sqlalchemy import select
 
 from .db import (
-    ForexObservation,
     ForexPaperAccount,
     ForexPaperTrade,
     Session,
@@ -23,7 +22,7 @@ from .exness_observation import audit_frames, load_frames
 from .exness_sessions import gap_details, regular_session_gap, session_closed_ahead
 from .forex_costs import lot_size, spec_summary
 from .forex_reporting import trade_report
-from .forex_strategies import STRATEGY_CHANNELS, strategy_snapshot
+STRATEGY_CHANNELS = {"trend": "trend_pullback", "range": "range_rejection", "router": "regime_router"}
 
 STARTING_BALANCE = 10000.0
 RISK_FRACTION = 0.01
@@ -219,214 +218,9 @@ def _advance_account(session, account, bid, ask):
     account.last_candle = bid.time
 
 
-def _queue_trade(session, account, snapshot, reason=None, now=None):
-    now = int(time.time()) if now is None else now
-    specs = spec_summary(session, now)
-    profile = snapshot.get("cost_profile")
-    if profile is None and specs["status"] == "partial":
-        candidate = specs["profile"]
-        if candidate["observed_at"] < snapshot["candle_time"] + 1800:
-            profile = candidate
-    active = session.scalars(
-        select(ForexPaperTrade).where(
-            ForexPaperTrade.workspace_id == WORKSPACE,
-            ForexPaperTrade.channel == account.channel,
-        )
-    ).all()
-    if reason is None:
-        reason = (
-            "unresolved_gap"
-            if account.blocked
-            else "insufficient_balance"
-            if account.balance <= 0
-            else (
-                "position_already_active"
-                if any(row.snapshot["status"] in ("pending", "open") for row in active)
-                else None
-            )
-        )
-    trade_data = {
-        "journal_version": 2,
-        "execution_model": "bid_ask_lot_v2" if profile else "bid_ask_oz_v1",
-        "recorded_at": now,
-        "signal": snapshot.get("signal") or {key: snapshot.get(key) for key in (
-            "strategy", "parameters", "reason", "trend", "ema_4h", "closed_4h_time",
-            "range_high", "range_low", "range_start", "range_end", "breakout_time",
-            "level", "touch_time", "retest_extreme", "confirm_time", "available_at",
-            "reference_entry", "stop", "target",
-        )},
-        "cost_profile": profile,
-        "commission_verified": bool(profile and profile["commission_per_unit"] is not None),
-        "swap_included": False,
-        "workspace_id": WORKSPACE,
-        "channel": account.channel,
-        "status": "pending",
-        "side": snapshot["side"],
-        "confirm_time": snapshot["candle_time"],
-        "last_candle": snapshot["candle_time"],
-        "stop": snapshot["stop"],
-        "allocated_risk": max(0, account.balance) * RISK_FRACTION,
-        "capital": max(0, account.balance),
-        "setup_level": snapshot.get("level"),
-        "trend_4h": snapshot.get("trend"),
-        "ema_4h": round(snapshot["ema_4h"], 3) if snapshot.get("ema_4h") is not None else None,
-        "breakout_level": snapshot.get("level"),
-        "breakout_time": snapshot.get("breakout_time"),
-        "retest_touch_time": snapshot.get("touch_time"),
-        "reference_entry": snapshot.get("reference_entry"),
-        "provenance": snapshot["provenance"],
-        "slippage_bps": SLIPPAGE_BPS,
-        "commission_per_unit": profile["commission_per_unit"] if profile and profile["commission_per_unit"] is not None else COMMISSION_PER_UNIT,
-    }
-    if reason:
-        trade_data.update(status="skipped", reason=reason)
-    session.add(
-        ForexPaperTrade(
-            workspace_id=WORKSPACE,
-            channel=account.channel,
-            confirm_time=snapshot["candle_time"],
-            snapshot=trade_data,
-        )
-    )
-
-
-def paper_tick(now=None):
-    now = int(time.time()) if now is None else now
-    with Session.begin() as session:
-        session.scalar(select(Workspace).where(Workspace.id == WORKSPACE).with_for_update())
-        frames = load_frames(session, now)
-        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
-        if audit_frames(frames)["status"] == "blocked" or any(
-            state is None
-            or state.error
-            or state.checked_until is None
-            or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
-            for frame, state in zip(FRAMES, feeds)
-        ):
-            return {"status": "data_paused"}
-        bids = {row.time: row for row in frames["15m"] if row.price_type == "bid"}
-        asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
-        accounts = {}
-        for channel in ("live", "replay"):
-            account = session.get(ForexPaperAccount, (WORKSPACE, channel))
-            if account is None:
-                account = ForexPaperAccount(
-                    workspace_id=WORKSPACE,
-                    channel=channel,
-                    started_at=now,
-                    last_candle=max(bids),
-                    balance=STARTING_BALANCE,
-                    blocked=False,
-                )
-                session.add(account)
-            accounts[channel] = account
-        session.flush()
-        observations = {
-            row.candle_time: row.snapshot
-            for row in session.scalars(
-                select(ForexObservation).where(
-                    ForexObservation.workspace_id == WORKSPACE,
-                    ForexObservation.candle_time
-                    > min(account.last_candle for account in accounts.values()),
-                )
-            )
-        }
-        latest_observed = max(observations, default=-1)
-        pending = sorted(
-            stamp
-            for stamp in bids
-            if min(account.last_candle for account in accounts.values()) < stamp <= latest_observed
-        )[:96]
-        for stamp in pending:
-            snapshot = observations.get(stamp)
-            for account in accounts.values():
-                if stamp <= account.last_candle:
-                    continue
-                if account.channel == "live" and stamp + 1800 <= now:
-                    for row in session.scalars(
-                        select(ForexPaperTrade).where(
-                            ForexPaperTrade.workspace_id == WORKSPACE,
-                            ForexPaperTrade.channel == "live",
-                        )
-                    ):
-                        if row.snapshot["status"] == "pending":
-                            original = dict(row.snapshot)
-                            row.snapshot = {
-                                **original,
-                                "status": "skipped",
-                                "reason": "missed_entry_while_offline",
-                            }
-                            _queue_trade(
-                                session,
-                                accounts["replay"],
-                                {
-                                    **original,
-                                    "candle_time": original["confirm_time"],
-                                    "provenance": "catch_up",
-                                },
-                                now=now,
-                            )
-                _advance_account(session, account, bids[stamp], asks[stamp])
-            if snapshot and snapshot["status"] == "confirmed":
-                channel = (
-                    "live"
-                    if snapshot.get("provenance") == "live" and stamp + 1800 > now
-                    else "replay"
-                )
-                _queue_trade(
-                    session,
-                    accounts[channel],
-                    {**snapshot, "provenance": "live" if channel == "live" else "catch_up"},
-                    now=now,
-                )
-            session.flush()
-        shadow = _strategy_paper_tick(session, frames, bids, asks, now)
-        return {"status": "tracking", "processed": len(pending), "strategy_processed": shadow}
-
-def _strategy_paper_tick(session, frames, bids, asks, now):
-    hours = [row for row in frames["1h"] if row.price_type == "bid"]
-    higher = [row for row in frames.get("4h", []) if row.price_type == "bid"]
-    minutes = sorted(bids.values(), key=lambda row: row.time)
-    breakouts = {row.candle_time: row.snapshot for row in session.scalars(
-        select(ForexObservation).where(
-            ForexObservation.workspace_id == WORKSPACE,
-            ForexObservation.candle_time >= minutes[0].time,
-        )
-    )}
-    processed = {}
-    for channel, strategy in STRATEGY_CHANNELS.items():
-        account = session.get(ForexPaperAccount, (WORKSPACE, channel))
-        if account is None:
-            account = ForexPaperAccount(
-                workspace_id=WORKSPACE, channel=channel, started_at=now,
-                last_candle=minutes[-1].time, balance=STARTING_BALANCE, blocked=False,
-            )
-            session.add(account)
-            session.flush()
-        pending = [row for row in minutes if row.time > account.last_candle][:96]
-        for candle in pending:
-            _advance_account(session, account, candle, asks[candle.time])
-            snapshot = strategy_snapshot(strategy, candle, hours, minutes, higher=higher,
-                                         breakout=breakouts.get(candle.time))
-            if snapshot["status"] == "confirmed":
-                _queue_trade(session, account, {
-                    **snapshot, "provenance": "live" if candle.time + 1800 > now else "catch_up",
-                }, now=now)
-            session.flush()
-        processed[channel] = len(pending)
-    return processed
-
-
 def forex_paper_summary():
     portfolios = []
     with Session() as session:
-        frames = load_frames(session, int(time.time()))
-        hours = [row for row in frames["1h"] if row.price_type == "bid"]
-        minutes = [row for row in frames["15m"] if row.price_type == "bid"]
-        higher = [row for row in frames.get("4h", []) if row.price_type == "bid"]
-        breakouts = {row.candle_time: row.snapshot for row in session.scalars(
-            select(ForexObservation).where(ForexObservation.workspace_id == WORKSPACE)
-        )}
         for channel in CHANNELS:
             account = session.get(ForexPaperAccount, (WORKSPACE, channel))
             trades = session.scalars(
@@ -468,24 +262,17 @@ def forex_paper_summary():
                             direction * (exit_price - trade["entry"]) - trade["commission_per_unit"]
                         ) * trade["units"]
             uncertain = bool(account and account.blocked)
-            observed = next((row for row in reversed(minutes) if account and row.time == account.last_candle), None)
-            observation = (
-                strategy_snapshot(STRATEGY_CHANNELS[channel], observed, hours, minutes,
-                                  higher=higher, breakout=breakouts.get(observed.time))
-                if channel in STRATEGY_CHANNELS and observed else None
-            )
-
             portfolios.append(
                 {
                     "channel": channel,
                     "strategy": STRATEGY_CHANNELS.get(channel, "breakout_retest"),
-                    "observation": observation,
+                    "observation": None,
                     "confirmed_count": len(raw_list),
                     "accepted_count": sum(row["status"] != "skipped" for row in raw_list),
                     "rejection_reasons": dict(Counter(row["reason"] for row in raw_list if row.get("reason"))),
                     "status": "blocked"
                     if account and account.blocked
-                    else "tracking"
+                    else "archived"
                     if account
                     else "not_started",
                     "started_at": account.started_at if account else None,
@@ -515,7 +302,7 @@ def forex_paper_summary():
         "status": "tracking"
         if any(row["started_at"] is not None for row in portfolios)
         else "not_started",
-        "message": "Bốn ví paper riêng Exness; hai ví chiến lược thử nghiệm khớp theo nến đóng, không gửi lệnh Demo",
+        "message": "Lịch sử Paper cũ: chỉ quản lý lệnh đã mở, không sinh lệnh mới",
         "calibration": calibration,
         "assumptions": {
             "risk_percent": RISK_FRACTION * 100,
@@ -532,3 +319,37 @@ def forex_paper_summary():
         },
         "portfolios": portfolios,
     }
+
+
+def legacy_paper_tick(now=None):
+    """Step existing open paper trades only; never queues new entries."""
+    now = int(time.time()) if now is None else now
+    with Session.begin() as session:
+        session.scalar(select(Workspace).where(Workspace.id == WORKSPACE).with_for_update())
+        frames = load_frames(session, now)
+        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+        if audit_frames(frames)["status"] == "blocked" or any(
+            state is None
+            or state.error
+            or state.checked_until is None
+            or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
+            for frame, state in zip(FRAMES, feeds)
+        ):
+            return {"status": "data_paused"}
+        bids = {row.time: row for row in frames["15m"] if row.price_type == "bid"}
+        asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
+        for channel in CHANNELS:
+            account = session.get(ForexPaperAccount, (WORKSPACE, channel))
+            if not account:
+                continue
+            pending = sorted(
+                stamp for stamp in bids if account.last_candle < stamp <= now // 900 * 900 - 900
+            )[:96]
+            for stamp in pending:
+                if stamp in asks:
+                    for trade in session.scalars(select(ForexPaperTrade).where(
+                            ForexPaperTrade.workspace_id == WORKSPACE, ForexPaperTrade.channel == channel)).all():
+                        if trade.snapshot.get("status") == "pending":
+                            trade.snapshot = {**trade.snapshot, "status": "skipped", "reason": "legacy_strategy_retired"}
+                    _advance_account(session, account, bids[stamp], asks[stamp])
+        return {"status": "legacy_paper_advanced"}

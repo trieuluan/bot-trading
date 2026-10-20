@@ -3545,6 +3545,71 @@ footer {
   color: #899b91;
   white-space: nowrap;
 }
+.bot-breakdown {
+  padding: 0 18px 8px;
+}
+.bot-breakdown-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 10px;
+}
+.bot-breakdown-head strong {
+  color: #d5e2da;
+}
+.bot-breakdown-head input {
+  width: 220px;
+  padding: 4px 8px;
+  border: 1px solid #26332d;
+  border-radius: 4px;
+  background: #0b100e;
+  color: #d5e2da;
+}
+.bot-breakdown-hit {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-left: 2px solid #74dca0;
+  color: #74dca0;
+}
+.bot-breakdown-hit small,
+.bot-breakdown-group li small {
+  display: block;
+  color: #6f8178;
+}
+.bot-breakdown-group button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid #1c2823;
+  background: none;
+  color: #d5e2da;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.bot-breakdown-group button small {
+  color: #6f8178;
+}
+.bot-breakdown-group button i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: #3b5a4b;
+}
+.bot-breakdown-group ul {
+  margin: 0;
+  padding: 4px 10px 8px 24px;
+  list-style: none;
+}
+.bot-breakdown-group li {
+  padding: 3px 0;
+}
 .bot-analysis p,
 .bot-footer-note {
   margin: 0;
