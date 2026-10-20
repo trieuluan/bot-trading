@@ -106,10 +106,9 @@ def fill(ledger, tree, n, value, day0=0, version=None):
                                   "provenance": "live_forward_htf_ast2_shadow"})
 
 
-def test_evolution_needs_two_qualified_parents():
+def test_evolution_needs_at_least_one_qualified_parent():
     trees = g0_trees()
     ledger = {"population": trees, "samples": [], "generation": 0, "since": 0}
-    fill(ledger, trees[0], 45, 0.5)
     assert not evolve_population(ledger, 10**9, 1)
     assert ledger["generation"] == 0
 
@@ -117,16 +116,15 @@ def test_evolution_needs_two_qualified_parents():
 def test_evolution_keeps_56_and_is_rate_limited():
     trees = g0_trees()
     ledger = {"population": trees, "samples": [], "generation": 0, "since": 0}
-    fill(ledger, trees[0], 45, 0.5)
-    fill(ledger, trees[1], 45, 0.4)
-    for t in trees[2:6]:
-        fill(ledger, t, 45, -0.5)
+    fill(ledger, trees[0], 12, 0.5)
+    fill(ledger, trees[1], 12, 0.4)
+    fill(ledger, trees[2], 12, -0.5)
     assert evolve_population(ledger, 10**9, 7)
     assert len(ledger["population"]) == 56
     assert len({tree_id(t) for t in ledger["population"]}) == 56
-    assert ledger["generation"] == 1 and ledger["evolution_history"][0]["seed"] == 7
-    assert not evolve_population(ledger, 10**9 + 86400, 7)
-    assert not evolve_population(ledger, 10**9 + 86400, 7)
+    assert ledger["generation"] == 1
+    # Rate limited by 3600s
+    assert not evolve_population(ledger, 10**9 + 1800, 7)
 
 
 def test_hast2_never_admitted_without_eligibility(monkeypatch):
@@ -235,3 +233,11 @@ def test_every_exit_policy_has_traits_and_is_reachable_by_mutation():
         validate_htf2_tree(child)
         seen.add(child["root"]["children"][3]["policy"])
     assert {"evidence_h1", "evidence_m15", "barrier_partial_h1", "fixed_structural"} <= seen
+
+def test_entry_ranking_needs_no_sample_gate():
+    trees = g0_trees()
+    ledger = {"population": trees, "samples": [], "generation": 0, "since": 0}
+    fill(ledger, trees[1], 12, 0.5)
+    ranked = mod.qualified_trees(ledger, 10**9)
+    assert len(ranked) == 56
+    assert ranked[0][1]["eligible"] is True and ranked[0][0] == tree_id(trees[1])

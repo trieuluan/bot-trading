@@ -471,9 +471,9 @@ export function HtfLineage({
         })}
         {maxGen === 0 && (
           <p className="micro lineage-hint">
-            Chưa có cây con. Cần ít nhất 2 cây bố mẹ đủ 40 mẫu đã đóng trên 10 ngày
+            Chưa có cây con. Cần cây bố mẹ đủ ≥10 mẫu forward đã đóng với R trung bình dương
             {nextEvolutionAt
-              ? ` · sớm nhất ${new Date(nextEvolutionAt * 1000).toISOString().slice(0, 10)} UTC`
+              ? ` · chu kỳ kế tiếp ${new Date(nextEvolutionAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
               : ''}
             .
           </p>
@@ -527,7 +527,7 @@ export function HtfLineage({
             {detail.eligible ? (
               <span className="gen-badge gen-ok">✓ Đủ chuẩn đặt lệnh</span>
             ) : (
-              <span className="lineage-status-tag">Chờ gom mẫu ({detail.resolved}/40)</span>
+              <span className="lineage-status-tag">Chờ gom mẫu ({detail.resolved}/10)</span>
             )}
             <button
               type="button"

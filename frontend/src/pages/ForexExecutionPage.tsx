@@ -263,7 +263,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   </div>
                 </div>
                 <div className="learning-stat-card">
-                  <span className="card-label">Cây đủ chuẩn</span>
+                  <span className="card-label">Cây có thể vào lệnh</span>
                   <div className="card-value">
                     {data.learning?.execution_v2?.eligible_count ?? 0}
                     <small className="muted">

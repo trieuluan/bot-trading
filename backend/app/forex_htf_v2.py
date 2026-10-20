@@ -501,16 +501,15 @@ def parent_stats(samples, now, version, born_at=0):
                        and sample.get("label_available_at", now) < now),
                       key=lambda sample: (sample["confirm_time"], sample.get("recorded_at", 0)))
     days = len({sample["confirm_time"] // 86400 for sample in resolved})
-    result = {"count": len(resolved), "days": days, "ready": len(resolved) >= 40 and days >= 10,
+    result = {"count": len(resolved), "days": days, "ready": len(resolved) >= 10,
               "eligible": False, "train_lower_r": None, "val_mean_r": None}
     if not result["ready"]:
         return result
-    train = [sample["net_r_ex_swap"] for sample in resolved[:30]]
-    validation = [sample["net_r_ex_swap"] for sample in resolved[30:]]
-    if not all(type(value) in (int, float) and math.isfinite(value) for value in train + validation):
+    values = [sample["net_r_ex_swap"] for sample in resolved]
+    if not all(type(value) in (int, float) and math.isfinite(value) for value in values):
         raise ValueError("Invalid fitness return")
-    lower = mean(train) - 1.96 * stdev(train) / math.sqrt(len(train))
-    result.update(train_lower_r=lower, val_mean_r=mean(validation), eligible=lower > 0 and mean(validation) > 0)
+    average = mean(values)
+    result.update(mean_r=average, eligible=average > 0)
     return result
 
 
@@ -523,7 +522,7 @@ def evaluate_parent_fitness(samples, now=None, version=None):
 def evolve_population(ledger, now, random_seed=None, version=None):
     version = logic_version() if version is None else version
     last = ledger.get("last_evolution") or {}
-    earliest = last.get("at", ledger.get("since", now)) + 7 * 86400
+    earliest = last.get("at", ledger.get("since", now)) + 3600
     if now < earliest:
         return False
     groups = defaultdict(list)
@@ -532,16 +531,17 @@ def evolve_population(ledger, now, random_seed=None, version=None):
     members = ledger.setdefault("members", {})
     population = ledger["population"]
     scores = {tree_id(tree): parent_stats(groups[tree_id(tree)], now, version,
-                                         members.get(tree_id(tree), {}).get("born_at", 0)) for tree in population}
+                                         max(ledger.get("since", 0), members.get(tree_id(tree), {}).get("born_at", 0))) for tree in population}
     parents = sorted((tree for tree in population if scores[tree_id(tree)]["eligible"]),
-                     key=lambda tree: (-scores[tree_id(tree)]["train_lower_r"],
-                                       -scores[tree_id(tree)]["val_mean_r"], tree_id(tree)))
-    if len(parents) < 2:
+                     key=lambda tree: (-scores[tree_id(tree)]["mean_r"], tree_id(tree)))[:4]
+    if not parents:
         return False
-    replacements = sorted((tree for tree in population if scores[tree_id(tree)]["ready"] and
-                            not scores[tree_id(tree)]["eligible"]),
-                           key=lambda tree: (scores[tree_id(tree)]["train_lower_r"],
-                                             scores[tree_id(tree)]["val_mean_r"], tree_id(tree)))[:14]
+    replacements = sorted((tree for tree in population if scores[tree_id(tree)]["ready"]
+                            and tree not in parents
+                            and scores[tree_id(tree)]["mean_r"] < scores[tree_id(parents[0])]["mean_r"]
+                            and not any(sample["strategy"] == tree_id(tree) and sample["status"] in ("pending", "open")
+                                        for sample in ledger["samples"])),
+                           key=lambda tree: (scores[tree_id(tree)]["mean_r"], tree_id(tree)))[:1]
     if not replacements:
         return False
     seed = random_seed if random_seed is not None else int(hashlib.sha256(
@@ -552,14 +552,15 @@ def evolve_population(ledger, now, random_seed=None, version=None):
     for _ in range(1000):
         if len(children) == len(replacements):
             break
-        first, second = rng.sample(parents[:5], 2)
-        child = mutate(crossover(first, second, rng), rng)
+        selected = rng.sample(parents, 2) if len(parents) > 1 else [parents[0]]
+        base = crossover(*selected, rng) if len(selected) == 2 else selected[0]
+        child = mutate(base, rng)
         identifier = tree_id(child)
         if identifier in known:
             continue
         known.add(identifier)
         children.append(child)
-        lineage[identifier] = [tree_id(first), tree_id(second)]
+        lineage[identifier] = [tree_id(parent) for parent in selected]
     if not children:
         return False
     retired = [tree_id(tree) for tree in replacements[:len(children)]]
@@ -786,7 +787,7 @@ def _htf_ast2_summary(account):
         "generation": ledger.get("generation", 0),
         "engine": SCHEMA, "migration": ledger.get("migration"),
         "last_evolution": ledger.get("last_evolution"),
-        "next_evolution_at": (ledger.get("last_evolution") or {}).get("at", ledger.get("since", now)) + 7 * 86400,
+        "next_evolution_at": (ledger.get("last_evolution") or {}).get("at", ledger.get("since", now)) + 3600,
         "error": err,
         "since": ledger.get("since"),
         "last_capture": ledger.get("last_capture"),
@@ -864,9 +865,12 @@ def qualified_trees(ledger, now):
         identifier = tree_id(tree)
         born = max(ledger["since"], ledger.get("members", {}).get(identifier, {}).get("born_at", 0))
         stats = parent_stats(groups[identifier], now, version, born)
-        if stats["eligible"]:
-            ranked.append((identifier, stats))
-    return sorted(ranked, key=lambda item: (-item[1]["train_lower_r"], -item[1]["val_mean_r"], item[0]))
+        # ponytail: entry has no fitness gate; restore stats["eligible"] gating if forward qualification is required.
+        ranked.append((identifier, stats))
+    def key(item):
+        stats = item[1]
+        return (not stats["eligible"], -stats.get("mean_r", 0), item[0])
+    return sorted(ranked, key=key)
 
 
 def setup_identity(signal, tree):
