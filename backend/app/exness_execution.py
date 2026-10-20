@@ -38,11 +38,12 @@ from .exness_management import (
     risk_budget,
     split_bodies,
 )
-from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
+from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .forex_htf_v2 import execution_candidates, validate_execution_signal
 from .forex_learning import summary as learning_summary
+from .forex_notifications import notify_reconciled
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -152,17 +153,21 @@ def leg_records(data):
     return list(enumerate(data["legs"])) if data.get("legs") else [(None, data)]
 
 def persist_leg(account, stamp, index, values):
-    if index is None:
-        return persist(account, stamp, values)
     with Session.begin() as session:
         row = session.get(ExnessExecutionTrade, (account, stamp))
-        data = {**row.snapshot}
-        legs = [dict(leg) for leg in data["legs"]]
-        legs[index] = {**legs[index], **values}
-        states = {leg["status"] for leg in legs}
-        status = next((value for value in ("uncertain", "submitting", "submitted", "closing", "planned", "open", "closed")
-                       if value in states), "skipped")
-        row.snapshot = {**data, "legs": legs, "status": status}
+        update_leg(row, index, values)
+
+def update_leg(row, index, values):
+    if index is None:
+        row.snapshot = {**row.snapshot, **values}
+        return
+    data = row.snapshot
+    legs = [dict(leg) for leg in data["legs"]]
+    legs[index] = {**legs[index], **values}
+    states = {leg["status"] for leg in legs}
+    status = next((value for value in ("uncertain", "submitting", "submitted", "closing", "planned", "open", "closed")
+                   if value in states), "skipped")
+    row.snapshot = {**data, "legs": legs, "status": status}
 
 def operation_result(api, operation):
     try:
@@ -192,7 +197,17 @@ def reconcile(api, broker, now):
             if data["status"] not in ACTIVE:
                 continue
             def save(values):
-                persist_leg(api.account_id, row.signal_time, index, values)
+                with Session.begin() as session:
+                    current = session.get(ExnessExecutionTrade, (api.account_id, row.signal_time))
+                    previous = current.snapshot["legs"][index] if index is not None else current.snapshot
+                    updated = {**previous, **values}
+                    position = next((item for item in broker["positions"]
+                                     if item["position_id"] == updated.get("position_id")), None)
+                    protection = next((item for item in broker["orders"]
+                                       if item.get("position_id") == updated.get("position_id")
+                                       and item.get("order_type") == "sltp"), None)
+                    notify_reconciled(session, current, previous, updated, position, protection, deals, now)
+                    update_leg(current, index, updated)
             pid = data.get("position_id")
             if not pid:
                 operation = data.get("ack", {}).get("operation_id")
@@ -477,7 +492,8 @@ def _execution_tick(api, now=None):
                     direction = 1 if sig["side"] == "long" else -1
                     if direction * (float(act["stop"]) - float(protections[0]["stop_loss_price"])) <= 0:
                         continue
-                    action = {"stop": act["stop"], "stage": "adaptive_stop"}
+                    action = {"stop": act["stop"], "stage": "adaptive_stop",
+                              "previous_stop": str(protections[0]["stop_loss_price"])}
                     order_id = str(protections[0]["order_id"])
                     key = f"sl-{pid}-{action['stop']}"
                     def on_modify(submission):
@@ -510,6 +526,8 @@ def _execution_tick(api, now=None):
             quote = live_quote()
             validate_quote(quote, now)
             action = protective_stop(position, initial, quote, protections[0], condition, mgmt_rows, partial_done)
+            if action:
+                action["previous_stop"] = str(protections[0]["stop_loss_price"])
             if not action or (data.get("management", {}).get("status") == "failed"
                               and data["management"].get("stop") == action["stop"]):
                 continue
