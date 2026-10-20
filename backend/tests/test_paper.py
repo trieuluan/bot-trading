@@ -317,3 +317,13 @@ def test_password_gate(monkeypatch):
     assert anon.post("/api/auth/login", json={"password": "bad"}).status_code == 401
     assert anon.post("/api/auth/login", json={"password": "s3cret"}).status_code == 200
     assert anon.get("/api/paper/wallet").status_code == 200
+    token = anon.cookies.get("signal_desk_auth")
+    assert len(token.split(".")) == 3
+    anon.post("/api/auth/logout")
+    assert anon.get("/api/paper/wallet").status_code == 401
+    assert anon.get("/docs").status_code == 401
+    anon.cookies.set("signal_desk_auth", "invalid")
+    assert anon.get("/api/paper/wallet").status_code == 401
+    monkeypatch.setattr("backend.app.main.time.time", lambda: 2000000000)
+    anon.cookies.set("signal_desk_auth", token)
+    assert anon.get("/api/paper/wallet").status_code == 401

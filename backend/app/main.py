@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import secrets
 from contextlib import suppress
 import json
 import math
@@ -15,7 +16,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 
 from .alerts import watchdog
@@ -84,18 +85,33 @@ app.include_router(observation_router)
 app.include_router(quotes_router)
 
 COOKIE = "signal_desk_auth"
+AUTH_TTL = 86400
 
 def auth_token():
     password = os.getenv("APP_PASSWORD", "")
-    return hmac.new(password.encode(), b"signal-desk", hashlib.sha256).hexdigest()
+    payload = f"{int(time.time()) + AUTH_TTL}.{secrets.token_hex(16)}"
+    signature = hmac.new(password.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
 
 def authenticated(request):
-    return not os.getenv("APP_PASSWORD") or hmac.compare_digest(
-        request.cookies.get(COOKIE, ""), auth_token())
+    password = os.getenv("APP_PASSWORD", "")
+    if not password:
+        return True
+    token = request.cookies.get(COOKIE, "")
+    if len(token) > 128:
+        return False
+    try:
+        expires, nonce, signature = token.split(".")
+        payload = f"{expires}.{nonce}"
+        expected = hmac.new(password.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        return int(time.time()) < int(expires) and hmac.compare_digest(
+            signature.encode(), expected.encode())
+    except ValueError:
+        return False
 
 class Login(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    password: str
+    password: str = Field(min_length=1, max_length=256)
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
@@ -105,10 +121,10 @@ def auth_status(request: Request):
 async def auth_login(payload: Login, request: Request):
     expected = os.getenv("APP_PASSWORD", "")
     if not expected or not hmac.compare_digest(payload.password.encode(), expected.encode()):
-        await asyncio.sleep(1)  # ponytail: global slowdown only; add per-IP limiter if exposed widely
+        await asyncio.sleep(1)
         return JSONResponse(status_code=401, content={"detail": "Sai mật khẩu"})
     response = JSONResponse({"ok": True})
-    response.set_cookie(COOKIE, auth_token(), httponly=True, samesite="strict", max_age=30 * 86400,
+    response.set_cookie(COOKIE, auth_token(), httponly=True, samesite="strict", max_age=AUTH_TTL,
                         secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https")
     return response
 
@@ -155,10 +171,12 @@ async def legacy_workspace_guard(request, call_next):
 @app.middleware("http")
 async def password_gate(request, call_next):
     path = request.url.path
-    if path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/auth/") \
+    if path not in ("/api/health", "/api/auth/status", "/api/auth/login", "/api/auth/logout") \
             and not authenticated(request):
         return JSONResponse(status_code=401, content={"detail": "Cần đăng nhập"})
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 class Control(BaseModel):
     model_config = ConfigDict(extra="forbid")
