@@ -400,3 +400,21 @@ def test_auto_enters_same_strategy_repeatedly_without_cap(ready):
         assert len({t.id for t in trades}) == 4
         # All entered under the same breakout strategy
         assert all(t.origin == "auto" for t in trades)
+
+
+def test_journal_lists_opened_and_skipped_and_counts_quiet_candles(ready):
+    clock, seed = ready
+    last = seed()
+    with Session.begin() as session:
+        session.add(AutoPaperDecision(symbol="BTC_USDT", candle_time=last - 1800, action="no_setup",
+                                      reason="quiet", parameters={}))
+        session.add(AutoPaperDecision(symbol="BTC_USDT", candle_time=last - 900, action="skipped",
+                                      reason="late", parameters={}))
+        session.add(AutoPaperDecision(symbol="BTC_USDT", candle_time=last - 97 * 900,
+                                      action="skipped", reason="too old", parameters={}))
+    auto_tick()
+    state = client.get("/api/paper/auto").json()
+    assert [row["action"] for row in state["journal"]] == ["opened", "skipped"]
+    assert state["journal"][0]["trade_id"] and state["journal"][0]["side"] == "long"
+    assert state["coverage"] == {"window_candles": 96, "evaluated": 3, "missed": 93,
+                                 "opened": 1, "skipped": 1, "no_setup": 1}

@@ -36,6 +36,7 @@ from .paper import (
 
 router = APIRouter(prefix="/api/paper/auto", tags=["Auto Paper"])
 MAX_SIGNAL_AGE = 60
+JOURNAL_CANDLES = 96  # 24h of 15m candles shown in the Auto Paper journal
 
 
 class AutoConfig(BaseModel):
@@ -326,9 +327,16 @@ def state_response(session, wallet, state, now):
     account = session.get(AutoPaperState, 1)
     learning = read_state(session, int(now))
     count, loss, percent = daily_limits(session, wallet, state, now)
+    # Journal covers the last 24h of closed 15m candles; quiet "no_setup" rows are only counted.
+    last_closed = int(now) // 900 * 900 - 900
+    since = last_closed - (JOURNAL_CANDLES - 1) * 900
     decisions = session.scalars(
-        select(AutoPaperDecision).where(AutoPaperDecision.symbol == current_symbol()).order_by(AutoPaperDecision.candle_time.desc()).limit(12)
+        select(AutoPaperDecision)
+        .where(AutoPaperDecision.symbol == current_symbol(), AutoPaperDecision.candle_time >= since)
+        .order_by(AutoPaperDecision.candle_time.desc())
     ).all()
+    counts = {action: sum(d.action == action for d in decisions)
+              for action in ("opened", "skipped", "no_setup")}
     beat = session.get(BotState, 1).heartbeat
     worker_online = bool(beat and now - beat.replace(tzinfo=timezone.utc).timestamp() < 30)
     decision = learning["last_decision"]
@@ -362,17 +370,19 @@ def state_response(session, wallet, state, now):
         status=state.status,
         worker_online=worker_online,
         next_close_time=(int(now) // 900 + 1) * 900,
-        decisions=[
+        coverage=dict(window_candles=JOURNAL_CANDLES, evaluated=len(decisions),
+                      missed=JOURNAL_CANDLES - len(decisions), **counts),
+        journal=[
             dict(
                 candle_time=d.candle_time,
-                evaluated_at=d.evaluated_at,
                 action=d.action,
                 reason=d.reason,
-                setup=d.setup,
                 trade_id=d.trade_id,
-                parameters=d.parameters,
+                side=(d.setup or {}).get("side"),
+                strategy=((d.parameters or {}).get("audit") or {}).get("strategy"),
             )
             for d in decisions
+            if d.action != "no_setup"
         ],
     )
 

@@ -4,6 +4,7 @@ import { Bot, CircleStop, Play, Save } from 'lucide-react';
 import { configureAutoPaper, setAutoPaperEnabled } from '../lib/api';
 import { formatPrice } from '../lib/format';
 import type { AutoPaperState } from '../types/paper';
+import { AutoJournal } from './AutoJournal';
 import { FuturesHistoryPanel } from './FuturesHistoryPanel';
 
 interface Props {
@@ -12,9 +13,10 @@ interface Props {
   online: boolean;
   clock: number;
   onUpdated: () => Promise<void>;
+  onViewTrade?: (id: number) => void;
 }
 
-export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props) {
+export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewTrade }: Props) {
   const [risk, setRisk] = useState('1');
   const [maxTrades, setMaxTrades] = useState('5');
   const [maxLoss, setMaxLoss] = useState('3');
@@ -162,6 +164,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
           </strong>
         </div>
       </div>
+      <AutoJournal state={state} onViewTrade={onViewTrade} />
       <div className="ap-chips" aria-label="Thông số đang áp dụng">
         <span>
           Đòn bẩy <b>{state?.leverage ?? '—'}x</b>
@@ -362,7 +365,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated }: Props
         </p>
         <p>
           Bot học chọn tín hiệu theo bối cảnh thị trường và điểm UCB từ mẫu shadow đã đóng. SL/TP
-          theo chiến thuật được chọn; lý do và chiến thuật lưu trong quyết định Auto. Vào bằng
+          theo chiến thuật được chọn; lý do và chiến thuật lưu trong drawer chi tiết lệnh. Vào bằng
           bid/ask mới sau khi nến đóng, trong tối đa 60 giây; bỏ qua nếu giá đã vượt SL/TP hoặc
           không đủ ngân sách. Có thể giữ nhiều vị thế trên cùng cặp. Khối lượng theo rủi ro còn lại;
           tự động chặn nếu ký quỹ một lệnh vượt 10% vốn ví chung. Trần tổng rủi ro SL danh mục theo

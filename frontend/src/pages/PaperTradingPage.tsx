@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Bot, Clock3, RefreshCw, ShieldCheck } from 'lucide-react';
 import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
-import { AutoDecisionList } from '../components/AutoDecisionList';
 import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
@@ -773,6 +772,7 @@ export function PaperTradingPage({
               online={online}
               clock={clock}
               onUpdated={refresh}
+              onViewTrade={viewTrade}
             />
           </div>
         </aside>
@@ -786,7 +786,6 @@ export function PaperTradingPage({
         {[
           ['position', 'Vị thế đang mở', positions.length],
           ['history', 'Lịch sử lệnh', wallet?.trades.length ?? 0],
-          ['decisions', 'Quyết định Auto', auto?.decisions.length ?? 0],
           ['evolution', 'Tiến hóa', ''],
         ].map(([key, label, count]) => (
           <button
@@ -861,9 +860,6 @@ export function PaperTradingPage({
           </p>
         </section>
         {activityTab === 'evolution' && <FuturesLearningPage onViewTrade={viewTrade} />}
-        <div hidden={activityTab !== 'decisions'} className="desk-activity-panel">
-          <AutoDecisionList decisions={auto?.decisions ?? []} onViewTrade={viewTrade} />
-        </div>
         <section hidden={activityTab !== 'history'} className="panel prose desk-activity-panel">
           <div className="section-head">
             <h2>Lịch sử lệnh mô phỏng</h2>

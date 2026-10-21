@@ -175,7 +175,22 @@ export type AutoPaperState = AutoPaperConfig & {
   status: string;
   worker_online: boolean;
   next_close_time: number;
-  decisions: AutoDecision[];
+  coverage?: {
+    window_candles: number;
+    evaluated: number;
+    missed: number;
+    opened: number;
+    skipped: number;
+    no_setup: number;
+  };
+  journal?: {
+    candle_time: number;
+    action: 'opened' | 'skipped';
+    reason: string;
+    trade_id: number | null;
+    side: 'long' | 'short' | null;
+    strategy: string | null;
+  }[];
 };
 export interface FuturesHistoryStats {
   resolved: number;

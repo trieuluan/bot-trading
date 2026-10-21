@@ -8335,3 +8335,74 @@ main.forex-terminal-main {
 .forex-overlay-readout details > div {
   margin-top: 4px;
 }
+
+.ap-journal {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #e2e7dd;
+  border-radius: 8px;
+  background: #fafbf7;
+  font-size: 12px;
+  color: #3f5446;
+}
+.ap-journal header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ap-journal header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #63746a;
+  white-space: nowrap;
+}
+.ap-journal .ap-journal-missed {
+  color: #a06a1c;
+}
+.ap-journal ol {
+  display: grid;
+  gap: 4px;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.ap-journal li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.ap-journal li > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ap-journal li.opened > span {
+  color: #1f8a57;
+  font-weight: 600;
+}
+.ap-journal li.skipped > span {
+  color: #a06a1c;
+}
+.ap-journal time {
+  font-size: 11px;
+  color: #859087;
+  font-variant-numeric: tabular-nums;
+}
+.ap-journal .text-button {
+  display: inline;
+  padding: 0;
+  font-size: inherit;
+}
+.ap-journal p {
+  margin: 0;
+  font-size: 11px;
+  color: #859087;
+}

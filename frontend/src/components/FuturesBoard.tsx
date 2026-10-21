@@ -776,6 +776,7 @@ export function AllPairsPanel({
                 <th>Vị thế</th>
                 <th>Auto</th>
                 <th>Lệnh hôm nay</th>
+                <th>Nến 24h</th>
                 <th>Tín hiệu</th>
                 <th>Cây giữ lệnh</th>
                 <th>Top cây · Mean R</th>
@@ -806,6 +807,15 @@ export function AllPairsPanel({
                       </span>
                     </td>
                     <td>{a ? `${a.daily_trades}/${a.max_daily_trades}` : '—'}</td>
+                    <td className={a?.coverage?.missed ? 'negative' : undefined}>
+                      {a?.coverage ? `${a.coverage.evaluated}/${a.coverage.window_candles}` : '—'}
+                      {a?.coverage && (
+                        <small>
+                          {a.coverage.skipped ? `${a.coverage.skipped} bỏ qua · ` : ''}
+                          {a.coverage.opened} mở
+                        </small>
+                      )}
+                    </td>
                     <td>{a?.learner_decision ? liveSignals(a).length : '—'}</td>
                     <td>{l ? l.strategies.filter((r) => r.open_trades?.length).length : '—'}</td>
                     <td>
@@ -862,54 +872,6 @@ export function AllPairsPanel({
             <p className="muted">Chưa có lệnh đóng.</p>
           )}
         </>
-      )}
-      {tab === 'decisions' && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Cặp</th>
-                <th>Nến tín hiệu</th>
-                <th>Quyết định</th>
-                <th>Lý do</th>
-                <th>Lệnh</th>
-              </tr>
-            </thead>
-            <tbody>
-              {FUTURES_SYMBOLS.flatMap((s) =>
-                (board[s].auto?.decisions ?? []).map((d) => ({ s, d })),
-              )
-                .sort((a, b) => b.d.candle_time - a.d.candle_time)
-                .map(({ s, d }) => (
-                  <tr key={`${s}${d.candle_time}`}>
-                    <td>
-                      <button className="text-button" onClick={() => onSelect(s)}>
-                        {short(s)}
-                      </button>
-                    </td>
-                    <td>{formatTime(d.candle_time)}</td>
-                    <td>
-                      {d.action === 'opened'
-                        ? 'Đã mở'
-                        : d.action === 'skipped'
-                          ? 'Bỏ qua'
-                          : 'Không có setup'}
-                    </td>
-                    <td>{d.reason}</td>
-                    <td>
-                      {d.trade_id ? (
-                        <button className="text-button" onClick={() => onSelect(s, d.trade_id)}>
-                          #{d.trade_id} · Chart
-                        </button>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
       )}
     </section>
   );
