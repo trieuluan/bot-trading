@@ -243,7 +243,6 @@ export function PaperTradingPage({
     for (const element of [
       section.querySelector('.desk-chart-toolbar'),
       section.querySelector('.chart-ohlc'),
-      section.querySelector('.desk-overlay-note'),
       section.closest('.futures-desk')?.querySelector('.desk-sticky-header'),
     ]) {
       if (element) observer.observe(element);
@@ -450,15 +449,31 @@ export function PaperTradingPage({
       <div className="paper-terminal">
         <section ref={chartSection} className="panel prose paper-market">
           <div className="desk-chart-toolbar">
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                activitySection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }
-            >
-              Vị thế & lịch sử ↓
-            </button>
+            <div className="desk-toolbar-lead">
+              <button
+                type="button"
+                className="text-button"
+                onClick={() =>
+                  activitySection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              >
+                Vị thế & lịch sử ↓
+              </button>
+              {historicalId === null && (
+                <span
+                  className="desk-strategy-count"
+                  title="Chiến thuật bot học đang theo dõi ở nến vừa đóng: số có tín hiệu và số đang chờ setup. Menu Chiến thuật chỉ đổi lớp vẽ trên chart, không đổi chiến thuật bot; vùng chờ không phải lệnh vào."
+                >
+                  {strategyRows.length} chiến thuật · {signalNames.length} tín hiệu ·{' '}
+                  {strategyRows.filter((row) => row.status === 'no_signal').length} chờ
+                </span>
+              )}
+              {historicalId === null && !botFresh && (
+                <span className="desk-strategy-stale" role="status">
+                  Chờ nến đánh giá mới
+                </span>
+              )}
+            </div>
             <div className="chart-mode-tabs" role="group" aria-label="Chế độ chart">
               <button
                 className={`secondary ${!selected ? 'selected' : ''}`}
@@ -507,22 +522,6 @@ export function PaperTradingPage({
               </div>
             )}
           </div>
-          {historicalId === null && (
-            <div
-              className="desk-overlay-note"
-              title="Chỉ đổi lớp vẽ, không đổi chiến thuật bot. Vùng chờ không phải lệnh vào."
-            >
-              <span>Chỉ đổi lớp vẽ, không đổi chiến thuật bot.</span>
-              {!botFresh && <span role="status">Dữ liệu chưa sẵn sàng; chờ nến đánh giá mới.</span>}
-              <span>
-                {strategyRows.length} biến thể · {signalNames.length} có tín hiệu ·{' '}
-                {strategyRows.filter((row) => row.status === 'no_signal').length} đang chờ
-              </span>
-              {chartAuto && !autoNames.length && (
-                <span>Chưa có lệnh hoặc tín hiệu; chọn Chiến thuật để xem vùng chờ.</span>
-              )}
-            </div>
-          )}
           {historicalId !== null && !history && (
             <p role="status">{historyError || 'Đang tải nến của lệnh lịch sử…'}</p>
           )}

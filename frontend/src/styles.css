@@ -1856,14 +1856,6 @@ footer {
   color: #263d35;
   font-size: 12px;
 }
-.desk-overlay-note {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 0 0 12px;
-  color: #69786e;
-  font-size: 11px;
-}
 .futures-desk .desk-controls {
   padding: 10px;
   border: 1px solid var(--desk-line);
@@ -5212,14 +5204,6 @@ main:has(.futures-desk) {
   gap: 12px;
   font-size: 12px;
 }
-.futures-desk .desk-overlay-note {
-  padding-bottom: 2px;
-  font-size: 10px;
-}
-.futures-desk .desk-overlay-note > span:first-child,
-.futures-desk .desk-overlay-note > span:last-child:not([role]) {
-  display: none;
-}
 .futures-desk .chart-ohlc {
   padding: 2px 0;
   font-size: 11px;
@@ -5800,10 +5784,6 @@ main:has(.futures-desk) {
 }
 .futures-desk .paper-strategy-toolbar label {
   font-size: 12px;
-}
-.futures-desk .desk-overlay-note {
-  font-size: 12px;
-  color: #45574c;
 }
 .futures-desk .chart-ohlc {
   display: flex;
@@ -8563,4 +8543,27 @@ button.ap-cell {
 }
 .leverage-note.high {
   color: #a06a1c;
+}
+
+.desk-toolbar-lead {
+  display: flex;
+  /* Counts stay readable; the chart-mode buttons in the middle wrap instead. */
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.desk-toolbar-lead .text-button {
+  white-space: nowrap;
+}
+.desk-strategy-count {
+  font-size: 12px;
+  color: #45574c;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.desk-strategy-stale {
+  font-size: 12px;
+  color: #a06a1c;
+  white-space: nowrap;
 }
