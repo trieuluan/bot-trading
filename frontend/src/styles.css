@@ -5487,25 +5487,50 @@ main:has(.futures-desk) {
   margin-top: 5px;
 }
 
-.position-pnl-details {
+.position-pnl-detail-button {
   margin-top: 6px;
-  max-width: 280px;
   color: #64746a;
   font-size: 11px;
-  white-space: normal;
 }
 
-.position-pnl-details summary {
-  cursor: pointer;
+.tsp.position-pnl-popover {
+  width: 420px;
+  max-height: min(420px, calc(100dvh - 16px));
 }
 
-.position-pnl-details p,
-.position-pnl-details ol {
+.position-pnl-popover p,
+.position-pnl-popover ol {
   margin: 8px 0 0;
 }
 
-.position-pnl-details ol {
-  padding-left: 16px;
+.position-pnl-popover ol {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.position-pnl-popover li {
+  padding: 10px;
+  border: 1px solid #2d3b34;
+  border-radius: 8px;
+}
+
+.position-pnl-popover dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 6px 12px;
+  margin: 8px 0 0;
+}
+
+.position-pnl-popover dt {
+  color: #9eb1a5;
+}
+
+.position-pnl-popover dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .chart-timeframes {

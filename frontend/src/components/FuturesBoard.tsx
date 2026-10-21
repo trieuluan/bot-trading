@@ -418,6 +418,116 @@ const hold = (since: number) => {
   return m >= 60 ? `${Math.floor(m / 60)}g ${m % 60}p` : `${m}p`;
 };
 
+function PositionPnlDetails({ row }: { row: PositionRow }) {
+  const id = `position-pnl-${useId().replace(/:/g, '')}`;
+  const [position, setPosition] = useState({ top: 8, left: 8 });
+  const { p: trade, s: symbol, mark, feeBps } = row;
+  const partial = tradePartialProgress(trade);
+  const gross = estimatedPaperPnl(trade, mark, feeBps, false);
+  const unit = short(symbol);
+  return (
+    <>
+      <button
+        type="button"
+        className="text-button position-pnl-detail-button"
+        popoverTarget={id}
+        aria-haspopup="dialog"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setPosition({
+            top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 428)),
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - 428)),
+          });
+        }}
+      >
+        Chi tiết phí & lần chốt
+      </button>
+      <div
+        id={id}
+        popover="auto"
+        role="dialog"
+        aria-label={`PnL và các lần chốt ${unit} #${trade.id}`}
+        className="tsp position-pnl-popover"
+        style={position}
+      >
+        <header className="tsp-head">
+          <strong className="tsp-title">
+            {unit} #{trade.id} · Phí & lần chốt
+          </strong>
+          <button
+            type="button"
+            className="tsp-close"
+            popoverTarget={id}
+            popoverTargetAction="hide"
+            aria-label="Đóng chi tiết PnL"
+          >
+            ×
+          </button>
+        </header>
+        <div className="tsp-body">
+          <section>
+            <strong>
+              Phần còn mở · {trade.quantity.toLocaleString('en-US')} {unit}
+            </strong>
+            <p>
+              PnL gộp: {gross === null ? '—' : formatPrice(gross)} USDT.
+              <br />
+              Phí mở phân bổ: {formatPrice(trade.entry_fee)} USDT.
+              <br />
+              Funding đã ghi nhận: {formatPrice(trade.funding_cost)} USDT.
+            </p>
+            <p>
+              Số “Còn mở” trên bảng đã trừ các khoản trên và phí đóng dự kiến; chưa chốt vào số dư.
+            </p>
+          </section>
+          {partial ? (
+            <section>
+              <strong>Đã chốt {partial.count} lần</strong>
+              <p>
+                Ban đầu: {partial.originalQuantity.toLocaleString('en-US')} {unit}. Tỷ lệ mỗi lần
+                tính trên khối lượng ban đầu, không phải phần còn lại.
+              </p>
+              <ol>
+                {trade.monitoring?.partial_exits?.map((leg, index) => {
+                  const realized = leg.gross - leg.entry_fee - leg.exit_fee;
+                  return (
+                    <li key={`${leg.time}-${index}`}>
+                      <strong>
+                        Lần {index + 1} · {formatTime(leg.time)}
+                      </strong>
+                      <dl>
+                        <dt>Khối lượng đã đóng</dt>
+                        <dd>
+                          {leg.quantity.toLocaleString('en-US')} {unit} (
+                          {((leg.quantity / partial.originalQuantity) * 100).toLocaleString(
+                            'vi-VN',
+                            { maximumFractionDigits: 1 },
+                          )}
+                          % ban đầu)
+                        </dd>
+                        <dt>Giá khớp chốt</dt>
+                        <dd>{formatQuote(leg.price)} USDT</dd>
+                        <dt>PnL sau phí</dt>
+                        <dd className={sign(realized)}>
+                          {realized > 0 ? '+' : ''}
+                          {formatPrice(realized)} USDT
+                        </dd>
+                      </dl>
+                    </li>
+                  );
+                })}
+              </ol>
+              <p>PnL mỗi lần chốt đã trừ phí mở phân bổ và phí chốt; chưa trừ funding.</p>
+            </section>
+          ) : (
+            <p>Chưa có lần chốt một phần.</p>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function PositionsTable({
   rows,
   showPair,
@@ -449,13 +559,12 @@ export function PositionsTable({
             const { s, p, mark, feeBps } = row;
             const net = estimatedPaperPnl(p, mark, feeBps);
             const partial = tradePartialProgress(p);
-            const gross = estimatedPaperPnl(p, mark, feeBps, false);
             const toSl = mark ? (Math.abs(mark - p.stop) / mark) * 100 : null;
             const toTp = mark ? (Math.abs(p.target - mark) / mark) * 100 : null;
             const notional = p.entry * p.quantity;
             const lev = p.leverage ?? 1;
             const margin = notional / lev;
-            const slLoss = Math.abs(p.entry - p.stop) * p.quantity;
+            const stopPnl = estimatedPaperPnl(p, p.stop, feeBps, false);
             const unit = s.replace('_USDT', '');
             return (
               <tr key={`${s}${p.id}`}>
@@ -503,8 +612,13 @@ export function PositionsTable({
                   ) : (
                     <small>Chưa chốt phần</small>
                   )}
-                  <small className="negative">
-                    Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)
+                  <small className={stopPnl === null || stopPnl === 0 ? undefined : sign(stopPnl)}>
+                    Nếu khớp tại SL:{' '}
+                    {stopPnl === null ? '—' : `${stopPnl > 0 ? '+' : ''}${formatPrice(stopPnl)}`}{' '}
+                    USDT
+                  </small>
+                  <small title="Chỉ tính phần còn giữ, không cộng tiền đã chốt. Chưa trừ phí, funding và trượt giá khi khớp SL.">
+                    Phần còn mở · trước phí/funding
                   </small>
                 </td>
                 <td>
@@ -512,7 +626,7 @@ export function PositionsTable({
                   <small>{formatTime(p.entry_time)}</small>
                 </td>
                 <td>
-                  <span className="negative">
+                  <span className={stopPnl === null || stopPnl === 0 ? undefined : sign(stopPnl)}>
                     {formatQuote(p.stop)} {toSl !== null && `(${toSl.toFixed(2)}%)`}
                   </span>
                   <small className="positive">
@@ -534,39 +648,7 @@ export function PositionsTable({
                         : '—'}
                     </strong>
                   </div>
-                  <details className="position-pnl-details">
-                    <summary>Chi tiết phí & lần chốt</summary>
-                    <p>
-                      Còn mở: PnL ước tính sau phí mở phân bổ, phí đóng dự kiến và funding đã ghi
-                      nhận. Gộp {gross === null ? '—' : formatPrice(gross)} · Phí mở{' '}
-                      {formatPrice(p.entry_fee)} · Funding {formatPrice(p.funding_cost)} USDT.
-                    </p>
-                    {partial && (
-                      <>
-                        <p>
-                          Đã chốt: sau phí mở phân bổ và phí chốt, chưa trừ funding. Khối lượng ban
-                          đầu {partial.originalQuantity.toLocaleString('en-US')} {unit}.
-                        </p>
-                        <ol>
-                          {p.monitoring?.partial_exits?.map((leg, index) => (
-                            <li key={`${leg.time}-${index}`}>
-                              {formatTime(leg.time)} · {leg.quantity.toLocaleString('en-US')} {unit}{' '}
-                              (
-                              {((leg.quantity / partial.originalQuantity) * 100).toLocaleString(
-                                'vi-VN',
-                                { maximumFractionDigits: 1 },
-                              )}
-                              %) @ {formatQuote(leg.price)} ·{' '}
-                              <span className={sign(leg.gross - leg.entry_fee - leg.exit_fee)}>
-                                {leg.gross - leg.entry_fee - leg.exit_fee > 0 ? '+' : ''}
-                                {formatPrice(leg.gross - leg.entry_fee - leg.exit_fee)} USDT
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                      </>
-                    )}
-                  </details>
+                  <PositionPnlDetails row={row} />
                 </td>
                 <td>{hold(p.entry_time)}</td>
                 {actions && <td className="row-actions">{actions(row)}</td>}
