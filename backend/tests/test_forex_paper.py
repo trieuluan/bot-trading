@@ -288,14 +288,14 @@ def test_stop_gap_fills_at_open_not_stop_and_future_bars_ignored():
     assert trades() == []
 
 
-def test_api_exposes_separate_paper_and_never_broker_execution():
+def test_api_omits_retired_paper_and_never_enables_broker_execution():
     from fastapi.testclient import TestClient
 
     from backend.app.main import app
 
     result = TestClient(app).get("/api/workspaces/exness_forex/dashboard").json()
     assert result["execution_enabled"] is False
-    assert [row["channel"] for row in result["paper"]["portfolios"]] == ["live", "replay", "trend", "range", "router"]
+    assert "paper" not in result
 
 
 def test_short_exits_on_ask_not_bid():

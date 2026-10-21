@@ -2,12 +2,11 @@ import { useSyncExternalStore } from 'react';
 
 const pages = {
   mexc_futures: ['Giao dịch & Bot', 'Cài đặt & Kết nối'],
-  exness_forex: ['Tổng quan', 'Bot', 'Nghiên cứu', 'Kết nối sàn'],
+  exness_forex: ['Tổng quan', 'Bot', 'Kết nối sàn'],
 };
 
 const tabs: Record<string, string[]> = {
   Bot: ['chart', 'orders', 'learning'],
-  'Nghiên cứu': ['backtest', 'paper', 'log'],
 };
 
 export interface RouteState {

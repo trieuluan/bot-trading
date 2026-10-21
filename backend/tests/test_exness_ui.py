@@ -1,97 +1,22 @@
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import main
+from backend.app.main import app
 
-def test_research_missing_report_is_explicit(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    response = TestClient(main.app).get("/api/workspaces/exness_forex/research")
+
+@pytest.mark.parametrize("method,path", [
+    ("get", "/api/workspaces/exness_forex/research"),
+    ("post", "/api/workspaces/exness_forex/research/replay"),
+])
+def test_removed_research_routes(method, path):
+    assert getattr(TestClient(app), method)(path).status_code == 404
+
+
+def test_dashboard_no_longer_loads_legacy_paper(monkeypatch):
+    def unexpected_call():
+        pytest.fail("Dashboard must not load retired Paper portfolios")
+
+    monkeypatch.setattr("backend.app.forex_paper.forex_paper_summary", unexpected_call)
+    response = TestClient(app).get("/api/workspaces/exness_forex/dashboard")
     assert response.status_code == 200
-    assert response.json() == {"available": False, "reports": [], "comparison": None, "gap_audits": [], "error": None}
-
-@pytest.mark.parametrize("slippage_bps", [0, 2])
-def test_research_projects_only_fixed_exness_reports(tmp_path, monkeypatch, slippage_bps):
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    report = {
-        "version": "exness_mtf_replay_v1", "source": "exness_forex", "symbol": "XAUUSD",
-        "as_of": 2000, "start": 0, "end": 1800, "dataset_sha256": "a" * 64,
-        "processed_bars": 2, "evaluated_bars": 1,
-        "summary": {"confirmations": 0, "resolved": 0, "win_rate": None, "mean_r_ex_swap": None,
-                    "sum_r_ex_swap": 0, "profit_factor_ex_swap": None, "closed_sample_drawdown_r": 0},
-        "assumptions": {"slippage_bps_each_side": slippage_bps},
-        "by_side": {side: {"resolved": 0, "sum_r_ex_swap": 0, "win_rate": None} for side in ("long", "short")},
-        "by_month": {}, "samples": [{"private_field": "do not expose"}],
-    }
-    (tmp_path / "exness-mtf-replay.json").write_text(json.dumps(report))
-    (tmp_path / "unrelated.json").write_text("do not expose")
-    data = TestClient(main.app).get("/api/workspaces/exness_forex/research").json()
-    assert data["available"] is True
-    assert len(data["reports"]) == 1
-    assert data["reports"][0]["assumptions"]["slippage_bps_each_side"] == slippage_bps
-    assert "samples" not in data["reports"][0]
-    assert "do not expose" not in json.dumps(data)
-    report["summary"]["sum_r_ex_swap"] = "invalid metric"
-    (tmp_path / "exness-mtf-replay.json").write_text(json.dumps(report))
-    assert TestClient(main.app).get("/api/workspaces/exness_forex/research").json()["available"] is False
-
-@pytest.mark.parametrize("content", ['{"source":"mexc_futures"}', '{"invalid":', '[]'])
-def test_research_wrong_or_corrupt_report_does_not_leak_contents(tmp_path, monkeypatch, content):
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    (tmp_path / "exness-mtf-replay.json").write_text(content)
-    data = TestClient(main.app).get("/api/workspaces/exness_forex/research").json()
-    assert data["available"] is False
-    assert data["error"]
-    assert data["reports"] == []
-
-
-def comparison_report():
-    return {
-        "version": "exness_portfolio_compare_v1", "source": "exness_forex", "symbol": "XAUUSD",
-        "as_of": 2000, "start": 0, "end": 1800, "processed_bars": 2,
-        "dataset_sha256": "a" * 64, "assumptions": {"swap_included": False},
-        "private_field": "do not expose",
-        "results": [{
-            "strategy": strategy, "slippage_bps": bps, "signals": 0, "accepted": 0,
-            "skipped_busy": 0, "trades": 0, "win_rate": None, "final_balance": 10000,
-            "return_pct": 0, "profit_factor": None, "max_drawdown_pct": 0, "mean_r": None,
-            "status": "complete", "blocked_at": None, "equity_verified": True,
-            "rejection_reasons": {}, "samples": [{"private_field": "do not expose"}],
-        } for strategy in ("breakout_retest", "trend_pullback", "range_rejection", "regime_router") for bps in (0, 1, 2)],
-    }
-
-
-def test_comparison_only_report_projects_metrics_without_trades(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    (tmp_path / "exness-strategy-compare.json").write_text(json.dumps(comparison_report()))
-    data = TestClient(main.app).get("/api/workspaces/exness_forex/research").json()
-    assert data["available"] and len(data["comparison"]["results"]) == 12
-    assert data["reports"] == []
-    assert "do not expose" not in json.dumps(data)
-
-
-@pytest.mark.parametrize("invalid", ["wrong_source", "duplicate", "infinite", "incomplete", "bad_date", "bad_rejections"])
-def test_invalid_comparison_is_safe_and_explicit(tmp_path, monkeypatch, invalid):
-    monkeypatch.setattr(main, "RESEARCH_DIRECTORY", tmp_path)
-    report = comparison_report()
-    if invalid == "wrong_source":
-        report["source"] = "mexc_futures"
-    elif invalid == "duplicate":
-        report["results"][-1] = report["results"][0]
-    elif invalid == "infinite":
-        report["results"][0]["final_balance"] = float("inf")
-    elif invalid == "incomplete":
-        report["results"].pop()
-    elif invalid == "bad_date":
-        report["end"] = "invalid"
-    else:
-        report["results"][0]["rejection_reasons"] = []
-    (tmp_path / "exness-strategy-compare.json").write_text(json.dumps(report))
-    response = TestClient(main.app).get("/api/workspaces/exness_forex/research")
-    assert response.status_code == 200
-    assert response.json()["comparison"] is None and response.json()["error"]
-
-
-def test_old_replay_is_gone():
-    assert TestClient(main.app).post("/api/workspaces/exness_forex/research/replay").status_code == 410
+    assert "paper" not in response.json()

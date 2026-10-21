@@ -10,6 +10,7 @@ interface Market {
   positions: number;
   specs: string;
   blocked_reason: string | null;
+  execution?: { eligible_count?: number };
   feed: { error: string | null; remaining_intervals: number | null; worker_online: boolean }[];
 }
 
@@ -25,7 +26,17 @@ const statusText: Record<string, string> = {
   commission_unverified: 'Commission chưa xác minh',
 };
 
-export function ForexMarkets({ symbol, compact = false }: { symbol: string; compact?: boolean }) {
+export function ForexMarkets({
+  symbol,
+  compact = false,
+  table = false,
+  onSelect,
+}: {
+  symbol: string;
+  compact?: boolean;
+  table?: boolean;
+  onSelect?: (symbol: string) => void;
+}) {
   const [data, setData] = useState<{
     markets: Market[];
     account_positions: number;
@@ -62,6 +73,76 @@ export function ForexMarkets({ symbol, compact = false }: { symbol: string; comp
       clearInterval(timer);
     };
   }, []);
+  if (table)
+    return (
+      <section className="panel" aria-label="Tổng quan các cặp Forex">
+        <div className="section-head">
+          <h2>Tổng quan {data?.markets.length ?? 11} cặp</h2>
+          {data && (
+            <p>
+              {data.account_positions}/{data.max_positions} vị thế toàn tài khoản
+            </p>
+          )}
+        </div>
+        {error && <p role="alert">Không tải được tổng quan; số liệu có thể đã cũ.</p>}
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Cặp</th>
+                <th>Bid · độ mới</th>
+                <th>Specs</th>
+                <th>Vị thế</th>
+                <th>Cây đủ chuẩn</th>
+                <th>Chặn entry</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {data?.markets.map((market) => (
+                <tr key={market.symbol}>
+                  <td>
+                    <strong>{market.symbol}</strong>
+                  </td>
+                  <td>
+                    {market.price == null
+                      ? '—'
+                      : market.price.toLocaleString('en-US', { maximumFractionDigits: 5 })}
+                    {market.age_seconds != null && ` · ${Math.floor(market.age_seconds)}s`}
+                  </td>
+                  <td>
+                    {market.specs === 'partial'
+                      ? 'Đã có · chưa swap'
+                      : market.specs === 'stale'
+                        ? 'Đã cũ'
+                        : 'Chưa có'}
+                  </td>
+                  <td>
+                    {market.positions}/{data.max_positions_per_symbol}
+                  </td>
+                  <td>{market.execution?.eligible_count ?? '—'}</td>
+                  <td>
+                    {market.blocked_reason
+                      ? (statusText[market.blocked_reason] ?? market.blocked_reason)
+                      : 'Không có khoá'}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={market.symbol === symbol}
+                      onClick={() => onSelect?.(market.symbol)}
+                    >
+                      {market.symbol === symbol ? 'Đang chọn' : 'Chọn'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
   return (
     <section className={`forex-markets ${compact ? 'is-compact' : ''}`} aria-label="Các cặp Forex">
       <div className="forex-market-strip">

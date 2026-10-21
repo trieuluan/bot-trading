@@ -4,7 +4,6 @@ import {
   Bot,
   ChevronDown,
   CircleHelp,
-  FlaskConical,
   LayoutDashboard,
   Link2,
   PanelLeftClose,
@@ -16,7 +15,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 const exnessNavigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
   { label: 'Bot', icon: Bot },
-  { label: 'Nghiên cứu', icon: FlaskConical },
   { label: 'Kết nối sàn', icon: Link2 },
 ];
 
