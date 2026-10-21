@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice, formatQuote } from '../lib/format';
-import { estimatedPaperPnl } from '../lib/paper-position';
+import { estimatedPaperPnl, summarizePaperTrades } from '../lib/paper-position';
 import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
 import {
@@ -201,20 +201,8 @@ export function TradeHistoryTable({
 }) {
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const [limit, setLimit] = useState(PAGE);
-  const closed = rows.filter((row) => row.t.net_pnl !== null);
-  const wins = closed.filter((row) => (row.t.net_pnl ?? 0) > 0);
-  const totalNet = closed.reduce((sum, row) => sum + (row.t.net_pnl ?? 0), 0);
-  const fees = closed.reduce(
-    (sum, row) => sum + row.t.entry_fee + row.t.exit_fee + row.t.funding_cost,
-    0,
-  );
-  const rValues = closed
-    .map((row) => {
-      const risk = riskOf(row.t);
-      return risk > 0 ? (row.t.net_pnl ?? 0) / risk : null;
-    })
-    .filter((value): value is number => value !== null);
-  const meanR = rValues.length ? rValues.reduce((a, b) => a + b, 0) / rValues.length : null;
+  const total = summarizePaperTrades(rows.map(({ t }) => t));
+  const { net: totalNet, fees, meanR } = total;
   const shown = rows.filter(({ t }) =>
     filter === 'all'
       ? true
@@ -226,40 +214,46 @@ export function TradeHistoryTable({
             ? t.origin === 'auto'
             : t.origin !== 'auto',
   );
+  const filtered = summarizePaperTrades(shown.map(({ t }) => t));
   return (
     <>
-      {closed.length > 0 && (
-        <div className="history-summary" aria-label="Tổng kết lịch sử lệnh">
-          <div>
-            <small>PnL ròng</small>
-            <strong className={sign(totalNet)}>
-              {totalNet > 0 ? '+' : ''}
-              {formatPrice(totalNet)} <em>USDT</em>
-            </strong>
+      {total.closed > 0 && (
+        <>
+          <p className="micro">
+            Tổng lịch sử đang tải · {total.closed} lệnh đã chốt · tối đa 100 lệnh/cặp
+          </p>
+          <div className="history-summary" aria-label="Tổng kết lịch sử lệnh">
+            <div>
+              <small>PnL ròng</small>
+              <strong className={sign(totalNet)}>
+                {totalNet > 0 ? '+' : ''}
+                {formatPrice(totalNet)} <em>USDT</em>
+              </strong>
+            </div>
+            <div>
+              <small>Tỉ lệ thắng</small>
+              <strong>
+                {Math.round((total.wins / total.closed) * 100)}%
+                <em>
+                  {' '}
+                  {total.wins}/{total.closed}
+                </em>
+              </strong>
+            </div>
+            <div>
+              <small>R trung bình</small>
+              <strong className={meanR == null ? '' : sign(meanR)}>
+                {meanR == null ? '—' : `${meanR > 0 ? '+' : ''}${meanR.toFixed(2)}R`}
+              </strong>
+            </div>
+            <div>
+              <small>Phí + funding</small>
+              <strong>
+                {formatPrice(fees)} <em>USDT</em>
+              </strong>
+            </div>
           </div>
-          <div>
-            <small>Tỉ lệ thắng</small>
-            <strong>
-              {Math.round((wins.length / closed.length) * 100)}%
-              <em>
-                {' '}
-                {wins.length}/{closed.length}
-              </em>
-            </strong>
-          </div>
-          <div>
-            <small>R trung bình</small>
-            <strong className={meanR == null ? '' : sign(meanR)}>
-              {meanR == null ? '—' : `${meanR > 0 ? '+' : ''}${meanR.toFixed(2)}R`}
-            </strong>
-          </div>
-          <div>
-            <small>Phí + funding</small>
-            <strong>
-              {formatPrice(fees)} <em>USDT</em>
-            </strong>
-          </div>
-        </div>
+        </>
       )}
       <div className="history-filters" role="group" aria-label="Lọc lịch sử lệnh">
         {historyFilters.map(([key, label]) => (
@@ -277,6 +271,52 @@ export function TradeHistoryTable({
         ))}
         <span className="muted">{shown.length} lệnh · bấm số lệnh để xem trên chart</span>
       </div>
+      {filter !== 'all' && (
+        <div className="history-filter-summary" role="status" aria-live="polite" aria-atomic="true">
+          <strong>Đang xem: {historyFilters.find(([key]) => key === filter)?.[1]}</strong>
+          <span>{filtered.count} lệnh</span>
+          {filtered.count > filtered.closed && (
+            <span>
+              {filtered.closed} đã chốt · {filtered.count - filtered.closed} đang mở
+            </span>
+          )}
+          {filtered.closed > 0 ? (
+            <>
+              <span>
+                PnL ròng{' '}
+                <b className={sign(filtered.net)}>
+                  {filtered.net > 0 ? '+' : ''}
+                  {formatPrice(filtered.net)} USDT
+                </b>
+              </span>
+              <span>
+                R TB{' '}
+                <b className={filtered.meanR === null ? '' : sign(filtered.meanR)}>
+                  {filtered.meanR === null
+                    ? '—'
+                    : `${filtered.meanR > 0 ? '+' : ''}${filtered.meanR.toFixed(2)}R`}
+                </b>
+              </span>
+              <span>
+                Phí + funding <b>{formatPrice(filtered.fees)} USDT</b>
+              </span>
+              {(filter === 'auto' || filter === 'manual') && (
+                <span>
+                  Thắng{' '}
+                  <b>
+                    {Math.round((filtered.wins / filtered.closed) * 100)}% ({filtered.wins}/
+                    {filtered.closed})
+                  </b>
+                </span>
+              )}
+            </>
+          ) : (
+            <span>
+              {filtered.count ? 'Chưa có lệnh đã chốt để thống kê.' : 'Không có lệnh khớp bộ lọc.'}
+            </span>
+          )}
+        </div>
+      )}
       <div className="table-scroll">
         <table className="positions-table history-table">
           <thead>
@@ -538,7 +578,7 @@ export function AllPairsPanel({
   );
   const trades = FUTURES_SYMBOLS.flatMap((s) =>
     (board[s].wallet?.trades ?? []).filter((t) => t.exit_time !== null).map((t) => ({ s, t })),
-  ).sort((a, b) => (b.t.exit_time ?? 0) - (a.t.exit_time ?? 0));
+  ).sort((a, b) => b.t.id - a.t.id);
   // One shared wallet: every pair reports the same account figures, so read it once.
   const account = FUTURES_SYMBOLS.map((s) => board[s].wallet).find(Boolean) ?? null;
   return (
