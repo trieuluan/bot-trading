@@ -101,7 +101,9 @@ def run_loop(name, callback, interval):
                     logging.exception("Cannot persist auto failure while database is unavailable")
         stop.wait(max(0.1, interval - (time.monotonic() - started)))
 
-def run_symbol_loop(symbol, name, callback, interval):
+def run_symbol_loop(symbol, name, callback, interval, start_delay=0):
+    if stop.wait(start_delay):
+        return
     with symbol_scope(symbol):
         run_loop(name, callback, interval)
 
@@ -135,8 +137,8 @@ def main():
         ("futures-learning", learning_tick, 30),
     ]
     threads.extend(
-        threading.Thread(target=run_symbol_loop, args=(symbol, *job), name=f"{symbol}-{job[0]}")
-        for symbol in SYMBOLS for job in pair_jobs
+        threading.Thread(target=run_symbol_loop, args=(symbol, *job, index * 0.4), name=f"{symbol}-{job[0]}")
+        for index, symbol in enumerate(SYMBOLS) for job in pair_jobs
     )
     for thread in threads:
         thread.start()

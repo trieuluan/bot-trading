@@ -433,6 +433,8 @@ def sync_paper_quote(adapter=None):
         with Session.begin() as session:
             wallet = lock_wallet(session)
             if wallet.quote and quote["time"] < wallet.quote["time"]:
+                wallet.error = None
+                wallet.retry_at = None
                 return
             # The live bar contains observed ticks only; cached closed bars stay authoritative.
             bucket = int(quote["time"]) // 900 * 900

@@ -67,6 +67,12 @@ class MexcFuturesAdapter:
                     raise httpx.TransportError("MEXC temporarily unavailable")
                 response.raise_for_status()
                 payload = response.json()
+                # MEXC throttles with HTTP 200 + code 510; back off briefly instead of a generic 15s error.
+                if isinstance(payload, dict) and payload.get("code") == 510:
+                    if attempt == 2:
+                        raise MarketDataError("MEXC rate limit; wait before retrying", 5)
+                    self.sleep(0.5 * 2**attempt)
+                    continue
                 if not isinstance(payload, dict) or payload.get("success") is not True:
                     raise MarketDataError("MEXC returned an unsuccessful response")
                 return payload["data"]

@@ -186,6 +186,29 @@ def test_failed_quote_keeps_position_and_rate_limit_cooldown():
     sync_paper_quote(Failed())
     assert client.get("/api/paper/wallet").json()["balance"] == wallet["balance"]
 
+def test_older_successful_quote_clears_error_without_replacing_newer_quote():
+    from datetime import timedelta
+
+    from backend.app.db import utcnow
+
+    current = time.time()
+    sync_paper_quote(Market(100, timestamp=current))
+    with Session.begin() as session:
+        wallet = session.get(PaperWallet, 1)
+        saved_quote = dict(wallet.quote)
+        saved_contract = dict(wallet.contract)
+        balance = wallet.balance
+        wallet.error = "Rate limited"
+        wallet.retry_at = utcnow() - timedelta(seconds=1)
+    sync_paper_quote(Market(90, timestamp=current - 1))
+    with Session() as session:
+        wallet = session.get(PaperWallet, 1)
+        assert wallet.error is None
+        assert wallet.retry_at is None
+        assert wallet.quote == saved_quote
+        assert wallet.contract == saved_contract
+        assert wallet.balance == balance
+
 
 def test_ticker_validates_exchange_timestamp_and_book():
     def response(request):
