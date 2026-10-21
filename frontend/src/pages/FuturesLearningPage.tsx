@@ -108,6 +108,9 @@ async function call(path: string, body?: object): Promise<Learning> {
   return data;
 }
 
+type StatusKey =
+  'all' | 'signal' | 'holding' | 'paper' | 'learned' | 'good' | 'unlearned' | 'promoted';
+
 const fmt = (value: number | null, digits = 2) => (value === null ? '—' : value.toFixed(digits));
 const usdt = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(2)} USDT`;
 
@@ -167,10 +170,10 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const [data, setData] = useState<Learning | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'seed' | 'child' | 'good'>('all');
   const [family, setFamily] = useState('all');
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState<StatusKey>('all');
+  const [showPaused, setShowPaused] = useState(false);
   const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
 
@@ -217,19 +220,23 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
   const familyName = (name: string) =>
     name === 'default' ? 'Cây luật tự sinh' : (HTF_LABELS[name] ?? name.replace(/_/g, ' '));
-  const rows = all.filter(
+  const holding = (row: Row) => (row.open_trades?.length ?? 0) > 0;
+  const statuses: [StatusKey, string, (row: Row) => boolean][] = [
+    ['all', 'Tất cả', () => true],
+    ['signal', '⚡ Tín hiệu', (row) => signalSet.has(row.strategy)],
+    ['holding', 'Đang giữ lệnh', holding],
+    ['paper', 'Đã chạy Auto Paper', (row) => holding(row) || !!row.paper?.closed],
+    ['learned', 'Có mẫu học', (row) => row.learned_samples > 0],
+    ['good', 'R học > 0', (row) => row.learned_samples > 0 && (row.learned_mean_r ?? 0) > 0],
+    ['unlearned', 'Chưa có mẫu', (row) => row.learned_samples === 0],
+    ['promoted', 'Đã duyệt', (row) => row.promoted],
+  ];
+  const pausedCount = all.filter((row) => row.paused).length;
+  // Status chips count within the other filters, so each number matches what clicking shows.
+  const scoped = all.filter(
     (row) =>
+      (showPaused || !row.paused || holding(row)) &&
       (family === 'all' || profileOf(row.genome) === family) &&
-      (status === 'all' ? !row.paused || (row.open_trades?.length ?? 0) > 0 : true) &&
-      (status === 'all' ||
-        status === 'all_with_paused' ||
-        (status === 'signal' && signalSet.has(row.strategy)) ||
-        (status === 'holding' && (row.open_trades?.length ?? 0) > 0) ||
-        (status === 'paper' && (row.open_trades?.length || row.paper?.closed)) ||
-        (status === 'active' && !row.paused) ||
-        (status === 'paused' && row.paused) ||
-        (status === 'promoted' && row.promoted) ||
-        (status === 'selected' && row.strategy === selected)) &&
       needles.every((needle) =>
         searchText(
           [
@@ -244,12 +251,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           ].join(' '),
         ).includes(needle),
       ) &&
-      (gen === 'all' || row.generation === Number(gen)) &&
-      (filter === 'all' ||
-        (filter === 'seed' && row.generation === 0) ||
-        (filter === 'child' && row.generation > 0) ||
-        (filter === 'good' && (row.learned_mean_r ?? -1) > 0)),
+      (gen === 'all' || row.generation === Number(gen)),
   );
+  const rows = scoped.filter(statuses.find(([key]) => key === status)![2]);
   // ponytail: priority pinned (holding > signal > idle); add toggle/config if user wants pure score order.
   const rank = (row: Row) =>
     (row.open_trades?.length ?? 0) > 0 ? 0 : signalSet.has(row.strategy) ? 1 : 2;
@@ -266,12 +270,6 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const modes = [
     ['paper_learning', 'Học thử Paper', { enabled: true, auto_mode: 'paper_learning' }],
     ['learner', 'Chỉ đã duyệt', { enabled: true, auto_mode: 'learner' }],
-  ] as const;
-  const filters = [
-    ['all', 'Tất cả'],
-    ['good', 'R học > 0'],
-    ['seed', 'Gốc'],
-    ['child', 'Biến thể'],
   ] as const;
   const kpis = data
     ? [
@@ -356,12 +354,30 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 : ''}{' '}
             Đổi chế độ khi Auto Paper đang dừng.
           </p>
-          <div className="evo-filters" role="group" aria-label="Lọc chiến thuật">
-            {filters.map(([key, label]) => (
-              <button key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-                {label}
-              </button>
-            ))}
+          <div className="evo-filters" role="group" aria-label="Lọc theo trạng thái">
+            {statuses.map(([key, label, match]) => {
+              const count = scoped.filter(match).length;
+              return (
+                <button
+                  key={key}
+                  aria-pressed={status === key}
+                  disabled={count === 0 && status !== key}
+                  onClick={() => setStatus(key)}
+                >
+                  {label} <span className="evo-count">{count}</span>
+                </button>
+              );
+            })}
+            {(pausedCount > 0 || showPaused) && (
+              <label className="evo-paused-toggle">
+                <input
+                  type="checkbox"
+                  checked={showPaused}
+                  onChange={(event) => setShowPaused(event.target.checked)}
+                />
+                Hiện ngừng thử ({pausedCount})
+              </label>
+            )}
           </div>
           <div className="evo-tools">
             <label>
@@ -407,23 +423,6 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               </select>
             </label>
             <label>
-              Trạng thái
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="all">Đang dùng (ẩn ngừng thử)</option>
-                <option value="all_with_paused">Tất cả kể cả ngừng thử</option>
-                <option value="active">Đang thử</option>
-                <option value="signal">Có tín hiệu mới ({signalSet.size})</option>
-                <option value="holding">Có lệnh đang mở</option>
-                <option value="paper">
-                  Đã chạy Auto Paper (
-                  {all.filter((row) => row.open_trades?.length || row.paper?.closed).length})
-                </option>
-                <option value="selected">Được chọn gần nhất</option>
-                <option value="promoted">Đã duyệt</option>
-                <option value="paused">Chỉ nhóm ngừng thử</option>
-              </select>
-            </label>
-            <label>
               Sắp xếp
               <select value={sort} onChange={(event) => setSort(event.target.value)}>
                 <option value="score">R học cao nhất</option>
@@ -440,16 +439,16 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             {(family !== 'all' ||
               query ||
               status !== 'all' ||
+              showPaused ||
               gen !== 'all' ||
-              filter !== 'all' ||
               sort !== 'score') && (
               <button
                 onClick={() => {
                   setFamily('all');
                   setQuery('');
                   setStatus('all');
+                  setShowPaused(false);
                   setGen('all');
-                  setFilter('all');
                   setSort('score');
                 }}
               >

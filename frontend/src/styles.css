@@ -8406,3 +8406,29 @@ main.forex-terminal-main {
   font-size: 11px;
   color: #859087;
 }
+
+.evo-filters .evo-count {
+  margin-left: 3px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef1e9;
+  color: #63746a;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.evo-filters button[aria-pressed='true'] .evo-count {
+  background: #fff;
+  color: #1e5b47;
+}
+.evo-filters button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.evo-paused-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #63746a;
+}
