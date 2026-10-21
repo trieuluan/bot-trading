@@ -8411,3 +8411,64 @@ main.forex-terminal-main {
   font-weight: 600;
   color: #1e5b47;
 }
+
+.ap-strip {
+  display: grid;
+  grid-template-columns: repeat(96, minmax(0, 1fr));
+  gap: 1px;
+  height: 16px;
+}
+.ap-cell {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: #e8ece4;
+}
+button.ap-cell {
+  cursor: pointer;
+}
+.ap-cell.no_setup {
+  background: #c9d8cb;
+}
+.ap-cell.opened {
+  background: #1f8a57;
+}
+.ap-cell.skipped {
+  background: #d99a3d;
+}
+.ap-cell.missed {
+  background: repeating-linear-gradient(135deg, #f3e6cc 0 2px, #dcc195 2px 4px);
+}
+.ap-cell.none {
+  background: #9aa39c;
+}
+.ap-cell.untracked {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #e2e7dd;
+}
+.ap-strip-axis,
+.ap-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: #859087;
+}
+.ap-legend {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.ap-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ap-legend .ap-cell {
+  width: 8px;
+  height: 8px;
+}
+.ap-journal .ap-journal-reasons {
+  color: #a06a1c;
+}

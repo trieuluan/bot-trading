@@ -119,6 +119,23 @@ def set_status(session, state, message):
         session.add(Event(kind="auto_paper", message=message))
 
 
+def note_missed(session, state, now, reason):
+    """Record why the latest closed candle went undecided once its entry window has passed."""
+    candle_time = int(now) // 900 * 900 - 900
+    if now - (candle_time + 900) <= MAX_SIGNAL_AGE:
+        return
+    if state.last_candle is not None and state.last_candle >= candle_time:
+        return
+    if session.get(AutoPaperDecision, (current_symbol(), candle_time)):
+        return
+    record_decision(session, state, candle_time, "missed", reason)
+
+
+def blocked(session, state, now, reason):
+    set_status(session, state, reason)
+    note_missed(session, state, now, reason)
+
+
 def record_decision(
     session, state, candle_time, action, reason, setup=None, trade=None, audit=None
 ):
@@ -172,23 +189,26 @@ def _auto_tick(now=None):
     with Session.begin() as session:
         wallet = lock_wallet(session)
         state = session.get(AutoPaperState, state_id())
-        if state is None or not state.enabled:
+        if state is None:
+            return
+        if not state.enabled:
+            note_missed(session, state, now, "Auto Paper đang tắt")
             return
         try:
             quote = fresh_quote(wallet, now)
             portfolio(session, require_fresh=True, now=now)
         except HTTPException as exc:
-            set_status(session, state, exc.detail)
+            blocked(session, state, now, exc.detail)
             return
         roll_day(session, wallet, state, now)
         positions = open_positions(session)
         if any((p.monitoring or {}).get("status") == "history_pending" for p in positions):
-            set_status(session, state, "Vị thế đang thiếu dữ liệu đối soát SL/TP; chờ đồng bộ nến")
+            blocked(session, state, now, "Vị thế đang thiếu dữ liệu đối soát SL/TP; chờ đồng bộ nến")
             return
         reason = limit_reason(session, wallet, state, now)
         if reason:
             state.enabled = False
-            set_status(session, state, reason + "; đã dừng vào lệnh mới, SL/TP vẫn chạy")
+            blocked(session, state, now, reason + "; đã dừng vào lệnh mới, SL/TP vẫn chạy")
             return
         candle_time = int(now) // 900 * 900 - 900
         if state.last_candle is not None and state.last_candle >= candle_time:
@@ -336,7 +356,12 @@ def state_response(session, wallet, state, now):
         .order_by(AutoPaperDecision.candle_time.desc())
     ).all()
     counts = {action: sum(d.action == action for d in decisions)
-              for action in ("opened", "skipped", "no_setup")}
+              for action in ("opened", "skipped", "no_setup", "missed")}
+    # Only count candles since this pair's first record, so a new pair or DB isn't shown as missed.
+    first = session.scalar(select(func.min(AutoPaperDecision.candle_time))
+                           .where(AutoPaperDecision.symbol == current_symbol()))
+    start = last_closed + 900 if first is None else max(since, first)
+    tracked = (last_closed - start) // 900 + 1
     beat = session.get(BotState, 1).heartbeat
     worker_online = bool(beat and now - beat.replace(tzinfo=timezone.utc).timestamp() < 30)
     decision = learning["last_decision"]
@@ -370,19 +395,20 @@ def state_response(session, wallet, state, now):
         status=state.status,
         worker_online=worker_online,
         next_close_time=(int(now) // 900 + 1) * 900,
-        coverage=dict(window_candles=JOURNAL_CANDLES, evaluated=len(decisions),
-                      missed=JOURNAL_CANDLES - len(decisions), **counts),
-        journal=[
+        coverage=dict(window_candles=JOURNAL_CANDLES, end_time=last_closed,
+                      start_time=start, tracked_candles=tracked,
+                      evaluated=counts["opened"] + counts["skipped"] + counts["no_setup"],
+                      unrecorded=tracked - len(decisions), **counts),
+        # Every recorded candle of the window; gaps mean the worker never ticked that candle.
+        timeline=[
             dict(
                 candle_time=d.candle_time,
                 action=d.action,
                 reason=d.reason,
                 trade_id=d.trade_id,
                 side=(d.setup or {}).get("side"),
-                strategy=((d.parameters or {}).get("audit") or {}).get("strategy"),
             )
             for d in decisions
-            if d.action != "no_setup"
         ],
     )
 

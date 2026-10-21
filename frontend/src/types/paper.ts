@@ -177,19 +177,22 @@ export type AutoPaperState = AutoPaperConfig & {
   next_close_time: number;
   coverage?: {
     window_candles: number;
+    end_time: number;
+    start_time: number;
+    tracked_candles: number;
     evaluated: number;
-    missed: number;
+    unrecorded: number;
     opened: number;
     skipped: number;
     no_setup: number;
+    missed: number;
   };
-  journal?: {
+  timeline?: {
     candle_time: number;
-    action: 'opened' | 'skipped';
+    action: 'opened' | 'skipped' | 'no_setup' | 'missed';
     reason: string;
     trade_id: number | null;
     side: 'long' | 'short' | null;
-    strategy: string | null;
   }[];
 };
 export interface FuturesHistoryStats {

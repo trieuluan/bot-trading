@@ -809,8 +809,14 @@ export function AllPairsPanel({
                         {!a ? '—' : !a.enabled ? 'Dừng' : a.worker_online ? 'Chạy' : 'Worker off'}
                       </span>
                       {a?.coverage && (
-                        <small className={a.coverage.missed ? 'negative' : undefined}>
-                          Xét {a.coverage.evaluated}/{a.coverage.window_candles}
+                        <small
+                          className={
+                            a.enabled && a.coverage.missed + a.coverage.unrecorded
+                              ? 'negative'
+                              : undefined
+                          }
+                        >
+                          Xét {a.coverage.evaluated}/{a.coverage.tracked_candles}
                           {a.coverage.skipped ? ` · ${a.coverage.skipped} bỏ qua` : ''}
                         </small>
                       )}
