@@ -78,7 +78,7 @@ def migrate_symbol_ledger(path, legacy, account, symbol, now):
         ledger = json.loads(path.read_text())
         if (ledger.get("account"), ledger.get("symbol"), ledger.get("runtime"), ledger.get("schema")) != (account, symbol, RUNTIME, SCHEMA):
             raise ValueError("Invalid multi-symbol V3 ledger identity")
-        return ledger
+        return refresh_unused_g0(path, ledger, symbol, now)
     path.parent.mkdir(parents=True, exist_ok=True)
     with legacy.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -127,3 +127,19 @@ def migrate_symbol_ledger(path, legacy, account, symbol, now):
                               for tree in trees}}
         atomic_json(path, ledger)
         return ledger
+
+
+def refresh_unused_g0(path, ledger, symbol, now):
+    """Swap in the current G0 only while the ledger has never captured a sample or evolved."""
+    from .forex_htf_v2 import g0_trees, tree_id
+
+    trees = g0_trees(symbol)
+    ids = [tree_id(tree) for tree in trees]
+    if (ledger.get("generation", 0) or ledger.get("samples")
+            or [tree_id(tree) for tree in ledger.get("population", [])] == ids):
+        return ledger
+    ledger = {**ledger, "population": trees, "since": now,
+              "members": {tree_id(tree): {"tree": tree, "generation": 0, "parents": [], "born_at": now}
+                          for tree in trees}}
+    atomic_json(path, ledger)
+    return ledger

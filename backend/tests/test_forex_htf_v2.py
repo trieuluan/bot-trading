@@ -31,7 +31,23 @@ def test_g0_has_56_unique_valid_trees():
     assert all("side" not in t["root"]["children"][0] for t in trees)
     assert sum(len(t["root"]["children"]) > 4 for t in trees) == 8
     assert {t["root"]["children"][1]["family"] for t in trees} >= set(mod.NEW_H1_DETECTORS)
-    assert {t["root"]["children"][3]["policy"] for t in trees} >= {"trail_swing_h1", "runner_h1"}
+    assert {t["root"]["children"][3]["policy"] for t in trees} == set(mod.G0_EXITS)
+
+@pytest.mark.parametrize("symbol", ["XAUUSD", "EURUSD", "USDJPY"])
+def test_g0_exit_balance_and_new_signal_combinations(symbol):
+    from collections import Counter
+
+    trees = g0_trees(symbol)
+    assert [tree_id(tree) for tree in trees] == [tree_id(tree) for tree in g0_trees(symbol)]
+    counts = Counter(tree["root"]["children"][3]["policy"] for tree in trees)
+    assert len(trees) == len({tree_id(tree) for tree in trees}) == 56
+    assert set(counts) == set(EXIT_POLICIES)
+    assert sorted(counts.values()) == [6] * 7 + [7] * 2
+    for tree in trees:
+        validate_htf2_tree(tree)
+    filtered_setups = {tree["root"]["children"][1]["family"] for tree in trees
+                       if len(tree["root"]["children"]) > 4}
+    assert set(mod.NEW_H1_DETECTORS) | {"fvg", "sweep", "mss"} == filtered_setups
 
 
 def test_all_h1_detectors_registered_and_in_schema():

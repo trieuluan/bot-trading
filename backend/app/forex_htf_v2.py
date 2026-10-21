@@ -301,27 +301,33 @@ def _tree(h1_family, h1_params, m15_family, m15_params, policy, filters=()):
 def _filter(name):
     return {"frame": "filter", "name": name, "params": dict(FILTER_DEFAULTS[name])}
 
+G0_EXITS = ("partial_be_h1", "partial_be_m15", "fixed_structural", "evidence_h1", "evidence_m15",
+            "barrier_partial_h1", "runner_h1", "trail_swing_h1", "ladder_h1")
+
 def g0_trees(symbol="XAUUSD"):
-    """56 bidirectional trees: 28 base + 20 new setups + 8 filter trees."""
+    """56 bidirectional trees: 28 base + 20 new setups + 8 filter trees; exits rotate over all 9 policies."""
+    def h1_params(setup):
+        return {"step": round_step(symbol)} if setup == "round_level" else default_h1_params(setup)
     trees = []
     for trigger in M15_FAMILIES[:14]:
-        for policy in ("partial_be_h1", "partial_be_m15"):
-            trees.append(_tree(TRIGGER_TO_H1_SETUP[trigger], default_h1_params(TRIGGER_TO_H1_SETUP[trigger]),
-                               trigger, default_m15_params(trigger), policy))
+        setup = TRIGGER_TO_H1_SETUP[trigger]
+        for _ in range(2):
+            policy = G0_EXITS[len(trees) % len(G0_EXITS)]
+            trees.append(_tree(setup, h1_params(setup), trigger, default_m15_params(trigger), policy))
     for setup in NEW_H1_DETECTORS:
-        params = default_h1_params(setup)
-        if setup == "round_level":
-            params = {"step": round_step(symbol)}
         for trigger in ("setup_reclaim", "engulfing"):
-            for policy in ("partial_be_h1", "trail_swing_h1"):
-                trees.append(_tree(setup, params, trigger, {}, policy))
-    combos = (("adx_regime",), ("price_zone",), ("adr_headroom",), ("spread_guard",), ("smt_divergence",),
-              ("liquid_session",), ("adx_regime", "price_zone"), ("spread_guard", "adr_headroom"))
-    for names in combos:
-        family = "pullback"
-        trigger_params = default_m15_params("pullback")
-        h1 = default_h1_params("pullback")
-        trees.append(_tree(family, h1, "pullback", trigger_params, "runner_h1", [_filter(n) for n in names]))
+            for _ in range(2):
+                policy = G0_EXITS[len(trees) % len(G0_EXITS)]
+                trees.append(_tree(setup, h1_params(setup), trigger, {}, policy))
+    filter_sets = (("adx_regime",), ("price_zone",), ("adr_headroom",), ("spread_guard",), ("smt_divergence",),
+                   ("liquid_session",), ("adx_regime", "price_zone"), ("spread_guard", "adr_headroom"))
+    setups = (("order_block", "setup_reclaim"), ("pdh_pdl_sweep", "engulfing"), ("asia_sweep", "setup_reclaim"),
+              ("inside_bar", "engulfing"), ("round_level", "setup_reclaim"), ("fvg", "setup_reclaim"),
+              ("sweep", "engulfing"), ("mss", "setup_reclaim"))
+    for names, (setup, trigger) in zip(filter_sets, setups):
+        m15 = default_m15_params(trigger) if trigger in M15_DEFAULTS else {}
+        trees.append(_tree(setup, h1_params(setup), trigger, m15, G0_EXITS[len(trees) % len(G0_EXITS)],
+                           [_filter(n) for n in names]))
     assert len(trees) == 56 and len({tree_id(tree) for tree in trees}) == 56
     return trees
 

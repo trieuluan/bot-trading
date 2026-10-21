@@ -360,3 +360,18 @@ def test_v3_archives_v2_ledger_and_restart_does_not_reset(tmp_path):
     archived = Path(first["migration"]["archive"]) / old.name
     assert archived.read_bytes() == raw and old.read_bytes() == raw
     assert migrate_symbol_ledger(path, tmp_path / "legacy.json", "acc", "EURUSD", NOW + 99)["since"] == NOW
+
+
+def test_unused_g0_refreshes_but_sampled_ledger_is_kept(tmp_path):
+    from backend.app.forex_htf_v2 import g0_trees, tree_id
+    from backend.app.forex_migration import migrate_symbol_ledger
+
+    path, legacy = tmp_path / "EURUSD.json", tmp_path / "legacy.json"
+    ledger = migrate_symbol_ledger(path, legacy, "acc", "EURUSD", NOW)
+    stale = g0_trees("EURUSD")[::-1][:56]
+    path.write_text(json.dumps({**ledger, "population": stale[1:] + stale[:1]}))
+    current = [tree_id(t) for t in g0_trees("EURUSD")]
+    assert [tree_id(t) for t in migrate_symbol_ledger(path, legacy, "acc", "EURUSD", NOW + 1)["population"]] == current
+    sampled = {**ledger, "population": stale, "samples": [{"strategy": "x"}]}
+    path.write_text(json.dumps(sampled))
+    assert migrate_symbol_ledger(path, legacy, "acc", "EURUSD", NOW + 2)["population"] == stale
