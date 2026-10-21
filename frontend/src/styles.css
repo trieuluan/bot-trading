@@ -4597,6 +4597,127 @@ footer {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.evo-score em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 600;
+  color: #859087;
+}
+.evo-origin {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f7f9f2;
+  border: 1px dashed #d5decb;
+  font-size: 11.5px;
+  color: #3f5446;
+}
+.evo-origin p {
+  margin: 0;
+  line-height: 1.45;
+}
+.evo-origin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  color: #859087;
+}
+.evo-origin-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.evo-origin .evo-parent-chip b {
+  color: #1e5b47;
+}
+.evo-origin .evo-chip-wrap .evo-tooltip {
+  right: auto;
+  left: 0;
+}
+.evo-origin .evo-chip-wrap .evo-tooltip::after {
+  right: auto;
+  left: 14px;
+}
+.evo-origin-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #e7f1e7;
+  color: #1e5b47;
+  font-size: 10px;
+  font-weight: 700;
+}
+.evo-origin-tag.mutated {
+  background: #fbf0dc;
+  color: #8a6420;
+}
+.evo-paper {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f5f7f0;
+  font-size: 11.5px;
+  color: #859087;
+}
+.evo-paper.active {
+  background: #eaf4ee;
+  color: #2f4a3c;
+}
+.evo-paper > span:first-child {
+  white-space: nowrap;
+}
+.evo-paper > span:last-child {
+  text-align: right;
+}
+.evo-paper .text-button {
+  display: inline;
+  padding: 0 2px;
+  font-size: inherit;
+}
+.evo-paper b.good {
+  color: #2c856c;
+}
+.evo-paper b.bad {
+  color: #bd7164;
+}
+.evo-gate dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.evo-gate progress {
+  width: 56px;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e2e8e4;
+}
+.evo-gate progress::-webkit-progress-bar {
+  background: #e2e8e4;
+}
+.evo-gate progress::-webkit-progress-value {
+  background: #2c856c;
+}
+.evo-gate progress::-moz-progress-bar {
+  background: #2c856c;
+}
+.evo-retired {
+  margin: 12px 0;
+  font-size: 12px;
+}
+.evo-retired summary {
+  cursor: pointer;
+  color: #3f5446;
+  font-weight: 600;
+}
 .evo-card > button {
   margin-top: auto;
   padding: 8px;

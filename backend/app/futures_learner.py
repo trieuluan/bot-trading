@@ -20,7 +20,7 @@ from .futures_symbols import current_symbol, market_symbol, state_id
 from .futures_context import load_signal_context
 from .feed import load_candles
 from .futures_exits import adaptive_target, partial_size, protective_stop, discretionary_exit, has_target
-from .futures_rule_tree import describe_rule, nodes, validate_rule
+from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
 from .futures_strategies import (EXIT_SEEDS, RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
                                  is_rule_tree, mutate, regime, shadow_only, strategy_chart,
                                  strategy_setup, to_rule_tree)
@@ -499,42 +499,113 @@ def select_for_auto(session, candle_time, now):
     return True, Setup(**decision["setup"]), decision["selected"]
 
 
-def open_paper_by_strategy(session):
-    """Open paper positions of the current pair, keyed by the strategy that opened them."""
+def paper_by_strategy(session):
+    """Auto Paper trades of the current pair, keyed by the strategy that opened them."""
     rows = session.execute(
         select(PaperTrade.id, PaperTrade.side, PaperTrade.entry, PaperTrade.quantity,
-               AutoPaperDecision.parameters)
+               PaperTrade.exit_time, PaperTrade.net_pnl, AutoPaperDecision.parameters)
         .join(AutoPaperDecision, AutoPaperDecision.trade_id == PaperTrade.id)
-        .where(PaperTrade.symbol == current_symbol(), PaperTrade.exit_time.is_(None),
+        .where(PaperTrade.symbol == current_symbol(),
                AutoPaperDecision.symbol == PaperTrade.symbol)
         .order_by(PaperTrade.id)
     ).all()
     result = {}
-    for trade_id, side, entry, quantity, parameters in rows:
+    for trade_id, side, entry, quantity, exit_time, net_pnl, parameters in rows:
         name = ((parameters or {}).get("audit") or {}).get("strategy")
-        if name:
-            result.setdefault(name, []).append(
+        if not name:
+            continue
+        stats_row = result.setdefault(name, {"open": [], "closed": 0, "wins": 0, "net_pnl": 0.0,
+                                             "last_trade_id": None})
+        stats_row["last_trade_id"] = trade_id
+        if exit_time is None:
+            stats_row["open"].append(
                 {"id": trade_id, "side": side, "entry": entry, "quantity": quantity})
+        else:
+            stats_row["closed"] += 1
+            stats_row["wins"] += (net_pnl or 0) > 0
+            stats_row["net_pnl"] += net_pnl or 0
     return result
 
-def summary(state, now, open_trades=None):
-    open_trades = open_trades or {}
+
+def genes(genome):
+    """Comparable, human-readable genes: HTF slots keep their own frame description."""
+    rule = genome.get("rule")
+    out = {}
+    if rule and is_htf_rule(rule):
+        out.update(zip(("H4", "H1", "M15"), map(describe_rule, rule["children"])))
+    elif rule:
+        out["rule"] = describe_rule(rule)
+    for key in ("lookback", "target_r", "stop_buffer", "max_er", "funding_threshold"):
+        if key in genome:
+            out[key] = genome[key]
+    out["exit_policy"] = genome.get("exit_policy", "fixed")
+    out["exit_params"] = genome.get("exit_params")
+    return out
+
+
+def lineage(state, candidate):
+    """What a child changed: genes taken from the second parent and the single mutation."""
+    known = {**state.get("rule_archive", {}), **state["candidates"]}
+    parents = [known.get(name) for name in candidate["parents"]]
+    if not parents or None in parents:
+        return None
+    first = parents[0]["genome"]
+    base = first
+    if len(parents) == 2:
+        try:
+            base = crossover(first, parents[1]["genome"])
+        except ValueError:
+            return None
+    child, before = genes(candidate["genome"]), genes(base)
+    a = genes(first)
+    b = genes(parents[1]["genome"]) if len(parents) == 2 else a
+    return {
+        "kind": "crossover" if len(parents) == 2 else "mutation",
+        "from_mate": [{"gene": key, "value": child[key]} for key in child
+                      if len(parents) == 2 and a.get(key) != b.get(key)
+                      and child[key] == b.get(key) and child[key] == before.get(key)],
+        "mutated": [{"gene": key, "before": before.get(key), "after": child[key]}
+                    for key in child if child[key] != before.get(key)],
+    }
+
+
+def summary(state, now, paper=None):
+    paper = paper or {}
     rows, results = [], performance(state, now)
+    report = (state.get("historical") or {}).get("report")
+    replay = defaultdict(int)
+    if report and report["end_time"] <= now:
+        for row in report["strategies"]:
+            for part in ("train", "validation"):
+                replay[row["strategy"]] += sum(
+                    bucket["resolved"] for bucket in row[part]["contexts"].values())
     for name, candidate in state["candidates"].items():
         samples = [sample for sample in state["samples"] if sample["strategy"] == name]
         values = [sample["net_r"] for sample in samples if sample["status"] == "resolved"
                   and sample["label_available_at"] <= now]
         count, average = results.get(name, (0, None))
+        trades = paper.get(name, {})
         rows.append({"strategy": name, **candidate, **stats(values), "signals": len(samples),
                      "paused": not exit_policy_enabled(candidate["genome"]),
                      "shadow_only": shadow_only(candidate["genome"]),
                      "rule_text": (describe_rule(candidate["genome"]["rule"])
                                    if is_rule_tree(candidate["genome"]) else None),
                      "complexity": complexity(candidate["genome"]),
-                     "open_trades": open_trades.get(name, []),
+                     "open_trades": trades.get("open", []),
+                     "paper": {key: trades.get(key, default) for key, default in (
+                         ("closed", 0), ("wins", 0), ("net_pnl", 0.0), ("last_trade_id", None))},
                      "origin": "seed" if not candidate["parents"] else "child",
+                     "lineage": lineage(state, candidate) if candidate["parents"] else None,
                      "learned_samples": count, "learned_mean_r": average,
+                     "replay_samples": replay[name],
+                     "forward_samples": len(values),
+                     "forward_open": sum(sample["status"] == "open" for sample in samples),
                      "qualification": qualification(candidate)})
+    archive = state.get("rule_archive", {})
+    retired = [{"strategy": name, "genome": archive[name]["genome"] if name in archive else None,
+                "closed": trades["closed"], "wins": trades["wins"], "net_pnl": trades["net_pnl"],
+                "open": len(trades["open"]), "last_trade_id": trades["last_trade_id"]}
+               for name, trades in paper.items() if name not in state["candidates"]]
     return {"enabled": state["enabled"], "auto_mode": state["auto_mode"],
             "cursor": state["cursor"], "updated_at": state["updated_at"],
             "stale": state["cursor"] is None or now - (state["cursor"] + 1800) > 120,
@@ -544,14 +615,15 @@ def summary(state, now, open_trades=None):
             "promoted": sum(candidate["promoted"] and exit_policy_enabled(candidate["genome"])
                             and not shadow_only(candidate["genome"])
                             for candidate in state["candidates"].values()),
-            "last_decision": state["last_decision"], "strategies": rows}
+            "last_decision": state["last_decision"], "strategies": rows,
+            "retired_paper": retired}
 
 
 @router.get("")
 def get_learning():
     now = int(time.time())
     with Session() as session:
-        return summary(read_state(session, now), now, open_paper_by_strategy(session))
+        return summary(read_state(session, now), now, paper_by_strategy(session))
 
 
 class LearningConfig(BaseModel):
@@ -575,7 +647,7 @@ def configure_learning(payload: LearningConfig):
                     sample.update(status="excluded", reason="learning_paused")
         state.update(enabled=payload.enabled, auto_mode=payload.auto_mode, last_decision=None)
         save_state(session, state)
-        return summary(state, now, open_paper_by_strategy(session))
+        return summary(state, now, paper_by_strategy(session))
 
 
 class Promotion(BaseModel):
@@ -598,5 +670,5 @@ def promote(payload: Promotion):
         candidate["promoted"] = payload.promoted
         state["last_decision"] = None
         save_state(session, state)
-        return summary(state, now, open_paper_by_strategy(session))
+        return summary(state, now, paper_by_strategy(session))
 

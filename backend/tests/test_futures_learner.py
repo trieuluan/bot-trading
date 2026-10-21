@@ -444,3 +444,38 @@ def test_sync_seeds_reserves_room_for_new_roots_at_previous_capacity():
     frozen = copy.deepcopy(state)
     learner.sync_seeds(state, 2000)
     assert state == frozen
+
+
+def test_lineage_reports_mutation_and_genes_taken_from_second_parent():
+    state = learner.new_state(1000)
+    first = copy.deepcopy(RULE_SEEDS[0])
+    mate = {**copy.deepcopy(first), "target_r": first["target_r"] + 0.5, "stop_buffer": 0.1}
+    state["candidates"] = {}
+    for genome in (first, mate):
+        learner.add_candidate(state, genome, 1000)
+    child = {**learner.crossover(first, mate), "lookback": first["lookback"] + 5}
+    learner.add_candidate(state, child, 2000, (genome_name(first), genome_name(mate)))
+    row = next(row for row in learner.summary(state, 3000)["strategies"] if row["generation"])
+    lineage = row["lineage"]
+    assert lineage["kind"] == "crossover"
+    assert {item["gene"] for item in lineage["from_mate"]} >= {"stop_buffer"}
+    assert lineage["mutated"] == [
+        {"gene": "lookback", "before": first["lookback"], "after": first["lookback"] + 5}]
+
+    archived = learner.genome_name(first)
+    state.setdefault("rule_archive", {})[archived] = state["candidates"].pop(archived)
+    assert learner.summary(state, 3000)["strategies"][-1]["lineage"]["kind"] == "crossover"
+
+
+def test_summary_splits_replay_forward_and_paper_counts():
+    state = learner.new_state(1000)
+    name = next(iter(state["candidates"]))
+    state["samples"] = [sample(strategy=name, status="resolved", net_r=1, label_available_at=0),
+                        sample(strategy=name)]
+    paper = {name: {"open": [], "closed": 2, "wins": 1, "net_pnl": 3.5, "last_trade_id": 9},
+             "gone:1": {"open": [], "closed": 1, "wins": 0, "net_pnl": -2, "last_trade_id": 4}}
+    result = learner.summary(state, 3000, paper)
+    row = next(row for row in result["strategies"] if row["strategy"] == name)
+    assert (row["replay_samples"], row["forward_samples"], row["forward_open"]) == (0, 1, 1)
+    assert row["paper"] == {"closed": 2, "wins": 1, "net_pnl": 3.5, "last_trade_id": 9}
+    assert [item["strategy"] for item in result["retired_paper"]] == ["gone:1"]

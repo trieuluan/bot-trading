@@ -860,7 +860,7 @@ export function PaperTradingPage({
             kỳ quyết toán đã đóng.
           </p>
         </section>
-        {activityTab === 'evolution' && <FuturesLearningPage />}
+        {activityTab === 'evolution' && <FuturesLearningPage onViewTrade={viewTrade} />}
         <div hidden={activityTab !== 'decisions'} className="desk-activity-panel">
           <AutoDecisionList decisions={auto?.decisions ?? []} onViewTrade={viewTrade} />
         </div>
