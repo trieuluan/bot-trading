@@ -96,6 +96,20 @@ def test_transient_retry_and_rate_limit_cooldown():
     with pytest.raises(MarketDataError) as exc:
         adapter(limited).server_time()
     assert exc.value.retry_after == 120 and len(calls) == 1
+    calls.clear()
+
+    def throttled(request):
+        calls.append(request)
+        if len(calls) < 3:
+            return httpx.Response(200, json={"success": False, "code": 510, "message": "Requests are too frequent"})
+        return httpx.Response(200, json={"success": True, "data": BASE * 1000})
+
+    assert adapter(throttled).server_time() == BASE and len(calls) == 3
+    calls.clear()
+    with pytest.raises(MarketDataError) as exc:
+        adapter(lambda request: calls.append(request) or httpx.Response(
+            200, json={"success": False, "code": 510})).server_time()
+    assert "rate limit" in str(exc.value) and exc.value.retry_after == 5 and len(calls) == 3
 
 
 def test_funding_pagination_and_incomplete_history():
