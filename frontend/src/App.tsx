@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { Bell, FlaskConical, Menu, RefreshCw, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ForexMarkets } from './components/ForexMarkets';
+import { cachedDashboard, fetchDashboard } from './lib/forex-cache';
 import { HelpDialog } from './components/HelpDialog';
 import { useTradingDashboard } from './hooks/useTradingDashboard';
 import { BotControlPanel } from './components/BotControlPanel';
@@ -140,7 +141,7 @@ export default function App() {
     </div>
   );
   return selected === 'exness_forex' ? (
-    <ForexWorkspace key={`${selected}:${route.symbol}`} workspacePicker={picker} />
+    <ForexWorkspace key={selected} workspacePicker={picker} />
   ) : (
     <MexcWorkspace key={selected} workspacePicker={picker} />
   );
@@ -401,18 +402,15 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     let inflight = false;
-    setDashboard(null);
+    // Giữ dashboard cũ khi đổi cặp (không gỡ trang); dùng cache nếu cặp đã xem.
+    const cached = cachedDashboard(symbol);
+    if (cached) setDashboard(cached);
     setError('');
     function refreshForex() {
       if (inflight) return;
       inflight = true;
-      void fetch(`/api/workspaces/exness_forex/dashboard?symbol=${encodeURIComponent(symbol)}`, {
-        signal: AbortSignal.timeout(10000),
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error('Không tải được workspace Exness.');
-          const data = (await response.json()) as ForexDashboard;
-          if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
+      fetchDashboard(symbol)
+        .then((data) => {
           if (!cancelled) {
             setDashboard(data);
             setError('');
@@ -451,6 +449,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
       />
       <div className="main">
         <header className="topbar">
+          {dashboard && dashboard.workspace.symbol !== symbol && (
+            <span className="route-progress" role="status" aria-label={`Đang tải ${symbol}`} />
+          )}
           <div className="breadcrumb">
             <button
               className="icon-button mobile-menu"
@@ -463,52 +464,74 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <span>/</span>
             <strong>{page}</strong>
           </div>
-          <span className="pill amber">
-            {dashboard?.execution_enabled ? 'DEMO · LỆNH SÀN' : 'DEMO · READ ONLY'}
-          </span>
-        </header>
-        <main>
-          <div className="page-heading">
-            <div>
-              <h1>
-                {page === 'Bot'
-                  ? `Bot Demo · ${symbol}`
-                  : page === 'Nghiên cứu'
-                    ? 'Nghiên cứu chiến lược'
-                    : 'Exness · Forex Demo'}
-              </h1>
-              <p>{symbol} · Quần thể riêng, ví và giới hạn vị thế chung tài khoản.</p>
-            </div>
-            <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
-              <RefreshCw size={15} /> Làm mới
-            </button>
-          </div>
-          <ForexMarkets symbol={symbol} />
-          <div className="demo-banner">
-            <FlaskConical size={17} />
-            <span>
-              {dashboard?.execution_enabled
-                ? 'Thực thi Demo đã được cấu hình. Trạng thái bật/tạm dừng và lệnh sàn xem tại Bot. Ví mô phỏng nằm riêng trong Nghiên cứu.'
-                : 'HTF AST V2 gom mẫu forward. Dữ liệu riêng Exness, không dùng ví MEXC.'}
+          <div className="header-actions">
+            {page === 'Bot' && (
+              <button
+                className="icon-button"
+                aria-label="Làm mới"
+                title="Làm mới"
+                onClick={() => setRevision((value) => value + 1)}
+              >
+                <RefreshCw size={15} />
+              </button>
+            )}
+            <span className="pill amber">
+              {dashboard?.execution_enabled ? 'DEMO · LỆNH SÀN' : 'DEMO · READ ONLY'}
             </span>
           </div>
+        </header>
+        <main className={page === 'Bot' ? 'forex-terminal-main' : undefined}>
+          {page !== 'Bot' && (
+            <div className="page-heading">
+              <div>
+                <h1>{page === 'Nghiên cứu' ? 'Nghiên cứu chiến lược' : 'Exness · Forex Demo'}</h1>
+                <p>{symbol} · Quần thể riêng, ví và giới hạn vị thế chung tài khoản.</p>
+              </div>
+              <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
+                <RefreshCw size={15} /> Làm mới
+              </button>
+            </div>
+          )}
+          <ForexMarkets symbol={symbol} compact={page === 'Bot'} />
+          {page !== 'Bot' && (
+            <div className="demo-banner">
+              <FlaskConical size={17} />
+              <span>
+                {dashboard?.execution_enabled
+                  ? 'Thực thi Demo đã được cấu hình. Trạng thái bật/tạm dừng và lệnh sàn xem tại Bot. Ví mô phỏng nằm riêng trong Nghiên cứu.'
+                  : 'HTF AST V2 gom mẫu forward. Dữ liệu riêng Exness, không dùng ví MEXC.'}
+              </span>
+            </div>
+          )}
           {error && (
             <div className="feedback" role="alert">
               {error}
             </div>
           )}
           {!dashboard && !error && <p role="status">Đang tải workspace Exness...</p>}
-          {dashboard && <ForexCatchupStatus dashboard={dashboard} disconnected={!!error} />}
+          {dashboard && (
+            <ForexCatchupStatus
+              dashboard={dashboard}
+              disconnected={!!error}
+              compact={page === 'Bot'}
+            />
+          )}
           {dashboard && page === 'Bot' && <ForexExecutionPage dashboard={dashboard} />}
           {dashboard && page === 'Nghiên cứu' && (
             <ForexResearchWorkspace
+              key={dashboard.workspace.symbol}
               dashboard={dashboard}
               disconnected={!!error}
               revision={revision}
             />
           )}
           {dashboard && page === 'Tổng quan' && (
-            <ForexOverviewPage dashboard={dashboard} disconnected={!!error} onNavigate={setPage} />
+            <ForexOverviewPage
+              key={dashboard.workspace.symbol}
+              dashboard={dashboard}
+              disconnected={!!error}
+              onNavigate={setPage}
+            />
           )}
           {dashboard && page === 'Kết nối sàn' && (
             <section className="panel forex-status">

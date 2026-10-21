@@ -8,6 +8,7 @@ import {
 } from '../components/MtfObservationChart';
 import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
+import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 interface ForexCandle {
@@ -18,6 +19,8 @@ interface ForexCandle {
   close: number;
   tick_volume?: number | null;
 }
+
+const noCandles: ForexCandle[] = [];
 
 interface QuoteState {
   status: string;
@@ -122,9 +125,11 @@ interface ResearchApiResponse {
 export function ForexCatchupStatus({
   dashboard,
   disconnected,
+  compact = false,
 }: {
   dashboard: ForexDashboard;
   disconnected: boolean;
+  compact?: boolean;
 }) {
   const progress = dashboard.observation.catch_up;
   const frames = dashboard.frames ?? [];
@@ -149,9 +154,14 @@ export function ForexCatchupStatus({
               ? 'Chờ khởi tạo MTF'
               : 'Đã phân tích hết nến hiện có';
 
-  return (
-    <section className="panel forex-catchup" role="status" aria-live="polite">
-      <strong>{title}</strong>
+  const healthy =
+    !disconnected &&
+    dashboard.market.worker_online &&
+    !downloading &&
+    !paused &&
+    !progress?.pending_bars;
+  const body = (
+    <>
       <div className="forex-catchup-counts">
         {frames.map((frame) => (
           <span key={frame.timeframe}>
@@ -187,6 +197,26 @@ export function ForexCatchupStatus({
       <p className="micro">
         Setup chạy bù mang nhãn “Chạy bù”; không đặt lệnh cho tín hiệu đã bỏ lỡ.
       </p>
+    </>
+  );
+  if (compact)
+    return (
+      <details
+        className={`forex-catchup-compact ${healthy ? 'is-ok' : 'is-warn'}`}
+        role="status"
+        aria-live="polite"
+      >
+        <summary>
+          <span className="forex-catchup-dot" aria-hidden="true" />
+          {title}
+        </summary>
+        {body}
+      </details>
+    );
+  return (
+    <section className="panel forex-catchup" role="status" aria-live="polite">
+      <strong>{title}</strong>
+      {body}
     </section>
   );
 }
@@ -768,12 +798,18 @@ export function ForexStrategyPage({
   onSelectPosition?: (id: string) => void;
 }) {
   const symbol = dashboard.workspace.symbol;
-  const [candles, setCandles] = useState<ForexCandle[]>([]);
+  // Nến gắn với khoá cặp/khung/phía để lần render đầu sau khi đổi không dùng nến của khoá cũ.
+  const [candleState, setCandleState] = useState<{ key: string; rows: ForexCandle[] }>({
+    key: '',
+    rows: noCandles,
+  });
   const [analysis, setAnalysis] = useState<LearnerAnalysis | null>(null);
   const [htf2Shadow, setHtf2Shadow] =
     useState<NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']>();
   useEffect(() => {
     const controller = new AbortController();
+    setAnalysis(null);
+    setHtf2Shadow(undefined);
     const load = async () => {
       try {
         const res = await fetch(`/api/workspaces/exness_forex/learning/analysis?symbol=${symbol}`, {
@@ -805,6 +841,12 @@ export function ForexStrategyPage({
   const [shownStrategies, setShownStrategies] = useState<string[]>([]); // default: draw nothing
   const [view, setView] = useState<'mtf' | 'trend' | 'range' | 'router'>('mtf');
   const historyBefore = selectedPosition?.status === 'closed' ? selectedPosition.close_time : null;
+  const cacheKey = historyBefore ? null : candleKey(symbol, frame, side);
+  const viewKey = `${symbol}:${frame}:${side}:${historyBefore ?? 'live'}`;
+  const candles =
+    candleState.key === viewKey
+      ? candleState.rows
+      : ((cacheKey ? cachedCandles(cacheKey)?.rows : undefined) ?? noCandles);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const historyActions = useRef({ older: () => {}, refresh: () => {} });
@@ -833,6 +875,7 @@ export function ForexStrategyPage({
   );
 
   useEffect(() => {
+    setQuoteState({ status: 'connecting', quote: null });
     const stream = new EventSource(`/api/workspaces/exness_forex/quotes/stream?symbol=${symbol}`);
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     stream.onmessage = (event) => {
@@ -949,10 +992,14 @@ export function ForexStrategyPage({
     let oldest: number | undefined;
     let more = false;
     const controller = new AbortController();
-    setLoading(true);
+    // Vị thế đã đóng cần cửa sổ lịch sử riêng, không dùng cache nến mới nhất.
+    const key = historyBefore ? null : candleKey(symbol, frame, side);
+    const stateKey = `${symbol}:${frame}:${side}:${historyBefore ?? 'live'}`;
+    const cached = key ? cachedCandles(key) : undefined;
+    setLoading(!cached);
     setLoadingOlder(false);
-    setHasMore(false);
-    setCandles([]);
+    setHasMore(cached?.hasMore ?? false);
+    setCandleState({ key: stateKey, rows: cached?.rows ?? noCandles });
     setChartError('');
     const load = async (older = false) => {
       if (busy || (older && (!more || oldest === undefined))) return;
@@ -981,10 +1028,13 @@ export function ForexStrategyPage({
           more = data.has_more;
           setHasMore(more);
         }
-        setCandles((current) => {
-          const merged = new Map(current.map((bar) => [bar.time, bar]));
+        setCandleState((current) => {
+          const base = current.key === stateKey ? current.rows : noCandles;
+          const merged = new Map(base.map((bar) => [bar.time, bar]));
           incoming.forEach((bar) => merged.set(bar.time, bar));
-          return [...merged.values()].sort((left, right) => left.time - right.time);
+          const rows = [...merged.values()].sort((left, right) => left.time - right.time);
+          if (key) storeCandles(key, rows, more);
+          return { key: stateKey, rows };
         });
       } catch {
         if (active)
@@ -1046,7 +1096,7 @@ export function ForexStrategyPage({
       {executionOnly ? (
         <header className="broker-market-header">
           <div className="broker-instrument">
-            <span className="broker-symbol">XAU</span>
+            <span className="broker-symbol">{symbol.slice(0, 3)}</span>
             <div>
               <h2>
                 {symbol} <span>Exness</span>
@@ -1055,6 +1105,26 @@ export function ForexStrategyPage({
                 Exness Demo <span>·</span> Giá gốc sàn <span>·</span> UTC
               </p>
             </div>
+          </div>
+          <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
+            <span>
+              BID{' '}
+              <strong className="broker-bid">
+                {quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}
+              </strong>
+            </span>
+            <span>
+              ASK{' '}
+              <strong className="broker-ask">
+                {quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}
+              </strong>
+            </span>
+            <span>
+              SPREAD{' '}
+              <strong>
+                {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
+              </strong>
+            </span>
           </div>
           <span className={`broker-stream-state ${quoteLive ? 'is-live' : ''}`} role="status">
             <span aria-hidden="true" />
@@ -1242,20 +1312,6 @@ export function ForexStrategyPage({
               onChange={setShownStrategies}
             />
           )}
-          <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
-            <span>
-              BID <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
-            </span>
-            <span>
-              ASK <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
-            </span>
-            <span>
-              SPREAD{' '}
-              <strong>
-                {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
-              </strong>
-            </span>
-          </div>
           {(hasMore || chartError) && (
             <button
               className="secondary broker-history-button"
@@ -1442,7 +1498,7 @@ export function ForexStrategyPage({
         </div>
       )}
       <MtfObservationChart
-        key={`${frame}-${side}`}
+        key={`${symbol}-${frame}-${side}`}
         pricePrecision={
           dashboard.instrument?.profile?.point_digits ??
           (symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5)

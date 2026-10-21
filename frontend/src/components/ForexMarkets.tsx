@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { setRoute } from '../lib/router';
+import { prefetchSymbol } from '../lib/forex-cache';
 
 interface Market {
   symbol: string;
@@ -24,7 +25,7 @@ const statusText: Record<string, string> = {
   commission_unverified: 'Commission chưa xác minh',
 };
 
-export function ForexMarkets({ symbol }: { symbol: string }) {
+export function ForexMarkets({ symbol, compact = false }: { symbol: string; compact?: boolean }) {
   const [data, setData] = useState<{
     markets: Market[];
     account_positions: number;
@@ -62,13 +63,15 @@ export function ForexMarkets({ symbol }: { symbol: string }) {
     };
   }, []);
   return (
-    <section className="forex-markets" aria-label="Các cặp Forex">
+    <section className={`forex-markets ${compact ? 'is-compact' : ''}`} aria-label="Các cặp Forex">
       <div className="forex-market-strip">
         {data?.markets.map((market) => (
           <button
             key={market.symbol}
             type="button"
             aria-pressed={market.symbol === symbol}
+            onPointerEnter={() => prefetchSymbol(market.symbol)}
+            onFocus={() => prefetchSymbol(market.symbol)}
             onClick={() => setRoute({ symbol: market.symbol })}
           >
             <strong>{market.symbol}</strong>

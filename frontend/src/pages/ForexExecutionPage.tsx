@@ -6,6 +6,8 @@ import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 import { formatForexPrice } from '../lib/format';
 
 const url = '/api/workspaces/exness_forex/execution';
+// Trang đầu của mỗi cặp, để đổi cặp hiển thị ngay số liệu đã có.
+const firstPageCache = new Map<string, ExnessExecution>();
 const amount = (value: number | string | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
 const quotePrice = (value: number | string | null | undefined) =>
@@ -52,11 +54,10 @@ const outcomeClass = (outcome: string) =>
         ? 'negative'
         : 'muted';
 
-type Panel = 'chart' | 'orders' | 'learning';
-const panels: [Panel, string, string][] = [
-  ['chart', 'Chart & Quan sát', 'Biểu đồ, cản H1/H4 và phân tích bot'],
-  ['orders', 'Lệnh trên sàn', 'Vị thế mở và lịch sử deal khớp'],
-  ['learning', 'Tiến hoá & Cây HTF', 'Thế hệ G0/G1, dòng dõi phả hệ và phân tích nến'],
+type Panel = 'orders' | 'learning';
+const panels: [Panel, string][] = [
+  ['orders', 'Lệnh trên sàn'],
+  ['learning', 'Tiến hoá & Cây HTF'],
 ];
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
@@ -72,13 +73,22 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [route] = useRoute();
-  const panel: Panel =
-    (['chart', 'orders', 'learning'] as const).find((k) => k === route.tab) ?? 'chart';
+  // Chart luôn hiển thị; tab cũ `chart` rơi về `orders` để link cũ vẫn chạy.
+  const panel: Panel = route.tab === 'learning' ? 'learning' : 'orders';
   const setPanel = (next: Panel) => setRoute({ tab: next });
   const [filter, setFilter] = useState<Filter>('all');
+  // Workspace không remount khi đổi cặp: reset phân trang và vị thế đang chọn.
+  const [shownSymbol, setShownSymbol] = useState(symbol);
+  if (shownSymbol !== symbol) {
+    setShownSymbol(symbol);
+    setOffset(0);
+    setSelectedId(undefined);
+  }
   useEffect(() => {
     const controller = new AbortController();
     let inflight = false;
+    const cached = offset === 0 ? firstPageCache.get(symbol) : undefined;
+    if (cached) setData(cached);
     async function refresh() {
       if (inflight) return;
       inflight = true;
@@ -88,6 +98,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
         });
         if (!response.ok) throw new Error();
         const next: ExnessExecution = await response.json();
+        if (offset === 0) firstPageCache.set(symbol, next);
         if (!controller.signal.aborted) {
           setData(next);
           setError('');
@@ -146,610 +157,526 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const picked = data?.learning?.latest?.selected;
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
   const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
+  const equity = data?.account_state?.equity;
+  const balance = data?.account_state?.balance;
+  const floating = equity != null && balance != null ? Number(equity) - Number(balance) : null;
   return (
-    <div className="execution-desk">
-      <section className="panel prose forex-execution">
-        <div className="section-head">
-          <div>
-            <h2>Bot Exness Demo</h2>
-            <p>
-              Tài khoản {data?.account ?? '—'} · {data?.lot ?? '0.01'} lot · tối đa{' '}
-              {data?.max_concurrent ?? '—'} vị thế toàn tài khoản ·{' '}
-              {data?.max_concurrent_per_symbol ?? '—'} mỗi cặp
-            </p>
-          </div>
-          <button
-            className="secondary"
-            disabled={busy || !data?.configured || !!error}
-            onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
-          >
-            {data?.enabled ? 'Tạm dừng mở lệnh' : 'Bật bot demo'}
-          </button>
+    <div className="execution-desk trade-terminal">
+      <div className="terminal-account-bar" aria-label="Tài khoản Exness Demo">
+        <span
+          className={`badge-status badge-${state}`}
+          title={`Đồng bộ sàn: ${date(data?.synced_at ?? null)}`}
+        >
+          <span className="pulse-dot" />
+          {data ? label : 'Đang tải…'}
+        </span>
+        <span className="terminal-stat">
+          <small>Balance</small>
+          <strong>{amount(balance)}</strong>
+        </span>
+        <span className="terminal-stat">
+          <small>Equity</small>
+          <strong>{amount(equity)}</strong>
+        </span>
+        <span className="terminal-stat">
+          <small>P&amp;L thả nổi</small>
+          <strong className={floating == null ? '' : floating >= 0 ? 'positive' : 'negative'}>
+            {floating != null && floating > 0 ? '+' : ''}
+            {amount(floating)}
+          </strong>
+        </span>
+        <span className="terminal-stat">
+          <small>Margin</small>
+          <strong>{amount(data?.account_state?.used_margin)}</strong>
+        </span>
+        <span className="terminal-stat" title="Profit deal sàn · chưa xác minh phí/swap">
+          <small>Profit đã chốt</small>
+          <strong className={(data?.broker_profit ?? 0) >= 0 ? 'positive' : 'negative'}>
+            {amount(data?.broker_profit)}
+          </strong>
+        </span>
+        <span className="terminal-stat">
+          <small>Vị thế {symbol}</small>
+          <strong>
+            {data?.symbol_open_count ?? '—'}/{data?.max_concurrent_per_symbol ?? '—'}
+            <em>
+              {' '}
+              · TK {data?.open_count ?? '—'}/{data?.max_concurrent ?? '—'}
+            </em>
+          </strong>
+        </span>
+        <button
+          className={`terminal-toggle ${data?.enabled ? 'is-on' : ''}`}
+          disabled={busy || !data?.configured || !!error}
+          onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
+          title={`Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? '0.01'} lot`}
+        >
+          {data?.enabled ? 'Tạm dừng mở lệnh' : 'Bật bot demo'}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="feedback">
+          {error}
+        </p>
+      )}
+      {data && (
+        <div className="terminal-decision" role="status">
+          <strong>Bot:</strong>
+          <span>
+            {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
+            {data.error ? ` · Lỗi: ${data.error}` : ''}
+          </span>
+          <span className="muted">
+            {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
+          </span>
         </div>
-        {error && (
-          <p role="alert" className="feedback">
-            {error}
-          </p>
-        )}
-        {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
-        {data && (
-          <>
-            <div className="forex-exec-hero">
-              <div className="forex-exec-card">
-                <span className="label">Trạng thái bot</span>
-                <span className="val">
-                  <span className={`badge-status badge-${state}`}>
-                    <span className="pulse-dot" />
-                    {label}
-                  </span>
-                </span>
-                <span className="sub">Đồng bộ sàn: {date(data.synced_at)}</span>
-              </div>
-              <div className="forex-exec-card">
-                <span className="label">Balance / Equity · USD</span>
-                <span className="val">
-                  {amount(data.account_state?.balance)} / {amount(data.account_state?.equity)}
-                </span>
-                <span className="sub">
-                  Margin đã dùng: {amount(data.account_state?.used_margin)}
-                </span>
-              </div>
-              <div className="forex-exec-card">
-                <span className="label">Profit deal sàn · USD</span>
-                <span className={`val ${data.broker_profit >= 0 ? 'positive' : 'negative'}`}>
-                  {amount(data.broker_profit)}
-                </span>
-                <span className="sub">
-                  {closedRows.length
-                    ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) trên trang này · chưa xác minh phí/swap`
-                    : 'Chưa có lệnh đóng'}
-                </span>
-              </div>
-              <div className="forex-exec-card">
-                <span className="label">Đang mở / Đã đóng</span>
-                <span className="val">
-                  {data.open_count} / {data.closed_count}
-                </span>
-                <span className="sub">
-                  Tài khoản: {data.max_concurrent} · {symbol}: {data.symbol_open_count}/
-                  {data.max_concurrent_per_symbol}
-                </span>
-              </div>
-            </div>
-            <div className="decision-banner" role="status">
-              <span>
-                <strong>Bot đang:</strong>{' '}
-                {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
-                {data.error ? ` · Lỗi: ${data.error}` : ''}
-              </span>
-              <span className="muted">
-                {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
-              </span>
-            </div>
-            <nav className="execution-tabs" role="tablist" aria-label="Không gian bot">
-              {panels.map(([key, title, subtitle], index) => (
-                <button
-                  key={key}
-                  id={`execution-tab-${key}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={panel === key}
-                  aria-controls={`execution-panel-${key}`}
-                  tabIndex={panel === key ? 0 : -1}
-                  onClick={() => setPanel(key)}
-                  onKeyDown={(event) => {
-                    let target = index;
-                    if (event.key === 'ArrowRight') target = (index + 1) % panels.length;
-                    else if (event.key === 'ArrowLeft')
-                      target = (index + panels.length - 1) % panels.length;
-                    else if (event.key === 'Home') target = 0;
-                    else if (event.key === 'End') target = panels.length - 1;
-                    else return;
-                    event.preventDefault();
-                    setPanel(panels[target][0]);
-                    document.getElementById(`execution-tab-${panels[target][0]}`)?.focus();
-                  }}
-                >
-                  <span>
-                    {title}
-                    {key === 'orders' ? ` · ${data.open_count} mở` : ''}
-                  </span>
-                  <small>{subtitle}</small>
-                </button>
-              ))}
-            </nav>
-            <section
-              hidden={panel !== 'learning'}
-              id="execution-panel-learning"
-              role="tabpanel"
-              aria-labelledby="execution-tab-learning"
-              tabIndex={0}
-              className="execution-tab-content learning-tab-view"
-              aria-label="Bộ học chiến lược"
-            >
-              <div className="learning-overview-grid">
-                <div className="learning-stat-card">
-                  <span className="card-label">Execution V2</span>
-                  <div className="card-value" style={{ fontSize: '18px' }}>
-                    {data.learning?.execution_v2?.enabled ? 'Đang bật' : 'Đang tắt'}
-                  </div>
-                  <div className="card-sub">
-                    {data.learning?.execution_v2?.blocked_reason ?? 'sẵn sàng'}
-                  </div>
+      )}
+      <section
+        id="execution-chart"
+        className="execution-chart-panel"
+        aria-label={`Chart ${symbol}`}
+      >
+        <ForexStrategyPage
+          dashboard={dashboard}
+          disconnected={!!error}
+          executions={openPositions}
+          selectedPosition={chartPosition}
+          onSelectPosition={setSelectedId}
+          executionOnly
+          includeReplay={false}
+          onClosePosition={(position) => {
+            if (
+              !busy &&
+              !error &&
+              data?.worker_online &&
+              window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
+            )
+              void action(
+                `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
+                'POST',
+              );
+          }}
+        />
+      </section>
+      {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
+      {data && (
+        <section className="panel terminal-bottom">
+          <nav className="terminal-tabs" role="tablist" aria-label="Không gian bot">
+            {panels.map(([key, title], index) => (
+              <button
+                key={key}
+                id={`execution-tab-${key}`}
+                type="button"
+                role="tab"
+                aria-selected={panel === key}
+                aria-controls={`execution-panel-${key}`}
+                tabIndex={panel === key ? 0 : -1}
+                onClick={() => setPanel(key)}
+                onKeyDown={(event) => {
+                  let target = index;
+                  if (event.key === 'ArrowRight') target = (index + 1) % panels.length;
+                  else if (event.key === 'ArrowLeft')
+                    target = (index + panels.length - 1) % panels.length;
+                  else if (event.key === 'Home') target = 0;
+                  else if (event.key === 'End') target = panels.length - 1;
+                  else return;
+                  event.preventDefault();
+                  setPanel(panels[target][0]);
+                  document.getElementById(`execution-tab-${panels[target][0]}`)?.focus();
+                }}
+              >
+                {title}
+                {key === 'orders' && (
+                  <span className="terminal-tab-count">{data.open_count} mở</span>
+                )}
+              </button>
+            ))}
+            <span className="terminal-tabs-note">
+              {closedRows.length
+                ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) trang này`
+                : 'Chưa có lệnh đóng'}{' '}
+              · {data.closed_count} đã đóng
+            </span>
+          </nav>
+          <section
+            hidden={panel !== 'orders'}
+            id="execution-panel-orders"
+            role="tabpanel"
+            aria-labelledby="execution-tab-orders"
+            tabIndex={0}
+            className="execution-tab-content orders-tab-view"
+          >
+            <div className="orders-section-card">
+              <div className="orders-card-header">
+                <div className="filter-pills" role="group" aria-label="Lọc lệnh">
+                  {(
+                    [
+                      ['all', 'Tất cả'],
+                      ['open', 'Đang mở'],
+                      ['closed', 'Đã đóng'],
+                      ['bot', 'Của bot'],
+                    ] as [Filter, string][]
+                  ).map(([key, text]) => (
+                    <button
+                      key={key}
+                      className={filter === key ? 'selected' : ''}
+                      aria-pressed={filter === key}
+                      onClick={() => setFilter(key)}
+                    >
+                      {text}
+                    </button>
+                  ))}
                 </div>
-                <div className="learning-stat-card">
-                  <span className="card-label">Cây có thể vào lệnh</span>
-                  <div className="card-value">
-                    {data.learning?.execution_v2?.eligible_count ?? 0}
-                    <small className="muted">
-                      {' '}
-                      / {data.learning?.htf_ast2_shadow?.tree_count ?? 56}
-                    </small>
-                  </div>
-                  <div className="card-sub">
-                    Chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
-                  </div>
-                </div>
-                <div className="learning-stat-card">
-                  <span className="card-label">Mẫu forward V2</span>
-                  <div className="card-value">{data.learning?.htf_ast2_shadow?.resolved ?? 0}</div>
-                  <div className="card-sub">
-                    {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ{' '}
-                    {data.learning?.htf_ast2_shadow?.generation ?? 0}
-                  </div>
+                <div className="orders-header-note">
+                  <a href={`${url}/trades.csv?symbol=${symbol}`} download>
+                    Xuất CSV {symbol}
+                  </a>
+                  {' · '}
+                  {data.total ? offset + 1 : 0}–{Math.min(offset + 50, data.total)} / {data.total}{' '}
+                  lệnh
                 </div>
               </div>
 
-              <div className="learning-section-card">
-                <div className="card-header">
-                  <div>
-                    <h4>Vì sao bot vào / không vào lệnh</h4>
-                    <span className="muted-desc">
-                      Mỗi nến M15 đóng: bot thấy gì và dừng ở bước nào
-                      {data.funnel ? ` · ${data.funnel.candles} nến gần nhất` : ''}
-                    </span>
-                  </div>
-                </div>
-                {data.funnel && (
-                  <div className="funnel-row">
-                    {(
-                      [
-                        ['Đã đánh giá', data.funnel.evaluated],
-                        ['Có tín hiệu', data.funnel.with_signal],
-                        ['Bot chọn', data.funnel.selected],
-                        ['Đã gửi lệnh', data.funnel.orders],
-                      ] as [string, number][]
-                    ).map(([name, value]) => (
-                      <div key={name} className="funnel-step">
-                        <strong>{value}</strong>
-                        <span>{name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {data.journal?.length ? (
-                  <div className="table-wrap">
-                    <table className="learner-clean-table">
-                      <thead>
-                        <tr>
-                          <th>Nến đóng</th>
-                          <th>Kết quả</th>
-                          <th>Bot chọn</th>
-                          <th>Tín hiệu thấy được</th>
+              <div className="table-wrap">
+                <table className="orders-clean-table">
+                  <thead>
+                    <tr>
+                      <th>Vị thế & Nguồn</th>
+                      <th>Chiều</th>
+                      <th className="num">Lot</th>
+                      <th className="num">Vào / Thoát</th>
+                      <th className="num">SL / TP</th>
+                      <th className="num">P&amp;L (USD)</th>
+                      <th>Trạng thái</th>
+                      <th className="actions-col">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((position) => {
+                      const isSelected = selectedId === position.position_id;
+                      return (
+                        <tr
+                          key={position.position_id}
+                          className={`${isSelected ? 'row-active' : ''} ${position.status === 'open' ? 'row-open' : ''}`}
+                        >
+                          <td>
+                            <div className="pos-id-box">
+                              <span className="pos-id">#{position.position_id}</span>
+                              <span className="pos-source">
+                                {position.source === 'learning'
+                                  ? 'Bot · HTF V2'
+                                  : position.source === 'regime_router'
+                                    ? 'Bot · Cũ'
+                                    : 'Thủ công / Probe'}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`side-badge side-${position.side?.toLowerCase()}`}>
+                              {position.side?.toUpperCase() ?? '—'}
+                            </span>
+                          </td>
+                          <td className="num font-mono">{amount(position.volume)}</td>
+                          <td className="num font-mono">
+                            <div>{quotePrice(position.open_price)}</div>
+                            <small className="muted">{quotePrice(position.close_price)}</small>
+                          </td>
+                          <td className="num font-mono">
+                            <div>{quotePrice(position.stop)}</div>
+                            <small className="muted">{quotePrice(position.target)}</small>
+                          </td>
+                          <td
+                            className={`num font-mono font-bold ${
+                              position.pnl == null
+                                ? ''
+                                : position.pnl >= 0
+                                  ? 'positive'
+                                  : 'negative'
+                            }`}
+                          >
+                            {position.pnl != null && position.pnl > 0 ? '+' : ''}
+                            {amount(position.pnl)}
+                          </td>
+                          <td>
+                            <span className={`order-status-pill status-${position.status}`}>
+                              {position.status === 'open' ? 'Đang mở' : 'Đã đóng'}
+                            </span>
+                            <small className="muted order-time-stamp">
+                              {date(position.close_time ?? position.open_time)}
+                            </small>
+                          </td>
+                          <td className="actions-col">
+                            <div className="order-actions-group">
+                              <button
+                                type="button"
+                                className={`btn-action ${isSelected ? 'btn-action-active' : ''}`}
+                                onClick={() => {
+                                  setSelectedId(position.position_id);
+                                  document
+                                    .getElementById('execution-chart')
+                                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }}
+                                title="Xem trên chart & deal khớp"
+                              >
+                                Xem chart
+                              </button>
+                              {position.status === 'open' && position.signal_time != null && (
+                                <button
+                                  type="button"
+                                  className="btn-action btn-danger"
+                                  disabled={
+                                    busy ||
+                                    !!error ||
+                                    position.close_requested ||
+                                    !data.worker_online
+                                  }
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
+                                      )
+                                    )
+                                      void action(
+                                        `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
+                                        'POST',
+                                      );
+                                  }}
+                                >
+                                  {position.close_requested ? 'Đang đóng...' : 'Đóng'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {data.journal.slice(0, 12).map((row) => (
-                          <tr key={row.time}>
-                            <td>{date(row.time + 900)}</td>
-                            <td className={outcomeClass(row.outcome)}>
-                              {outcomeText(row.outcome)}
-                              {row.reason && <small className="muted"> · {row.reason}</small>}
-                            </td>
-                            <td>{row.selected ?? '—'}</td>
-                            <td className="muted">
-                              {row.confirmed.length
-                                ? row.confirmed
-                                    .map((c) => `${c.strategy}${c.shadow ? ' (shadow)' : ''}`)
-                                    .join(', ')
-                                : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="muted-desc">
-                    Chưa có nến nào được ghi nhật ký. Chờ nến M15 kế tiếp.
-                  </p>
-                )}
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-              {data.learning?.htf_ast2_shadow && (
-                <div className="learning-section-card">
-                  <div className="card-header">
-                    <div>
-                      <h4>Quần thể HTF V2 · dòng dõi G0 → G1…</h4>
-                      <span className="muted-desc">
-                        Thế hệ {data.learning.htf_ast2_shadow.generation} ·{' '}
-                        {data.learning.htf_ast2_shadow.tree_count} cây ·{' '}
-                        {data.learning.htf_ast2_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
-                        swap
-                      </span>
-                    </div>
-                    <span className="badge-count">
-                      {data.learning.htf_ast2_shadow.resolved} đã đóng ·{' '}
-                      {data.learning.htf_ast2_shadow.pending} đang chạy
-                    </span>
-                  </div>
-                  <HtfLineage
-                    trees={data.learning.htf_ast2_shadow.trees}
-                    nextEvolutionAt={data.learning.htf_ast2_shadow.next_evolution_at}
-                  />
+
+              {!rows.length && (
+                <div className="orders-empty-state">
+                  Không có lệnh khớp bộ lọc. Bot chờ tín hiệu hợp lệ, không ép mở lệnh.
                 </div>
               )}
-            </section>
-            <section
-              hidden={panel !== 'orders'}
-              id="execution-panel-orders"
-              role="tabpanel"
-              aria-labelledby="execution-tab-orders"
-              tabIndex={0}
-              className="execution-tab-content orders-tab-view"
-            >
-              <div className="orders-overview-grid">
-                <div className="learning-stat-card">
-                  <span className="card-label">Vị thế đang mở</span>
-                  <div className="card-value">
-                    {data.open_count}
-                    <small className="muted"> / {data.max_concurrent} max</small>
-                  </div>
-                  <div className="card-sub">
-                    {data.open_count > 0 ? 'Vị thế ghi nhận từ Exness' : 'Chưa có vị thế mở'}
-                  </div>
-                </div>
 
-                <div className="learning-stat-card">
-                  <span className="card-label">Tổng lệnh đã đóng</span>
-                  <div className="card-value">
-                    {data.closed_count}
-                    <small className="muted"> lệnh</small>
-                  </div>
-                  <div className="card-sub">
-                    {wins}/{closedRows.length} thắng trong trang này (
-                    {closedRows.length ? Math.round((wins / closedRows.length) * 100) : 0}%)
-                  </div>
-                </div>
-
-                <div className="learning-stat-card">
-                  <span className="card-label">P&amp;L đã chốt · trang này (USD)</span>
-                  {(() => {
-                    const totalPnl = closedRows.reduce((acc, p) => acc + (p.pnl ?? 0), 0);
-                    return (
-                      <>
-                        <div
-                          className={`card-value font-mono ${totalPnl >= 0 ? 'positive' : 'negative'}`}
-                        >
-                          {totalPnl >= 0 ? '+' : ''}
-                          {amount(totalPnl)}
-                        </div>
-                        <div className="card-sub">
-                          {closedRows.length} lệnh ghi nhận P&amp;L trên sàn
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                <div className="learning-stat-card">
-                  <span className="card-label">Trạng thái sàn</span>
-                  <div className="card-value" style={{ fontSize: '18px', paddingTop: '6px' }}>
-                    <span
-                      className={`status-pill status-${data.worker_online ? (data.enabled ? 'promoted' : 'shadow') : 'retired'}`}
-                    >
-                      {label}
-                    </span>
-                  </div>
-                  <div className="card-sub">
-                    {data.orders.length} lệnh chờ · {data.intents.length} nhật ký
-                  </div>
-                </div>
+              <div className="orders-pagination-bar">
+                <button
+                  className="secondary"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - 50))}
+                >
+                  ← Trang trước
+                </button>
+                <span className="muted">
+                  Trang {Math.floor(offset / 50) + 1} ({data.total} lệnh tổng cộng)
+                </span>
+                <button
+                  className="secondary"
+                  disabled={!data.has_more}
+                  onClick={() => setOffset(offset + 50)}
+                >
+                  Trang sau →
+                </button>
               </div>
-
-              <div className="orders-section-card">
-                <div className="orders-card-header">
-                  <div className="filter-pills" role="group" aria-label="Lọc lệnh">
-                    {(
-                      [
-                        ['all', 'Tất cả'],
-                        ['open', 'Đang mở'],
-                        ['closed', 'Đã đóng'],
-                        ['bot', 'Của bot'],
-                      ] as [Filter, string][]
-                    ).map(([key, text]) => (
-                      <button
-                        key={key}
-                        className={filter === key ? 'selected' : ''}
-                        aria-pressed={filter === key}
-                        onClick={() => setFilter(key)}
-                      >
-                        {text}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="orders-header-note">
-                    <a href={`${url}/trades.csv?symbol=${symbol}`} download>
-                      Xuất CSV {symbol}
-                    </a>
-                    {' · '}
-                    {data.total ? offset + 1 : 0}–{Math.min(offset + 50, data.total)} / {data.total}{' '}
-                    lệnh
-                  </div>
-                </div>
-
+            </div>
+            {selected && (
+              <details open key={selected.position_id}>
+                <summary>
+                  Deal khớp sàn #{selected.position_id} · {selected.reason ?? 'Lệnh ngoài executor'}
+                </summary>
                 <div className="table-wrap">
-                  <table className="orders-clean-table">
+                  <table>
                     <thead>
                       <tr>
-                        <th>Vị thế & Nguồn</th>
-                        <th>Chiều</th>
-                        <th className="num">Lot</th>
-                        <th className="num">Vào / Thoát</th>
-                        <th className="num">SL / TP</th>
-                        <th className="num">P&amp;L (USD)</th>
-                        <th>Trạng thái</th>
-                        <th className="actions-col">Thao tác</th>
+                        <th>Deal / Order ID</th>
+                        <th>Loại</th>
+                        <th>Giá · lot</th>
+                        <th>Thời gian</th>
+                        <th>Profit / commission</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((position) => {
-                        const isSelected = selectedId === position.position_id;
-                        return (
-                          <tr
-                            key={position.position_id}
-                            className={`${isSelected ? 'row-active' : ''} ${position.status === 'open' ? 'row-open' : ''}`}
-                          >
-                            <td>
-                              <div className="pos-id-box">
-                                <span className="pos-id">#{position.position_id}</span>
-                                <span className="pos-source">
-                                  {position.source === 'learning'
-                                    ? 'Bot · HTF V2'
-                                    : position.source === 'regime_router'
-                                      ? 'Bot · Cũ'
-                                      : 'Thủ công / Probe'}
-                                </span>
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`side-badge side-${position.side?.toLowerCase()}`}>
-                                {position.side?.toUpperCase() ?? '—'}
-                              </span>
-                            </td>
-                            <td className="num font-mono">{amount(position.volume)}</td>
-                            <td className="num font-mono">
-                              <div>{quotePrice(position.open_price)}</div>
-                              <small className="muted">{quotePrice(position.close_price)}</small>
-                            </td>
-                            <td className="num font-mono">
-                              <div>{quotePrice(position.stop)}</div>
-                              <small className="muted">{quotePrice(position.target)}</small>
-                            </td>
-                            <td
-                              className={`num font-mono font-bold ${
-                                position.pnl == null
-                                  ? ''
-                                  : position.pnl >= 0
-                                    ? 'positive'
-                                    : 'negative'
-                              }`}
-                            >
-                              {position.pnl != null && position.pnl > 0 ? '+' : ''}
-                              {amount(position.pnl)}
-                            </td>
-                            <td>
-                              <span className={`order-status-pill status-${position.status}`}>
-                                {position.status === 'open' ? 'Đang mở' : 'Đã đóng'}
-                              </span>
-                              <small className="muted order-time-stamp">
-                                {date(position.close_time ?? position.open_time)}
-                              </small>
-                            </td>
-                            <td className="actions-col">
-                              <div className="order-actions-group">
-                                <button
-                                  type="button"
-                                  className={`btn-action ${isSelected ? 'btn-action-active' : ''}`}
-                                  onClick={() => {
-                                    setSelectedId(position.position_id);
-                                    setPanel('chart');
-                                  }}
-                                  title="Xem trên chart & deal khớp"
-                                >
-                                  Xem chart
-                                </button>
-                                {position.status === 'open' && position.signal_time != null && (
-                                  <button
-                                    type="button"
-                                    className="btn-action btn-danger"
-                                    disabled={
-                                      busy ||
-                                      !!error ||
-                                      position.close_requested ||
-                                      !data.worker_online
-                                    }
-                                    onClick={() => {
-                                      if (
-                                        window.confirm(
-                                          `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
-                                        )
-                                      )
-                                        void action(
-                                          `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
-                                          'POST',
-                                        );
-                                    }}
-                                  >
-                                    {position.close_requested ? 'Đang đóng...' : 'Đóng'}
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {selected.deals.map((deal) => (
+                        <tr key={deal.deal_id}>
+                          <td>
+                            {deal.deal_id} / {deal.order_id ?? '—'}
+                          </td>
+                          <td>
+                            {deal.type} · {deal.direction}
+                          </td>
+                          <td>
+                            {quotePrice(deal.price)} · {amount(deal.volume)}
+                          </td>
+                          <td>{date(deal.event_time)}</td>
+                          <td>
+                            {amount(deal.profit?.amount)} / {deal.commission ?? 'Chưa có từ API'}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
-
-                {!rows.length && (
-                  <div className="orders-empty-state">
-                    Không có lệnh khớp bộ lọc. Bot chờ tín hiệu hợp lệ, không ép mở lệnh.
-                  </div>
-                )}
-
-                <div className="orders-pagination-bar">
-                  <button
-                    className="secondary"
-                    disabled={offset === 0}
-                    onClick={() => setOffset(Math.max(0, offset - 50))}
-                  >
-                    ← Trang trước
-                  </button>
-                  <span className="muted">
-                    Trang {Math.floor(offset / 50) + 1} ({data.total} lệnh tổng cộng)
-                  </span>
-                  <button
-                    className="secondary"
-                    disabled={!data.has_more}
-                    onClick={() => setOffset(offset + 50)}
-                  >
-                    Trang sau →
-                  </button>
+              </details>
+            )}
+            <p className="micro">
+              SL theo vô hiệu H1 + ATR buffer; TP theo barrier cấu trúc H1/H4 (tối thiểu 1.5R). Tạm
+              dừng không đóng vị thế đang mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn
+              vẫn có hiệu lực; khi mở lại sẽ đối soát fill thật.
+            </p>
+            <details>
+              <summary>Lệnh chờ sàn & nhật ký gửi lệnh</summary>
+              <p>
+                {data.orders.length} lệnh chờ/SLTP trên sàn. Lệnh chưa xác minh kết quả sẽ chặn mở
+                thêm, không gửi lại.
+              </p>
+              {data.orders.map((order) => (
+                <p key={order.order_id}>
+                  #{order.order_id} · {order.instrument} · {order.order_type} · {order.volume}
+                </p>
+              ))}
+              {data.intents.map((intent) => (
+                <p key={intent.signal_time}>
+                  {date(intent.signal_time)} · {intent.status} ·{' '}
+                  {intent.ack?.operation_id ?? 'Chưa có ACK'} · {intent.error ?? intent.reason}
+                </p>
+              ))}
+            </details>
+            <p className="micro">
+              Lịch sử nhập từ {date(data.history_from)}, sau đó đồng bộ tăng dần; không trộn ví
+              paper/replay.
+            </p>
+          </section>
+          <section
+            hidden={panel !== 'learning'}
+            id="execution-panel-learning"
+            role="tabpanel"
+            aria-labelledby="execution-tab-learning"
+            tabIndex={0}
+            className="execution-tab-content learning-tab-view"
+            aria-label="Bộ học chiến lược"
+          >
+            <div className="learning-overview-grid">
+              <div className="learning-stat-card">
+                <span className="card-label">Execution V2</span>
+                <div className="card-value" style={{ fontSize: '18px' }}>
+                  {data.learning?.execution_v2?.enabled ? 'Đang bật' : 'Đang tắt'}
+                </div>
+                <div className="card-sub">
+                  {data.learning?.execution_v2?.blocked_reason ?? 'sẵn sàng'}
                 </div>
               </div>
-              {selected && (
-                <details open key={selected.position_id}>
-                  <summary>
-                    Deal khớp sàn #{selected.position_id} ·{' '}
-                    {selected.reason ?? 'Lệnh ngoài executor'}
-                  </summary>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Deal / Order ID</th>
-                          <th>Loại</th>
-                          <th>Giá · lot</th>
-                          <th>Thời gian</th>
-                          <th>Profit / commission</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selected.deals.map((deal) => (
-                          <tr key={deal.deal_id}>
-                            <td>
-                              {deal.deal_id} / {deal.order_id ?? '—'}
-                            </td>
-                            <td>
-                              {deal.type} · {deal.direction}
-                            </td>
-                            <td>
-                              {quotePrice(deal.price)} · {amount(deal.volume)}
-                            </td>
-                            <td>{date(deal.event_time)}</td>
-                            <td>
-                              {amount(deal.profit?.amount)} / {deal.commission ?? 'Chưa có từ API'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              )}
-              <p className="micro">
-                SL theo vô hiệu H1 + ATR buffer; TP theo barrier cấu trúc H1/H4 (tối thiểu 1.5R).
-                Tạm dừng không đóng vị thế đang mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP
-                trên sàn vẫn có hiệu lực; khi mở lại sẽ đối soát fill thật.
-              </p>
-              <details>
-                <summary>Lệnh chờ sàn & nhật ký gửi lệnh</summary>
-                <p>
-                  {data.orders.length} lệnh chờ/SLTP trên sàn. Lệnh chưa xác minh kết quả sẽ chặn mở
-                  thêm, không gửi lại.
-                </p>
-                {data.orders.map((order) => (
-                  <p key={order.order_id}>
-                    #{order.order_id} · {order.instrument} · {order.order_type} · {order.volume}
-                  </p>
-                ))}
-                {data.intents.map((intent) => (
-                  <p key={intent.signal_time}>
-                    {date(intent.signal_time)} · {intent.status} ·{' '}
-                    {intent.ack?.operation_id ?? 'Chưa có ACK'} · {intent.error ?? intent.reason}
-                  </p>
-                ))}
-              </details>
-              <p className="micro">
-                Lịch sử nhập từ {date(data.history_from)}, sau đó đồng bộ tăng dần; không trộn ví
-                paper/replay.
-              </p>
-            </section>
-          </>
-        )}
-      </section>
-      {data && (
-        <>
-          <section
-            hidden={panel !== 'chart'}
-            id="execution-panel-chart"
-            role="tabpanel"
-            aria-labelledby="execution-tab-chart"
-            tabIndex={0}
-            className="execution-tab-content execution-chart-panel"
-          >
-            <div className="execution-selection">
-              <div>
-                <span className="execution-eyebrow">GIAO DỊCH / {symbol}</span>
-                <h3>
-                  {chartPosition
-                    ? `Vị thế #${chartPosition.position_id} · ${chartPosition.side?.toUpperCase() ?? '—'}`
-                    : 'Theo dõi thị trường & giá khớp'}
-                </h3>
-                <p>
-                  {chartPosition
-                    ? `Vào ${quotePrice(chartPosition.open_price)} · SL ${quotePrice(chartPosition.stop)} · TP ${quotePrice(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}${chartPosition.exit_variant ? ` · SL/TP ${chartPosition.exit_variant} (${chartPosition.exit_variant_mode === 'validated' ? 'đã kiểm chứng mô phỏng' : 'mặc định'})` : ''}`
-                    : 'Chart chỉ hiển thị vị thế đang mở. Lịch sử lệnh đã đóng nằm ở tab Lệnh trên sàn.'}
-                </p>
+              <div className="learning-stat-card">
+                <span className="card-label">Cây có thể vào lệnh</span>
+                <div className="card-value">
+                  {data.learning?.execution_v2?.eligible_count ?? 0}
+                  <small className="muted">
+                    {' '}
+                    / {data.learning?.htf_ast2_shadow?.tree_count ?? 56}
+                  </small>
+                </div>
+                <div className="card-sub">
+                  Chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
+                </div>
               </div>
-              <button type="button" className="secondary" onClick={() => setPanel('orders')}>
-                Xem lệnh & deal
-              </button>
+              <div className="learning-stat-card">
+                <span className="card-label">Mẫu forward V2</span>
+                <div className="card-value">{data.learning?.htf_ast2_shadow?.resolved ?? 0}</div>
+                <div className="card-sub">
+                  {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ{' '}
+                  {data.learning?.htf_ast2_shadow?.generation ?? 0}
+                </div>
+              </div>
             </div>
-            <ForexStrategyPage
-              dashboard={dashboard}
-              disconnected={!!error}
-              executions={openPositions}
-              selectedPosition={chartPosition}
-              onSelectPosition={setSelectedId}
-              executionOnly
-              includeReplay={false}
-              onClosePosition={(position) => {
-                if (
-                  !busy &&
-                  !error &&
-                  data.worker_online &&
-                  window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
-                )
-                  void action(
-                    `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
-                    'POST',
-                  );
-              }}
-            />
+
+            <div className="learning-section-card">
+              <div className="card-header">
+                <div>
+                  <h4>Vì sao bot vào / không vào lệnh</h4>
+                  <span className="muted-desc">
+                    Mỗi nến M15 đóng: bot thấy gì và dừng ở bước nào
+                    {data.funnel ? ` · ${data.funnel.candles} nến gần nhất` : ''}
+                  </span>
+                </div>
+              </div>
+              {data.funnel && (
+                <div className="funnel-row">
+                  {(
+                    [
+                      ['Đã đánh giá', data.funnel.evaluated],
+                      ['Có tín hiệu', data.funnel.with_signal],
+                      ['Bot chọn', data.funnel.selected],
+                      ['Đã gửi lệnh', data.funnel.orders],
+                    ] as [string, number][]
+                  ).map(([name, value]) => (
+                    <div key={name} className="funnel-step">
+                      <strong>{value}</strong>
+                      <span>{name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {data.journal?.length ? (
+                <div className="table-wrap">
+                  <table className="learner-clean-table">
+                    <thead>
+                      <tr>
+                        <th>Nến đóng</th>
+                        <th>Kết quả</th>
+                        <th>Bot chọn</th>
+                        <th>Tín hiệu thấy được</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.journal.slice(0, 12).map((row) => (
+                        <tr key={row.time}>
+                          <td>{date(row.time + 900)}</td>
+                          <td className={outcomeClass(row.outcome)}>
+                            {outcomeText(row.outcome)}
+                            {row.reason && <small className="muted"> · {row.reason}</small>}
+                          </td>
+                          <td>{row.selected ?? '—'}</td>
+                          <td className="muted">
+                            {row.confirmed.length
+                              ? row.confirmed
+                                  .map((c) => `${c.strategy}${c.shadow ? ' (shadow)' : ''}`)
+                                  .join(', ')
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="muted-desc">Chưa có nến nào được ghi nhật ký. Chờ nến M15 kế tiếp.</p>
+              )}
+            </div>
+            {data.learning?.htf_ast2_shadow && (
+              <div className="learning-section-card">
+                <div className="card-header">
+                  <div>
+                    <h4>Quần thể HTF V2 · dòng dõi G0 → G1…</h4>
+                    <span className="muted-desc">
+                      Thế hệ {data.learning.htf_ast2_shadow.generation} ·{' '}
+                      {data.learning.htf_ast2_shadow.tree_count} cây ·{' '}
+                      {data.learning.htf_ast2_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
+                      swap
+                    </span>
+                  </div>
+                  <span className="badge-count">
+                    {data.learning.htf_ast2_shadow.resolved} đã đóng ·{' '}
+                    {data.learning.htf_ast2_shadow.pending} đang chạy
+                  </span>
+                </div>
+                <HtfLineage
+                  trees={data.learning.htf_ast2_shadow.trees}
+                  nextEvolutionAt={data.learning.htf_ast2_shadow.next_evolution_at}
+                />
+              </div>
+            )}
           </section>
-        </>
+        </section>
       )}
     </div>
   );

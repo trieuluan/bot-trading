@@ -6429,3 +6429,412 @@ button.parent-chip {
   cursor: pointer;
   padding: 8px 0;
 }
+
+/* Exness Bot: chart-first trading terminal (MEXC/Exness Terminal style) */
+.forex-shell:has(.forex-terminal-main) .topbar {
+  height: 52px;
+  padding: 0 16px;
+}
+main.forex-terminal-main {
+  max-width: none;
+  padding: 8px 16px 32px;
+}
+.forex-terminal-main .header-actions {
+  gap: 10px;
+}
+.forex-markets.is-compact {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.forex-markets.is-compact .forex-market-strip {
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  padding-bottom: 0;
+  scrollbar-width: none;
+}
+.forex-markets.is-compact .forex-market-strip button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: max-content;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border-color: transparent;
+  background: transparent;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.forex-markets.is-compact .forex-market-strip button:hover {
+  background: #eef1ea;
+}
+.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] {
+  border-color: #cfd8c8;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.forex-markets.is-compact .forex-market-strip button span {
+  font:
+    600 12px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.forex-markets.is-compact .forex-market-strip button small {
+  font-size: 10px;
+}
+.forex-markets.is-compact > details {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.forex-markets.is-compact > details[open] {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 4px 12px 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.forex-markets.is-compact summary {
+  padding: 6px 0;
+}
+.forex-catchup-compact {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.forex-catchup-compact summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.forex-catchup-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4f9a6d;
+}
+.forex-catchup-compact.is-warn .forex-catchup-dot {
+  background: #c29b61;
+}
+.forex-catchup-compact.is-warn summary {
+  color: #8f6a2c;
+  font-weight: 600;
+}
+.forex-catchup-compact[open] {
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.trade-terminal {
+  gap: 8px;
+}
+.terminal-account-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 22px;
+  padding: 8px 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.terminal-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.terminal-stat small {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.terminal-stat strong {
+  font:
+    700 13px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: #263d35;
+  white-space: nowrap;
+}
+.terminal-stat strong.positive {
+  color: #137333;
+}
+.terminal-stat strong.negative {
+  color: #c5221f;
+}
+.terminal-stat em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
+}
+.terminal-toggle {
+  margin-left: auto;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid #245b46;
+  background: #245b46;
+  color: #f6f8ee;
+  font-size: 12px;
+  font-weight: 650;
+}
+.terminal-toggle.is-on {
+  background: #fff;
+  color: #9a3b2f;
+  border-color: #e4c3bd;
+}
+.terminal-toggle:disabled {
+  opacity: 0.5;
+}
+.terminal-decision {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 12px;
+  color: #495b4d;
+}
+.terminal-decision strong {
+  color: #1e5b47;
+}
+.terminal-decision > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-decision .muted {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.trade-terminal .execution-chart-panel {
+  scroll-margin-top: 8px;
+}
+.trade-terminal .broker-chart-terminal {
+  margin: 0;
+  border-radius: 8px;
+}
+.trade-terminal .broker-market-header {
+  padding: 8px 14px;
+  gap: 12px 20px;
+}
+.trade-terminal .broker-symbol {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.trade-terminal .broker-market-header h2 {
+  font-size: 15px;
+}
+.trade-terminal .broker-market-header p {
+  margin-top: 1px;
+  font-size: 11px;
+}
+.trade-terminal .broker-market-header .broker-quote-pair {
+  align-items: baseline;
+}
+.broker-quote-pair .broker-bid {
+  color: #ff9b8d;
+}
+.broker-quote-pair .broker-ask {
+  color: #74dca0;
+}
+.trade-terminal .broker-stream-state {
+  padding: 4px 9px;
+  font-size: 11px;
+}
+.trade-terminal .broker-chart-toolbar {
+  padding: 6px 14px;
+  gap: 8px;
+}
+.trade-terminal .broker-chart-toolbar .broker-history-button {
+  margin-left: auto;
+}
+.trade-terminal .broker-position-picker,
+.trade-terminal .broker-position-strip > span {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.trade-terminal .broker-chart-terminal .trade-candlestick-chart {
+  height: clamp(420px, calc(100vh - 390px), 940px);
+  min-height: 420px;
+}
+.terminal-bottom {
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.terminal-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: #fafbf7;
+}
+.terminal-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 10px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #6c7a70;
+  font-size: 13px;
+  font-weight: 650;
+}
+.terminal-tabs button[aria-selected='true'] {
+  color: #1e5b47;
+  border-bottom-color: #1e5b47;
+}
+.terminal-tab-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #e6efe8;
+  color: #1e5b47;
+  font-size: 11px;
+}
+.terminal-tabs-note {
+  margin-left: auto;
+  align-self: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.terminal-bottom .execution-tab-content {
+  padding: 4px 14px 14px;
+}
+.terminal-bottom .orders-section-card {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+@media (max-width: 700px) {
+  main.forex-terminal-main {
+    padding: 6px 8px 24px;
+  }
+  .terminal-account-bar {
+    gap: 6px 14px;
+  }
+  .terminal-toggle {
+    width: 100%;
+  }
+  .terminal-decision {
+    flex-wrap: wrap;
+  }
+  .terminal-tabs-note {
+    display: none;
+  }
+  .trade-terminal .broker-chart-terminal .trade-candlestick-chart {
+    height: 62vh;
+    min-height: 340px;
+  }
+}
+.trade-terminal .broker-chart-terminal .mtf-source-strip {
+  margin: 0;
+  padding: 5px 14px;
+  gap: 4px 14px;
+  border-bottom: 1px solid #26332d;
+  background: #131c18;
+}
+.trade-terminal .broker-chart-terminal .mtf-source-strip span {
+  padding: 0;
+  background: none;
+  color: #6f8178;
+  font-size: 11px;
+}
+.trade-terminal .broker-chart-terminal .mtf-source-strip .negative {
+  color: #ffb3a7;
+}
+.trade-terminal .broker-chart-terminal > p[role='status'],
+.trade-terminal .broker-chart-terminal > p[role='alert'] {
+  margin: 0;
+  padding: 5px 14px;
+  border-bottom: 1px solid #26332d;
+  background: #2a1c19;
+  color: #ffb3a7;
+  font-size: 11px;
+}
+.trade-terminal .broker-chart-terminal > .micro {
+  margin: 0;
+  padding: 4px 14px;
+  color: #899b91;
+}
+@media (max-width: 700px) {
+  .forex-markets.is-compact {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .forex-markets.is-compact .forex-market-strip {
+    flex-basis: 100%;
+  }
+  .forex-markets.is-compact .forex-market-strip button small {
+    display: none;
+  }
+  .terminal-account-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px 10px;
+    padding: 8px 10px;
+  }
+  .terminal-account-bar .badge-status {
+    justify-self: start;
+  }
+  .terminal-toggle {
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+  .trade-terminal .broker-market-header {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .trade-terminal .broker-market-header .broker-quote-pair {
+    order: 3;
+    gap: 12px;
+  }
+}
+.topbar {
+  position: relative;
+}
+.route-progress {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  width: 40%;
+  background: #1e5b47;
+  animation: route-progress 0.9s ease-in-out infinite;
+}
+@keyframes route-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-progress {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
