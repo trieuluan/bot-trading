@@ -4,6 +4,8 @@ import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
 import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 import { formatForexPrice } from '../lib/format';
+import { blockLabel } from '../lib/forex-labels';
+import { DecisionJournal } from '../components/DecisionJournal';
 
 const url = '/api/workspaces/exness_forex/execution';
 // Trang đầu của mỗi cặp, để đổi cặp hiển thị ngay số liệu đã có.
@@ -14,45 +16,6 @@ const quotePrice = (value: number | string | null | undefined) =>
   value == null ? '—' : formatForexPrice(Number(value));
 const date = (stamp: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
-
-const outcomeText = (outcome: string) => {
-  const key = outcome.replace(/^(blocked|unavailable):/, '');
-  const labels: Record<string, string> = {
-    no_signal: 'Không có tín hiệu',
-    shadow_only: 'Chỉ có gen shadow',
-    not_selected: 'Có tín hiệu, bot không chọn',
-    signal: 'Có tín hiệu chọn',
-    order_sent: 'Đã gửi lệnh',
-    order_planned: 'Đã lập lệnh',
-    execution_error: 'Lỗi khi gửi lệnh sàn',
-    api_rate_limited: 'Tạm dừng: chạm giới hạn tần suất Exness',
-    worker_error: 'Lỗi vòng xử lý bot; chưa xác nhận gửi lệnh',
-    old_or_duplicate_signal: 'Tín hiệu cũ/trùng',
-    position_capacity_for_split: 'Không đủ chỗ chia lệnh',
-    reconciling: 'Đang đối soát lệnh',
-    position_active: 'Đang có vị thế',
-    session_close_near: 'Gần đóng phiên',
-    history_catching_up: 'Đang đồng bộ lịch sử',
-    paused: 'Bot tạm dừng',
-    feed_not_ready: 'Dữ liệu nến chưa sẵn sàng',
-    outside_signal_window: 'Quá cửa sổ 300s sau nến đóng',
-    ask_candle_missing: 'Thiếu nến ask',
-    policy_missing: 'Chưa có policy học',
-    preflight_failed: 'Kiểm tra trước lệnh thất bại',
-  };
-  return labels[key] ?? key;
-};
-const outcomeClass = (outcome: string) =>
-  outcome === 'order_sent'
-    ? 'positive'
-    : outcome === 'api_rate_limited'
-      ? 'negative'
-      : outcome.startsWith('blocked') ||
-          outcome.startsWith('unavailable') ||
-          outcome === 'worker_error' ||
-          outcome === 'execution_error'
-        ? 'negative'
-        : 'muted';
 
 type Panel = 'orders' | 'learning';
 const panels: [Panel, string][] = [
@@ -155,6 +118,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   );
   const wins = closedRows.filter((position) => (position.pnl ?? 0) > 0).length;
   const picked = data?.learning?.latest?.selected;
+  const treeCount = data?.learning?.htf_ast2_shadow?.tree_count ?? 56;
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
   const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
   const equity = data?.account_state?.equity;
@@ -560,30 +524,35 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               <div className="learning-stat-card">
                 <span className="card-label">Execution V2</span>
                 <div className="card-value" style={{ fontSize: '18px' }}>
-                  {data.learning?.execution_v2?.enabled ? 'Đang bật' : 'Đang tắt'}
+                  {data.learning?.execution_v2?.enabled ? 'Đang gửi lệnh' : 'Chỉ shadow'}
                 </div>
                 <div className="card-sub">
-                  {data.learning?.execution_v2?.blocked_reason ?? 'sẵn sàng'}
+                  {blockLabel(data.learning?.execution_v2?.blocked_reason) ?? 'Sẵn sàng'}
                 </div>
               </div>
               <div className="learning-stat-card">
-                <span className="card-label">Cây có thể vào lệnh</span>
+                <span className="card-label">Cây được phép vào lệnh</span>
                 <div className="card-value">
-                  {data.learning?.execution_v2?.eligible_count ?? 0}
-                  <small className="muted">
-                    {' '}
-                    / {data.learning?.htf_ast2_shadow?.tree_count ?? 56}
-                  </small>
+                  {data.learning?.execution_v2?.entry_allowed_count ?? 0}
+                  <small className="muted"> / {treeCount}</small>
                 </div>
                 <div className="card-sub">
-                  Chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
+                  Ungated · chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
                 </div>
+              </div>
+              <div className="learning-stat-card">
+                <span className="card-label">Đủ chuẩn tiến hoá</span>
+                <div className="card-value">
+                  {data.learning?.execution_v2?.evolution_ready_count ?? 0}
+                  <small className="muted"> / {treeCount}</small>
+                </div>
+                <div className="card-sub">Cần ≥10 mẫu forward và R trung bình &gt; 0</div>
               </div>
               <div className="learning-stat-card">
                 <span className="card-label">Mẫu forward V2</span>
                 <div className="card-value">{data.learning?.htf_ast2_shadow?.resolved ?? 0}</div>
                 <div className="card-sub">
-                  {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ{' '}
+                  {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ G
                   {data.learning?.htf_ast2_shadow?.generation ?? 0}
                 </div>
               </div>
@@ -599,58 +568,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                   </span>
                 </div>
               </div>
-              {data.funnel && (
-                <div className="funnel-row">
-                  {(
-                    [
-                      ['Đã đánh giá', data.funnel.evaluated],
-                      ['Có tín hiệu', data.funnel.with_signal],
-                      ['Bot chọn', data.funnel.selected],
-                      ['Đã gửi lệnh', data.funnel.orders],
-                    ] as [string, number][]
-                  ).map(([name, value]) => (
-                    <div key={name} className="funnel-step">
-                      <strong>{value}</strong>
-                      <span>{name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {data.journal?.length ? (
-                <div className="table-wrap">
-                  <table className="learner-clean-table">
-                    <thead>
-                      <tr>
-                        <th>Nến đóng</th>
-                        <th>Kết quả</th>
-                        <th>Bot chọn</th>
-                        <th>Tín hiệu thấy được</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.journal.slice(0, 12).map((row) => (
-                        <tr key={row.time}>
-                          <td>{date(row.time + 900)}</td>
-                          <td className={outcomeClass(row.outcome)}>
-                            {outcomeText(row.outcome)}
-                            {row.reason && <small className="muted"> · {row.reason}</small>}
-                          </td>
-                          <td>{row.selected ?? '—'}</td>
-                          <td className="muted">
-                            {row.confirmed.length
-                              ? row.confirmed
-                                  .map((c) => `${c.strategy}${c.shadow ? ' (shadow)' : ''}`)
-                                  .join(', ')
-                              : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="muted-desc">Chưa có nến nào được ghi nhật ký. Chờ nến M15 kế tiếp.</p>
-              )}
+              <DecisionJournal journal={data.journal} funnel={data.funnel} />
             </div>
             {data.learning?.htf_ast2_shadow && (
               <div className="learning-section-card">

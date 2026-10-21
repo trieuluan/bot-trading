@@ -54,7 +54,7 @@ def audit_frames(frames, symbol="XAUUSD"):
                   or not row["paired_bars"] for row in reports)
     return {"status": "blocked" if blocked else "checked", "frames": reports,
             "session_calendar_verified": False,
-            "message": "Đã phân loại nghỉ phiên XAUUSD thường lệ theo DST Mỹ; chưa xác minh lịch lễ/ngoại lệ. Gap ngoài lịch vẫn chưa xác minh, không lấp nến. Spread là chênh lệch close ask/bid."}
+            "message": f"Đã phân loại nghỉ phiên {symbol} thường lệ theo DST Mỹ; chưa xác minh lịch lễ/ngoại lệ. Gap ngoài lịch vẫn chưa xác minh, không lấp nến. Spread là chênh lệch close ask/bid."}
 
 def observe_forex(candle, hours, higher, previous=None):
     available = candle.time + 900

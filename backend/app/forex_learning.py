@@ -35,15 +35,19 @@ def execution_status(account, now, symbol="XAUUSD"):
     reason = "v2_execution_disabled" if not v2 else "exness_execution_disabled" if not exness else "paused" if not control else None
     try:
         ledger = read_ledger(account, symbol)
-        eligible = qualified_trees(ledger, now)
+        # Vào lệnh không có cổng fitness (ungated): mọi cây trong quần thể đều được phép vào lệnh.
+        # Đủ chuẩn tiến hoá (làm bố mẹ) vẫn cần >=10 mẫu forward và mean R > 0.
+        allowed = qualified_trees(ledger, now)
         candidates = execution_candidates(account, now, symbol) if not reason else []
         return {"enabled": v2 and exness and control, "v2_enabled": v2, "exness_enabled": exness,
-                "account_enabled": control, "blocked_reason": reason or ("no_eligible_tree" if not eligible else None),
-                "eligible_count": len(eligible), "eligible_ids": [identifier for identifier, _ in eligible],
+                "account_enabled": control, "blocked_reason": reason or ("no_eligible_tree" if not allowed else None),
+                "entry_allowed_count": len(allowed), "entry_allowed_ids": [identifier for identifier, _ in allowed],
+                "evolution_ready_count": sum(1 for _, stats in allowed if stats["eligible"]),
                 "selected": candidates[0][0]["strategy"] if candidates else None}
     except (OSError, ValueError, KeyError, TypeError):
         return {"enabled": False, "v2_enabled": v2, "exness_enabled": exness, "account_enabled": control,
-                "blocked_reason": reason or "v2_ledger_unavailable", "eligible_count": 0, "eligible_ids": [], "selected": None}
+                "blocked_reason": reason or "v2_ledger_unavailable", "entry_allowed_count": 0, "entry_allowed_ids": [],
+                "evolution_ready_count": 0, "selected": None}
 
 
 @router.get("/symbols")

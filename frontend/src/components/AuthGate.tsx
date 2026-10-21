@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Activity } from 'lucide-react';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [ok, setOk] = useState<boolean | null>(null);
@@ -48,26 +49,38 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (ok === null) return null;
   if (ok) return <>{children}</>;
   return (
-    <form
-      onSubmit={submit}
-      style={{ maxWidth: 320, margin: '20vh auto', display: 'grid', gap: 12 }}
-    >
-      <h2>Signal Desk</h2>
-      <input
-        type="password"
-        required
-        maxLength={256}
-        autoComplete="current-password"
-        autoFocus
-        aria-label="Mật khẩu"
-        placeholder="Mật khẩu"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy}>
-        {busy ? 'Đang kiểm tra…' : 'Vào'}
-      </button>
-    </form>
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <div className="auth-brand">
+          <Activity size={24} aria-hidden="true" />
+          <span>
+            signal<span className="brand-light">desk</span>
+          </span>
+        </div>
+        <h1>Đăng nhập</h1>
+        <p className="auth-sub">Workspace giao dịch nội bộ · nhập mật khẩu ứng dụng.</p>
+        <label htmlFor="auth-password">Mật khẩu</label>
+        <input
+          id="auth-password"
+          type="password"
+          required
+          maxLength={256}
+          autoComplete="current-password"
+          autoFocus
+          value={password}
+          aria-invalid={!!error || undefined}
+          aria-describedby={error ? 'auth-error' : undefined}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        {error && (
+          <p id="auth-error" role="alert" className="auth-error">
+            {error}
+          </p>
+        )}
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? 'Đang kiểm tra…' : 'Vào workspace'}
+        </button>
+      </form>
+    </main>
   );
 }

@@ -46,8 +46,11 @@ export interface ExnessExecution {
       exness_enabled: boolean;
       account_enabled: boolean;
       blocked_reason: string | null;
-      eligible_count: number;
-      eligible_ids: string[];
+      /** Cây được phép vào lệnh (ungated: cả quần thể). */
+      entry_allowed_count: number;
+      entry_allowed_ids?: string[];
+      /** Cây đủ chuẩn tiến hoá/làm bố mẹ: >=10 mẫu forward và mean R > 0. */
+      evolution_ready_count: number;
       selected: string | null;
     };
     scalping?: {

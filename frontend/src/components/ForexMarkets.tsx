@@ -1,6 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { setRoute } from '../lib/router';
 import { prefetchSymbol } from '../lib/forex-cache';
+import {
+  blockLabel,
+  feedErrorText,
+  priceDigits,
+  relativeTime,
+  utcTime,
+  type Tone,
+} from '../lib/forex-labels';
+
+interface Feed {
+  timeframe: string;
+  bars_per_side?: number;
+  last_candle?: number | null;
+  last_sync?: string | null;
+  error: string | null;
+  retry_at?: string | null;
+  remaining_intervals: number | null;
+  worker_online: boolean;
+}
 
 interface Market {
   symbol: string;
@@ -10,226 +29,282 @@ interface Market {
   positions: number;
   specs: string;
   blocked_reason: string | null;
-  execution?: { eligible_count?: number };
-  feed: { error: string | null; remaining_intervals: number | null; worker_online: boolean }[];
+  execution?: { entry_allowed_count?: number; evolution_ready_count?: number };
+  feed: Feed[];
 }
 
-const statusText: Record<string, string> = {
-  v2_execution_disabled: 'Execution V2 đang tắt',
-  exness_execution_disabled: 'Execution Exness đang tắt',
-  paused: 'Tài khoản tạm dừng entry',
-  no_eligible_tree: 'Chưa có cây đủ chuẩn',
-  v2_ledger_unavailable: 'Chưa có ledger hợp lệ',
-  symbol_position_limit: 'Đủ vị thế mỗi cặp',
-  account_position_limit: 'Đủ vị thế toàn tài khoản',
-  specs_unavailable_or_stale: 'Specs thiếu hoặc đã cũ',
-  commission_unverified: 'Commission chưa xác minh',
-};
+interface MarketsData {
+  markets: Market[];
+  account_positions: number;
+  max_positions: number;
+  max_positions_per_symbol: number;
+}
+
+// Một vòng poll /markets dùng chung cho mọi nơi đang hiển thị (API này chậm ~0.5s).
+let shared: { data?: MarketsData; error: boolean } = { error: false };
+const listeners = new Set<() => void>();
+let timer: number | undefined;
+let inflight = false;
+
+async function poll() {
+  if (inflight) return;
+  inflight = true;
+  try {
+    const response = await fetch('/api/workspaces/exness_forex/markets', {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error();
+    shared = { data: await response.json(), error: false };
+  } catch {
+    shared = { ...shared, error: true };
+  } finally {
+    inflight = false;
+    listeners.forEach((listener) => listener());
+  }
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    void poll();
+    timer = window.setInterval(() => void poll(), 10000);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) window.clearInterval(timer);
+  };
+}
+
+export function useForexMarkets() {
+  return useSyncExternalStore(subscribe, () => shared);
+}
+
+const formatPrice = (market: Market) =>
+  market.price == null
+    ? '—'
+    : market.price.toLocaleString('en-US', {
+        minimumFractionDigits: priceDigits(market.symbol),
+        maximumFractionDigits: priceDigits(market.symbol),
+      });
+
+const specsText = (specs: string) =>
+  specs === 'partial' ? 'Đã có · chưa swap' : specs === 'stale' ? 'Đã cũ' : 'Chưa có';
+
+export function feedTone(feed: Feed | undefined): Tone {
+  if (!feed) return 'idle';
+  if (!feed.worker_online) return 'bad';
+  if (feed.error) return 'warn';
+  if (feed.remaining_intervals !== 0) return 'warn';
+  return 'ok';
+}
+
+export function feedText(feed: Feed | undefined, now = Date.now()) {
+  if (!feed) return 'Chờ dữ liệu';
+  if (!feed.worker_online) return 'Worker offline';
+  if (feed.error) {
+    const retry =
+      feed.retry_at && new Date(feed.retry_at).getTime() > now
+        ? ` · thử lại ${relativeTime(feed.retry_at, now)}`
+        : '';
+    return `${feedErrorText(feed.error)}${retry}`;
+  }
+  if (feed.remaining_intervals === null) return 'Chưa khởi tạo';
+  if (feed.remaining_intervals > 0) return `Đang đồng bộ · còn ${feed.remaining_intervals} khoảng`;
+  return 'Đã đồng bộ';
+}
+
+function useNow(interval = 15000) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), interval);
+    return () => window.clearInterval(id);
+  }, [interval]);
+  return now;
+}
+
+const select = (symbol: string) => setRoute({ symbol });
 
 export function ForexMarkets({
   symbol,
-  compact = false,
-  table = false,
-  onSelect,
+  variant = 'strip',
 }: {
   symbol: string;
-  compact?: boolean;
-  table?: boolean;
-  onSelect?: (symbol: string) => void;
+  variant?: 'strip' | 'table' | 'health';
 }) {
-  const [data, setData] = useState<{
-    markets: Market[];
-    account_positions: number;
-    max_positions: number;
-    max_positions_per_symbol: number;
-  }>();
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    let busy = false;
-    const refresh = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const response = await fetch('/api/workspaces/exness_forex/markets', {
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-        });
-        if (!response.ok) throw new Error();
-        const next = await response.json();
-        if (!controller.signal.aborted) {
-          setData(next);
-          setError(false);
-        }
-      } catch {
-        if (!controller.signal.aborted) setError(true);
-      } finally {
-        busy = false;
-      }
-    };
-    void refresh();
-    const timer = setInterval(() => void refresh(), 10000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, []);
-  if (table)
+  const { data, error } = useForexMarkets();
+  const now = useNow();
+
+  if (variant === 'strip')
     return (
-      <section className="panel" aria-label="Tổng quan các cặp Forex">
-        <div className="section-head">
-          <h2>Tổng quan {data?.markets.length ?? 11} cặp</h2>
-          {data && (
-            <p>
-              {data.account_positions}/{data.max_positions} vị thế toàn tài khoản
-            </p>
-          )}
+      <section className="forex-markets is-compact" aria-label="Các cặp Forex">
+        <div className="forex-market-strip">
+          {data?.markets.map((market) => (
+            <button
+              key={market.symbol}
+              type="button"
+              aria-pressed={market.symbol === symbol}
+              onPointerEnter={() => prefetchSymbol(market.symbol)}
+              onFocus={() => prefetchSymbol(market.symbol)}
+              onClick={() => select(market.symbol)}
+            >
+              <strong>{market.symbol}</strong>
+              <span>{formatPrice(market)}</span>
+              {market.positions > 0 && (
+                <small className="forex-strip-positions">{market.positions} mở</small>
+              )}
+            </button>
+          ))}
         </div>
-        {error && <p role="alert">Không tải được tổng quan; số liệu có thể đã cũ.</p>}
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Cặp</th>
-                <th>Bid · độ mới</th>
-                <th>Specs</th>
-                <th>Vị thế</th>
-                <th>Cây đủ chuẩn</th>
-                <th>Chặn entry</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {data?.markets.map((market) => (
-                <tr key={market.symbol}>
-                  <td>
-                    <strong>{market.symbol}</strong>
-                  </td>
-                  <td>
-                    {market.price == null
-                      ? '—'
-                      : market.price.toLocaleString('en-US', { maximumFractionDigits: 5 })}
-                    {market.age_seconds != null && ` · ${Math.floor(market.age_seconds)}s`}
-                  </td>
-                  <td>
-                    {market.specs === 'partial'
-                      ? 'Đã có · chưa swap'
-                      : market.specs === 'stale'
-                        ? 'Đã cũ'
-                        : 'Chưa có'}
-                  </td>
-                  <td>
-                    {market.positions}/{data.max_positions_per_symbol}
-                  </td>
-                  <td>{market.execution?.eligible_count ?? '—'}</td>
-                  <td>
-                    {market.blocked_reason
-                      ? (statusText[market.blocked_reason] ?? market.blocked_reason)
-                      : 'Không có khoá'}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={market.symbol === symbol}
-                      onClick={() => onSelect?.(market.symbol)}
-                    >
-                      {market.symbol === symbol ? 'Đang chọn' : 'Chọn'}
-                    </button>
+        {error && (
+          <span role="alert" className="negative forex-strip-error">
+            Giá có thể đã cũ
+          </span>
+        )}
+      </section>
+    );
+
+  const rows = data?.markets ?? [];
+  const head =
+    variant === 'table' ? (
+      <tr>
+        <th>Cặp</th>
+        <th className="num">Giá bid</th>
+        <th>Độ mới</th>
+        <th className="num">Vị thế</th>
+        <th className="num" title="Cây được phép vào lệnh / đủ chuẩn tiến hoá">
+          Cây vào lệnh · tiến hoá
+        </th>
+        <th>Entry</th>
+      </tr>
+    ) : (
+      <tr>
+        <th>Cặp</th>
+        <th>Giá · độ mới</th>
+        <th>Feed 15M</th>
+        <th>Feed 1H</th>
+        <th>Feed 4H</th>
+        <th>Thông số</th>
+      </tr>
+    );
+
+  return (
+    <section className="panel forex-pairs-panel" aria-label="Các cặp Forex">
+      <div className="forex-pairs-head">
+        <h2>{variant === 'table' ? 'Các cặp giao dịch' : 'Sức khỏe feed 11 cặp'}</h2>
+        <span className="muted">
+          {data
+            ? `${data.account_positions}/${data.max_positions} vị thế toàn tài khoản · tối đa ${data.max_positions_per_symbol}/cặp`
+            : 'Đang tải…'}
+        </span>
+      </div>
+      {error && (
+        <p role="alert" className="feedback">
+          Không tải được danh sách cặp; số liệu có thể đã cũ.
+        </p>
+      )}
+      <div className="table-scroll">
+        <table className="forex-pairs-table">
+          <thead>{head}</thead>
+          <tbody>
+            {!data &&
+              Array.from({ length: 6 }, (_, index) => (
+                <tr key={index} className="skeleton-row" aria-hidden="true">
+                  <td colSpan={6}>
+                    <span className="skeleton-line" />
                   </td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
-  return (
-    <section className={`forex-markets ${compact ? 'is-compact' : ''}`} aria-label="Các cặp Forex">
-      <div className="forex-market-strip">
-        {data?.markets.map((market) => (
-          <button
-            key={market.symbol}
-            type="button"
-            aria-pressed={market.symbol === symbol}
-            onPointerEnter={() => prefetchSymbol(market.symbol)}
-            onFocus={() => prefetchSymbol(market.symbol)}
-            onClick={() => setRoute({ symbol: market.symbol })}
-          >
-            <strong>{market.symbol}</strong>
-            <span>
-              {market.price == null
-                ? '—'
-                : market.price.toLocaleString('en-US', { maximumFractionDigits: 5 })}
-            </span>
-            <small
-              className={
-                error || market.age_seconds == null || market.age_seconds > 30
-                  ? 'muted'
-                  : 'positive'
-              }
-            >
-              {market.age_seconds == null
-                ? 'Chưa có giá'
-                : `${Math.floor(market.age_seconds)}s · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
-              {' · '}
-              {market.positions}/{data.max_positions_per_symbol} vị thế
-            </small>
-          </button>
-        ))}
-      </div>
-      {error && <p role="alert">Không tải được tổng quan; giá hiển thị có thể đã cũ.</p>}
-      {data && (
-        <details>
-          <summary>
-            {data.markets.length} cặp · {data.account_positions}/{data.max_positions} vị thế toàn
-            tài khoản · Trạng thái từng cặp
-          </summary>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Cặp</th>
-                  <th>Thông số</th>
-                  <th>Feed</th>
-                  <th>Vị thế</th>
-                  <th>Chặn entry</th>
+            {rows.map((market) => {
+              const active = market.symbol === symbol;
+              const fresh = market.age_seconds != null && market.age_seconds <= 30;
+              const blocked = blockLabel(market.blocked_reason);
+              return (
+                <tr
+                  key={market.symbol}
+                  className={active ? 'is-active' : ''}
+                  onClick={() => select(market.symbol)}
+                  onPointerEnter={() => prefetchSymbol(market.symbol)}
+                >
+                  <th scope="row">
+                    <button
+                      type="button"
+                      className="forex-pair-link"
+                      aria-current={active ? 'true' : undefined}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        select(market.symbol);
+                      }}
+                    >
+                      {market.symbol}
+                    </button>
+                    {active && <span className="forex-pair-badge">Đang xem</span>}
+                  </th>
+                  {variant === 'table' ? (
+                    <>
+                      <td className="num font-mono">{formatPrice(market)}</td>
+                      <td>
+                        <span className={`dot-label tone-${fresh ? 'ok' : 'warn'}`}>
+                          {market.age_seconds == null
+                            ? 'Chưa có giá'
+                            : `${Math.floor(market.age_seconds)}s · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
+                        </span>
+                      </td>
+                      <td className="num">
+                        {market.positions}/{data?.max_positions_per_symbol ?? '—'}
+                      </td>
+                      <td className="num">
+                        {market.execution?.entry_allowed_count ?? '—'}
+                        <span className="muted">
+                          {' '}
+                          · {market.execution?.evolution_ready_count ?? '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`status-chip tone-${blocked ? 'warn' : 'ok'}`}>
+                          {blocked ?? 'Sẵn sàng'}
+                        </span>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td>
+                        <span className="font-mono">{formatPrice(market)}</span>{' '}
+                        <small className={fresh ? 'positive' : 'muted'}>
+                          {market.age_seconds == null ? '' : `${Math.floor(market.age_seconds)}s`}
+                        </small>
+                      </td>
+                      {['15m', '1h', '4h'].map((frame) => {
+                        const feed = market.feed.find((row) => row.timeframe === frame);
+                        return (
+                          <td key={frame}>
+                            <span
+                              className={`dot-label tone-${feedTone(feed)}`}
+                              title={
+                                feed?.last_candle
+                                  ? `Nến cuối ${utcTime(feed.last_candle)}`
+                                  : undefined
+                              }
+                            >
+                              {feedText(feed, now)}
+                            </span>
+                          </td>
+                        );
+                      })}
+                      <td>
+                        <span
+                          className={`status-chip tone-${market.specs === 'partial' ? 'ok' : 'warn'}`}
+                        >
+                          {specsText(market.specs)}
+                        </span>
+                      </td>
+                    </>
+                  )}
                 </tr>
-              </thead>
-              <tbody>
-                {data.markets.map((market) => (
-                  <tr key={market.symbol}>
-                    <td>{market.symbol}</td>
-                    <td>
-                      {market.specs === 'partial'
-                        ? 'Đã có · chưa swap'
-                        : market.specs === 'stale'
-                          ? 'Đã cũ'
-                          : 'Chưa có'}
-                    </td>
-                    <td>
-                      {!market.feed.length
-                        ? 'Chờ dữ liệu'
-                        : market.feed.some((frame) => frame.error)
-                          ? 'Lỗi đồng bộ'
-                          : market.feed.some((frame) => !frame.worker_online)
-                            ? 'Worker offline'
-                            : market.feed.some((frame) => frame.remaining_intervals !== 0)
-                              ? 'Đang đồng bộ'
-                              : 'Đã đồng bộ'}
-                    </td>
-                    <td>{market.positions}</td>
-                    <td>
-                      {market.blocked_reason
-                        ? (statusText[market.blocked_reason] ?? market.blocked_reason)
-                        : 'Không có khoá; vẫn kiểm tra trước submit'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      )}
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

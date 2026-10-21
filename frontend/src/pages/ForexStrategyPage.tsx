@@ -9,6 +9,7 @@ import {
 import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
+import { feedErrorText, relativeTime, utcTime } from '../lib/forex-labels';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 interface ForexCandle {
@@ -65,26 +66,36 @@ export function ForexCatchupStatus({
     (frame) => frame.remaining_intervals === null || frame.remaining_intervals > 0,
   );
   const paused = dashboard.observation.status === 'data_paused';
-  const rateLimited = frames.some((frame) => frame.error?.includes('rate limit'));
+  // Lỗi feed thường giống nhau cho cả 3 khung (vd. rate limit): gộp thành một dòng.
+  const failing = frames.find((frame) => frame.error);
+  const retryAt = frames
+    .map((frame) => frame.retry_at)
+    .filter((value): value is string => !!value && new Date(value).getTime() > Date.now())
+    .sort()
+    .at(-1);
+  const feedError = failing
+    ? `${feedErrorText(failing.error)}${retryAt ? ` · tự thử lại ${relativeTime(retryAt)} (${utcTime(retryAt, true)})` : ''}`
+    : null;
   const title = disconnected
     ? 'Mất kết nối API · dữ liệu lưu gần nhất'
     : !dashboard.market.worker_online
-      ? 'Worker ngoại tuyến · chờ chạy lại để tải bù'
-      : downloading
-        ? 'Đang tải bù nến Exness'
-        : paused
-          ? rateLimited
-            ? 'Exness giới hạn API · chờ tự thử lại'
-            : 'Tạm dừng phân tích · kiểm tra lỗi dữ liệu'
-          : progress?.pending_bars
-            ? 'Đang tính bù MTF'
-            : !progress || progress.last_processed_candle === null
-              ? 'Chờ khởi tạo MTF'
-              : 'Đã phân tích hết nến hiện có';
+      ? 'Worker nến offline · chờ chạy lại để tải bù'
+      : feedError
+        ? feedError
+        : downloading
+          ? 'Đang tải bù nến Exness'
+          : paused
+            ? 'Tạm dừng phân tích · kiểm tra lỗi dữ liệu'
+            : progress?.pending_bars
+              ? 'Đang tính bù MTF'
+              : !progress || progress.last_processed_candle === null
+                ? 'Chờ khởi tạo MTF'
+                : 'Đã phân tích hết nến hiện có';
 
   const healthy =
     !disconnected &&
     dashboard.market.worker_online &&
+    !feedError &&
     !downloading &&
     !paused &&
     !progress?.pending_bars;
@@ -97,14 +108,7 @@ export function ForexCatchupStatus({
             {frame.remaining_intervals === null
               ? 'Chưa khởi tạo'
               : `${frame.remaining_intervals.toLocaleString('vi-VN')} khoảng nến cần kiểm tra`}
-            {frame.error && (
-              <>
-                {' '}
-                · {frame.error}
-                {frame.retry_at &&
-                  ` · thử lại sau ${new Date(frame.retry_at).toISOString().slice(11, 19)} UTC`}
-              </>
-            )}
+            {frame.error && frame.error !== failing?.error && <> · {feedErrorText(frame.error)}</>}
           </span>
         ))}
         <span>
@@ -117,7 +121,7 @@ export function ForexCatchupStatus({
       <p className="micro">
         Đã phân tích đến nến:{' '}
         {progress?.last_processed_candle != null
-          ? `${new Date(progress.last_processed_candle * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC (giờ mở nến)`
+          ? `${utcTime(progress.last_processed_candle)} (giờ mở nến)`
           : 'Chưa có'}
         . Tính bù chỉ bắt đầu khi cả 3 khung đồng bộ và hợp lệ. Khoảng cần kiểm tra có thể thuộc giờ
         nghỉ phiên, không đồng nghĩa mất nến.

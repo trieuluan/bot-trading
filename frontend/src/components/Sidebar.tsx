@@ -1,6 +1,5 @@
 import {
   Activity,
-  ArrowUpRight,
   Bot,
   ChevronDown,
   CircleHelp,
@@ -116,7 +115,13 @@ export function Sidebar({
               <Icon size={18} />
               <span className="nav-text">{label}</span>
               {(label === 'Bot của bạn' || label === 'Bot') && (
-                <span className="nav-count">{botCount}</span>
+                <span
+                  className={`nav-count ${botCount ? 'is-on' : ''}`}
+                  title={botCount ? `${botCount} bot đang bật` : 'Bot chưa bật'}
+                  aria-label={botCount ? `${botCount} bot đang bật` : 'Bot chưa bật'}
+                >
+                  {botCount ? botCount : 'Tắt'}
+                </span>
               )}
             </button>
           );
@@ -125,15 +130,12 @@ export function Sidebar({
       <div className="sidebar-bottom">
         <div className="safe-card">
           <ShieldCheck size={21} />
-          <h3>Thử nghiệm có kiểm soát</h3>
+          <h3>{exness ? 'Tài khoản demo' : 'Thử nghiệm có kiểm soát'}</h3>
           <p>
-            Dữ liệu thật hoặc replay.
+            {exness ? 'Lệnh gửi tới Exness demo.' : 'Dữ liệu thật hoặc replay.'}
             <br />
             Không dùng tiền thật.
           </p>
-          <span>
-            Chế độ mô phỏng <ArrowUpRight size={14} />
-          </span>
         </div>
         <button
           className="nav"

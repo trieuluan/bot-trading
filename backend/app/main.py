@@ -358,6 +358,7 @@ def forex_markets():
             except ValueError as exc:
                 reason = str(exc)
             execution = execution_status(account, now, symbol)
+            execution.pop("entry_allowed_ids", None)
             count = sum(position.get("instrument") == symbol for position in positions)
             if count >= max_positions_per_symbol():
                 reason = "symbol_position_limit"
