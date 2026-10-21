@@ -1,5 +1,28 @@
 // Nhãn và định dạng dùng chung cho workspace Exness Forex.
 
+export function forexSignalCount(
+  execution:
+    | {
+        signal_count?: number;
+        signal_available_at?: number | null;
+        signal_expires_at?: number | null;
+      }
+    | undefined,
+  now = Date.now(),
+) {
+  const count = execution?.signal_count ?? 0;
+  const start = execution?.signal_available_at;
+  const end = execution?.signal_expires_at;
+  return Number.isInteger(count) &&
+    count > 0 &&
+    start != null &&
+    end != null &&
+    start <= now / 1000 &&
+    now / 1000 <= end
+    ? count
+    : 0;
+}
+
 /** Lý do chặn entry (execution_v2.blocked_reason hoặc markets.blocked_reason). */
 export const blockText: Record<string, string> = {
   v2_execution_disabled: 'Cờ Execution V2 đang tắt',

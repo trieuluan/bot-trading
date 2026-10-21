@@ -20,7 +20,7 @@ import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { treeLabel } from '../lib/forex-tree-label';
 import { placeChartTags } from '../lib/chart-tags';
-import { projectOverlayPoints } from '../lib/chart-timeframes';
+import { CHART_RIGHT_SPACE, projectOverlayPoints, recentChartRange } from '../lib/chart-timeframes';
 import { chartTimeOptions } from '../lib/chart-time';
 import { useTimeZone } from '../lib/time-zone';
 
@@ -172,7 +172,7 @@ export function MtfObservationChart({
         vertLines: { color: dark ? '#1a2420' : '#eef1e9' },
         horzLines: { color: dark ? '#1a2420' : '#eef1e9' },
       },
-      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 },
+      timeScale: { timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_SPACE },
       rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.15 } },
     });
     series.current = chart.current.addSeries(CandlestickSeries, {
@@ -231,11 +231,12 @@ export function MtfObservationChart({
     const visible = chart.current?.timeScale().getVisibleLogicalRange();
     const oldFirst = previousTimes.current[0];
     const added = oldFirst === undefined ? 0 : candles.findIndex((bar) => bar.time === oldFirst);
+    const displayed = [
+      ...candles,
+      ...liveCandles.filter((candle) => candle.time > (candles.at(-1)?.time ?? -1)),
+    ];
     series.current.setData(
-      [
-        ...candles,
-        ...liveCandles.filter((candle) => candle.time > (candles.at(-1)?.time ?? -1)),
-      ].map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
+      displayed.map((candle) => ({ ...candle, time: candle.time as UTCTimestamp })),
     );
     previousTimes.current = candles.map((bar) => bar.time);
     if (visible && added > 0) {
@@ -245,7 +246,7 @@ export function MtfObservationChart({
       });
     }
     if (!fitted.current && candles.length) {
-      chart.current?.timeScale().fitContent();
+      chart.current?.timeScale().setVisibleLogicalRange(recentChartRange(displayed.length));
       fitted.current = true;
     }
   }, [candles, liveCandles]);

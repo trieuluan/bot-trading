@@ -6980,8 +6980,8 @@ main.forex-terminal-main {
 .forex-strip-positions {
   padding: 0 5px;
   border-radius: 4px;
-  background: #e6efe8;
-  color: #1e5b47;
+  background: #d9a441;
+  color: #1f2d25;
 }
 .forex-strip-error {
   flex-shrink: 0;

@@ -932,13 +932,13 @@ export function ForexStrategyPage({
   useEffect(() => {
     let active = true;
     let busy = false;
-    let oldest: number | undefined;
-    let more = false;
     const controller = new AbortController();
     // Vị thế đã đóng cần cửa sổ lịch sử riêng, không dùng cache nến mới nhất.
     const key = historyBefore ? null : candleKey(symbol, frame, side);
     const stateKey = `${symbol}:${frame}:${side}:${historyBefore ?? 'live'}`;
     const cached = key ? cachedCandles(key) : undefined;
+    let oldest = cached?.rows[0]?.time;
+    let more = cached?.hasMore ?? false;
     setLoading(!cached);
     setLoadingOlder(false);
     setHasMore(cached?.hasMore ?? false);
@@ -1376,7 +1376,7 @@ export function ForexStrategyPage({
         </div>
       )}
       <MtfObservationChart
-        key={`${symbol}-${frame}-${side}`}
+        key={`${symbol}-${frame}-${side}-${historyBefore ?? 'live'}`}
         pricePrecision={
           dashboard.instrument?.profile?.point_digits ??
           (symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5)

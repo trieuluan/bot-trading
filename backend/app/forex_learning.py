@@ -79,15 +79,24 @@ def execution_status(account, now, symbol="XAUUSD"):
         # Đủ chuẩn tiến hoá (làm bố mẹ) vẫn cần >=10 mẫu forward và mean R > 0.
         allowed = qualified_trees(ledger, now)
         candidates = execution_candidates(account, now, symbol) if not reason else []
+        capture = ledger.get("last_capture") or {}
+        stamp = now // 900 * 900 - 900
+        count = capture.get("confirmed", 0)
+        fresh = (capture.get("status") == "captured" and capture.get("time") == stamp
+                 and 0 <= now - stamp - 900 <= 120 and isinstance(count, int) and count > 0)
         return {"enabled": v2 and exness and control, "v2_enabled": v2, "exness_enabled": exness,
                 "account_enabled": control, "blocked_reason": reason or ("no_eligible_tree" if not allowed else None),
                 "entry_allowed_count": len(allowed), "entry_allowed_ids": [identifier for identifier, _ in allowed],
                 "evolution_ready_count": sum(1 for _, stats in allowed if stats["eligible"]),
-                "selected": candidates[0][0]["strategy"] if candidates else None}
+                "selected": candidates[0][0]["strategy"] if candidates else None,
+                "signal_count": count if fresh else 0,
+                "signal_available_at": stamp + 900 if fresh else None,
+                "signal_expires_at": stamp + 1020 if fresh else None}
     except (OSError, ValueError, KeyError, TypeError):
         return {"enabled": False, "v2_enabled": v2, "exness_enabled": exness, "account_enabled": control,
                 "blocked_reason": reason or "v2_ledger_unavailable", "entry_allowed_count": 0, "entry_allowed_ids": [],
-                "evolution_ready_count": 0, "selected": None}
+                "evolution_ready_count": 0, "selected": None,
+                "signal_count": 0, "signal_available_at": None, "signal_expires_at": None}
 
 
 @router.get("/symbols")

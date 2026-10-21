@@ -1,7 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { Zap } from 'lucide-react';
 import { setRoute } from '../lib/router';
 import { prefetchSymbol } from '../lib/forex-cache';
-import { blockLabel, feedErrorText, priceDigits, type Tone } from '../lib/forex-labels';
+import {
+  blockLabel,
+  feedErrorText,
+  forexSignalCount,
+  priceDigits,
+  type Tone,
+} from '../lib/forex-labels';
 import { relativeTime, formatTime } from '../lib/time-format';
 
 interface Feed {
@@ -23,7 +30,13 @@ interface Market {
   positions: number;
   specs: string;
   blocked_reason: string | null;
-  execution?: { entry_allowed_count?: number; evolution_ready_count?: number };
+  execution?: {
+    entry_allowed_count?: number;
+    evolution_ready_count?: number;
+    signal_count?: number;
+    signal_available_at?: number | null;
+    signal_expires_at?: number | null;
+  };
   feed: Feed[];
 }
 
@@ -126,28 +139,51 @@ export function ForexMarkets({
   variant?: 'strip' | 'table' | 'health';
 }) {
   const { data, error } = useForexMarkets();
-  const now = useNow();
+  const now = useNow(1000);
 
   if (variant === 'strip')
     return (
       <section className="forex-markets is-compact" aria-label="Các cặp Forex">
         <div className="forex-market-strip">
-          {data?.markets.map((market) => (
-            <button
-              key={market.symbol}
-              type="button"
-              aria-pressed={market.symbol === symbol}
-              onPointerEnter={() => prefetchSymbol(market.symbol)}
-              onFocus={() => prefetchSymbol(market.symbol)}
-              onClick={() => select(market.symbol)}
-            >
-              <strong>{market.symbol}</strong>
-              <span>{formatPrice(market)}</span>
-              {market.positions > 0 && (
-                <small className="forex-strip-positions">{market.positions} mở</small>
-              )}
-            </button>
-          ))}
+          {data?.markets.map((market) => {
+            const signals =
+              !error && market.feed.some((feed) => feed.worker_online)
+                ? forexSignalCount(market.execution, now)
+                : 0;
+            return (
+              <button
+                key={market.symbol}
+                type="button"
+                aria-pressed={market.symbol === symbol}
+                onPointerEnter={() => prefetchSymbol(market.symbol)}
+                onFocus={() => prefetchSymbol(market.symbol)}
+                onClick={() => select(market.symbol)}
+                title={`${market.symbol} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
+              >
+                <strong>{market.symbol}</strong>
+                <span>{formatPrice(market)}</span>
+                {signals > 0 && (
+                  <span
+                    className="pair-signal"
+                    aria-label={`${signals} cây có tín hiệu`}
+                    title="Tín hiệu M15 mới, còn trong cửa sổ vào lệnh; vẫn phải qua kiểm tra execution"
+                  >
+                    <Zap size={10} aria-hidden="true" />
+                    {signals}
+                  </span>
+                )}
+                {market.positions > 0 && (
+                  <span
+                    className="forex-strip-positions"
+                    aria-label={`${market.positions} vị thế đang mở`}
+                    title={`${market.positions} vị thế broker đang mở; mỗi leg tính một vị thế`}
+                  >
+                    {market.positions} mở
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
         {error && (
           <span role="alert" className="negative forex-strip-error">
