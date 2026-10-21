@@ -5434,6 +5434,80 @@ main:has(.futures-desk) {
   overflow: hidden;
 }
 
+.position-partial-progress {
+  max-width: 220px;
+  margin: 6px 0;
+}
+
+.position-partial-caption,
+.position-pnl-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  color: #64746a;
+  font-size: 11px;
+}
+
+.position-partial-caption .text-button {
+  padding: 0;
+  font-size: inherit;
+}
+
+.position-partial-progress progress {
+  display: block;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e2e8e4;
+}
+
+.position-partial-progress progress::-webkit-progress-bar {
+  background: #e2e8e4;
+}
+
+.position-partial-progress progress::-webkit-progress-value {
+  background: #82948a;
+}
+
+.position-partial-progress progress::-moz-progress-bar {
+  background: #82948a;
+}
+
+.position-pnl-row strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-pnl-row + .position-pnl-row {
+  margin-top: 5px;
+}
+
+.position-pnl-details {
+  margin-top: 6px;
+  max-width: 280px;
+  color: #64746a;
+  font-size: 11px;
+  white-space: normal;
+}
+
+.position-pnl-details summary {
+  cursor: pointer;
+}
+
+.position-pnl-details p,
+.position-pnl-details ol {
+  margin: 8px 0 0;
+}
+
+.position-pnl-details ol {
+  padding-left: 16px;
+}
+
 .chart-timeframes {
   display: inline-flex;
   gap: 2px;

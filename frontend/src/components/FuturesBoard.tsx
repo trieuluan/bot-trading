@@ -439,7 +439,7 @@ export function PositionsTable({
             <th>Khối lượng</th>
             <th>Entry → Hiện tại</th>
             <th>SL / TP</th>
-            <th>PnL phần còn mở</th>
+            <th>PnL vị thế · USDT</th>
             <th>Giữ</th>
             {actions && <th />}
           </tr>
@@ -474,10 +474,35 @@ export function PositionsTable({
                 <td
                   title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatQuote(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
                 >
-                  {formatPrice(margin)} × {lev}x = {formatPrice(notional)} USDT
+                  <strong>
+                    {p.quantity.toLocaleString('en-US')} {unit}
+                  </strong>{' '}
+                  đang giữ
                   <small>
-                    {p.quantity} {unit} · {p.contracts} hợp đồng · Cross
+                    {formatPrice(margin)} × {lev}x · {p.contracts} hợp đồng · Cross
                   </small>
+                  {partial ? (
+                    <div className="position-partial-progress">
+                      <div className="position-partial-caption">
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => onView(row)}
+                          aria-label={`Xem ${partial.count} lần chốt của lệnh #${p.id}`}
+                        >
+                          Đã đóng {partial.closedPercent}%
+                        </button>
+                        <span>Còn {partial.remainingPercent}%</span>
+                      </div>
+                      <progress
+                        value={partial.closedPercent}
+                        max={100}
+                        aria-label={`Đã đóng ${partial.closedPercent}% khối lượng ban đầu`}
+                      />
+                    </div>
+                  ) : (
+                    <small>Chưa chốt phần</small>
+                  )}
                   <small className="negative">
                     Tới SL ≈ {formatPrice(slLoss)} USDT (chưa phí/funding)
                   </small>
@@ -493,24 +518,55 @@ export function PositionsTable({
                   <small className="positive">
                     {formatQuote(p.target)} {toTp !== null && `(${toTp.toFixed(2)}%)`}
                   </small>
-                  {partial && (
-                    <small
-                      className={sign(partial.realizedNet)}
-                      title={`${partial.count} lần chốt · ${partial.closedQuantity} / ${partial.originalQuantity} ${unit} ban đầu. PnL đã trừ phí mở phân bổ và phí chốt, chưa trừ funding.`}
-                    >
-                      Đã chốt TP · {partial.closedPercent}% · {partial.realizedNet > 0 ? '+' : ''}
-                      {formatPrice(partial.realizedNet)} USDT
-                      <br />
-                      Còn {partial.remainingPercent}% · Sau phí, chưa funding
-                    </small>
-                  )}
                 </td>
-                <td className={net === null ? undefined : sign(net)}>
-                  <strong>{net === null ? '—' : formatPrice(net)}</strong>
-                  <small>Thả nổi · sau phí & funding đã ghi nhận</small>
-                  <small>
-                    Gộp {gross === null ? '—' : formatPrice(gross)} · Phí {formatPrice(p.entry_fee)}
-                  </small>
+                <td className="position-pnl-cell">
+                  <div className="position-pnl-row">
+                    <span>Còn mở</span>
+                    <strong className={net === null ? undefined : sign(net)}>
+                      {net === null ? '—' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
+                    </strong>
+                  </div>
+                  <div className="position-pnl-row">
+                    <span>Đã chốt</span>
+                    <strong className={partial ? sign(partial.realizedNet) : undefined}>
+                      {partial
+                        ? `${partial.realizedNet > 0 ? '+' : ''}${formatPrice(partial.realizedNet)}`
+                        : '—'}
+                    </strong>
+                  </div>
+                  <details className="position-pnl-details">
+                    <summary>Chi tiết phí & lần chốt</summary>
+                    <p>
+                      Còn mở: PnL ước tính sau phí mở phân bổ, phí đóng dự kiến và funding đã ghi
+                      nhận. Gộp {gross === null ? '—' : formatPrice(gross)} · Phí mở{' '}
+                      {formatPrice(p.entry_fee)} · Funding {formatPrice(p.funding_cost)} USDT.
+                    </p>
+                    {partial && (
+                      <>
+                        <p>
+                          Đã chốt: sau phí mở phân bổ và phí chốt, chưa trừ funding. Khối lượng ban
+                          đầu {partial.originalQuantity.toLocaleString('en-US')} {unit}.
+                        </p>
+                        <ol>
+                          {p.monitoring?.partial_exits?.map((leg, index) => (
+                            <li key={`${leg.time}-${index}`}>
+                              {formatTime(leg.time)} · {leg.quantity.toLocaleString('en-US')} {unit}{' '}
+                              (
+                              {((leg.quantity / partial.originalQuantity) * 100).toLocaleString(
+                                'vi-VN',
+                                { maximumFractionDigits: 1 },
+                              )}
+                              %) @ {formatQuote(leg.price)} ·{' '}
+                              <span className={sign(leg.gross - leg.entry_fee - leg.exit_fee)}>
+                                {leg.gross - leg.entry_fee - leg.exit_fee > 0 ? '+' : ''}
+                                {formatPrice(leg.gross - leg.entry_fee - leg.exit_fee)} USDT
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      </>
+                    )}
+                  </details>
                 </td>
                 <td>{hold(p.entry_time)}</td>
                 {actions && <td className="row-actions">{actions(row)}</td>}
