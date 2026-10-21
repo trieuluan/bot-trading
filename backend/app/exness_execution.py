@@ -360,10 +360,11 @@ def record_journal(state, detail, outcome, now):
     symbol = detail.get("symbol", "XAUUSD")
     old = next((row for row in rows if row["time"] == stamp and row.get("symbol", "XAUUSD") == symbol), None)
     if old and old["evaluated"] and not detail.get("evaluated"):
-        detail = {**old, **detail, "evaluated": True, "candle_time": stamp}
+        detail = {**old, **detail, "evaluated": True, "candle_time": stamp,
+                  "reason": detail.get("reason")}
     entry = {"symbol": symbol, "time": stamp, "at": now, "evaluated": bool(detail.get("evaluated")), "outcome": outcome,
              "mode": detail.get("mode"), "selected": detail.get("selected"), "confirmed": detail.get("confirmed", []),
-             "strategies": detail.get("strategies", []), "reason": detail.get("reason", (old or {}).get("reason")),
+             "strategies": detail.get("strategies", []), "reason": detail.get("reason"),
              "events": (old or {}).get("events", [])}
     if not old or old["outcome"] != outcome:
         entry["events"] = (entry["events"] + [{"at": now, "outcome": outcome}])[-16:]
@@ -373,6 +374,7 @@ def record_journal(state, detail, outcome, now):
                 or (old["evaluated"] and outcome.startswith("unavailable:"))
                 or (old["outcome"] in ("api_rate_limited", "worker_error") and outcome.startswith("unavailable:"))):
         entry["outcome"] = old["outcome"]
+        entry["reason"] = old.get("reason")
     rows = sorted([row for row in rows if (row["time"], row.get("symbol", "XAUUSD")) != (stamp, symbol)] + [entry], key=lambda row: row["time"])[-192:]
     state.snapshot = {**state.snapshot, "journal": rows}
 
@@ -418,10 +420,16 @@ def execution_tick(api, now=None):
                 with Session.begin() as session:
                     state = session.get(ExnessExecutionState, api.account_id)
                     stamp = observed_at // 900 * 900 - 900
-                    if state and not any(row["time"] == stamp for row in state.snapshot.get("journal", [])):
-                        signal = evaluate(session, observed_at, configured_symbols()[0])
-                        detail = session.info.get("execution_evaluation", {"candle_time": stamp})
-                        record_journal(state, detail, tick_outcome(result, signal, detail), observed_at)
+                    for symbol in configured_symbols():
+                        if state and not any(row["time"] == stamp and row.get("symbol", "XAUUSD") == symbol
+                                             for row in state.snapshot.get("journal", [])):
+                            signal = evaluate(session, observed_at, symbol)
+                            detail = {**session.info.get("execution_evaluation", {"candle_time": stamp}),
+                                      "symbol": symbol}
+                            reason = result.get(symbol) if isinstance(result, dict) else result
+                            if reason == "waiting_signal":
+                                reason = None
+                            record_journal(state, detail, tick_outcome(reason, signal, detail), observed_at)
                 return result
             finally:
                 if connection.dialect.name == "postgresql":
@@ -457,7 +465,7 @@ def _execution_tick(api, now=None):
             results[symbol] = _symbol_execution_tick(api, broker, now, symbol)
         except Exception as exc:
             results[symbol] = type(exc).__name__ + ": " + str(exc)[:160]
-            record_error(api.account_id, exc, now)
+            record_error(api.account_id, exc, now, symbol=symbol)
             if getattr(exc, "rate_limited", False) or getattr(exc, "account_blocked", False) or len(configured_symbols()) == 1:
                 raise
     return next(iter(results.values())) if len(results) == 1 else results
@@ -798,7 +806,7 @@ def submit_leg(client, row, index, data, condition, now):
                      "error": type(exc).__name__ + ": " + str(exc)[:200]})
         raise
 
-def record_error(account, exc, now=None):
+def record_error(account, exc, now=None, symbol=None):
     now = int(time.time()) if now is None else now
     with Session.begin() as session:
         state = session.get(ExnessExecutionState, account)
@@ -806,7 +814,9 @@ def record_error(account, exc, now=None):
             msg = type(exc).__name__ + ": " + str(exc)[:200]
             label = "api_rate_limited" if getattr(exc, "rate_limited", False) else "worker_error"
             state.snapshot = {**state.snapshot, "error": type(exc).__name__, "error_msg": msg, "error_at": now}
-            record_journal(state, {"candle_time": now // 900 * 900 - 900, "reason": msg}, label, now)
+            for affected in (symbol,) if symbol else configured_symbols():
+                record_journal(state, {"symbol": affected, "candle_time": now // 900 * 900 - 900,
+                                       "reason": msg}, label, now)
 
 
 @router.get("")

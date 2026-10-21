@@ -379,6 +379,60 @@ def test_journal_records_why_bot_stayed_out(monkeypatch):
     rows = journal + [{**journal[-1], "time": 1, "outcome": "order_sent"}]
     assert ee.funnel(rows)["orders"] == 1 and ee.funnel(rows)["selected"] == 2
 
+@pytest.mark.parametrize("existing_gold", [False, True])
+def test_multi_symbol_tick_outcome_handles_dict_result(monkeypatch, tmp_path, existing_gold):
+    monkeypatch.chdir(tmp_path)
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
+    outcomes = {"XAUUSD": "waiting_signal", "EURUSD": "paused"}
+    monkeypatch.setattr(ee, "_execution_tick", lambda api, now: outcomes)
+    evaluated = []
+    def evaluate(session, now, symbol):
+        evaluated.append(symbol)
+        session.info["execution_evaluation"] = {"candle_time": now - 900, "evaluated": True}
+        return None
+    monkeypatch.setattr(ee, "evaluate", evaluate)
+    if existing_gold:
+        with Session.begin() as session:
+            state = session.get(ExnessExecutionState, api.account_id)
+            ee.record_journal(state, {"candle_time": NOW - 900, "evaluated": True}, "order_sent", NOW)
+    assert ee.execution_tick(api, now=NOW) == outcomes
+    assert evaluated == (["EURUSD"] if existing_gold else ["XAUUSD", "EURUSD"])
+    with Session() as session:
+        journal = session.get(ExnessExecutionState, api.account_id).snapshot["journal"]
+    rows = {row["symbol"]: row for row in journal}
+    assert len(journal) == 2
+    assert rows["XAUUSD"]["outcome"] == ("order_sent" if existing_gold else "no_signal")
+    assert rows["EURUSD"]["outcome"] == "blocked:paused"
+    api.client.request.assert_not_called()
+
+def test_journal_preserves_error_until_fresh_evaluation():
+    state = SimpleNamespace(snapshot={})
+    detail = {"symbol": "EURUSD", "candle_time": NOW - 900, "evaluated": True}
+    ee.record_journal(state, detail, "no_signal", NOW)
+    error = "TypeError: test failure"
+    ee.record_journal(state, {**detail, "evaluated": False, "reason": error}, "worker_error", NOW + 1)
+    ee.record_journal(state, {**detail, "evaluated": False}, "unavailable:outside_signal_window", NOW + 2)
+    row = state.snapshot["journal"][0]
+    assert row["outcome"] == "worker_error"
+    assert row["reason"] == error
+    ee.record_journal(state, detail, "no_signal", NOW + 3)
+    row = state.snapshot["journal"][0]
+    assert row["outcome"] == "no_signal"
+    assert row["reason"] is None
+
+def test_instrument_error_does_not_pollute_gold_journal(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
+    ee.record_error(api.account_id, ExnessError("instrument unavailable"), NOW, symbol="EURUSD")
+    with Session() as session:
+        rows = session.get(ExnessExecutionState, api.account_id).snapshot["journal"]
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "EURUSD"
+    assert rows[0]["outcome"] == "worker_error"
+
 def test_rate_limit_is_labeled_not_order_error(monkeypatch):
     api = dummy_api()
     seed_executor(api, monkeypatch)
