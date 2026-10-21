@@ -624,7 +624,7 @@ export function PaperTradingPage({
               >
                 ×
               </button>
-              <PaperTradeDetails trade={selected} />
+              <PaperTradeDetails trade={selected} symbol={symbol} />
             </aside>
           </div>
         )}

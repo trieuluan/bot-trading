@@ -592,10 +592,10 @@ export function PositionsTable({
                   <strong className={`position-pnl-main ${net === null ? '' : sign(net)}`}>
                     {net === null ? '—' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
                   </strong>
-                  <small>
+                  <small title="ROE = PnL còn mở ÷ ký quỹ của phần còn giữ. Đòn bẩy cao làm ký quỹ nhỏ nên % lớn; margin Cross dùng ví chung, không chỉ phần ký quỹ này.">
                     Còn mở
                     {net !== null && margin > 0
-                      ? ` · ${((net / margin) * 100).toFixed(1)}% ký quỹ`
+                      ? ` · ROE ${net > 0 ? '+' : ''}${((net / margin) * 100).toFixed(1)}% (${lev}x)`
                       : ''}
                   </small>
                   {partial && (
