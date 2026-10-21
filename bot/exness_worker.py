@@ -23,6 +23,9 @@ from backend.app.forex_symbols import configured_symbols
 from backend.app.settings import validate_mode
 
 
+def throttle_delay(retry_after, streak):
+    return max(retry_after, min(max(60, retry_after) * 2 ** min(max(streak - 1, 0), 4), 900))
+
 def main():
     validate_mode()
     stop = threading.Event()
@@ -31,6 +34,10 @@ def main():
     api = None
     retry_until = 0
     history_index = 0
+    throttle_streak = 0
+    last_throttle = 0.0
+    symbol_index = 0
+    history_after = 0.0
     try:
         while not stop.is_set():
             enabled = os.getenv("EXNESS_DATA_ENABLED", "false").lower() == "true"
@@ -47,7 +54,8 @@ def main():
                     if api is None:
                         api = connect_exness()
                     throttled = False
-                    for symbol in configured_symbols():
+                    symbols = configured_symbols()
+                    for symbol in symbols[symbol_index:] + symbols[:symbol_index]:
                         try:
                             worker_heartbeat(enabled)
                             if symbol not in api.available_instruments or feed_retry_delay(symbol) > 0:
@@ -62,8 +70,12 @@ def main():
                         except ExnessError as exc:
                             logging.warning("Exness sync paused for %s: %s", symbol, exc)
                             if exc.rate_limited or exc.account_blocked:
-                                retry_until = time.monotonic() + exc.retry_after
-                                record_connection_failure(exc.retry_after)
+                                throttle_streak += 1
+                                last_throttle = time.monotonic()
+                                wait = throttle_delay(exc.retry_after, throttle_streak)
+                                retry_until = time.monotonic() + wait
+                                record_connection_failure(wait, rate_limited=exc.rate_limited)
+                                symbol_index = (symbols.index(symbol) + 1) % len(symbols)
                                 throttled = True
                                 break
                         except Exception:
@@ -71,6 +83,8 @@ def main():
                     if throttled:
                         stop.wait(15)
                         continue
+                    if time.monotonic() - last_throttle > 600:
+                        throttle_streak = 0
                     try:
                         from backend.app.forex_paper import legacy_paper_tick
                         legacy_paper_tick()
@@ -83,7 +97,9 @@ def main():
                         logging.exception("Exness demo execution tick failed; no duplicate orders")
                         if isinstance(exc, ExnessError):
                             retry_until = time.monotonic() + exc.retry_after
-                    if time.monotonic() >= retry_until and not stop.is_set():
+                    if (time.monotonic() - last_throttle > 600
+                            and time.monotonic() >= max(retry_until, history_after) and not stop.is_set()):
+                        history_after = time.monotonic() + 60
                         histories = [(symbol, frame) for symbol in configured_symbols() for frame in FRAMES]
                         symbol, frame = histories[history_index % len(histories)]
                         history_index += 1
@@ -93,16 +109,24 @@ def main():
                         except ExnessError as exc:
                             logging.warning("Exness history paused for %s: %s", symbol, exc)
                             if exc.rate_limited or exc.account_blocked:
-                                retry_until = time.monotonic() + exc.retry_after
-                                record_connection_failure(exc.retry_after)
+                                throttle_streak += 1
+                                last_throttle = time.monotonic()
+                                wait = throttle_delay(exc.retry_after, throttle_streak)
+                                retry_until = last_throttle + wait
+                                record_connection_failure(wait, rate_limited=exc.rate_limited)
                 else:
                     delay = 60
             except Exception as exc:
                 logging.warning("Exness feed unavailable; retrying without changing trading state")
-                delay = exc.retry_after if isinstance(exc, ExnessError) else 60
+                if isinstance(exc, ExnessError) and (exc.rate_limited or exc.account_blocked):
+                    throttle_streak += 1
+                    last_throttle = time.monotonic()
+                    delay = throttle_delay(exc.retry_after, throttle_streak)
+                else:
+                    delay = exc.retry_after if isinstance(exc, ExnessError) else 60
                 retry_until = time.monotonic() + delay
                 try:
-                    record_connection_failure(delay)
+                    record_connection_failure(delay, rate_limited=getattr(exc, "rate_limited", False))
                 except Exception:
                     logging.warning("Cannot persist Exness failure; database unavailable")
                 if api:

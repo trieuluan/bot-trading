@@ -259,7 +259,7 @@ def test_connect_uses_account_specific_candle_limits(monkeypatch):
     monkeypatch.setattr(ExnessReadOnly, "from_env", ConfigApi)
     api = connect_exness()
     assert api.candle_limit == 300
-    assert api.request_interval == 2.05
+    assert api.request_interval == 4.05
     api.client.close()
 
 
@@ -356,3 +356,20 @@ def test_older_backfill_waits_for_live_cursor_and_rolls_back_invalid_page():
         feed = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1m"))
         assert feed.started_at == original_start
         assert feed.checked_until == NOW
+
+def test_throttle_backoff_grows_and_caps():
+    from bot.exness_worker import throttle_delay
+    assert [throttle_delay(60, n) for n in (1, 2, 3, 9)] == [60, 120, 240, 900]
+    assert throttle_delay(1200, 1) == 1200
+
+def test_current_feed_clears_stale_error_without_api_call():
+    api = FakeApi()
+    sync_page(api, "15m", days=1, now=NOW)
+    with Session.begin() as session:
+        feed = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "15m"))
+        feed.error = "stale"
+    calls = len(api.calls)
+    assert sync_page(api, "15m", days=1, now=NOW)["status"] == "current"
+    assert len(api.calls) == calls
+    with Session() as session:
+        assert session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "15m")).error is None

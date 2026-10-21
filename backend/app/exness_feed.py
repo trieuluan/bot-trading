@@ -35,7 +35,8 @@ def connect_exness():
             interval = rate["window_seconds"] / rate["limit"]
             if not math.isfinite(interval) or interval <= 0:
                 raise ValueError
-            api.request_interval = max(api.request_interval, interval + 0.05)
+            # ponytail: 2x margin; other clients (API stream, VPS) may share the quota
+            api.request_interval = max(api.request_interval, interval * 2 + 0.05)
         api.available_instruments = set(api.instruments()["instruments"])
         if not set(configured_symbols()) & api.available_instruments:
             raise ExnessError("Configured instruments unavailable for account")
@@ -125,7 +126,8 @@ def sync_page(api, frame, days=90, now=None, *, older=False, symbol="XAUUSD", li
                 batch_end = state.started_at
                 start = max(target_start, batch_end - cap * step)
             else:
-                if cursor == end and state.error is None:
+                if cursor == end:
+                    state.error = state.retry_at = None
                     return {"status": "current", "frame": frame, "remaining_intervals": 0, "bars": 0}
                 start = cursor if cursor < end else max(state.started_at, end - 2 * step)
                 if state.checked_until is not None and 0 < end - cursor <= step and cap > 2:
@@ -188,10 +190,11 @@ def worker_heartbeat(enabled):
             state.worker_heartbeat = utcnow()
 
 
-def record_connection_failure(retry_after=60):
+def record_connection_failure(retry_after=60, *, rate_limited=False):
     with Session.begin() as session:
         for state in session.scalars(select(WorkspaceFeedState).where(WorkspaceFeedState.workspace_id == WORKSPACE)):
-            state.error = "Exness connection/configuration unavailable; retrying"
+            state.error = ("Exness rate limit; waiting before retry" if rate_limited
+                           else "Exness connection/configuration unavailable; retrying")
             retry_at = utcnow() + timedelta(seconds=retry_after)
             if state.retry_at is None or state.retry_at.replace(tzinfo=timezone.utc) < retry_at:
                 state.retry_at = retry_at
