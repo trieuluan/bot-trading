@@ -28,3 +28,8 @@ export const shortTreeId = (id: string) => id.replace(/^hast[23]_/, '').slice(0,
 
 /** Tên trong danh sách bỏ tiền tố chung; tooltip vẫn dùng `full`. */
 export const compactTreeTitle = (title: string) => title.replace(/^Hai chiều · thuận H4 · /, '');
+
+export function chartTreeTag(source: Source, id: string): string {
+  const label = treeLabel(source, id);
+  return `G${label.generation} #${label.short}`;
+}

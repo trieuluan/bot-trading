@@ -28,6 +28,7 @@ from .forex_htf_v2 import (
     tree_label,
 )
 from .forex_indicators import ema
+from .forex_overlays import chart_overlays, tree_overlays
 from .forex_samples import context
 from .forex_symbols import configured_symbols, request_symbol
 
@@ -140,6 +141,8 @@ def current_analysis(now=None, symbol="XAUUSD"):
                 and sample["confirm_time"] + 900 <= as_of
                 and sample["confirm_time"] > captured.get(sample["strategy"], {}).get("confirm_time", -1)):
             captured[sample["strategy"]] = sample
+    shared_overlays = _safe_overlays(candle, minutes, hours, higher, symbol) or {}
+    overlay_cache = {}
     strategies = {}
     for tree in ledger["population"]:
         signal, reason = diagnose(tree, candle, hours, minutes, higher, ask, symbol=symbol,
@@ -156,6 +159,10 @@ def current_analysis(now=None, symbol="XAUUSD"):
             zone = signal_chart_zone(tree, signal, "analysis", as_of)
         if zone and saved_zone and zone["setup_time"] == saved_zone["setup_time"]:
             zone = None
+        try:
+            owned_overlays = tree_overlays(tree, candle, minutes, hours, higher, symbol, shared_overlays, overlay_cache)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            owned_overlays = None
         strategies[tree_id(tree)] = {
             "zone": zone,
             "captured_zone": saved_zone,
@@ -168,7 +175,8 @@ def current_analysis(now=None, symbol="XAUUSD"):
             "chart": {"levels": [{"label": label, "price": signal[field], "from": candle.time, "to": candle.time + 900}
                                   for label, field in (("SL H1", "stop"), ("TP H1/H4", "target"))] if signal else [],
                       "oscillator": None, "note": describe(tree), "parameters": tree,
-                      "as_of": candle.time + 900, "price_type": "bid"},
+                      "as_of": candle.time + 900, "price_type": "bid",
+                      "overlays": owned_overlays},
         }
     closed_hours = [row for row in hours if row.time + 3600 <= candle.time + 900]
     closed_higher = _closed_rows(candle, higher, 14400, 50, symbol)
@@ -187,8 +195,15 @@ def current_analysis(now=None, symbol="XAUUSD"):
                        "h1_ema20": ema([row.close for row in closed_hours[-60:]], 20) if len(closed_hours) >= 20 else None,
                        "h1_ema50": ema([row.close for row in closed_hours[-60:]], 50) if len(closed_hours) >= 50 else None,
                        "h4_ema50": ema([row.close for row in closed_higher[-60:]], 50) if closed_higher else None,
-                       "barriers": barriers}}
+                       "barriers": barriers,
+                       "overlays": shared_overlays or None}}
 
+
+def _safe_overlays(candle, minutes, hours, higher, symbol):
+    try:
+        return chart_overlays(candle, minutes, hours, higher, symbol)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
 
 @router.get("/analysis")
 def analysis_endpoint(symbol: str = "XAUUSD"):

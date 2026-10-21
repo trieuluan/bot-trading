@@ -327,6 +327,13 @@ const familyLabels: Record<string, string> = {
   vwap: 'Hồi quy VWAP',
   vsa: 'Khối lượng VSA',
   router: 'Bộ định tuyến Router',
+  setup_reclaim: 'Lấy lại mốc setup H1',
+  engulfing: 'Nến nhấn chìm',
+  order_block: 'Kiểm định vùng OB',
+  pdh_pdl_sweep: 'Quét đỉnh/đáy ngày trước',
+  asia_sweep: 'Quét biên phiên Á UTC',
+  inside_bar: 'Nến trong / NR7',
+  round_level: 'Từ chối mốc giá tròn',
   partial_be_h1: 'BE / Trail theo H1',
   partial_be_m15: 'BE / Trail theo M15',
   fixed_structural: 'Cố định theo cản',
@@ -334,6 +341,7 @@ const familyLabels: Record<string, string> = {
   evidence_m15: 'Giữ 100%, thoát khi nến M15 yếu',
   barrier_partial_h1: 'Chốt tại cản H1 gần nhất',
   runner_h1: 'Gồng 100% + trail ATR H1',
+  trail_swing_h1: 'Gồng 100% + trail swing H1',
   ladder_h1: 'Chốt từng nấc +1R/+2R',
 };
 

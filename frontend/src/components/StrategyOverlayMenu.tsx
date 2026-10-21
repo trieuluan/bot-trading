@@ -4,6 +4,13 @@ import { compactTreeTitle, treeLabel } from '../lib/forex-tree-label';
 import type { ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 export const CONTEXT_STRATEGY_KEY = '__context__';
+export const TECHNICAL_OVERLAYS = [
+  {
+    id: CONTEXT_STRATEGY_KEY,
+    title: 'Tham khảo chung · EMA20 khung chart & Cản H1/H4',
+    sub: 'Không thuộc cây; chỉ báo riêng tự hiện khi chọn chiến thuật bên dưới',
+  },
+] as const;
 
 type Tree2 = NonNullable<
   NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']
@@ -214,25 +221,26 @@ export function StrategyOverlayMenu({
           </div>
 
           <div className="strategy-popover-body">
-            {tab !== 'live' &&
-              tab !== 'holding' &&
-              tab !== 'confirmed' &&
-              (!q || 'donchian ema20 can h1 h4 tham chieu'.includes(q)) && (
-                <div className="strategy-group">
-                  <div className="group-heading">Mức kỹ thuật chung</div>
-                  <label className="strategy-item-row">
+            {tab !== 'live' && tab !== 'holding' && tab !== 'confirmed' && (
+              <div className="strategy-group">
+                <div className="group-heading">Tham khảo thêm (tuỳ chọn)</div>
+                {TECHNICAL_OVERLAYS.filter(
+                  (item) => !q || `${item.title} ${item.sub}`.toLowerCase().includes(q),
+                ).map((item) => (
+                  <label key={item.id} className="strategy-item-row">
                     <input
                       type="checkbox"
-                      checked={selected.includes(CONTEXT_STRATEGY_KEY)}
-                      onChange={() => toggle(CONTEXT_STRATEGY_KEY)}
+                      checked={selected.includes(item.id)}
+                      onChange={() => toggle(item.id)}
                     />
                     <div className="strategy-item-meta">
-                      <div className="strategy-item-name">EMA20 M15 · Cản H1/H4</div>
-                      <div className="strategy-item-sub">Cản tham chiếu cho TP cấu trúc</div>
+                      <div className="strategy-item-name">{item.title}</div>
+                      <div className="strategy-item-sub">{item.sub}</div>
                     </div>
                   </label>
-                </div>
-              )}
+                ))}
+              </div>
+            )}
 
             {/* Mục ghim lên đầu: Cây đang giữ lệnh hoặc có tín hiệu kích hoạt */}
             {pinnedNames.filter(visible).length > 0 && (

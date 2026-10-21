@@ -7910,3 +7910,40 @@ main.forex-terminal-main {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   pointer-events: none;
 }
+
+.forex-overlay-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  padding: 8px 14px;
+  color: #91a99c;
+  background: #101b15;
+  border-bottom: 1px solid #263a2e;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.broker-chart-terminal .forex-observation-chart > .chart-ohlc {
+  position: static;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.forex-overlay-readout details {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.forex-overlay-readout summary {
+  cursor: pointer;
+  color: #b8cec0;
+}
+
+.forex-overlay-readout details[open] {
+  flex-basis: 100%;
+}
+
+.forex-overlay-readout details > div {
+  margin-top: 4px;
+}

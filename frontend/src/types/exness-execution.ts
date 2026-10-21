@@ -300,6 +300,32 @@ export interface LearnerAnalysis {
     h1_ema20: number | null;
     h1_ema50: number | null;
     barriers: { price: number; side: 'long' | 'short'; reason: string }[];
+    overlays?: {
+      h4_trend?: {
+        ema50: { time: number; value: number }[];
+        adx: number | null;
+        adx_threshold: number;
+      } | null;
+      day?: { high: number; low: number; day: number; from: number } | null;
+      asia?: { high: number; low: number; from: number; to: number } | null;
+      round?: { step: number; levels: number[] } | null;
+      price_zone?: { high: number; low: number; midpoint: number; lookback: number } | null;
+      adr?: {
+        adr: number;
+        threshold: number;
+        used: number;
+        day_high: number;
+        day_low: number;
+        reach_up: number;
+        reach_down: number;
+        from: number;
+      } | null;
+      vwap?: { time: number; center: number; upper: number; lower: number }[] | null;
+      pivots?: {
+        low: { time: number; price: number }[];
+        high: { time: number; price: number }[];
+      } | null;
+    } | null;
   };
   strategies: Record<
     string,
@@ -344,6 +370,15 @@ export interface LearnerAnalysis {
       generation?: number;
       label?: TreeLabel;
       chart?: {
+        overlays?: {
+          lines: {
+            label: string;
+            points: { time: number; value: number }[];
+            color: string;
+            dashed: boolean;
+          }[];
+          notes: string[];
+        } | null;
         levels: { label: string; price: number; from: number; to: number }[];
         oscillator: {
           label: string;
