@@ -266,6 +266,14 @@ def test_connect_uses_account_specific_candle_limits(monkeypatch):
 def test_feed_summary_never_labels_disconnected_worker_as_online():
     assert all(not row["worker_online"] for row in feed_summary())
 
+
+def test_feed_summary_omits_legacy_m1_from_active_catchup_view():
+    with Session.begin() as session:
+        session.merge(WorkspaceFeedState(workspace_id=WORKSPACE, symbol="XAUUSD", timeframe="1m", checked_until=NOW - 3600))
+    timeframes = [row["timeframe"] for row in feed_summary("XAUUSD")]
+    assert "1m" not in timeframes
+    assert set(timeframes).issubset(set(FRAMES))
+
 def test_connection_cooldown_respects_retry_after_and_never_shortens(monkeypatch):
     monkeypatch.setattr("backend.app.exness_feed.utcnow", lambda: datetime.fromtimestamp(NOW, timezone.utc))
     record_connection_failure(120)

@@ -211,6 +211,8 @@ def feed_summary(symbol="XAUUSD"):
         )}
         frames = []
         for state in rows:
+            if state.timeframe not in FRAMES:  # M1 chỉ là lịch sử đọc chart, không phải feed đang đồng bộ
+                continue
             count, first, last = counts.get(state.timeframe, (0, None, None))
             step = HISTORY_FRAMES[state.timeframe][1]
             frames.append({"timeframe": state.timeframe, "bars_per_side": count,
