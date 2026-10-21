@@ -5,7 +5,6 @@ import { configureAutoPaper, setAutoPaperEnabled } from '../lib/api';
 import { formatPrice } from '../lib/format';
 import type { AutoPaperState } from '../types/paper';
 import { AutoJournal } from './AutoJournal';
-import { FuturesHistoryPanel } from './FuturesHistoryPanel';
 
 interface Props {
   state: AutoPaperState | null;
@@ -348,10 +347,6 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           {message}
         </p>
       )}
-      <details className="auto-paper-guide">
-        <summary>Học từ lịch sử Futures</summary>
-        <FuturesHistoryPanel />
-      </details>
       <details className="auto-paper-guide">
         <summary>Cách vận hành & giới hạn</summary>
         <p className="micro">

@@ -1,4 +1,7 @@
 import { futuresHeaders } from '../lib/futures-symbol';
+import { fetchFuturesHistory } from '../lib/api';
+import type { FuturesHistoryJob } from '../types/paper';
+import { formatTime } from '../lib/time-format';
 import { useEffect, useState } from 'react';
 import { Activity, Brain, Dna, Power } from 'lucide-react';
 import {
@@ -168,6 +171,7 @@ function ParentChip({
 
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
   const [data, setData] = useState<Learning | null>(null);
+  const [replay, setReplay] = useState<FuturesHistoryJob | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [family, setFamily] = useState('all');
@@ -186,6 +190,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           (exc: Error) => active && setError(`Chưa tải được trạng thái bot học: ${exc.message}`),
         );
     void load();
+    fetchFuturesHistory()
+      .then((job) => active && setReplay(job))
+      .catch(() => undefined);
     const timer = setInterval(load, 15000);
     return () => {
       active = false;
@@ -218,6 +225,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   );
   const signalSet = new Set(signalSides.keys());
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
+  const replayed = new Set((replay?.report?.strategies ?? []).map((row) => row.strategy));
   const familyName = (name: string) =>
     name === 'default' ? 'Cây luật tự sinh' : (HTF_LABELS[name] ?? name.replace(/_/g, ' '));
   const holding = (row: Row) => (row.open_trades?.length ?? 0) > 0;
@@ -313,6 +321,17 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               </div>
             ))}
           </div>
+          {replay?.report && (
+            <p className="evo-replay" role="status">
+              Replay lịch sử: {replay.days} ngày, dữ liệu đến{' '}
+              {formatTime(replay.report.end_time, false, false).split(' ')[0]} · phủ{' '}
+              <b>
+                {all.filter((row) => replayed.has(row.strategy)).length}/{all.length}
+              </b>{' '}
+              chiến thuật. Chiến thuật sinh sau lần replay chỉ học từ forward, nên thường hiện “Chưa
+              có mẫu”.
+            </p>
+          )}
           {(data.stale || data.error) && (
             <p className="evo-warn" role="status">
               {data.stale && 'Dữ liệu học đang chậm hoặc chưa chạy. '}

@@ -115,10 +115,14 @@ export type PairInfo = {
       mean_r: number | null;
       paused?: boolean;
       open_trades?: unknown[];
+      learned_samples?: number;
+      learned_mean_r?: number | null;
+      paper?: { closed: number; wins: number; net_pnl: number };
     }[];
   } | null;
 };
 export type Board = Record<FuturesSymbol, PairInfo>;
+const MIN_TOP_SAMPLES = 10;
 
 const empty = Object.fromEntries(
   FUTURES_SYMBOLS.map((s) => [s, { wallet: null, auto: null, learning: null }]),
@@ -771,71 +775,89 @@ export function AllPairsPanel({
             <thead>
               <tr>
                 <th>Cặp</th>
-                <th>Giá</th>
-                <th>PnL chưa chốt</th>
-                <th>Vị thế</th>
-                <th>Auto</th>
-                <th>Lệnh hôm nay</th>
-                <th>Nến 24h</th>
-                <th>Tín hiệu</th>
-                <th>Cây giữ lệnh</th>
-                <th>Top cây · Mean R</th>
+                <th>Auto · nến 24h</th>
+                <th>Auto Paper</th>
                 <th>Bộ học</th>
+                <th>Top chiến thuật · R học</th>
               </tr>
             </thead>
             <tbody>
               {FUTURES_SYMBOLS.map((s) => {
-                const { wallet: w, auto: a, learning: l } = board[s];
-                const top = [...(l?.strategies ?? [])]
-                  .filter((r) => !r.paused && r.mean_r !== null && r.resolved > 0)
-                  .sort((first, second) => second.mean_r! - first.mean_r!)[0];
+                const { auto: a, learning: l } = board[s];
+                const strategies = l?.strategies ?? [];
+                const learned = strategies.filter((r) => (r.learned_samples ?? 0) > 0);
+                // Same bar as parent selection: below 10 samples a mean R is mostly noise.
+                const top = learned
+                  .filter((r) => !r.paused && (r.learned_samples ?? 0) >= MIN_TOP_SAMPLES)
+                  .sort(
+                    (x, y) => (y.learned_mean_r ?? -Infinity) - (x.learned_mean_r ?? -Infinity),
+                  )[0];
+                const open = strategies.reduce((n, r) => n + (r.open_trades?.length ?? 0), 0);
+                const closed = strategies.reduce((n, r) => n + (r.paper?.closed ?? 0), 0);
+                const pnl = strategies.reduce((n, r) => n + (r.paper?.net_pnl ?? 0), 0);
+                const signals = a?.learner_decision ? liveSignals(a).length : 0;
                 return (
                   <tr key={s}>
                     <td>
                       <button className="text-button" onClick={() => onSelect(s)}>
                         {s.replace('_', ' / ')}
                       </button>
+                      {signals > 0 && <small className="positive">⚡ {signals} tín hiệu</small>}
                     </td>
-                    <td>{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</td>
-                    <td className={w ? sign(w.pair_unrealized_pnl) : undefined}>
-                      {w ? formatPrice(w.pair_unrealized_pnl) : '—'}
-                    </td>
-                    <td>{w?.positions.length ?? '—'}</td>
                     <td>
                       <span className={`pill ${a?.enabled && a.worker_online ? 'green' : 'amber'}`}>
                         {!a ? '—' : !a.enabled ? 'Dừng' : a.worker_online ? 'Chạy' : 'Worker off'}
                       </span>
-                    </td>
-                    <td>{a ? `${a.daily_trades}/${a.max_daily_trades}` : '—'}</td>
-                    <td className={a?.coverage?.missed ? 'negative' : undefined}>
-                      {a?.coverage ? `${a.coverage.evaluated}/${a.coverage.window_candles}` : '—'}
                       {a?.coverage && (
-                        <small>
-                          {a.coverage.skipped ? `${a.coverage.skipped} bỏ qua · ` : ''}
-                          {a.coverage.opened} mở
+                        <small className={a.coverage.missed ? 'negative' : undefined}>
+                          Xét {a.coverage.evaluated}/{a.coverage.window_candles}
+                          {a.coverage.skipped ? ` · ${a.coverage.skipped} bỏ qua` : ''}
                         </small>
                       )}
                     </td>
-                    <td>{a?.learner_decision ? liveSignals(a).length : '—'}</td>
-                    <td>{l ? l.strategies.filter((r) => r.open_trades?.length).length : '—'}</td>
+                    <td>
+                      {open || closed ? (
+                        <>
+                          {open} đang mở · {closed} đã đóng
+                          {closed > 0 && (
+                            <small className={sign(pnl)}>
+                              {pnl > 0 ? '+' : ''}
+                              {formatPrice(pnl)} USDT đã chốt
+                            </small>
+                          )}
+                        </>
+                      ) : (
+                        <span className="muted">Chưa vào lệnh</span>
+                      )}
+                    </td>
+                    <td>
+                      {l ? (
+                        l.error ? (
+                          <span className="negative">Lỗi</span>
+                        ) : (
+                          <>
+                            {learned.length}/{l.population} có mẫu học
+                            <small>
+                              {l.promoted} đã duyệt · {l.samples} mẫu forward
+                            </small>
+                          </>
+                        )
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td>
                       {top ? (
                         <>
                           {strategyShortTitle(top.genome, top.strategy)}
-                          <small>
-                            {top.mean_r!.toFixed(2)}R · {top.resolved} lệnh đã xét
+                          <small className={sign(top.learned_mean_r ?? 0)}>
+                            {(top.learned_mean_r ?? 0) > 0 ? '+' : ''}
+                            {(top.learned_mean_r ?? 0).toFixed(2)}R · {top.learned_samples} mẫu
                           </small>
                         </>
                       ) : (
-                        'Chưa có mẫu'
+                        <span className="muted">Chưa có chiến thuật ≥{MIN_TOP_SAMPLES} mẫu</span>
                       )}
-                    </td>
-                    <td>
-                      {l
-                        ? l.error
-                          ? 'Lỗi'
-                          : `${l.population} biến thể · ${l.promoted} duyệt · ${l.samples} mẫu`
-                        : '—'}
                     </td>
                   </tr>
                 );
@@ -880,46 +902,42 @@ export function AllPairsPanel({
 function FamilySummary({ board }: { board: Board }) {
   const fam = new Map<
     string,
-    { pairs: Set<string>; trees: number; sig: number; hold: number; n: number; sumR: number }
+    { trees: number; learned: number; hold: number; n: number; sumR: number }
   >();
   for (const s of FUTURES_SYMBOLS) {
-    const sigNames = new Set(liveSignals(board[s].auto).map((r) => r.strategy));
     for (const r of board[s].learning?.strategies ?? []) {
       const key = strategyShortTitle(r.genome);
-      const f = fam.get(key) ?? { pairs: new Set(), trees: 0, sig: 0, hold: 0, n: 0, sumR: 0 };
-      f.pairs.add(s);
+      const f = fam.get(key) ?? { trees: 0, learned: 0, hold: 0, n: 0, sumR: 0 };
       f.trees += 1;
-      if (sigNames.has(r.strategy)) f.sig += 1;
       if (r.open_trades?.length) f.hold += 1;
-      if (r.mean_r !== null && r.resolved > 0) {
-        f.n += r.resolved;
-        f.sumR += r.mean_r * r.resolved;
+      const n = r.learned_samples ?? 0;
+      if (n > 0 && r.learned_mean_r != null) {
+        f.learned += 1;
+        f.n += n;
+        f.sumR += r.learned_mean_r * n;
       }
       fam.set(key, f);
     }
   }
-  const rows = [...fam.entries()].sort(
-    (a, b) => b[1].sig + b[1].hold - (a[1].sig + a[1].hold) || b[1].n - a[1].n,
-  );
+  const rows = [...fam.entries()].sort((a, b) => b[1].hold - a[1].hold || b[1].n - a[1].n);
   if (!rows.length) return null;
   return (
-    <>
-      <h3>Gộp theo họ · 10 cặp</h3>
+    <details className="family-summary">
+      <summary>Gộp theo họ chiến thuật · cả 10 cặp ({rows.length} họ)</summary>
       <p className="micro">
-        Cùng họ không đồng nghĩa cùng điều kiện cây. Mean R gộp theo số lệnh đã xét của cây trong
-        danh mục, không phải PnL ví hay bảo đảm hiệu quả. Top cây chưa áp ngưỡng số mẫu.
+        R học gộp theo số mẫu (replay + forward) của mọi chiến thuật cùng họ. Cùng họ không có nghĩa
+        cùng điều kiện; không phải PnL ví.
       </p>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
               <th>Họ</th>
-              <th>Số cặp</th>
-              <th>Cây</th>
-              <th>Có tín hiệu</th>
-              <th>Đang giữ</th>
-              <th>Lệnh đã xét</th>
-              <th>Mean R</th>
+              <th>Chiến thuật</th>
+              <th>Có mẫu học</th>
+              <th>Đang giữ lệnh</th>
+              <th>Mẫu học</th>
+              <th>R học</th>
             </tr>
           </thead>
           <tbody>
@@ -930,11 +948,10 @@ function FamilySummary({ board }: { board: Board }) {
                   <td>
                     <strong>{name}</strong>
                   </td>
-                  <td>{f.pairs.size}/10</td>
                   <td>{f.trees}</td>
-                  <td>{f.sig || '—'}</td>
+                  <td>{f.learned || '—'}</td>
                   <td>{f.hold || '—'}</td>
-                  <td>{f.n}</td>
+                  <td>{f.n || '—'}</td>
                   <td className={r === null ? undefined : sign(r)}>
                     {r === null ? '—' : `${r > 0 ? '+' : ''}${r.toFixed(2)}R`}
                   </td>
@@ -944,6 +961,6 @@ function FamilySummary({ board }: { board: Board }) {
           </tbody>
         </table>
       </div>
-    </>
+    </details>
   );
 }

@@ -56,11 +56,6 @@ export function fetchPaperWallet(): Promise<import('../types/paper').PaperWallet
 export function fetchFuturesHistory(): Promise<import('../types/paper').FuturesHistoryJob | null> {
   return paperRequest('/api/workspaces/mexc_futures/learning/history');
 }
-export function startFuturesHistory(
-  days: number,
-): Promise<import('../types/paper').FuturesHistoryJob> {
-  return paperRequest('/api/workspaces/mexc_futures/learning/history', { days });
-}
 async function paperRequest(path: string, body?: object) {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
