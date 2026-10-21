@@ -5312,54 +5312,6 @@ main:has(.futures-desk) {
   margin-top: 0;
 }
 
-.leverage-box {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  display: grid;
-  gap: 10px;
-}
-.leverage-box legend {
-  padding: 0 6px;
-  font-size: 12px;
-  color: #55635b;
-}
-.leverage-stepper {
-  display: grid;
-  grid-template-columns: 42px 1fr auto 42px;
-  align-items: center;
-  gap: 8px;
-}
-.leverage-stepper input {
-  text-align: right;
-  font-weight: 700;
-}
-.leverage-stepper span {
-  font-weight: 700;
-}
-.leverage-stepper button,
-.leverage-presets button {
-  min-height: 34px;
-}
-.leverage-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.leverage-presets button {
-  flex: 1 1 52px;
-}
-.leverage-slider {
-  width: 100%;
-  padding: 0;
-}
-.leverage-ticks {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: #7a867f;
-}
-
 .ap-head {
   display: flex;
   align-items: center;
@@ -5477,11 +5429,6 @@ main:has(.futures-desk) {
 .ap-actions button {
   min-height: 38px;
 }
-.leverage-presets button.active {
-  background: #2c856c;
-  color: #fff;
-  border-color: #2c856c;
-}
 /* Auto Paper compact */
 .auto-paper-panel {
   padding: 14px;
@@ -5579,8 +5526,7 @@ main:has(.futures-desk) {
   background: transparent;
   padding-inline: 0;
 }
-.ap-config .ap-grid input,
-.ap-config .leverage-stepper input {
+.ap-config .ap-grid input {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
@@ -5588,15 +5534,6 @@ main:has(.futures-desk) {
   border-radius: 8px;
   background: #fff;
   font: inherit;
-}
-.ap-config .leverage-box {
-  padding: 10px;
-  margin: 0;
-  min-width: 0;
-}
-.ap-config .leverage-presets button {
-  min-height: 30px;
-  font-size: 12px;
 }
 .ap-config .ap-actions {
   padding-top: 2px;
@@ -8470,5 +8407,156 @@ button.ap-cell {
   height: 8px;
 }
 .ap-journal .ap-journal-reasons {
+  color: #a06a1c;
+}
+
+.leverage-box {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #dce1d7;
+  border-radius: 10px;
+  background: #fff;
+}
+.leverage-box legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #63746a;
+}
+.leverage-box:disabled {
+  opacity: 0.6;
+}
+.leverage-mode {
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef1e9;
+  color: #3f5446;
+  font-size: 11px;
+  font-weight: 600;
+}
+.leverage-stepper {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  overflow: hidden;
+  border: 1px solid #dce1d7;
+  border-radius: 9px;
+  background: #fafbf7;
+}
+.leverage-stepper button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1e5b47;
+  font-size: 17px;
+  cursor: pointer;
+}
+.leverage-stepper button:hover:not(:disabled) {
+  background: #eef4ee;
+}
+.leverage-input {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-inline: 1px solid #dce1d7;
+  background: #fff;
+}
+.leverage-input input {
+  width: 6ch;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.leverage-input input::-webkit-inner-spin-button,
+.leverage-input input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.leverage-input input:focus {
+  outline: none;
+}
+.leverage-input:focus-within {
+  box-shadow: inset 0 0 0 2px #8fb28d;
+}
+.leverage-input span {
+  font-weight: 700;
+  color: #63746a;
+}
+.leverage-box .leverage-slider {
+  --fill: 0%;
+  border: 0;
+  width: 100%;
+  height: 6px;
+  margin: 4px 0;
+  padding: 0;
+  border-radius: 6px;
+  background: linear-gradient(to right, #2c856c var(--fill), #e2e8e4 var(--fill));
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.leverage-slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #1e5b47;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  -webkit-appearance: none;
+}
+.leverage-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #1e5b47;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.leverage-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  gap: 4px;
+}
+.leverage-presets button {
+  min-height: 28px;
+  padding: 0 4px;
+  border: 1px solid #dce1d7;
+  border-radius: 7px;
+  background: #fff;
+  color: #3f5446;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.leverage-presets button:hover:not(:disabled) {
+  border-color: #8fb28d;
+}
+.leverage-presets button[aria-pressed='true'] {
+  border-color: #1e5b47;
+  background: #1e5b47;
+  color: #fff;
+}
+.leverage-box .leverage-note {
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #63746a;
+}
+.leverage-note.high {
   color: #a06a1c;
 }

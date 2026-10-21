@@ -1,5 +1,5 @@
 import { getFuturesSymbol } from '../lib/futures-symbol';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Bot, CircleStop, Play, Save } from 'lucide-react';
 import { configureAutoPaper, setAutoPaperEnabled } from '../lib/api';
 import { formatPrice } from '../lib/format';
@@ -221,7 +221,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
             </div>
             <fieldset className="leverage-box" disabled={locked || !state?.max_leverage}>
               <legend>
-                Đòn bẩy <b>{leverage}x</b> · Cross
+                Đòn bẩy <span className="leverage-mode">Cross</span>
               </legend>
               <div className="leverage-stepper">
                 <button
@@ -231,16 +231,18 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 >
                   −
                 </button>
-                <input
-                  type="number"
-                  aria-label="Đòn bẩy"
-                  min={minLeverage}
-                  max={maxLeverage}
-                  step="1"
-                  value={leverage}
-                  onChange={(e) => setClamped(Number(e.target.value))}
-                />
-                <span>x</span>
+                <label className="leverage-input">
+                  <input
+                    type="number"
+                    aria-label="Đòn bẩy"
+                    min={minLeverage}
+                    max={maxLeverage}
+                    step="1"
+                    value={leverage}
+                    onChange={(e) => setClamped(Number(e.target.value))}
+                  />
+                  <span aria-hidden="true">x</span>
+                </label>
                 <button
                   type="button"
                   aria-label="Tăng đòn bẩy"
@@ -248,20 +250,6 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 >
                   +
                 </button>
-              </div>
-              <div className="leverage-presets">
-                {[10, 20, 50, 100, 200]
-                  .filter((value) => value <= maxLeverage)
-                  .map((value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      className={leverage === value ? 'active' : ''}
-                      onClick={() => setClamped(value)}
-                    >
-                      {value}x
-                    </button>
-                  ))}
               </div>
               <input
                 className="leverage-slider"
@@ -271,11 +259,31 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 max={maxLeverage}
                 step="1"
                 value={leverage}
+                style={
+                  {
+                    '--fill': `${maxLeverage > minLeverage ? ((leverage - minLeverage) / (maxLeverage - minLeverage)) * 100 : 100}%`,
+                  } as CSSProperties
+                }
                 onChange={(e) => setClamped(Number(e.target.value))}
               />
-              <p className="micro">
+              <div className="leverage-presets" role="group" aria-label="Mức đòn bẩy nhanh">
+                {[...new Set([10, 20, 50, 100, 200, maxLeverage])]
+                  .filter((value) => value >= minLeverage && value <= maxLeverage)
+                  .map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-pressed={leverage === value}
+                      title={value === maxLeverage ? 'Mức tối đa MEXC cho cặp này' : undefined}
+                      onClick={() => setClamped(value)}
+                    >
+                      {value}x
+                    </button>
+                  ))}
+              </div>
+              <p className={`leverage-note ${leverage >= 100 ? 'high' : ''}`}>
                 {state?.max_leverage
-                  ? `Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}. Ký quỹ = giá trị lệnh ÷ ${leverage}.`
+                  ? `Ký quỹ = giá trị lệnh ÷ ${leverage}. Giá đi ngược ~${(100 / leverage).toFixed(2)}% là mất hết ký quỹ của lệnh. Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}.`
                   : 'Chờ MEXC trả thông số đòn bẩy của cặp này.'}
               </p>
             </fieldset>
