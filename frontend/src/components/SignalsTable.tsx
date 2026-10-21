@@ -2,6 +2,7 @@ import { ArrowUpRight, SlidersHorizontal } from 'lucide-react';
 import type { Signal } from '../types/trading';
 import { formatPrice } from '../lib/format';
 import { EmptyState } from './EmptyState';
+import { formatTime } from '../lib/time-format';
 export function SignalsTable({
   entries,
   filter,
@@ -48,9 +49,7 @@ export function SignalsTable({
               <tr key={signal.id} title={signal.reason}>
                 <td>
                   <strong>{signal.symbol}</strong>
-                  <small>
-                    {new Date(signal.time * 1000).toLocaleString('vi-VN', { timeZone: 'UTC' })} UTC
-                  </small>
+                  <small>{formatTime(signal.time, true)}</small>
                 </td>
                 <td>
                   <span className={`pill ${signal.side === 'long' ? 'green' : 'amber'}`}>

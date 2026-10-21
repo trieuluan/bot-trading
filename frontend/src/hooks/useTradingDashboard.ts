@@ -8,6 +8,7 @@ const POLL_INTERVAL_MS = 5000;
 export function useTradingDashboard() {
   const [snapshot, setSnapshot] = useState<Snapshot>(createPreviewSnapshot);
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -17,6 +18,8 @@ export function useTradingDashboard() {
       setConnected(true);
     } catch {
       setConnected(false);
+    } finally {
+      setConnecting(false);
     }
   }, []);
 
@@ -43,5 +46,5 @@ export function useTradingDashboard() {
     }
   }
 
-  return { snapshot, connected, busy, message, setMessage, refresh, toggle };
+  return { snapshot, connected, connecting, busy, message, setMessage, refresh, toggle };
 }

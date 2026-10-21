@@ -10,7 +10,9 @@ import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { treeLabel, shortTreeId } from '../lib/forex-tree-label';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
-import { feedErrorText, relativeTime, utcTime } from '../lib/forex-labels';
+import { feedErrorText } from '../lib/forex-labels';
+import { clockTime, relativeTime, formatTime } from '../lib/time-format';
+import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 interface ForexCandle {
@@ -75,7 +77,7 @@ export function ForexCatchupStatus({
     .sort()
     .at(-1);
   const feedError = failing
-    ? `${feedErrorText(failing.error)}${retryAt ? ` · tự thử lại ${relativeTime(retryAt)} (${utcTime(retryAt, true)})` : ''}`
+    ? `${feedErrorText(failing.error)}${retryAt ? ` · tự thử lại ${relativeTime(retryAt)} (${formatTime(retryAt, true)})` : ''}`
     : null;
   const title = disconnected
     ? 'Mất kết nối API · dữ liệu lưu gần nhất'
@@ -122,7 +124,7 @@ export function ForexCatchupStatus({
       <p className="micro">
         Đã phân tích đến nến:{' '}
         {progress?.last_processed_candle != null
-          ? `${utcTime(progress.last_processed_candle)} (giờ mở nến)`
+          ? `${formatTime(progress.last_processed_candle)} (giờ mở nến)`
           : 'Chưa có'}
         . Tính bù chỉ bắt đầu khi cả 3 khung đồng bộ và hợp lệ. Khoảng cần kiểm tra có thể thuộc giờ
         nghỉ phiên, không đồng nghĩa mất nến.
@@ -435,10 +437,7 @@ export function HtfLineage({
         {maxGen === 0 && (
           <p className="micro lineage-hint">
             Chưa có cây con. Cần cây bố mẹ đủ ≥10 mẫu forward đã đóng với R trung bình dương
-            {nextEvolutionAt
-              ? ` · chu kỳ kế tiếp ${new Date(nextEvolutionAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-              : ''}
-            .
+            {nextEvolutionAt ? ` · chu kỳ kế tiếp ${formatTime(nextEvolutionAt)}` : ''}.
           </p>
         )}
       </div>
@@ -1046,7 +1045,7 @@ export function ForexStrategyPage({
                 {symbol} <span>Exness</span>
               </h2>
               <p>
-                Exness Demo <span>·</span> Giá gốc sàn <span>·</span> UTC
+                Exness Demo <span>·</span> Giá gốc sàn <span>·</span> {timeZoneLabel()}
               </p>
             </div>
           </div>
@@ -1097,9 +1096,7 @@ export function ForexStrategyPage({
       )}
       <div className="mtf-source-strip">
         <span>Nến M15/H1/H4 Exness Demo</span>
-        {snap?.['available_at'] && (
-          <span>Snapshot {new Date(snap.available_at * 1000).toISOString().slice(0, 16)} UTC</span>
-        )}
+        {snap?.['available_at'] && <span>Snapshot {formatTime(snap.available_at)}</span>}
         {disconnected && <span className="negative">Mất kết nối API · dữ liệu lưu gần nhất</span>}
       </div>
       {(!dashboard.market.worker_online || currentStatus === 'data_paused') && (
@@ -1290,8 +1287,7 @@ export function ForexStrategyPage({
             : quoteState.candles?.[frame]?.at(-1)?.partial
               ? 'Nến hiện tại thiếu tick đầu nến hoặc có gián đoạn; OHLC tạm thời.'
               : 'OHLC từ tick đã nhận, có thể khác nến chính thức.'}
-          {quoteState.quote &&
-            ` Tick gần nhất: ${new Date(quoteState.quote.time * 1000).toISOString()}`}
+          {quoteState.quote && ` Tick gần nhất: ${formatTime(quoteState.quote.time, true)}`}
         </p>
       )}
       {!loading && !chartError && candles.length === 0 && (
@@ -1409,7 +1405,7 @@ export function ForexStrategyPage({
               }
             : null
         }
-        title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · UTC`}
+        title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
       {executionOnly && (
         <div className="bot-footer">
@@ -1433,9 +1429,7 @@ export function ForexStrategyPage({
             <details className="bot-analysis">
               <summary>
                 <strong>Bot quan sát</strong>
-                <span>
-                  nến {new Date(analysis.candle_time * 1000).toISOString().slice(11, 16)} UTC
-                </span>
+                <span>nến {clockTime(analysis.candle_time)}</span>
                 <span className={analysis.selected_signal ? 'is-pick' : ''}>
                   {analysis.selected_signal
                     ? `Chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side} · dự kiến, chưa vào lệnh`

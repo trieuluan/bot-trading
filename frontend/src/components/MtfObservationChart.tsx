@@ -21,6 +21,8 @@ import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { treeLabel } from '../lib/forex-tree-label';
 import { placeChartTags } from '../lib/chart-tags';
 import { projectOverlayPoints } from '../lib/chart-timeframes';
+import { chartTimeOptions } from '../lib/chart-time';
+import { useTimeZone } from '../lib/time-zone';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
   status: string;
@@ -68,6 +70,7 @@ export function MtfObservationChart({
   onClosePosition?: (position: BrokerPosition) => void;
   onSelectPosition?: (id: string) => void;
 }) {
+  const [timeZone] = useTimeZone();
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -195,6 +198,11 @@ export function MtfObservationChart({
       previousTimes.current = [];
     };
   }, []);
+
+  // Nhãn trục và crosshair theo múi giờ hiển thị; dữ liệu nến vẫn là timestamp UTC.
+  useEffect(() => {
+    chart.current?.applyOptions(chartTimeOptions(timeZone));
+  }, [timeZone]);
 
   useEffect(() => {
     series.current?.applyOptions({

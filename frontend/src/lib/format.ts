@@ -28,3 +28,14 @@ export const observationStatusLabels: Record<string, string> = {
   catching_up: 'Đang chạy bù MTF',
   not_started: 'Chưa bắt đầu',
 };
+
+/** Dịch lỗi dữ liệu MEXC từ backend (tiếng Anh) sang tiếng Việt; giữ nguyên lỗi lạ. */
+export function mexcErrorText(error: string | null | undefined) {
+  if (!error) return null;
+  if (/rate limit/i.test(error)) return 'MEXC giới hạn tần suất, đang chờ thử lại';
+  if (/unsuccessful response/i.test(error)) return 'MEXC trả về phản hồi lỗi';
+  if (/cannot reach/i.test(error)) return 'Không kết nối được MEXC (đã thử 3 lần)';
+  if (/rejected the request|invalid json/i.test(error))
+    return 'MEXC từ chối yêu cầu hoặc trả dữ liệu không hợp lệ';
+  return error;
+}

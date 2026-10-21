@@ -7,7 +7,7 @@ import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart } from '../components/PaperChart';
-import { formatPrice, formatQuote } from '../lib/format';
+import { formatPrice, formatQuote, mexcErrorText } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import {
   fetchPaperWallet,
@@ -67,6 +67,8 @@ export function PaperTradingPage({
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [online, setOnline] = useState(false);
+  // Chưa có phản hồi đầu tiên: hiện "đang kết nối", không báo mất kết nối giả.
+  const [connecting, setConnecting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [side, setSide] = useState<'long' | 'short'>('long');
   const [notional, setNotional] = useState('1000');
@@ -122,6 +124,8 @@ export function PaperTradingPage({
         }
       } catch {
         if (active) setOnline(false);
+      } finally {
+        if (active) setConnecting(false);
       }
       if (active) timer = setTimeout(() => void poll(), 2000);
     }
@@ -399,7 +403,9 @@ export function PaperTradingPage({
               <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
             </div>
             <div>
-              <span className="muted">PnL chưa chốt: Tất cả / Cặp này</span>
+              <span className="muted" title="PnL chưa chốt của toàn ví / của cặp đang xem">
+                PnL mở · tổng / cặp
+              </span>
               {typeof wallet?.unrealized_pnl === 'number' ? (
                 <strong>
                   <span className={wallet.unrealized_pnl < 0 ? 'negative' : 'positive'}>
@@ -421,10 +427,12 @@ export function PaperTradingPage({
             </div>
           </div>
         </div>
-        {(stale || wallet?.funding_error || error || message) && (
+        {((stale && !connecting) || wallet?.funding_error || error || message) && (
           <div className="mexc-dock-alert" role="status">
-            {stale && (
-              <span className="negative">Giá khớp chậm / mất kết nối. {wallet?.error}</span>
+            {stale && !connecting && (
+              <span className="negative">
+                Giá khớp chậm / mất kết nối. {mexcErrorText(wallet?.error)}
+              </span>
             )}
             {wallet?.funding_error && (
               <span className="negative">Funding chờ đồng bộ: {wallet.funding_error}.</span>
@@ -457,8 +465,9 @@ export function PaperTradingPage({
                 className={`secondary ${!selected ? 'selected' : ''}`}
                 aria-pressed={!selected}
                 onClick={() => setSelectedId(-1)}
+                title="Xem chart giá thị trường, không gắn vào vị thế nào"
               >
-                Thị trường
+                Giá thị trường
               </button>
               {positions.map((position) => (
                 <button
@@ -476,13 +485,16 @@ export function PaperTradingPage({
             </div>
             {historicalId === null && (
               <div className="paper-strategy-toolbar">
-                <label>
+                <label
+                  className="chart-follow"
+                  title="Tự hiện trên chart các cây bot đang giữ lệnh, hoặc cây bot vừa chọn"
+                >
                   <input
                     type="checkbox"
                     checked={chartAuto}
                     onChange={(event) => setChartAuto(event.target.checked)}
-                  />{' '}
-                  Theo bot
+                  />
+                  Tự theo bot
                 </label>
                 <FuturesStrategyMenu
                   rows={strategyRows}
@@ -541,35 +553,39 @@ export function PaperTradingPage({
               <span
                 className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'}`}
               >
-                {!online
-                  ? 'Mất kết nối'
-                  : !auto
-                    ? 'Đang tải'
-                    : !auto.enabled
-                      ? 'Đã dừng'
-                      : !auto.worker_online
-                        ? 'Worker ngoại tuyến'
-                        : auto.learner_error
-                          ? 'Lỗi bộ học'
-                          : 'Auto ON'}
+                {connecting
+                  ? 'Đang kết nối'
+                  : !online
+                    ? 'Mất kết nối'
+                    : !auto
+                      ? 'Đang tải'
+                      : !auto.enabled
+                        ? 'Đã dừng'
+                        : !auto.worker_online
+                          ? 'Worker ngoại tuyến'
+                          : auto.learner_error
+                            ? 'Lỗi bộ học'
+                            : 'Auto ON'}
               </span>
               <span className="desk-bot-message">
-                {!online
-                  ? 'Mất kết nối · trạng thái có thể cũ'
-                  : !auto
-                    ? 'Đang tải trạng thái bot'
-                    : !auto.enabled
-                      ? 'Đã dừng vào lệnh mới'
-                      : !auto.worker_online
-                        ? 'Worker ngoại tuyến'
-                        : auto.learner_error
-                          ? `Lỗi bộ học: ${auto.learner_error}`
-                          : !auto.learner_enabled
-                            ? 'Bộ học đã tạm dừng'
-                            : auto.status}
+                {connecting
+                  ? 'Đang tải trạng thái bot…'
+                  : !online
+                    ? 'Mất kết nối · trạng thái có thể cũ'
+                    : !auto
+                      ? 'Đang tải trạng thái bot'
+                      : !auto.enabled
+                        ? 'Đã dừng vào lệnh mới'
+                        : !auto.worker_online
+                          ? 'Worker ngoại tuyến'
+                          : auto.learner_error
+                            ? `Lỗi bộ học: ${auto.learner_error}`
+                            : !auto.learner_enabled
+                              ? 'Bộ học đã tạm dừng'
+                              : auto.status}
               </span>
               <span className="desk-bot-next">
-                <Clock3 size={13} /> Nến kế tiếp{' '}
+                <Clock3 size={13} /> Nến kế tiếp đóng sau{' '}
                 <strong>
                   {Math.floor(nextCloseSeconds / 60)}:
                   {String(nextCloseSeconds % 60).padStart(2, '0')}
@@ -706,7 +722,7 @@ export function PaperTradingPage({
                   />
                 </label>
                 <label>
-                  Stop-loss (USDT)
+                  Giá stop-loss
                   <input
                     type="number"
                     min="0.1"
@@ -717,7 +733,7 @@ export function PaperTradingPage({
                   />
                 </label>
                 <label>
-                  Take-profit (USDT)
+                  Giá take-profit
                   <input
                     type="number"
                     min="0.1"

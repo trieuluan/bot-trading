@@ -7598,3 +7598,273 @@ main.forex-terminal-main {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 600;
 }
+
+/* Múi giờ hiển thị (UTC / local) */
+.tz-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f0f2ec;
+}
+.tz-toggle button {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6c7a70;
+  font-size: 11px;
+  font-weight: 650;
+}
+.tz-toggle button[aria-pressed='true'] {
+  background: #fff;
+  color: #1e5b47;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+@media (max-width: 480px) {
+  .tz-toggle button {
+    padding: 3px 6px;
+  }
+}
+
+/* MEXC pair strip: never shrink buttons (text overlapped on mobile) */
+.pair-strip button,
+.desk-sticky-header .pair-strip button {
+  flex-shrink: 0;
+}
+.pair-strip {
+  scrollbar-width: none;
+}
+
+/* MEXC trade history: summary, filters, PnL-first table */
+.history-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+.history-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcf9;
+}
+.history-summary small {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.history-summary strong {
+  font:
+    700 17px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: #1f342c;
+}
+.history-summary strong.positive {
+  color: #137333;
+}
+.history-summary strong.negative {
+  color: #c5221f;
+}
+.history-summary em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.history-filters button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: #4f5f55;
+  font-size: 12px;
+}
+.history-filters button[aria-pressed='true'] {
+  border-color: var(--green);
+  background: #eef5ef;
+  color: #1e5b47;
+  font-weight: 650;
+}
+.history-filters .muted {
+  margin-left: auto;
+  font-size: 11px;
+}
+.history-table th.num,
+.history-table td.num {
+  text-align: right;
+}
+.history-table .history-pnl {
+  font:
+    700 14px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: nowrap;
+}
+.history-table .history-pnl small {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+}
+.history-table td:nth-child(2) small {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.history-table td:nth-child(3) small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.history-more {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+}
+.history-empty {
+  padding: 12px 0;
+}
+@media (max-width: 700px) {
+  .history-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .history-filters .muted {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+.history-summary strong {
+  white-space: nowrap;
+}
+
+/* MEXC settings: source options + activity log */
+.source-options {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px;
+}
+.source-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcf9;
+}
+.source-option.is-current {
+  border-color: #cfe0d4;
+  background: #f2f8f4;
+}
+.source-option strong {
+  display: block;
+  font-size: 13px;
+  color: #1f342c;
+}
+.source-option small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.source-message {
+  margin: 10px 16px 0;
+}
+.activity-list {
+  margin: 0;
+  padding: 0 16px 12px;
+  list-style: none;
+}
+.activity-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid #eef0ea;
+  color: #4f5f55;
+}
+.activity-list strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f342c;
+}
+.activity-list small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.activity-count {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #eef1ea;
+  color: #4f5f55;
+  font-size: 11px;
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .source-option {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* MEXC chart toolbar: keep controls on one line each, readable on mobile */
+.desk-chart-toolbar button,
+.desk-chart-toolbar .chart-follow {
+  white-space: nowrap;
+}
+.chart-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.paper-strategy-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .desk-chart-toolbar > .text-button {
+    display: none;
+  }
+  .desk-chart-toolbar {
+    gap: 8px;
+  }
+}
+.paper-strategy-toolbar .chart-follow {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.paper-strategy-toolbar .chart-follow input {
+  width: auto;
+  margin: 0;
+}
+/* Topbar trên điện thoại: chỉ giữ tên sàn/cặp, bỏ "/ tên trang" (sidebar đã có) */
+@media (max-width: 640px) {
+  .breadcrumb > span:nth-of-type(2),
+  .breadcrumb > strong {
+    display: none;
+  }
+  .breadcrumb > span:first-of-type {
+    white-space: nowrap;
+  }
+}
+.paper-strategy-toolbar {
+  flex-wrap: wrap;
+}

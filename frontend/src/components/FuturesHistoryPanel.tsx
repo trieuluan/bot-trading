@@ -2,8 +2,9 @@ import { getFuturesSymbol } from '../lib/futures-symbol';
 import { useEffect, useState } from 'react';
 import { fetchFuturesHistory, startFuturesHistory } from '../lib/api';
 import type { FuturesHistoryJob, FuturesHistoryStats } from '../types/paper';
+import { formatTime } from '../lib/time-format';
 
-const dateLabel = (stamp: number) => new Date(stamp * 1000).toLocaleDateString('vi-VN');
+const dateLabel = (stamp: number) => formatTime(stamp, false, false).split(' ')[0];
 const resultLabel = (stats: FuturesHistoryStats) =>
   `${stats.resolved} mẫu · ${stats.mean_r?.toFixed(2) ?? '—'}R · PF ${stats.no_losses ? 'Không có lỗ' : (stats.profit_factor?.toFixed(2) ?? '—')}`;
 

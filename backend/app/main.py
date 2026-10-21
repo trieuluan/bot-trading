@@ -150,6 +150,47 @@ async def futures_symbol_scope(request, call_next):
 def futures_symbols():
     return {"symbols": list(SYMBOLS)}
 
+
+def _board_part(load):
+    try:
+        return load()
+    except HTTPException:
+        return None
+
+
+def _slim_decision(decision):
+    # Bảng tổng hợp chỉ cần trạng thái từng cây; bỏ levels/curves vẽ chart (~900KB mỗi cặp).
+    if not isinstance(decision, dict):
+        return decision
+    rows = [{key: row.get(key) for key in ("strategy", "status", "side")}
+            for row in decision.get("strategies") or []]
+    return {**decision, "strategies": rows}
+
+
+def _slim_board(wallet, auto, learning):
+    if isinstance(wallet, dict):
+        wallet = {key: value for key, value in wallet.items() if key != "candles"}
+    if isinstance(auto, dict):
+        auto = {**auto, "learner_decision": _slim_decision(auto.get("learner_decision"))}
+    if isinstance(learning, dict):
+        learning = {**learning, "last_decision": _slim_decision(learning.get("last_decision"))}
+    return {"wallet": wallet, "auto": auto, "learning": learning}
+
+
+@app.get("/api/workspaces/mexc_futures/board")
+def futures_board():
+    """Ví, Auto Paper và learner của mọi cặp trong một request (thay 3 x N request song song)."""
+    from .auto_paper import get_auto_state
+    from .futures_learner import get_learning
+    from .paper import get_wallet
+
+    board = {}
+    for symbol in SYMBOLS:
+        with symbol_scope(symbol):
+            board[symbol] = _slim_board(_board_part(get_wallet), _board_part(get_auto_state),
+                                        _board_part(get_learning))
+    return {"at": int(time.time()), "symbols": board}
+
 @app.middleware("http")
 async def legacy_workspace_guard(request, call_next):
     if request.url.path.startswith("/api/") and not request.url.path.startswith((

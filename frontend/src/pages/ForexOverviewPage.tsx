@@ -1,7 +1,8 @@
 import type { ForexDashboard } from '../App';
 import { ForexMarkets, feedText, feedTone } from '../components/ForexMarkets';
 import { useForexExecution } from '../hooks/useForexExecution';
-import { botStatus, executorState, relativeTime, utcTime } from '../lib/forex-labels';
+import { botStatus, executorState } from '../lib/forex-labels';
+import { relativeTime, formatTime } from '../lib/time-format';
 import { setRoute } from '../lib/router';
 
 const amount = (value: number | string | null | undefined) =>
@@ -154,8 +155,8 @@ export function ForexOverviewPage({
                 {!nextEvolution
                   ? 'Chờ đủ 2 cây bố mẹ'
                   : nextEvolution * 1000 > Date.now()
-                    ? `${utcTime(nextEvolution)} · ${relativeTime(nextEvolution)}`
-                    : `Đến hạn từ ${utcTime(nextEvolution)} · chờ worker chạy`}
+                    ? `${formatTime(nextEvolution)} · ${relativeTime(nextEvolution)}`
+                    : `Đến hạn từ ${formatTime(nextEvolution)} · chờ worker chạy`}
               </dd>
             </div>
           </dl>
@@ -179,13 +180,13 @@ export function ForexOverviewPage({
               <dt>Nến M15 đã đóng mới nhất</dt>
               <dd>
                 {m15?.last_candle
-                  ? `${utcTime(m15.last_candle)} · ${relativeTime(m15.last_candle + 900)}`
+                  ? `${formatTime(m15.last_candle)} · ${relativeTime(m15.last_candle + 900)}`
                   : 'Chưa có nến'}
               </dd>
             </div>
             <div>
               <dt>Đã phân tích đến nến</dt>
-              <dd>{lastProcessed != null ? utcTime(lastProcessed) : 'Chưa có'}</dd>
+              <dd>{lastProcessed != null ? formatTime(lastProcessed) : 'Chưa có'}</dd>
             </div>
           </dl>
           <button

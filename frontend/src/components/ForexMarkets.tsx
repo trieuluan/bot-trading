@@ -1,14 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { setRoute } from '../lib/router';
 import { prefetchSymbol } from '../lib/forex-cache';
-import {
-  blockLabel,
-  feedErrorText,
-  priceDigits,
-  relativeTime,
-  utcTime,
-  type Tone,
-} from '../lib/forex-labels';
+import { blockLabel, feedErrorText, priceDigits, type Tone } from '../lib/forex-labels';
+import { relativeTime, formatTime } from '../lib/time-format';
 
 interface Feed {
   timeframe: string;
@@ -281,7 +275,7 @@ export function ForexMarkets({
                               className={`dot-label tone-${feedTone(feed)}`}
                               title={
                                 feed?.last_candle
-                                  ? `Nến cuối ${utcTime(feed.last_candle)}`
+                                  ? `Nến cuối ${formatTime(feed.last_candle)}`
                                   : undefined
                               }
                             >

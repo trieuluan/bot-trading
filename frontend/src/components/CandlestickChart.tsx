@@ -1,5 +1,6 @@
 import type { Candle } from '../types/trading';
 import { formatPrice } from '../lib/format';
+import { clockTime, formatTime } from '../lib/time-format';
 export function CandlestickChart({
   candles,
   label = 'Biểu đồ nến BTC USDT 15 phút, dữ liệu tổng hợp',
@@ -36,8 +37,8 @@ export function CandlestickChart({
         return (
           <g key={candle.time}>
             <title>
-              {new Date(candle.time * 1000).toISOString()} · O {formatPrice(candle.open)} H{' '}
-              {formatPrice(candle.high)} L {formatPrice(candle.low)} C {formatPrice(candle.close)}
+              {formatTime(candle.time)} · O {formatPrice(candle.open)} H {formatPrice(candle.high)}{' '}
+              L {formatPrice(candle.low)} C {formatPrice(candle.close)}
             </title>
             <line
               x1={x}
@@ -74,14 +75,15 @@ export function CandlestickChart({
       />
       {[0, 1, 2, 3, 4].map((index) => (
         <text key={index} x={15 + index * 175} y="342" className="axis">
-          {new Date(
+          {clockTime(
             visibleCandles[
               Math.min(
                 visibleCandles.length - 1,
                 Math.floor((index * (visibleCandles.length - 1)) / 4),
               )
-            ].time * 1000,
-          ).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+            ].time,
+            false,
+          )}
         </text>
       ))}
     </svg>

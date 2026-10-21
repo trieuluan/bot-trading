@@ -5,6 +5,7 @@ import type { ForexDashboard } from '../App';
 import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 import { formatForexPrice } from '../lib/format';
 import { blockLabel } from '../lib/forex-labels';
+import { formatTime } from '../lib/time-format';
 import { DecisionJournal } from '../components/DecisionJournal';
 
 const url = '/api/workspaces/exness_forex/execution';
@@ -14,8 +15,7 @@ const amount = (value: number | string | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
 const quotePrice = (value: number | string | null | undefined) =>
   value == null ? '—' : formatForexPrice(Number(value));
-const date = (stamp: number | null) =>
-  stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
+const date = (stamp: number | null) => formatTime(stamp, true);
 
 type Panel = 'orders' | 'learning';
 const panels: [Panel, string][] = [

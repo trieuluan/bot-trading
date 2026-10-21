@@ -34,6 +34,8 @@ import {
   TIMEFRAMES,
   type ChartTimeframe,
 } from '../lib/chart-timeframes';
+import { chartTimeOptions } from '../lib/chart-time';
+import { timeZoneLabel, useTimeZone } from '../lib/time-zone';
 
 const TIMEFRAME_KEY = 'futures-chart-timeframe';
 
@@ -91,6 +93,7 @@ export function PaperChart({
   markStale?: boolean;
   onLoadOlder?: (m15Bars: number) => void;
 }) {
+  const [timeZone] = useTimeZone();
   const [timeframe, setTimeframe] = useState<ChartTimeframe>(() => {
     try {
       const saved = localStorage.getItem(TIMEFRAME_KEY);
@@ -254,6 +257,9 @@ export function PaperChart({
       previousCandles.current = [];
     };
   }, []);
+  useEffect(() => {
+    chart.current?.applyOptions(chartTimeOptions(timeZone));
+  }, [timeZone]);
   useEffect(() => {
     try {
       localStorage.setItem(TIMEFRAME_KEY, timeframe);
@@ -609,7 +615,8 @@ export function PaperChart({
             </button>
           ))}
         </div>
-        {getFuturesSymbol()} perpetual · {timeframe} · UTC · kéo để di chuyển, cuộn để zoom
+        {getFuturesSymbol()} perpetual · {timeframe} · {timeZoneLabel()} · kéo để di chuyển, cuộn để
+        zoom
       </div>
       <div className="paper-chart-stage">
         <div

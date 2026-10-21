@@ -35,38 +35,6 @@ export function feedErrorText(error: string | null | undefined) {
   return error;
 }
 
-const pad = (value: number) => String(value).padStart(2, '0');
-
-/** Giờ UTC thống nhất: "21/10 06:45 UTC" (thêm năm khi khác năm hiện tại). */
-export function utcTime(value: number | string | null | undefined, withSeconds = false) {
-  if (value == null) return '—';
-  const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  const year =
-    date.getUTCFullYear() === new Date().getUTCFullYear() ? '' : `/${date.getUTCFullYear()}`;
-  const seconds = withSeconds ? `:${pad(date.getUTCSeconds())}` : '';
-  return `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}${year} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}${seconds} UTC`;
-}
-
-/** "2 phút trước", "còn 8 phút". */
-export function relativeTime(value: number | string | null | undefined, now = Date.now()) {
-  if (value == null) return '—';
-  const ms = typeof value === 'number' ? value * 1000 : new Date(value).getTime();
-  if (Number.isNaN(ms)) return '—';
-  const diff = Math.round((ms - now) / 1000);
-  const abs = Math.abs(diff);
-  const text =
-    abs < 60
-      ? `${abs} giây`
-      : abs < 3600
-        ? `${Math.round(abs / 60)} phút`
-        : abs < 86400
-          ? `${Math.round(abs / 3600)} giờ`
-          : `${Math.round(abs / 86400)} ngày`;
-  if (abs < 5) return 'vừa xong';
-  return diff > 0 ? `còn ${text}` : `${text} trước`;
-}
-
 export const priceDigits = (symbol: string) =>
   symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5;
 

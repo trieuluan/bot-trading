@@ -102,6 +102,24 @@ def test_futures_pairs_have_isolated_wallets_and_reject_unknown_symbol():
         assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "XAU_USDT"}).status_code == 422
         assert client.get("/api/paper/wallet", headers={"X-Futures-Symbol": "ETH_USDT"}).json()["symbol"] == "ETH_USDT"
 
+
+def test_futures_board_returns_every_pair_in_one_request_without_chart_payload():
+    from backend.app.main import _slim_board
+
+    with TestClient(app) as client:
+        board = client.get("/api/workspaces/mexc_futures/board").json()["symbols"]
+    assert len(board) == 10
+    assert board["ETH_USDT"]["wallet"]["symbol"] == "ETH_USDT"
+    assert all("candles" not in (pair["wallet"] or {}) for pair in board.values())
+    heavy = {"strategies": [{"strategy": "tree", "status": "signal", "side": "long",
+                             "curves": [1] * 500, "levels": [2] * 50}]}
+    slim = _slim_board({"candles": [1], "symbol": "BTC_USDT"}, {"learner_decision": heavy},
+                       {"last_decision": heavy})
+    assert slim["wallet"] == {"symbol": "BTC_USDT"}
+    assert slim["auto"]["learner_decision"]["strategies"] == [
+        {"strategy": "tree", "status": "signal", "side": "long"}]
+    assert slim["learning"]["last_decision"]["strategies"][0]["status"] == "signal"
+
 def test_mexc_candles_backfill_older_page_into_db(monkeypatch):
     import backend.app.main as main
     from backend.app.market import Candle

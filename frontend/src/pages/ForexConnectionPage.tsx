@@ -7,11 +7,10 @@ import {
   formatLevel,
   provenanceText,
   qualityText,
-  relativeTime,
   spreadText,
   trendText,
-  utcTime,
 } from '../lib/forex-labels';
+import { relativeTime, formatTime } from '../lib/time-format';
 import { observationStatusLabels } from '../lib/format';
 import { ForexCatchupStatus } from './ForexStrategyPage';
 
@@ -64,7 +63,7 @@ export function ForexConnectionPage({
                 ? `${data.max_concurrent} tài khoản · ${data.max_concurrent_per_symbol}/cặp`
                 : '—'}
             </Row>
-            <Row label="Lịch sử nhập từ">{utcTime(data?.history_from)}</Row>
+            <Row label="Lịch sử nhập từ">{formatTime(data?.history_from)}</Row>
           </dl>
           {status.hint && <p className="conn-hint">{status.hint}</p>}
         </section>
@@ -77,12 +76,12 @@ export function ForexConnectionPage({
           <dl className="forex-summary-list">
             <Row label="Heartbeat">
               {data?.heartbeat
-                ? `${utcTime(data.heartbeat, true)} · ${relativeTime(data.heartbeat)}`
+                ? `${formatTime(data.heartbeat, true)} · ${relativeTime(data.heartbeat)}`
                 : 'Chưa có'}
             </Row>
             <Row label="Đồng bộ lệnh sàn">
               {data?.synced_at
-                ? `${utcTime(data.synced_at, true)} · ${relativeTime(data.synced_at)}`
+                ? `${formatTime(data.synced_at, true)} · ${relativeTime(data.synced_at)}`
                 : 'Chưa có'}
             </Row>
             <Row label="Quyết định gần nhất">{data?.decision ?? '—'}</Row>
@@ -101,7 +100,7 @@ export function ForexConnectionPage({
           <dl className="forex-summary-list">
             <Row label="Đồng bộ gần nhất">
               {dashboard.market.last_sync
-                ? `${utcTime(dashboard.market.last_sync, true)} · ${relativeTime(dashboard.market.last_sync)}`
+                ? `${formatTime(dashboard.market.last_sync, true)} · ${relativeTime(dashboard.market.last_sync)}`
                 : 'Chưa có'}
             </Row>
             <Row label="Dữ liệu">{dashboard.market.message}</Row>
@@ -131,7 +130,7 @@ export function ForexConnectionPage({
                 </header>
                 <dl>
                   <Row label="Số nến mỗi phía">{frame.bars_per_side.toLocaleString('vi-VN')}</Row>
-                  <Row label="Nến cuối">{utcTime(frame.last_candle)}</Row>
+                  <Row label="Nến cuối">{formatTime(frame.last_candle)}</Row>
                   {report && (
                     <>
                       <Row label="Khoảng trống">{report.gap_count}</Row>
@@ -172,7 +171,7 @@ export function ForexConnectionPage({
               {snapshot.trend ? (trendText[snapshot.trend] ?? snapshot.trend) : 'Chưa đủ nến'}
             </Row>
             <Row label="Cập nhật theo nến đóng">
-              {utcTime(snapshot.available_at)} ·{' '}
+              {formatTime(snapshot.available_at)} ·{' '}
               {provenanceText[snapshot.provenance ?? ''] ?? snapshot.provenance ?? '—'}
             </Row>
             <Row label="Vùng 20 nến 1h">
@@ -191,7 +190,7 @@ export function ForexConnectionPage({
             <ul className="conn-log">
               {dashboard.observation.recent.map((event) => (
                 <li key={event.candle_time}>
-                  <time>{utcTime(event.candle_time)}</time>
+                  <time>{formatTime(event.candle_time)}</time>
                   <span>{observationStatusLabels[event.status] ?? event.status}</span>
                   <small>{event.reason}</small>
                 </li>

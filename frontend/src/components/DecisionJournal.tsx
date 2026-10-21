@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
-import { feedErrorText, relativeTime, utcTime, type Tone } from '../lib/forex-labels';
+import { feedErrorText, type Tone } from '../lib/forex-labels';
+import { relativeTime, formatTime } from '../lib/time-format';
+import { timeZoneLabel } from '../lib/time-zone';
 
 type Journal = NonNullable<ExnessExecution['journal']>;
 type Funnel = NonNullable<ExnessExecution['funnel']>;
@@ -123,8 +125,8 @@ const PAGE = 12;
 
 /** "21/10 11:45 → 14:30" (cùng ngày) hoặc "20/10 23:45 → 21/10 01:00". */
 function rangeText(from: number, to: number) {
-  const [fromDate, fromTime] = utcTime(from).replace(' UTC', '').split(' ');
-  const [toDate, toTime] = utcTime(to).replace(' UTC', '').split(' ');
+  const [fromDate, fromTime] = formatTime(from, false, false).split(' ');
+  const [toDate, toTime] = formatTime(to, false, false).split(' ');
   return fromDate === toDate
     ? `${fromDate} ${fromTime} → ${toTime}`
     : `${fromDate} ${fromTime} → ${toDate} ${toTime}`;
@@ -219,7 +221,7 @@ export function DecisionJournal({
             <table className="learner-clean-table journal-table">
               <thead>
                 <tr>
-                  <th>Nến đóng · UTC</th>
+                  <th>Nến đóng · {timeZoneLabel()}</th>
                   <th>Kết quả</th>
                   <th>Tín hiệu · bot chọn</th>
                 </tr>
@@ -239,7 +241,7 @@ export function DecisionJournal({
                           </>
                         ) : (
                           <>
-                            {utcTime(row.time + 900).replace(' UTC', '')}
+                            {formatTime(row.time + 900, false, false)}
                             <small>
                               {relativeTime(row.time + 900)}
                               {checks > 1 ? ` · ${checks} lần kiểm tra` : ''}

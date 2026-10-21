@@ -7,13 +7,15 @@ import { Bell, Menu, RefreshCw, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ForexMarkets } from './components/ForexMarkets';
 import { cachedDashboard, fetchDashboard } from './lib/forex-cache';
+import { useTimeZone } from './lib/time-zone';
+import { TimeZoneToggle } from './components/TimeZoneToggle';
+import { formatTime } from './lib/time-format';
 import { HelpDialog } from './components/HelpDialog';
 import { useTradingDashboard } from './hooks/useTradingDashboard';
 import { BotControlPanel } from './components/BotControlPanel';
 import { OverviewPage } from './pages/OverviewPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
 import { PaperTradingPage } from './pages/PaperTradingPage';
-import { ActivityPage } from './pages/ActivityPage';
 import { ForexCatchupStatus } from './pages/ForexStrategyPage';
 import type { ObservationChartSnapshot } from './components/MtfObservationChart';
 import { ForexExecutionPage } from './pages/ForexExecutionPage';
@@ -172,6 +174,8 @@ function ForexSkeleton({ page }: { page: string }) {
 
 function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [route] = useRoute();
+  // Subscribe để cả workspace render lại khi đổi múi giờ hiển thị.
+  useTimeZone();
   const symbol = route.symbol ?? 'XAUUSD';
   const page = route.page;
   const setPage = (next: string) => setRoute({ page: next, tab: undefined });
@@ -246,6 +250,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <strong>{page}</strong>
           </div>
           <div className="header-actions">
+            <TimeZoneToggle />
             {page === 'Bot' && (
               <button
                 className="icon-button"
@@ -311,6 +316,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
 }
 
 function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
+  useTimeZone();
   const [symbol, setSymbol] = useState(getFuturesSymbol);
   const [chartTrade, setChartTrade] = useState<number | null>(null);
   const selectSymbol = (next: FuturesSymbol, tradeId: number | null = null) => {
@@ -325,8 +331,9 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [filter, setFilter] = useState('all');
   const [notice, setNotice] = useState(false);
   const [help, setHelp] = useState(false);
-  const { snapshot, connected, busy, message, setMessage, refresh, toggle } = useTradingDashboard();
-  const board = useFuturesBoard(page !== 'Cài đặt & Kết nối');
+  const { snapshot, connected, connecting, busy, message, setMessage, refresh, toggle } =
+    useTradingDashboard();
+  const board = useFuturesBoard(true);
   const navigate = (nextPage: string) => {
     setPage(nextPage);
     setMenu(false);
@@ -354,14 +361,19 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             >
               <Menu size={20} />
             </button>
-            <span>Workspace</span>
+            <span>MEXC {symbol.replace('_USDT', '/USDT')}</span>
             <span>/</span>
             <strong>{page}</strong>
           </div>
           <div className="header-actions">
-            <span className={`connection ${connected ? '' : 'offline'}`}>
+            <TimeZoneToggle />
+            <span className={`connection ${connected || connecting ? '' : 'offline'}`}>
               <span className="status-dot" />
-              {connected ? 'API kết nối' : 'Preview offline'}
+              {connected
+                ? 'API kết nối'
+                : connecting
+                  ? 'Đang kết nối…'
+                  : 'Mất kết nối · dữ liệu xem trước'}
             </span>
             <span className="pill amber">PAPER MODE</span>
             <button
@@ -440,27 +452,13 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               />
             ))}
           {page === 'Cài đặt & Kết nối' && (
-            <>
-              <ConnectionsPage snapshot={snapshot} connected={connected} onRefresh={refresh} />
-              <section className="panel prose">
-                <h2>Worker & dữ liệu nến</h2>
-                <p>
-                  API: {connected ? 'Kết nối' : 'Mất kết nối'} · Worker:{' '}
-                  {connected && snapshot.bot.online ? 'Có heartbeat' : 'Chưa xác minh heartbeat'}
-                </p>
-                <p>
-                  Nến đóng gần nhất:{' '}
-                  {snapshot.market.last_closed_time
-                    ? new Date(snapshot.market.last_closed_time * 1000).toLocaleString('vi-VN')
-                    : 'Chưa có dữ liệu'}
-                </p>
-                <p>
-                  WebSocket chart chạy khi mở Giao dịch & Bot. Worker Paper vẫn lấy REST khoảng 5
-                  giây/lần; đóng trình duyệt không dừng bot.
-                </p>
-              </section>
-              <ActivityPage snapshot={snapshot} />
-            </>
+            <ConnectionsPage
+              snapshot={snapshot}
+              connected={connected}
+              connecting={connecting}
+              board={board}
+              onRefresh={refresh}
+            />
           )}
           <footer>
             <span>

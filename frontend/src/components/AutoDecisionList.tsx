@@ -1,5 +1,7 @@
 import type { AutoDecision } from '../types/paper';
 import { tradeStrategy } from '../lib/futures-strategy-info';
+import { formatTime } from '../lib/time-format';
+import { timeZoneLabel } from '../lib/time-zone';
 
 const actions = { opened: 'Đã mở lệnh', skipped: 'Bỏ qua', no_setup: 'Chưa có setup' };
 export function AutoDecisionList({
@@ -22,7 +24,7 @@ export function AutoDecisionList({
           <table>
             <thead>
               <tr>
-                <th>Nến tín hiệu (UTC)</th>
+                <th>Nến tín hiệu ({timeZoneLabel()})</th>
                 <th>Kết quả</th>
                 <th>Cây chiến thuật</th>
                 <th>Lý do</th>
@@ -32,12 +34,7 @@ export function AutoDecisionList({
             <tbody>
               {decisions.map((decision) => (
                 <tr key={decision.candle_time}>
-                  <td>
-                    {new Date(decision.candle_time * 1000)
-                      .toISOString()
-                      .slice(0, 16)
-                      .replace('T', ' ')}
-                  </td>
+                  <td>{formatTime(decision.candle_time, false, false)}</td>
                   <td>
                     <span className={`pill ${decision.action === 'opened' ? 'green' : ''}`}>
                       {actions[decision.action]}

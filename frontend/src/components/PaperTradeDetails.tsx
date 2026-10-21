@@ -1,6 +1,7 @@
 import type { PaperTrade } from '../types/paper';
 import { formatPrice } from '../lib/format';
 import { exitLabel, tradeStrategy } from '../lib/futures-strategy-info';
+import { formatTime } from '../lib/time-format';
 
 export const exitLabels: Record<string, string> = {
   manual: 'Đóng thủ công',
@@ -13,8 +14,7 @@ export const exitLabels: Record<string, string> = {
   recovered_stop_loss: 'SL lịch sử (đối soát)',
   recovered_take_profit: 'TP lịch sử (đối soát)',
 };
-export const utcTime = (time: number) =>
-  new Date(time * 1000).toLocaleString('vi-VN', { timeZone: 'UTC' }) + ' UTC';
+export const utcTime = (time: number) => formatTime(time, true);
 
 export function PaperTradeDetails({ trade }: { trade: PaperTrade }) {
   const risk = Math.abs(trade.entry - trade.stop) * trade.quantity;
