@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { Zap } from 'lucide-react';
+import { ChevronRight, ReceiptText, Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice, formatQuote } from '../lib/format';
 import {
@@ -429,7 +429,7 @@ function PositionPnlDetails({ row }: { row: PositionRow }) {
     <>
       <button
         type="button"
-        className="text-button position-pnl-detail-button"
+        className="position-pnl-detail-button"
         popoverTarget={id}
         aria-haspopup="dialog"
         onClick={(event) => {
@@ -440,7 +440,9 @@ function PositionPnlDetails({ row }: { row: PositionRow }) {
           });
         }}
       >
+        <ReceiptText size={13} aria-hidden="true" />
         Chi tiết phí & lần chốt
+        <ChevronRight size={13} aria-hidden="true" />
       </button>
       <div
         id={id}
@@ -541,15 +543,15 @@ export function PositionsTable({
 }) {
   return (
     <div className="table-scroll">
-      <table className="positions-table">
+      <table className="positions-table open-positions-table">
         <thead>
           <tr>
             <th>Lệnh</th>
+            <th className="num">PnL · USDT</th>
             <th>Chiến thuật</th>
-            <th>Khối lượng</th>
             <th>Entry → Hiện tại</th>
-            <th>SL / TP</th>
-            <th>PnL vị thế · USDT</th>
+            <th>SL / TP · nếu khớp</th>
+            <th>Khối lượng</th>
             <th>Giữ</th>
             {actions && <th />}
           </tr>
@@ -559,13 +561,22 @@ export function PositionsTable({
             const { s, p, mark, feeBps } = row;
             const net = estimatedPaperPnl(p, mark, feeBps);
             const partial = tradePartialProgress(p);
-            const toSl = mark ? (Math.abs(mark - p.stop) / mark) * 100 : null;
-            const toTp = mark ? (Math.abs(p.target - mark) / mark) * 100 : null;
             const notional = p.entry * p.quantity;
             const lev = p.leverage ?? 1;
             const margin = notional / lev;
-            const stopPnl = estimatedPaperPnl(p, p.stop, feeBps, false);
             const unit = s.replace('_USDT', '');
+            // Signed price move from the current mark to each level, plus PnL of the open size there.
+            const levels = (
+              [
+                ['SL', p.stop],
+                ['TP', p.target],
+              ] as const
+            ).map(([label, price]) => ({
+              label,
+              price,
+              move: mark ? ((price - mark) / mark) * 100 : null,
+              pnl: estimatedPaperPnl(p, price, feeBps, false),
+            }));
             return (
               <tr key={`${s}${p.id}`}>
                 <td>
@@ -574,19 +585,62 @@ export function PositionsTable({
                   </button>
                   <span className={`side-tag ${p.side}`}>{p.side.toUpperCase()}</span>
                   <small className="trade-origin">
-                    {p.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
+                    {p.origin === 'auto' ? 'Auto' : 'Thủ công'} · {fmtTime(p.entry_time)}
                   </small>
+                </td>
+                <td className="num position-pnl-cell">
+                  <strong className={`position-pnl-main ${net === null ? '' : sign(net)}`}>
+                    {net === null ? '—' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
+                  </strong>
+                  <small>
+                    Còn mở
+                    {net !== null && margin > 0
+                      ? ` · ${((net / margin) * 100).toFixed(1)}% ký quỹ`
+                      : ''}
+                  </small>
+                  {partial && (
+                    <small>
+                      Đã chốt{' '}
+                      <b className={sign(partial.realizedNet)}>
+                        {partial.realizedNet > 0 ? '+' : ''}
+                        {formatPrice(partial.realizedNet)}
+                      </b>
+                    </small>
+                  )}
+                  <PositionPnlDetails row={row} />
                 </td>
                 <td>
                   <StrategyCell trade={p} />
                 </td>
+                <td>
+                  {formatQuote(p.entry)} → {mark ? formatQuote(mark) : '—'}
+                  <small>
+                    {mark
+                      ? `giá ${mark >= p.entry ? '+' : ''}${(((mark - p.entry) / p.entry) * 100).toFixed(2)}% từ entry`
+                      : 'Chưa có fair price'}
+                  </small>
+                </td>
+                <td className="position-levels">
+                  {levels.map(({ label, price, move, pnl }) => (
+                    <div key={label} className="position-level">
+                      <span className={`position-level-tag ${label.toLowerCase()}`}>{label}</span>
+                      <span>{formatQuote(price)}</span>
+                      <small title="Giá phải đi bao nhiêu % từ fair price hiện tại để chạm mức này">
+                        {move === null ? '—' : `giá ${move > 0 ? '+' : ''}${move.toFixed(2)}%`}
+                      </small>
+                      <b
+                        className={pnl === null || pnl === 0 ? undefined : sign(pnl)}
+                        title="PnL phần còn mở nếu khớp đúng mức này · chưa trừ phí, funding, trượt giá"
+                      >
+                        {pnl === null ? '—' : `${pnl > 0 ? '+' : ''}${formatPrice(pnl)}`}
+                      </b>
+                    </div>
+                  ))}
+                </td>
                 <td
                   title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatQuote(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
                 >
-                  <strong>
-                    {p.quantity.toLocaleString('en-US')} {unit}
-                  </strong>{' '}
-                  đang giữ
+                  {p.quantity.toLocaleString('en-US')} {unit}
                   <small>
                     {formatPrice(margin)} × {lev}x · {p.contracts} hợp đồng · Cross
                   </small>
@@ -612,43 +666,6 @@ export function PositionsTable({
                   ) : (
                     <small>Chưa chốt phần</small>
                   )}
-                  <small className={stopPnl === null || stopPnl === 0 ? undefined : sign(stopPnl)}>
-                    Nếu khớp tại SL:{' '}
-                    {stopPnl === null ? '—' : `${stopPnl > 0 ? '+' : ''}${formatPrice(stopPnl)}`}{' '}
-                    USDT
-                  </small>
-                  <small title="Chỉ tính phần còn giữ, không cộng tiền đã chốt. Chưa trừ phí, funding và trượt giá khi khớp SL.">
-                    Phần còn mở · trước phí/funding
-                  </small>
-                </td>
-                <td>
-                  {formatQuote(p.entry)} → {mark ? formatQuote(mark) : '—'}
-                  <small>{formatTime(p.entry_time)}</small>
-                </td>
-                <td>
-                  <span className={stopPnl === null || stopPnl === 0 ? undefined : sign(stopPnl)}>
-                    {formatQuote(p.stop)} {toSl !== null && `(${toSl.toFixed(2)}%)`}
-                  </span>
-                  <small className="positive">
-                    {formatQuote(p.target)} {toTp !== null && `(${toTp.toFixed(2)}%)`}
-                  </small>
-                </td>
-                <td className="position-pnl-cell">
-                  <div className="position-pnl-row">
-                    <span>Còn mở</span>
-                    <strong className={net === null ? undefined : sign(net)}>
-                      {net === null ? '—' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
-                    </strong>
-                  </div>
-                  <div className="position-pnl-row">
-                    <span>Đã chốt</span>
-                    <strong className={partial ? sign(partial.realizedNet) : undefined}>
-                      {partial
-                        ? `${partial.realizedNet > 0 ? '+' : ''}${formatPrice(partial.realizedNet)}`
-                        : '—'}
-                    </strong>
-                  </div>
-                  <PositionPnlDetails row={row} />
                 </td>
                 <td>{hold(p.entry_time)}</td>
                 {actions && <td className="row-actions">{actions(row)}</td>}

@@ -318,11 +318,12 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
 function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   useTimeZone();
   const [symbol, setSymbol] = useState(getFuturesSymbol);
-  const [chartTrade, setChartTrade] = useState<number | null>(null);
+  // A fresh object per click, so re-selecting the same trade still reopens its drawer.
+  const [chartTrade, setChartTrade] = useState<{ id: number } | null>(null);
   const selectSymbol = (next: FuturesSymbol, tradeId: number | null = null) => {
     setFuturesSymbol(next);
     setSymbol(next);
-    setChartTrade(tradeId);
+    setChartTrade(tradeId === null ? null : { id: tradeId });
   };
   const [route] = useRoute();
   const page = route.page;

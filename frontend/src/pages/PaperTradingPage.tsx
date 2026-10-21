@@ -50,7 +50,7 @@ export function PaperTradingPage({
 }: {
   board: Board;
   onSelect: (s: FuturesSymbol, tradeId?: number | null) => void;
-  chartTrade: number | null;
+  chartTrade: { id: number } | null;
 }) {
   const symbol = getFuturesSymbol();
   const base = symbol.split('_')[0];
@@ -102,7 +102,7 @@ export function PaperTradingPage({
     return () => window.removeEventListener('keydown', onKey);
   }, [detailOpen]);
   useEffect(() => {
-    if (chartTrade !== null) viewTrade(chartTrade);
+    if (chartTrade) viewTrade(chartTrade.id);
   }, [chartTrade]);
   // Reuse a command ID after an ambiguous timeout; the API returns its original result.
   const pending = useRef<{ key: string; id: string } | null>(null);
