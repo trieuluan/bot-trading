@@ -2,7 +2,11 @@ import { useEffect, useId, useState } from 'react';
 import { Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice, formatQuote } from '../lib/format';
-import { estimatedPaperPnl, summarizePaperTrades } from '../lib/paper-position';
+import {
+  estimatedPaperPnl,
+  summarizePaperTrades,
+  tradePartialProgress,
+} from '../lib/paper-position';
 import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
 import {
@@ -435,7 +439,7 @@ export function PositionsTable({
             <th>Khối lượng</th>
             <th>Entry → Hiện tại</th>
             <th>SL / TP</th>
-            <th>PnL (sau phí)</th>
+            <th>PnL phần còn mở</th>
             <th>Giữ</th>
             {actions && <th />}
           </tr>
@@ -444,6 +448,7 @@ export function PositionsTable({
           {rows.map((row) => {
             const { s, p, mark, feeBps } = row;
             const net = estimatedPaperPnl(p, mark, feeBps);
+            const partial = tradePartialProgress(p);
             const gross = estimatedPaperPnl(p, mark, feeBps, false);
             const toSl = mark ? (Math.abs(mark - p.stop) / mark) * 100 : null;
             const toTp = mark ? (Math.abs(p.target - mark) / mark) * 100 : null;
@@ -488,9 +493,21 @@ export function PositionsTable({
                   <small className="positive">
                     {formatQuote(p.target)} {toTp !== null && `(${toTp.toFixed(2)}%)`}
                   </small>
+                  {partial && (
+                    <small
+                      className={sign(partial.realizedNet)}
+                      title={`${partial.count} lần chốt · ${partial.closedQuantity} / ${partial.originalQuantity} ${unit} ban đầu. PnL đã trừ phí mở phân bổ và phí chốt, chưa trừ funding.`}
+                    >
+                      Đã chốt TP · {partial.closedPercent}% · {partial.realizedNet > 0 ? '+' : ''}
+                      {formatPrice(partial.realizedNet)} USDT
+                      <br />
+                      Còn {partial.remainingPercent}% · Sau phí, chưa funding
+                    </small>
+                  )}
                 </td>
                 <td className={net === null ? undefined : sign(net)}>
                   <strong>{net === null ? '—' : formatPrice(net)}</strong>
+                  <small>Thả nổi · sau phí & funding đã ghi nhận</small>
                   <small>
                     Gộp {gross === null ? '—' : formatPrice(gross)} · Phí {formatPrice(p.entry_fee)}
                   </small>

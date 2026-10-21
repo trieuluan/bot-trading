@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -139,6 +140,51 @@ def test_stale_quote_waits_then_expired_signal_is_skipped(ready):
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "skipped"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
 
+
+def test_quote_expiring_during_selection_waits_and_retries_without_disabling(ready, monkeypatch):
+    from backend.app import auto_paper
+
+    clock, seed = ready
+    last = seed()
+    select_setup = auto_paper.select_for_auto
+
+    def slow_selection(*args):
+        result = select_setup(*args)
+        clock[0] += 31
+        return result
+
+    monkeypatch.setattr(auto_paper, "select_for_auto", slow_selection)
+    auto_tick()
+    with Session.begin() as session:
+        state = session.get(AutoPaperState, 1)
+        assert state.enabled
+        assert "Giá MEXC đã chậm" in state.status
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
+        wallet = session.get(PaperWallet, 1)
+        assert wallet.balance == 10000
+        wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
+    monkeypatch.setattr(auto_paper, "select_for_auto", select_setup)
+    auto_tick()
+    auto_tick()
+    with Session() as session:
+        assert session.get(AutoPaperState, 1).enabled
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
+
+@pytest.mark.parametrize("failure", [ValueError("unexpected failure"), HTTPException(503, "unavailable")])
+def test_unexpected_entry_failures_still_reach_worker(ready, monkeypatch, failure):
+    from backend.app import auto_paper
+
+    _, seed = ready
+    seed()
+
+    def fail(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(auto_paper, "execution_price", fail)
+    with pytest.raises(type(failure)):
+        auto_tick()
 
 def test_no_setup_and_gap_beyond_target_never_create_trades(ready):
     clock, seed = ready
@@ -345,7 +391,7 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
 def test_auto_enters_same_strategy_repeatedly_without_cap(ready):
     clock, seed = ready
     for i in range(4):
-        last = seed("long")
+        seed("long")
         auto_tick()
         clock[0] += 900
     with Session() as session:

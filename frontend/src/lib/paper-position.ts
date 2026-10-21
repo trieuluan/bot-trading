@@ -41,3 +41,36 @@ export function estimatedPaperPnl(
     ? gross - trade.entry_fee - trade.funding_cost - (price * trade.quantity * feeBps) / 10000
     : gross;
 }
+
+export function tradePartialProgress(trade: PaperTrade) {
+  const exits = trade.monitoring?.partial_exits ?? [];
+  if (
+    !exits.length ||
+    !exits.every(
+      (leg) =>
+        [leg.quantity, leg.gross, leg.entry_fee, leg.exit_fee].every(Number.isFinite) &&
+        leg.quantity > 0,
+    )
+  )
+    return null;
+  const closedQuantity = exits.reduce((sum, leg) => sum + leg.quantity, 0);
+  const originalQuantity =
+    trade.monitoring?.original_quantity && trade.monitoring.original_quantity > 0
+      ? trade.monitoring.original_quantity
+      : trade.quantity + closedQuantity;
+  if (!Number.isFinite(originalQuantity) || originalQuantity <= 0) return null;
+  const closedPercent = Math.max(
+    0,
+    Math.min(100, Math.round((closedQuantity / originalQuantity) * 1000) / 10),
+  );
+  const remainingPercent = Math.round((100 - closedPercent) * 10) / 10;
+  const realizedNet = exits.reduce((sum, leg) => sum + leg.gross - leg.entry_fee - leg.exit_fee, 0);
+  return {
+    closedQuantity,
+    originalQuantity,
+    closedPercent,
+    remainingPercent,
+    realizedNet,
+    count: exits.length,
+  };
+}

@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from .db import AutoPaperDecision, AutoPaperState, BotState, Event, MarketState, PaperTrade, Session
-from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import load_candles, save_market_signal
 from .futures_learner import read_state, select_for_auto
+from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .notifications import notify_blocked, notify_open
 from .paper import (
@@ -155,6 +155,18 @@ def baseline_auto_on_startup():
 
 
 def auto_tick(now=None):
+    try:
+        _auto_tick(now)
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        with Session.begin() as session:
+            lock_wallet(session)
+            state = session.get(AutoPaperState, state_id())
+            if state and state.enabled:
+                set_status(session, state, exc.detail)
+
+def _auto_tick(now=None):
     now = time.time() if now is None else now
     with Session.begin() as session:
         wallet = lock_wallet(session)
