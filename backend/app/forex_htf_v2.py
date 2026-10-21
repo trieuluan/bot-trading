@@ -199,6 +199,28 @@ def describe(tree):
     return f"H4 EMA50 ({side}) + H1 {h1_name} + M15 {m15_name} + {exit_map.get(exit_policy, exit_policy)}"
 
 
+SETUP_NAMES = {"channel_breakout": "Phá kênh", "squeeze": "Nén biên độ", "retest": "Retest", "sweep": "Quét thanh khoản",
+               "pullback": "Pullback EMA", "fvg": "FVG", "mss": "Đổi cấu trúc (MSS)"}
+TRIGGER_NAMES = {"channel": "Phá kênh", "rsi": "RSI", "fvg": "FVG", "session": "Phiên", "squeeze": "Nén", "sweep": "Quét",
+                 "pullback": "Pullback", "range": "Biên", "retest": "Retest", "router": "Router", "orb": "ORB",
+                 "vsa": "VSA", "mss": "MSS", "vwap": "VWAP"}
+POLICY_NAMES = {"partial_be_h1": "Chốt 1 phần · BE H1", "partial_be_m15": "Chốt 1 phần · BE M15",
+                "fixed_structural": "Cấu trúc thuần", "evidence_h1": "Thoát theo nến H1", "evidence_m15": "Thoát theo nến M15",
+                "barrier_partial_h1": "Chốt tại cản H1", "runner_h1": "Giữ runner H1", "ladder_h1": "Chốt từng nấc"}
+
+def tree_label(tree, generation=0):
+    """Tên đọc được cho UI; id chỉ là hậu tố tra cứu. Tham số khác mặc định được nêu để cây con không trùng tên."""
+    c = tree["root"]["children"]
+    h1, m15, policy = c[1]["family"], c[2]["family"], c[3]["policy"]
+    changed = [f"{k} {v}" for k, v in c[1].get("params", {}).items() if v != default_h1_params(h1).get(k)]
+    changed += [f"{k} {v}" for k, v in c[2].get("params", {}).items() if v != M15_DEFAULTS[m15].get(k)]
+    changed += [f"{k} {v}" for k, v in (c[3].get("params") or {}).items() if v != EXIT_DEFAULTS.get(policy, {}).get(k)]
+    title = f"{'Mua' if c[0]['side'] == 'long' else 'Bán'} · H1 {SETUP_NAMES[h1]} → M15 {TRIGGER_NAMES[m15]}"
+    policy_name = POLICY_NAMES.get(policy, policy)
+    return {"title": title, "policy": policy_name, "params": ", ".join(changed), "generation": generation,
+            "short": tree_id(tree).removeprefix("hast2_")[:4],
+            "full": f"{title} · {policy_name}" + (f" · {', '.join(changed)}" if changed else "") + f" · G{generation} #{tree_id(tree)[6:10]}"}
+
 def default_h1_params(family):
     return {"channel_breakout": {"lookback": 20}, "squeeze": {"lookback": 40, "bars": 10, "ratio": 3.0},
             "fvg": {"min_gap": 0.1}, "pullback": {"entry_ema": 20, "fast_ema": 20},
@@ -754,7 +776,7 @@ def _htf_ast2_summary(account, symbol="XAUUSD"):
         c = tree["root"]["children"]
         stats = parent_stats(samples, now, version, max(ledger.get("since", 0), members.get(tid, {}).get("born_at", 0)))
         rows.append({
-            "id": tid, "description": describe(tree), "signals": len(samples),
+            "id": tid, "description": describe(tree), "label": tree_label(tree, members.get(tid, {}).get("generation", 0)), "signals": len(samples),
             "generation": members.get(tid, {}).get("generation", 0), "parents": members.get(tid, {}).get("parents", []),
             "fitness": stats, "eligible": stats["eligible"],
             "h1_setup": c[1]["family"], "m15_trigger": c[2]["family"], "exit_policy": c[3]["policy"],

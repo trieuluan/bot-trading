@@ -862,6 +862,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                 mgmt = leg_info.get("management", {})
                 position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
                     signal_time=intent.signal_time, reason=data.get("reason"),
+                    strategy=data.get("signal", {}).get("strategy"),
                     role=leg_info.get("role", "runner"),
                     exit_variant=data.get("signal", {}).get("exit_variant"),
                     exit_variant_mode=data.get("signal", {}).get("exit_variant_mode"),

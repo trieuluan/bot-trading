@@ -1,3 +1,4 @@
+import type { TreeLabel } from '../lib/forex-tree-label';
 export interface BrokerPosition {
   position_id: string;
   side: 'buy' | 'sell' | null;
@@ -11,6 +12,7 @@ export interface BrokerPosition {
   status: string;
   source: string;
   signal_time?: number;
+  strategy?: string;
   reason?: string;
   tp_reason?: string;
   exit_variant?: string;
@@ -128,6 +130,7 @@ export interface ExnessExecution {
       trees: {
         id: string;
         description: string;
+        label?: TreeLabel;
         h1_setup: string;
         m15_trigger: string;
         exit_policy: string;
@@ -305,6 +308,40 @@ export interface LearnerAnalysis {
       reason?: string | null;
       stop?: number | null;
       level?: number | null;
+      zone?: {
+        side: 'long' | 'short';
+        family: string;
+        level: number;
+        invalidation: number;
+        stop: number;
+        target?: number | null;
+        target_reason?: string | null;
+        entry?: number | null;
+        setup_time: number;
+        from: number;
+        to: number;
+        trigger_at?: number | null;
+        source?: string;
+      } | null;
+      captured_zone?: {
+        side: 'long' | 'short';
+        family: string;
+        level: number;
+        invalidation: number;
+        stop: number;
+        target?: number | null;
+        target_reason?: string | null;
+        entry?: number | null;
+        setup_time: number;
+        from: number;
+        to: number;
+        trigger_at?: number | null;
+        source?: string;
+        sample_status?: string;
+      } | null;
+      description?: string;
+      generation?: number;
+      label?: TreeLabel;
       chart?: {
         levels: { label: string; price: number; from: number; to: number }[];
         oscillator: {

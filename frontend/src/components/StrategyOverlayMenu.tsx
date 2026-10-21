@@ -1,18 +1,31 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Layers, Search, X } from 'lucide-react';
-import type { LearnerAnalysis } from '../types/exness-execution';
+import { Layers, Search, X, Sparkles } from 'lucide-react';
+import { treeLabel } from '../lib/forex-tree-label';
+import type { ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 export const CONTEXT_STRATEGY_KEY = '__context__';
+
+type Tree2 = NonNullable<
+  NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']
+>['trees'][number];
 
 interface StrategyOverlayMenuProps {
   analysis: LearnerAnalysis | null;
   selected: string[];
   onChange: (selected: string[]) => void;
+  holding?: string[];
+  trees?: Tree2[];
 }
 
-type TabType = 'all' | 'built_in' | 'generated' | 'active';
+type TabType = 'all' | 'holding' | 'confirmed' | 'live' | 'active';
 
-export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOverlayMenuProps) {
+export function StrategyOverlayMenu({
+  analysis,
+  selected,
+  onChange,
+  holding = [],
+  trees = [],
+}: StrategyOverlayMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<TabType>('all');
@@ -20,14 +33,10 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setOpen(false);
     }
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setOpen(false);
-      }
+      if (event.key === 'Escape') setOpen(false);
     }
     if (open) {
       document.addEventListener('mousedown', handleClickOutside);
@@ -40,35 +49,65 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
   }, [open]);
 
   const strategies = analysis?.strategies ?? {};
-  const builtInNames = useMemo(
-    () => Object.keys(strategies).filter((name) => !name.startsWith('gen_')),
-    [strategies],
-  );
-  const genNames = useMemo(
-    () => Object.keys(strategies).filter((name) => name.startsWith('gen_')),
-    [strategies],
-  );
+  const allNames = Object.keys(strategies);
 
-  const toggle = (name: string) => {
-    if (selected.includes(name)) {
-      onChange(selected.filter((item) => item !== name));
-    } else {
-      onChange([...selected, name]);
+  // Thứ tự ưu tiên: 0 = Đang giữ vị thế broker, 1 = Đã kích hoạt trigger M15, 2 = Đang có setup H1 còn hạn, 3 = Còn lại
+  const rank = (name: string) => {
+    if (holding.includes(name)) return 0;
+    const item = strategies[name];
+    if (item?.status === 'confirmed') return 1;
+    if (item?.zone || item?.captured_zone) return 2;
+    return 3;
+  };
+
+  const holdingCount = allNames.filter((n) => holding.includes(n)).length;
+  const confirmedCount = allNames.filter((n) => strategies[n]?.status === 'confirmed').length;
+  const liveCount = allNames.filter(
+    (n) => strategies[n]?.zone || strategies[n]?.captured_zone,
+  ).length;
+
+  const toggle = (name: string) =>
+    onChange(
+      selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name],
+    );
+
+  const bestTree = useMemo(() => {
+    const withSamples = trees.filter((t) => (t.resolved ?? 0) >= 1 && t.mean_r != null);
+    if (!withSamples.length) return null;
+    return [...withSamples].sort((a, b) => (b.mean_r ?? 0) - (a.mean_r ?? 0))[0];
+  }, [trees]);
+
+  const selectBest = () => {
+    if (!bestTree) return;
+    if (!selected.includes(bestTree.id)) {
+      onChange([...selected, bestTree.id]);
     }
   };
 
-  const clearAll = () => {
-    onChange([]);
-  };
-
   const q = query.trim().toLowerCase();
-
-  const filterList = (list: string[]) => {
-    if (!q) return list;
-    return list.filter((name) => name.toLowerCase().includes(q));
+  const visible = (name: string) => {
+    const item = strategies[name];
+    if (tab === 'holding' && !holding.includes(name)) return false;
+    if (tab === 'confirmed' && item?.status !== 'confirmed') return false;
+    if (tab === 'live' && !item?.zone && !item?.captured_zone) return false;
+    if (tab === 'active' && !selected.includes(name)) return false;
+    if (!q) return true;
+    return `${name} ${treeLabel(item, name).full} ${item?.description ?? ''}`
+      .toLowerCase()
+      .includes(q);
   };
+
+  const sortedNames = useMemo(
+    () => [...allNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [strategies, holding],
+  );
+
+  const pinnedNames = sortedNames.filter((name) => rank(name) <= 1);
+  const remainingNames = sortedNames.filter((name) => rank(name) > 1);
 
   const activeCount = selected.length;
+  const hasLiveAlert = holdingCount > 0 || confirmedCount > 0;
 
   return (
     <div className="strategy-menu-wrapper" ref={wrapperRef}>
@@ -78,7 +117,7 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="Chọn chiến thuật để vẽ phân tích lên chart (mặc định không vẽ)"
+        title="Chọn cây V2 để vẽ vùng setup H1, mức vô hiệu và SL lên chart (cây đang giữ lệnh tự vẽ)"
       >
         <Layers size={13} className="menu-icon" />
         <span>Chiến thuật</span>
@@ -87,34 +126,47 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
         ) : (
           <span className="strategy-badge-off">Tắt</span>
         )}
+        {hasLiveAlert && (
+          <span
+            className="menu-live-dot"
+            title={`${holdingCount} cây giữ lệnh · ${confirmedCount} cây có tín hiệu`}
+          />
+        )}
       </button>
 
       {open && (
         <div
           className="strategy-popover-dropdown"
           role="dialog"
-          aria-label="Lựa chọn chiến thuật hiển thị trên chart"
+          aria-label="Lựa chọn cây V2 hiển thị trên chart"
         >
           <div className="strategy-popover-header">
             <div className="popover-title-row">
               <span className="popover-title">Lớp chiến thuật trên chart</span>
-              {activeCount > 0 && (
-                <button
-                  type="button"
-                  className="popover-clear-btn"
-                  onClick={clearAll}
-                  title="Tắt tất cả các lớp chiến thuật đang vẽ"
-                >
-                  Bỏ chọn tất cả ({activeCount})
-                </button>
-              )}
+              <div className="popover-actions">
+                {bestTree && (
+                  <button
+                    type="button"
+                    className="popover-btn-best"
+                    onClick={selectBest}
+                    title={`Chọn cây có R cao nhất: ${treeLabel(strategies[bestTree.id], bestTree.id).title} (+${bestTree.mean_r?.toFixed(2)}R)`}
+                  >
+                    <Sparkles size={11} /> Cây R tốt nhất
+                  </button>
+                )}
+                {activeCount > 0 && (
+                  <button type="button" className="popover-clear-btn" onClick={() => onChange([])}>
+                    Bỏ chọn ({activeCount})
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="strategy-search-bar">
               <Search size={13} className="search-icon" />
               <input
                 type="text"
-                placeholder="Tìm chiến thuật..."
+                placeholder="Tìm theo setup H1, trigger M15, exit…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 autoFocus
@@ -127,42 +179,35 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
             </div>
 
             <div className="strategy-filter-tabs">
-              <button
-                type="button"
-                className={tab === 'all' ? 'active' : ''}
-                onClick={() => setTab('all')}
-              >
-                Tất cả ({1 + builtInNames.length + genNames.length})
-              </button>
-              <button
-                type="button"
-                className={tab === 'built_in' ? 'active' : ''}
-                onClick={() => setTab('built_in')}
-              >
-                Có sẵn ({builtInNames.length})
-              </button>
-              <button
-                type="button"
-                className={tab === 'generated' ? 'active' : ''}
-                onClick={() => setTab('generated')}
-              >
-                Bot sinh ({genNames.length})
-              </button>
-              <button
-                type="button"
-                className={tab === 'active' ? 'active' : ''}
-                onClick={() => setTab('active')}
-              >
-                Đang vẽ ({activeCount})
-              </button>
+              {(
+                [
+                  ['all', `Tất cả (${allNames.length})`],
+                  ...(holdingCount > 0
+                    ? ([['holding', `Giữ lệnh (${holdingCount})`]] as const)
+                    : []),
+                  ...(confirmedCount > 0
+                    ? ([['confirmed', `Có tín hiệu (${confirmedCount})`]] as const)
+                    : []),
+                  ['live', `Có setup (${liveCount})`],
+                  ['active', `Đang vẽ (${activeCount})`],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  type="button"
+                  key={key}
+                  className={tab === key ? 'active' : ''}
+                  onClick={() => setTab(key as TabType)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
           <div className="strategy-popover-body">
-            {/* Context technical levels (Donchian / EMA / Barriers) */}
-            {(tab === 'all' ||
-              tab === 'built_in' ||
-              (tab === 'active' && selected.includes(CONTEXT_STRATEGY_KEY))) &&
+            {tab !== 'live' &&
+              tab !== 'holding' &&
+              tab !== 'confirmed' &&
               (!q || 'donchian ema20 can h1 h4 tham chieu'.includes(q)) && (
                 <div className="strategy-group">
                   <div className="group-heading">Mức kỹ thuật chung</div>
@@ -173,118 +218,30 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
                       onChange={() => toggle(CONTEXT_STRATEGY_KEY)}
                     />
                     <div className="strategy-item-meta">
-                      <div className="strategy-item-name">Donchian20 · EMA20 · Cản H1/H4</div>
-                      <div className="strategy-item-sub">Khung tham chiếu kỹ thuật của bot</div>
+                      <div className="strategy-item-name">EMA20 M15 · Cản H1/H4</div>
+                      <div className="strategy-item-sub">Cản tham chiếu cho TP cấu trúc</div>
                     </div>
                   </label>
                 </div>
               )}
 
-            {/* Built-in strategies */}
-            {(tab === 'all' || tab === 'built_in' || tab === 'active') && (
-              <div className="strategy-group">
-                <div className="group-heading">
-                  Chiến thuật có sẵn ({filterList(builtInNames).length})
+            {/* Mục ghim lên đầu: Cây đang giữ lệnh hoặc có tín hiệu kích hoạt */}
+            {pinnedNames.filter(visible).length > 0 && (
+              <div className="strategy-group strategy-group-pinned">
+                <div className="group-heading pinned-heading">
+                  Ưu tiên: Đang giữ lệnh & Có tín hiệu ({pinnedNames.filter(visible).length})
                 </div>
-                {filterList(
-                  tab === 'active'
-                    ? builtInNames.filter((n) => selected.includes(n))
-                    : builtInNames,
-                ).map((name) => {
-                  const item = strategies[name];
-                  const isChecked = selected.includes(name);
-                  return (
-                    <label
-                      key={name}
-                      className={`strategy-item-row ${isChecked ? 'is-selected' : ''}`}
-                    >
-                      <input type="checkbox" checked={isChecked} onChange={() => toggle(name)} />
-                      <div className="strategy-item-meta">
-                        <div className="strategy-item-title-line">
-                          <span className="strategy-item-name">{name}</span>
-                          {item?.chart && (
-                            <span className="strategy-chart-indicator">
-                              {item.chart.levels.length > 0 && `${item.chart.levels.length} mức`}
-                              {item.chart.oscillator && 'RSI'}
-                              {!item.chart.levels.length && !item.chart.oscillator && (
-                                <em title={item.chart.note ?? undefined}>Chưa có vùng</em>
-                              )}
-                            </span>
-                          )}
-                          {item && (
-                            <span className={`status-pill-sub status-${item.status}`}>
-                              {item.status}
-                            </span>
-                          )}
-                        </div>
-                        {item?.chart?.note &&
-                          !item.chart.levels.length &&
-                          !item.chart.oscillator && (
-                            <div className="strategy-chart-note">{item.chart.note}</div>
-                          )}
-                        {item?.reason && (
-                          <div className="strategy-item-reason" title={item.reason}>
-                            {item.side ? `[${item.side.toUpperCase()}] ` : ''}
-                            {item.reason}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+                {pinnedNames.filter(visible).map((name) => renderRow(name))}
               </div>
             )}
 
-            {/* Generated strategies */}
-            {(tab === 'all' || tab === 'generated' || tab === 'active') && (
+            {/* Các cây còn lại */}
+            {remainingNames.filter(visible).length > 0 && (
               <div className="strategy-group">
                 <div className="group-heading">
-                  Chiến thuật bot sinh ra ({filterList(genNames).length})
+                  Các cây khác ({remainingNames.filter(visible).length})
                 </div>
-                {filterList(
-                  tab === 'active' ? genNames.filter((n) => selected.includes(n)) : genNames,
-                ).map((name) => {
-                  const item = strategies[name];
-                  const isChecked = selected.includes(name);
-                  return (
-                    <label
-                      key={name}
-                      className={`strategy-item-row ${isChecked ? 'is-selected' : ''}`}
-                    >
-                      <input type="checkbox" checked={isChecked} onChange={() => toggle(name)} />
-                      <div className="strategy-item-meta">
-                        <div className="strategy-item-title-line">
-                          <span className="strategy-item-name code-font">{name}</span>
-                          {item?.chart && (
-                            <span className="strategy-chart-indicator">
-                              {item.chart.levels.length > 0 && `${item.chart.levels.length} mức`}
-                              {item.chart.oscillator && 'RSI'}
-                              {!item.chart.levels.length && !item.chart.oscillator && (
-                                <em title={item.chart.note ?? undefined}>Chưa có vùng</em>
-                              )}
-                            </span>
-                          )}
-                          {item && (
-                            <span className={`status-pill-sub status-${item.status}`}>
-                              {item.status}
-                            </span>
-                          )}
-                        </div>
-                        {item?.chart?.note &&
-                          !item.chart.levels.length &&
-                          !item.chart.oscillator && (
-                            <div className="strategy-chart-note">{item.chart.note}</div>
-                          )}
-                        {item?.reason && (
-                          <div className="strategy-item-reason" title={item.reason}>
-                            {item.side ? `[${item.side.toUpperCase()}] ` : ''}
-                            {item.reason}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+                {remainingNames.filter(visible).map((name) => renderRow(name))}
               </div>
             )}
           </div>
@@ -292,12 +249,51 @@ export function StrategyOverlayMenu({ analysis, selected, onChange }: StrategyOv
           <div className="strategy-popover-footer">
             <span>
               {activeCount === 0
-                ? 'Không vẽ chiến thuật nào lên chart (mặc định)'
-                : `Đang vẽ ${activeCount} lớp phân tích trên chart`}
+                ? holdingCount > 0
+                  ? `Tự vẽ ${holdingCount} cây đang giữ lệnh · click để xem thêm cây khác`
+                  : 'Không vẽ lớp nào lên chart (mặc định)'
+                : `Đang vẽ ${activeCount} cây: vùng setup H1, mức vô hiệu, SL`}
             </span>
           </div>
         </div>
       )}
     </div>
   );
+
+  function renderRow(name: string) {
+    const item = strategies[name];
+    const label = treeLabel(item, name);
+    const isHolding = holding.includes(name);
+    const isConfirmed = item?.status === 'confirmed';
+    const zone = item?.captured_zone ?? item?.zone;
+    return (
+      <label
+        key={name}
+        className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''}`}
+      >
+        <input
+          type="checkbox"
+          checked={selected.includes(name) || isHolding}
+          disabled={isHolding}
+          onChange={() => toggle(name)}
+        />
+        <div className="strategy-item-meta">
+          <div className="strategy-item-title-line">
+            <span className="strategy-item-name" title={`${label.full}\n${name}`}>
+              {label.title}
+            </span>
+            {isHolding && <span className="status-pill-sub status-holding">ĐANG GIỮ LỆNH</span>}
+            {isConfirmed && <span className="status-pill-sub status-confirmed">TÍN HIỆU M15</span>}
+            {zone && !isHolding && !isConfirmed && (
+              <span className="strategy-chart-indicator">Vùng H1 {zone.side.toUpperCase()}</span>
+            )}
+          </div>
+          <div className="strategy-item-reason" title={item?.reason ?? undefined}>
+            {label.policy} · G{label.generation} · #{label.short}
+            {label.params && <span className="strategy-label-params">{label.params}</span>}
+          </div>
+        </div>
+      </label>
+    );
+  }
 }

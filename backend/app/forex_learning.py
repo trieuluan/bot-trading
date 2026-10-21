@@ -2,13 +2,20 @@
 
 import os
 import time
+from decimal import Decimal
 
 from fastapi import APIRouter
 
 from .db import Session
+from .exness import ExnessError
 from .exness_observation import load_frames
+from .exness_targets import target_context
+from .forex_detectors import H1_DETECTORS
 from .forex_htf_v2 import (
+    PROVENANCE,
     SCHEMA,
+    _closed_rows,
+    _h4_context,
     describe,
     diagnose,
     execution_candidates,
@@ -17,12 +24,45 @@ from .forex_htf_v2 import (
     qualified_trees,
     read_ledger,
     tree_id,
+    tree_label,
 )
 from .forex_indicators import ema
 from .forex_samples import context
 from .forex_symbols import configured_symbols, request_symbol
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/learning")
+
+def h1_setup_zone(tree, candle, hours, higher, symbol="XAUUSD"):
+    """Read-only setup preview using the evaluator's closed-bar guards and detectors."""
+    children = tree["root"]["children"]
+    side = _h4_context(candle, higher, symbol)
+    if side is None or side != children[0]["side"]:
+        return None
+    closed = _closed_rows(candle, hours, 3600, 50, symbol)[-60:]
+    setup = H1_DETECTORS[children[1]["family"]](closed, side, **children[1]["params"]) if closed else None
+    if not setup or candle.time - setup["setup_time"] > 14400:
+        return None
+    direction = Decimal(1) if side == "long" else Decimal(-1)
+    atr = Decimal(str(setup["atr"]))
+    stop = (Decimal(str(setup["invalidation"])) - direction * Decimal("0.25") * atr).quantize(Decimal("0.001"))
+    risk = direction * (Decimal(str(candle.close)) - stop)
+    if not Decimal("0.3") * atr <= risk <= Decimal("3.0") * atr or risk <= 0:
+        return None
+    return {"side": side, "family": children[1]["family"], "level": setup["level"],
+            "invalidation": setup["invalidation"], "stop": float(stop), "setup_time": setup["setup_time"],
+            "from": setup["confirmed_h1"] + 3600, "to": setup["setup_time"] + 14400 + 900,
+            "source": "preview"}
+
+def signal_chart_zone(tree, signal, source, as_of):
+    structure = signal["htf_structure"]
+    if signal["available_at"] > as_of:
+        return None
+    return {"side": signal["side"], "family": tree["root"]["children"][1]["family"],
+            "level": structure["level"], "invalidation": structure["invalidation"],
+            "stop": signal["stop"], "target": signal["target"], "target_reason": structure["target_reason"],
+            "entry": signal.get("ref_price"), "setup_time": structure["setup_time"],
+            "from": structure["confirmed_h1"] + 3600, "to": structure["setup_time"] + 14400 + 900,
+            "trigger_at": signal["available_at"], "source": source}
 
 
 def execution_status(account, now, symbol="XAUUSD"):
@@ -67,6 +107,8 @@ def current_analysis(now=None, symbol="XAUUSD"):
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     with Session() as session:
         frames = load_frames(session, now, symbol)
+    durations = {"15m": 900, "1h": 3600, "4h": 14400}
+    frames = {frame: [row for row in rows if row.time + durations[frame] <= now] for frame, rows in frames.items()}
     bids = {frame: sorted((row for row in rows if row.price_type == "bid"), key=lambda row: row.time)
             for frame, rows in frames.items()}
     minutes, hours, higher = bids["15m"], bids["1h"], bids["4h"]
@@ -80,10 +122,34 @@ def current_analysis(now=None, symbol="XAUUSD"):
         ledger = read_ledger(account, symbol)
     except (OSError, ValueError, KeyError, TypeError):
         return {"status": "unavailable", "reason": "Chờ worker chuyển sang G0 V2 mới"}
+    as_of = candle.time + 900
+    captured = {}
+    for sample in ledger.get("samples", []):
+        if (sample.get("provenance") == PROVENANCE and sample.get("recorded_at", now + 1) <= now
+                and sample["confirm_time"] + 900 <= as_of
+                and sample["confirm_time"] > captured.get(sample["strategy"], {}).get("confirm_time", -1)):
+            captured[sample["strategy"]] = sample
     strategies = {}
     for tree in ledger["population"]:
         signal, reason = diagnose(tree, candle, hours, minutes, higher, ask, symbol=symbol)
+        try:
+            zone = h1_setup_zone(tree, candle, hours, higher, symbol)
+        except (KeyError, TypeError, ValueError):
+            zone = None
+        sample = captured.get(tree_id(tree))
+        saved_zone = signal_chart_zone(tree, sample["signal"], "forward", as_of) if sample else None
+        if saved_zone:
+            saved_zone["sample_status"] = sample["status"]
+        if signal:
+            zone = signal_chart_zone(tree, signal, "analysis", as_of)
+        if zone and saved_zone and zone["setup_time"] == saved_zone["setup_time"]:
+            zone = None
         strategies[tree_id(tree)] = {
+            "zone": zone,
+            "captured_zone": saved_zone,
+            "description": describe(tree),
+            "generation": ledger.get("members", {}).get(tree_id(tree), {}).get("generation", 0),
+            "label": tree_label(tree, ledger.get("members", {}).get(tree_id(tree), {}).get("generation", 0)),
             "status": "confirmed" if signal else "rejected", "reason": reason or describe(tree),
             "side": signal["side"] if signal else None, "stop": signal["stop"] if signal else None,
             "level": signal["htf_structure"]["level"] if signal else None,
@@ -93,6 +159,11 @@ def current_analysis(now=None, symbol="XAUUSD"):
                       "as_of": candle.time + 900, "price_type": "bid"},
         }
     closed_hours = [row for row in hours if row.time + 3600 <= candle.time + 900]
+    closed_higher = _closed_rows(candle, higher, 14400, 50, symbol)
+    try:
+        barriers = target_context(candle, hours, higher)["barriers"] if closed_higher and _closed_rows(candle, hours, 3600, 50, symbol) else []
+    except ExnessError:
+        barriers = []
     candidates = execution_candidates(account, now, symbol) if execution_enabled() else []
     selected = candidates[0][0] if candidates else None
     return {"candle_time": candle.time, "available_at": candle.time + 900,
@@ -103,7 +174,8 @@ def current_analysis(now=None, symbol="XAUUSD"):
             "levels": {"m15_donchian": None, "m15_ema20": ema([row.close for row in minutes[-60:]], 20),
                        "h1_ema20": ema([row.close for row in closed_hours[-60:]], 20) if len(closed_hours) >= 20 else None,
                        "h1_ema50": ema([row.close for row in closed_hours[-60:]], 50) if len(closed_hours) >= 50 else None,
-                       "barriers": []}}
+                       "h4_ema50": ema([row.close for row in closed_higher[-60:]], 50) if closed_higher else None,
+                       "barriers": barriers}}
 
 
 @router.get("/analysis")

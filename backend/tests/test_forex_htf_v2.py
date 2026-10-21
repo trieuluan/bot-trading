@@ -70,6 +70,7 @@ def test_crossover_mutation_children_valid():
 
 def test_all_adaptive_exit_policies_validated_and_mutated():
     import random
+
     from backend.app.forex_exits import DEFAULTS
     rng = random.Random(42)
     tree = g0_trees()[0]
@@ -128,9 +129,11 @@ def test_evolution_keeps_56_and_is_rate_limited():
 
 
 def test_hast2_never_admitted_without_eligibility(monkeypatch):
-    from backend.app.forex_htf_v2 import validate_execution_signal
-    from backend.app.exness import ExnessError
     import pytest
+
+    from backend.app.exness import ExnessError
+    from backend.app.forex_htf_v2 import validate_execution_signal
+
     signal = {"strategy": "hast2_abc", "side": "long", "shadow_only": False, "verified_execution": True}
     with pytest.raises(ExnessError, match="v2_execution_disabled"):
         validate_execution_signal(signal, "31000117657")
@@ -163,8 +166,10 @@ def test_v2_signal_requires_shadow_and_valid_policy():
 
 
 def test_migration_archives_old_and_starts_clean_g0(tmp_path):
-    from backend.app.forex_migration import migrate_ledger, MIGRATION_ID
-    import hashlib, json
+    import hashlib
+    import json
+
+    from backend.app.forex_migration import MIGRATION_ID, migrate_ledger
 
     ledger_path = tmp_path / "exness-htf-ast2-shadow.json"
     (tmp_path / "exness-learning.json").write_text(json.dumps({"old": "learner"}))
@@ -193,9 +198,11 @@ def test_migration_archives_old_and_starts_clean_g0(tmp_path):
 
 
 def test_v2_execution_validation_blocks_when_disabled(monkeypatch, tmp_path):
-    from backend.app.forex_htf_v2 import validate_execution_signal
-    from backend.app.exness import ExnessError
     import pytest
+
+    from backend.app.exness import ExnessError
+    from backend.app.forex_htf_v2 import validate_execution_signal
+
 
     account = "acc_demo_test"
     monkeypatch.setattr(mod, "LEDGER", tmp_path / "x.json")
@@ -225,6 +232,7 @@ def test_v2_execution_validation_blocks_when_disabled(monkeypatch, tmp_path):
 
 def test_every_exit_policy_has_traits_and_is_reachable_by_mutation():
     import random
+
     from backend.app.forex_htf_v2 import EXIT_TRAITS
     assert set(EXIT_TRAITS) == set(EXIT_POLICIES)
     rng, seen = random.Random(3), set()
@@ -241,3 +249,34 @@ def test_entry_ranking_needs_no_sample_gate():
     ranked = mod.qualified_trees(ledger, 10**9)
     assert len(ranked) == 56
     assert ranked[0][1]["eligible"] is True and ranked[0][0] == tree_id(trees[1])
+
+def test_h1_setup_zone_for_chart(monkeypatch):
+    from backend.app import forex_learning as learning
+    tree = next(t for t in g0_trees() if t["root"]["children"][1]["family"] == "sweep")
+    side = tree["root"]["children"][0]["side"]
+    bars = [bar(i * 3600, high=102, low=98) for i in range(30)]
+    bars[-1] = (bar(29 * 3600, close=101.0, open=102.0, high=104.0, low=100.5) if side == "short"
+                else bar(29 * 3600, close=99.0, open=98.5, high=99.5, low=96.0))
+    candle = SimpleNamespace(time=30 * 3600 + 900, close=100.0)
+    monkeypatch.setattr(learning, "_h4_context", lambda *a: side)
+    monkeypatch.setattr(learning, "_closed_rows", lambda *a: bars)
+    zone = learning.h1_setup_zone(tree, candle, bars, [])
+    assert zone is None or (zone["side"] == side and zone["to"] - zone["setup_time"] == 14400 + 900)
+    monkeypatch.setattr(learning, "_h4_context", lambda *a: None)
+    assert learning.h1_setup_zone(tree, candle, bars, []) is None
+    candle.time = 29 * 3600 + 14400 + 3600
+    monkeypatch.setattr(learning, "_h4_context", lambda *a: side)
+    assert learning.h1_setup_zone(tree, candle, bars, []) is None
+
+
+def test_tree_labels_readable_and_unique_across_g0():
+    from backend.app.forex_htf_v2 import tree_id, tree_label
+    trees = g0_trees()
+    labels = [tree_label(tree)["full"] for tree in trees]
+    assert len(set(labels)) == len(trees)
+    assert all("hast2_" not in label and "#" in label for label in labels)
+    assert tree_label(trees[0])["title"].startswith(("Mua", "Bán"))
+    child = {"schema": trees[0]["schema"], "root": {**trees[0]["root"], "children": [dict(x) for x in trees[0]["root"]["children"]]}}
+    child["root"]["children"][1] = {**child["root"]["children"][1], "params": {**child["root"]["children"][1]["params"], "lookback": 30}}
+    assert "lookback 30" in tree_label(child, 1)["full"] and "G1" in tree_label(child, 1)["full"]
+    assert tree_id(child) != tree_id(trees[0])

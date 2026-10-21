@@ -7,6 +7,7 @@ import {
   type ObservationChartSnapshot,
 } from '../components/MtfObservationChart';
 import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
+import { treeLabel, shortTreeId } from '../lib/forex-tree-label';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
 import { feedErrorText, relativeTime, utcTime } from '../lib/forex-labels';
@@ -176,8 +177,6 @@ type Tree2 = NonNullable<
   NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']
 >['trees'][number];
 
-const shortId = (id: string) => id.replace('hast2_', '').slice(0, 6);
-
 function GenBadge({ tree }: { tree?: Tree2 }) {
   return tree ? (
     <span className={`gen-badge gen-${Math.min(tree.generation ?? 0, 3)}`}>
@@ -210,7 +209,7 @@ function BotAnalysisBreakdown({
     ? rows.filter(
         ([name, row]) =>
           name.toLowerCase().includes(needle) ||
-          (row.chart?.note ?? '').toLowerCase().includes(needle),
+          `${treeLabel(row, name).full} ${row.chart?.note ?? ''}`.toLowerCase().includes(needle),
       )
     : [];
   const note = (row: (typeof rows)[number][1]) => row.chart?.note ?? '';
@@ -230,8 +229,9 @@ function BotAnalysisBreakdown({
       </div>
       {confirmed.map(([name, row]) => (
         <div key={name} className="bot-breakdown-hit">
-          <GenBadge tree={lineage.get(name)} /> <strong>{name}</strong> · {row.side?.toUpperCase()}{' '}
-          · SL {row.stop ?? '—'} · mức {row.level ?? '—'}
+          <GenBadge tree={lineage.get(name)} />{' '}
+          <strong title={name}>{treeLabel(row, name).full}</strong> · {row.side?.toUpperCase()} · SL{' '}
+          {row.stop ?? '—'} · mức {row.level ?? '—'}
           <small>{note(row)}</small>
         </div>
       ))}
@@ -241,7 +241,8 @@ function BotAnalysisBreakdown({
             {matches.slice(0, 30).map(([name, row]) => (
               <tr key={name}>
                 <td>
-                  <GenBadge tree={lineage.get(name)} /> {name}
+                  <GenBadge tree={lineage.get(name)} />{' '}
+                  <span title={name}>{treeLabel(row, name).full}</span>
                 </td>
                 <td>{row.status === 'confirmed' ? 'xác nhận' : 'loại'}</td>
                 <td>
@@ -405,7 +406,7 @@ export function HtfLineage({
         onClick={() => found && setSelected(id)}
       >
         {found ? `G${found.generation ?? 0} · ` : ''}
-        {shortId(id)}
+        {treeLabel(found, id).full}
         {!found && ' (đã nghỉ)'}
       </button>
     );
@@ -514,9 +515,7 @@ export function HtfLineage({
               <span className="lineage-path-arrow">→</span>
               <span className="lineage-path-node is-self">
                 <small>Cây này</small>
-                <strong>
-                  G{detail.generation ?? 0} · {shortId(detail.id)}
-                </strong>
+                <strong>{treeLabel(detail, detail.id).full}</strong>
               </span>
               <span className="lineage-path-arrow">→</span>
               <span className="lineage-path-node">
@@ -661,7 +660,12 @@ export function HtfLineage({
                       <span className={`gen-badge gen-${Math.min(row.generation ?? 0, 3)}`}>
                         G{row.generation ?? 0}
                       </span>
-                      <code className="lineage-row-id">{shortId(row.id)}</code>
+                      <span
+                        className="lineage-row-id"
+                        title={`${treeLabel(row, row.id).full}\n${row.id}`}
+                      >
+                        {treeLabel(row, row.id).title}
+                      </span>
 
                       <div className="lineage-tags-inline">
                         <span className="lineage-tag tag-h1">H1 {label(row.h1_setup)}</span>
@@ -672,7 +676,7 @@ export function HtfLineage({
                       <span className="lineage-row-meta">
                         {row.parents?.length ? (
                           <span className="lineage-parents-brief">
-                            từ {row.parents.map(shortId).join(' × ')}
+                            từ {row.parents.map(shortTreeId).join(' × ')}
                           </span>
                         ) : (
                           <span className="muted">hạt giống gốc</span>
@@ -770,7 +774,27 @@ export function ForexStrategyPage({
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
-  const [shownStrategies, setShownStrategies] = useState<string[]>([]); // default: draw nothing
+  // Lựa chọn lớp vẽ theo từng cặp (không lẫn cây giữa các cặp); giữ nguyên khi đổi khung.
+  const [pickedBySymbol, setPickedBySymbol] = useState<Record<string, string[]>>({});
+  const picked = pickedBySymbol[symbol] ?? [];
+  const setShownStrategies = (names: string[]) =>
+    setPickedBySymbol((prev) => ({ ...prev, [symbol]: names }));
+  // Cây đang giữ vị thế broker tự vẽ; cây khác chỉ vẽ khi người dùng chọn.
+  const holdingTrees = useMemo(
+    () =>
+      [
+        ...new Set(
+          executions
+            .filter((row) => row.status === 'open' && row.strategy?.startsWith('hast2_'))
+            .map((row) => row.strategy as string),
+        ),
+      ].filter((id) => analysis?.strategies[id]),
+    [executions, analysis],
+  );
+  const shownStrategies = useMemo(
+    () => [...new Set([...picked, ...holdingTrees])],
+    [picked, holdingTrees],
+  );
   const historyBefore = selectedPosition?.status === 'closed' ? selectedPosition.close_time : null;
   const cacheKey = historyBefore ? null : candleKey(symbol, frame, side);
   const viewKey = `${symbol}:${frame}:${side}:${historyBefore ?? 'live'}`;
@@ -1163,13 +1187,13 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
-          {frame === '15m' && (
-            <StrategyOverlayMenu
-              analysis={analysis}
-              selected={shownStrategies}
-              onChange={setShownStrategies}
-            />
-          )}
+          <StrategyOverlayMenu
+            analysis={analysis}
+            selected={picked}
+            onChange={setShownStrategies}
+            holding={holdingTrees}
+            trees={htf2Shadow?.trees}
+          />
           {(hasMore || chartError) && (
             <button
               className="secondary broker-history-button"
@@ -1365,7 +1389,7 @@ export function ForexStrategyPage({
         candles={candles}
         liveCandles={liveCandles}
         snapshot={!executionOnly && frame === '15m' && side === 'bid' ? fullSnapshot : null}
-        analysis={executionOnly && frame === '15m' ? analysis : null}
+        analysis={executionOnly ? analysis : null}
         shown={shownStrategies}
         executions={executions}
         dark={executionOnly}

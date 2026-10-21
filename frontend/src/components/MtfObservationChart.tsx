@@ -18,7 +18,9 @@ import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
+import { treeLabel } from '../lib/forex-tree-label';
 import { placeChartTags } from '../lib/chart-tags';
+import { projectOverlayPoints } from '../lib/chart-timeframes';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
   status: string;
@@ -73,10 +75,22 @@ export function MtfObservationChart({
   const ranges = useRef<ISeriesApi<'Line'>[]>([]);
   const lines = useRef<IPriceLine[]>([]);
   const analysisLines = useRef<IPriceLine[]>([]);
+  const zoneSeries = useRef<ISeriesApi<'Line'>[]>([]);
   const fitted = useRef(false);
   const loadOlder = useRef(onLoadOlder);
   loadOlder.current = onLoadOlder;
   const previousTimes = useRef<number[]>([]);
+  const [setupBoxes, setSetupBoxes] = useState<
+    {
+      id: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      color: string;
+      label: string;
+    }[]
+  >([]);
   const [tags, setTags] = useState<
     {
       id: string;
@@ -419,21 +433,6 @@ export function MtfObservationChart({
       add(levels.m15_donchian?.low, '#b59854', 'BOT · Donchian20 thấp', LineStyle.Dotted);
       add(levels.m15_ema20, '#557fa1', 'BOT · EMA20 M15', LineStyle.Dotted);
     }
-    for (const [name, row] of Object.entries(analysis.strategies)) {
-      if (!on(name)) continue;
-      const tag = `${name}${row.side ? ' ' + row.side.toUpperCase() : ''}`;
-      const hue = [...name].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360;
-      const color = `hsl(${hue}, 65%, 65%)`;
-      if (row.chart) {
-        // ponytail: price lines span full width; RSI not plotted on price axis, shown in menu badge.
-        for (const level of row.chart.levels) {
-          add(level.price, color, `${name} · ${level.label}`, LineStyle.Dotted);
-        }
-      } else {
-        add(row.level, color, `${tag} · vùng`, LineStyle.Solid);
-      }
-      add(row.stop, '#bd7164', `${tag} · SL`, LineStyle.Dashed);
-    }
     if (on(CONTEXT_STRATEGY_KEY) && last != null) {
       for (const frame of ['H1', 'H4']) {
         const above = levels.barriers
@@ -458,6 +457,136 @@ export function MtfObservationChart({
     };
   }, [analysis, candles, shown]);
 
+  // Vùng setup H1 của cây V2: vẽ theo thời gian (từ nến hình thành tới hạn 4h), không kéo hết chart.
+  useEffect(() => {
+    const chartApi = chart.current;
+    if (!chartApi) return;
+    const clear = () => {
+      if (chart.current === chartApi)
+        zoneSeries.current.forEach((item) => chartApi.removeSeries(item));
+      zoneSeries.current = [];
+    };
+    clear();
+    if (!analysis) return clear;
+    const first = candles[0]?.time ?? 0;
+    const lastTime = Math.max(candles.at(-1)?.time ?? 0, analysis.candle_time + 900);
+    for (const [name, row] of Object.entries(analysis.strategies)) {
+      if (!shown.includes(name)) continue;
+      const hue = [...name].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360;
+      const color = `hsl(${hue}, 65%, 65%)`;
+      const id = treeLabel(row, name).full;
+      // Mẫu đã chụp (forward) và setup đang hiện tại: cùng setup thì chỉ vẽ mẫu đã chụp.
+      for (const [zone, captured] of [
+        [row.captured_zone, true],
+        [row.zone, false],
+      ] as const) {
+        if (!zone) continue;
+        const from = Math.max(first, zone.from);
+        const to = Math.min(zone.to, lastTime + frameSeconds * 8);
+        if (to <= from) continue;
+        const side = zone.side === 'long' ? 'LONG' : 'SHORT';
+        const tag = `${id} ${side}${captured ? ' · đã chụp' : ''}`;
+        const rows: [number | null | undefined, string, LineStyle, string][] = [
+          [zone.level, `${tag} · vùng ${zone.family}`, LineStyle.Solid, color],
+          [zone.invalidation, `${tag} · vô hiệu H1`, LineStyle.Dotted, '#bd7164'],
+          [zone.stop, `${tag} · SL H1`, LineStyle.Dashed, '#bd7164'],
+          [
+            zone.target,
+            `${tag} · TP ${zone.target_reason ?? ''}`.trim(),
+            LineStyle.Dashed,
+            '#2c856c',
+          ],
+          [zone.entry, `${tag} · tham chiếu vào`, LineStyle.Dotted, '#557fa1'],
+        ];
+        for (const [price, title, style, tint] of rows) {
+          if (price == null || !Number.isFinite(price) || price <= 0) continue;
+          const line = chartApi.addSeries(LineSeries, {
+            title,
+            color: tint,
+            lineWidth: 2,
+            lineStyle: style,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            autoscaleInfoProvider: () => null,
+          });
+          line.setData(
+            projectOverlayPoints(
+              [
+                { time: from, value: price },
+                { time: to, value: price },
+              ],
+              frameSeconds,
+            ).map((point) => ({ ...point, time: point.time as UTCTimestamp })),
+          );
+          zoneSeries.current.push(line);
+        }
+      }
+    }
+    return clear;
+  }, [analysis, candles, shown, frameSeconds]);
+
+  useEffect(() => {
+    let frame = 0;
+    let previous = '';
+    const tick = () => {
+      const chartApi = chart.current;
+      const priceSeries = series.current;
+      if (chartApi && priceSeries && container.current) {
+        const boxes = Object.entries(analysis?.strategies ?? {}).flatMap(([name, row]) => {
+          if (!shown.includes(name)) return [];
+          return [row.captured_zone, row.zone].flatMap((zone, index) => {
+            if (!zone || !Number.isFinite(zone.level) || !Number.isFinite(zone.invalidation))
+              return [];
+            const first = candles[0]?.time ?? 0;
+            const last = Math.max(candles.at(-1)?.time ?? 0, (analysis?.candle_time ?? 0) + 900);
+            const from = Math.max(first, zone.from);
+            const to = Math.min(zone.to, last + frameSeconds * 8);
+            if (to <= from) return [];
+            const x0 = chartApi
+              .timeScale()
+              .timeToCoordinate((Math.floor(from / frameSeconds) * frameSeconds) as UTCTimestamp);
+            const x1 = chartApi
+              .timeScale()
+              .timeToCoordinate((Math.floor(to / frameSeconds) * frameSeconds) as UTCTimestamp);
+            const y0 = priceSeries.priceToCoordinate(zone.level);
+            const y1 = priceSeries.priceToCoordinate(zone.invalidation);
+            if (x0 == null || x1 == null || y0 == null || y1 == null) return [];
+            const x = Math.max(0, Math.min(x0, x1));
+            const y = Math.max(0, Math.min(y0, y1));
+            const width = Math.max(0, Math.min(chartApi.timeScale().width(), Math.max(x0, x1)) - x);
+            const height = Math.max(
+              0,
+              Math.min(priceSeries.getPane().getHeight(), Math.max(y0, y1)) - y,
+            );
+            if (!width || !height) return [];
+            const hue =
+              [...name].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 360;
+            return [
+              {
+                id: `${name}:${index}`,
+                x,
+                y,
+                width,
+                height,
+                color: `hsl(${hue}, 65%, 65%)`,
+                label: `${treeLabel(row, name).full} · ${index === 0 ? 'forward' : 'tham chiếu'}`,
+              },
+            ];
+          });
+        });
+        const key = JSON.stringify(boxes);
+        if (key !== previous) {
+          previous = key;
+          setSetupBoxes(boxes);
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [analysis, candles, shown, frameSeconds]);
+
   return (
     <div className="trade-chart-wrap">
       <div className="chart-ohlc">{title}</div>
@@ -468,6 +597,36 @@ export function MtfObservationChart({
           role="img"
           aria-label="Chart quan sát đa khung"
         />
+        <svg
+          className="forex-setup-zones"
+          aria-label="Vùng setup H1 từ mức cấu trúc tới mức vô hiệu"
+        >
+          {setupBoxes.map((box) => (
+            <g key={box.id}>
+              <rect
+                x={box.x}
+                y={box.y}
+                width={box.width}
+                height={box.height}
+                fill={box.color}
+                fillOpacity={0.09}
+                stroke={box.color}
+                strokeOpacity={0.6}
+              />
+              {box.width >= 50 && (
+                <text
+                  x={box.x + 4}
+                  y={Math.max(12, box.y + 12)}
+                  fill={box.color}
+                  fontSize={10}
+                  className="forex-zone-text"
+                >
+                  {box.width < 120 ? box.label.slice(0, 14) + '…' : box.label}
+                </text>
+              )}
+            </g>
+          ))}
+        </svg>
         <div className="position-tag-layer">
           {!snapshot &&
             (() => {
