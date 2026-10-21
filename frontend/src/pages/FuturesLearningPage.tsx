@@ -611,8 +611,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     className={`evo-paper ${openTrades.length || row.paper?.closed ? 'active' : ''}`}
                   >
                     <span>Auto Paper</span>
+                    {row.paper?.closed ? (
+                      <b className={row.paper.net_pnl >= 0 ? 'good' : 'bad'}>
+                        {usdt(row.paper.net_pnl)}
+                      </b>
+                    ) : null}
                     {openTrades.length || row.paper?.closed ? (
-                      <span>
+                      <span className="evo-paper-detail">
                         {openTrades.length > 0 && (
                           <>
                             Đang mở{' '}
@@ -635,10 +640,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         {openTrades.length > 0 && row.paper?.closed ? ' · ' : ''}
                         {row.paper?.closed ? (
                           <>
-                            {row.paper.closed} đã đóng · thắng {row.paper.wins} ·{' '}
-                            <b className={row.paper.net_pnl >= 0 ? 'good' : 'bad'}>
-                              {usdt(row.paper.net_pnl)}
-                            </b>
+                            {row.paper.closed} đã đóng · thắng {row.paper.wins}
                           </>
                         ) : (
                           ''

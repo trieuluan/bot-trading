@@ -4610,10 +4610,10 @@ footer {
   color: #8a6420;
 }
 .evo-paper {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 10px;
+  gap: 3px 10px;
   padding: 6px 10px;
   border-radius: 6px;
   background: #f5f7f0;
@@ -4627,8 +4627,14 @@ footer {
 .evo-paper > span:first-child {
   white-space: nowrap;
 }
-.evo-paper > span:last-child {
+.evo-paper > b {
+  white-space: nowrap;
   text-align: right;
+}
+.evo-paper-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .evo-paper .text-button {
   display: inline;
