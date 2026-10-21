@@ -8338,8 +8338,9 @@ main.forex-terminal-main {
 
 .ap-journal {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
   border: 1px solid #e2e7dd;
   border-radius: 8px;
   background: #fafbf7;
