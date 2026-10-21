@@ -259,12 +259,12 @@ def g0_trees():
 # Data handling & Evaluation
 # ---------------------------------------------------------------------------
 
-def _closed_rows(candle, rows, duration, count):
+def _closed_rows(candle, rows, duration, count, symbol="XAUUSD"):
     closed = sorted((row for row in rows if row.time + duration <= candle.time + 900), key=lambda row: row.time)
     window = closed[-count:]
     if len(window) < count or window[-1].time + 2 * duration <= candle.time + 900:
         return []
-    if any(after.time - before.time != duration and not regular_session_gap(before.time, after.time, duration)
+    if any(after.time - before.time != duration and not regular_session_gap(before.time, after.time, duration, symbol)
            for before, after in zip(window, window[1:])):
         return []
     if any(not all(math.isfinite(value) and value > 0 for value in (row.open, row.high, row.low, row.close))
@@ -274,8 +274,8 @@ def _closed_rows(candle, rows, duration, count):
     return closed
 
 
-def _h4_context(candle, higher):
-    closed = _closed_rows(candle, higher, 14400, 50)
+def _h4_context(candle, higher, symbol="XAUUSD"):
+    closed = _closed_rows(candle, higher, 14400, 50, symbol)
     if not closed:
         return None
     ema_val = closed[0].close
@@ -287,7 +287,7 @@ def _h4_context(candle, higher):
     return "long" if last > ema_val else "short"
 
 
-def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, commission=0):
+def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, commission=0, symbol="XAUUSD"):
     """Diagnose HTF AST v2 tree on closed bars. Returns (signal, None) or (None, reason)."""
     validate_htf2_tree(tree)
     if (candle.time % 900 or not all(math.isfinite(value) and value > 0 for value in
@@ -299,14 +299,14 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     h4_node, h1_node, m15_node, exit_node = c[:4]
 
     # 1. H4 Context
-    side = _h4_context(candle, higher)
+    side = _h4_context(candle, higher, symbol)
     if not side:
         return None, "h4_stale"
     if side != h4_node["side"]:
         return None, "h4_trend_opposed"
 
     # 2. H1 Setup
-    closed_h1 = _closed_rows(candle, hours, 3600, 50)[-60:]
+    closed_h1 = _closed_rows(candle, hours, 3600, 50, symbol)[-60:]
     if not closed_h1:
         return None, "h1_not_closed"
     h1_func = H1_DETECTORS.get(h1_node["family"])
@@ -586,22 +586,28 @@ def evolve_population(ledger, now, random_seed=None, version=None):
 # Ledger & Tick
 # ---------------------------------------------------------------------------
 
-def ledger_path(account):
+def legacy_ledger_path(account):
     return LEDGER.with_name(LEDGER.stem + "-" + hashlib.sha256(account.encode()).hexdigest()[:16] + ".json")
 
+def ledger_path(account, symbol="XAUUSD"):
+    from .forex_symbols import checked_symbol
+    checked_symbol(symbol)
+    legacy = legacy_ledger_path(account)
+    return legacy.with_name(legacy.stem + "-" + symbol + ".json")
 
-def htf_ast2_tick(now=None):
+
+def htf_ast2_tick(now=None, symbol="XAUUSD"):
     from .db import ForexInstrumentState, Session, WorkspaceFeedState
     from .exness_feed import FRAMES, WORKSPACE
     from .exness_observation import audit_frames, load_frames
+    from .forex_migration import migrate_symbol_ledger
     from .forex_samples import advance_learning_sample, attach_execution, context, slippage_estimate
-    from .forex_migration import migrate_ledger
 
     now = int(time.time()) if now is None else now
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     if not account:
         return "unconfigured"
-    path = ledger_path(account)
+    path = ledger_path(account, symbol)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with path.with_suffix(".lock").open("a") as lock:
@@ -611,7 +617,7 @@ def htf_ast2_tick(now=None):
             return "busy"
 
         stamp = now // 900 * 900 - 900
-        ledger = migrate_ledger(path, account, now)
+        ledger = migrate_symbol_ledger(path, legacy_ledger_path(account), account, symbol, now)
         if ledger.get("schema") != SCHEMA or ledger.get("account") != account:
             raise ValueError("Invalid HTF AST v2 ledger identity")
         population = ledger.get("population")
@@ -627,18 +633,28 @@ def htf_ast2_tick(now=None):
             return "waiting_next_candle"
 
         with Session() as session:
-            frames = load_frames(session, now)
-            feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+            frames = load_frames(session, now, symbol)
+            feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
             feed_ready = all(state and not state.error and state.checked_until is not None
                              and state.checked_until >= now // FRAMES[frame][1] * FRAMES[frame][1]
                              for frame, state in zip(FRAMES, feeds))
-            specs = session.get(ForexInstrumentState, WORKSPACE)
+            specs = session.get(ForexInstrumentState, (WORKSPACE, symbol))
             condition = dict(specs.snapshot) if specs and specs.snapshot else None
 
+        if condition:
+            from .forex_conversion import cost_context
+            from .forex_costs import SPEC_TTL, account_tag
+            try:
+                if (condition.get("account_tag") != account_tag(account)
+                        or not 0 <= now - condition["observed_at"] < SPEC_TTL):
+                    raise ValueError("Unverified instrument specs")
+                condition = cost_context(condition, stamp + 900, account=account, symbol=symbol)
+            except ValueError:
+                condition = None
         commission = (condition or {}).get("commission_per_unit")
         bids = {frame: [row for row in rows if row.price_type == "bid"] for frame, rows in frames.items()}
         asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
-        valid = audit_frames(frames)["status"] != "blocked"
+        valid = audit_frames(frames, symbol)["status"] != "blocked"
 
         if valid:
             for sample in ledger["samples"]:
@@ -661,8 +677,9 @@ def htf_ast2_tick(now=None):
             capture["status"] = "missed_window"
         elif valid and feed_ready and bids["15m"] and bids["15m"][-1].time == stamp and stamp in asks:
             candle, history = bids["15m"][-1], [row for row in bids["15m"] if row.time < stamp][-96:]
-            slippage = slippage_estimate()
+            slippage = slippage_estimate(symbol)
             costs = {"slippage_bps": slippage["bps"], "commission_per_unit": commission,
+                     "conversion": (condition or {}).get("conversion"),
                      "verified": bool(slippage["measured"] and commission is not None)}
             hits, rejected = 0, defaultdict(int)
             rejected_total = ledger.setdefault("rejections", {})
@@ -672,7 +689,7 @@ def htf_ast2_tick(now=None):
             for tree in ledger["population"]:
                 signal, reason = diagnose(tree, candle, bids["1h"], history, higher=bids["4h"],
                                           ask=asks[stamp], slippage_bps=costs["slippage_bps"],
-                                          commission=costs["commission_per_unit"] or 0)
+                                          commission=costs["commission_per_unit"] or 0, symbol=symbol)
                 if signal is None:
                     rejected[reason] += 1
                     rejected_total[reason] = rejected_total.get(reason, 0) + 1
@@ -684,9 +701,10 @@ def htf_ast2_tick(now=None):
                     continue
                 used.add(key)
                 hits += 1
+                signal["symbol"] = symbol
                 signal["ref_price"] = asks[stamp].close if signal["side"] == "long" else candle.close
                 sample = {
-                    "strategy": signal["strategy"], "tree": tree, "signal": signal, "side": signal["side"],
+                    "symbol": symbol, "strategy": signal["strategy"], "tree": tree, "signal": signal, "side": signal["side"],
                     "strategy_version": logic_version(),
                     "stop": signal["stop"], "confirm_time": stamp, "recorded_at": now, "last_candle": stamp,
                     "status": "pending", "costs": costs, "provenance": PROVENANCE
@@ -706,7 +724,7 @@ def htf_ast2_tick(now=None):
         return capture["status"]
 
 
-def _htf_ast2_summary(account):
+def _htf_ast2_summary(account, symbol="XAUUSD"):
     trees = g0_trees()
     base = {
         "status": "shadow_only", "generation": 0, "tree_count": len(trees), "since": None,
@@ -714,7 +732,7 @@ def _htf_ast2_summary(account):
         "mean_r": None,
         "note": "AST HTF v2: H4 xu hướng, H1 setup + SL, M15 trigger; so sánh quản lý H1 vs M15; R sau chi phí, chưa swap"
     }
-    path = ledger_path(account) if account else None
+    path = ledger_path(account, symbol) if account else None
     ledger = json.loads(path.read_text()) if path and path.exists() else {
         "samples": [], "population": trees, "generation": 0
     }
@@ -802,9 +820,9 @@ def _htf_ast2_summary(account):
     }
 
 
-def htf_ast2_summary(account):
+def htf_ast2_summary(account, symbol="XAUUSD"):
     try:
-        return _htf_ast2_summary(account)
+        return _htf_ast2_summary(account, symbol)
     except Exception:
         logging.exception("HTF AST v2 shadow summary unavailable")
         return {
@@ -814,19 +832,19 @@ def htf_ast2_summary(account):
         }
 
 
-def safe_htf_ast2_tick(now=None):
+def safe_htf_ast2_tick(now=None, symbol="XAUUSD"):
     try:
-        status = htf_ast2_tick(now)
+        status = htf_ast2_tick(now, symbol)
         account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
         if account and status not in ("busy", "waiting_next_candle"):
-            ledger_path(account).with_suffix(".error.json").unlink(missing_ok=True)
+            ledger_path(account, symbol).with_suffix(".error.json").unlink(missing_ok=True)
         return status
     except Exception:
         logging.exception("HTF AST v2 shadow unavailable")
         try:
             account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
             if account:
-                path = ledger_path(account).with_suffix(".error.json")
+                path = ledger_path(account, symbol).with_suffix(".error.json")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 temporary = path.with_suffix(".tmp")
                 temporary.write_text(json.dumps({"status": "error", "at": int(time.time()) if now is None else now}))
@@ -839,10 +857,11 @@ def execution_enabled():
     return os.getenv("FOREX_HTF_V2_EXECUTION_ENABLED", "false").lower() == "true"
 
 
-def read_ledger(account):
-    path = ledger_path(account)
+def read_ledger(account, symbol="XAUUSD"):
+    path = ledger_path(account, symbol)
     ledger = json.loads(path.read_text())
-    if ledger.get("runtime") != RUNTIME or ledger.get("schema") != SCHEMA or ledger.get("account") != account:
+    if (ledger.get("runtime") != RUNTIME or ledger.get("schema") != SCHEMA or ledger.get("account") != account
+            or ledger.get("symbol") != symbol):
         raise ValueError("V2 migration pending or ledger identity invalid")
     population = ledger.get("population")
     if not isinstance(population, list) or len(population) != 56:
@@ -886,8 +905,8 @@ def execution_signal(sample):
             "tree": copy.deepcopy(sample["tree"]), "setup_id": setup_identity(sample["signal"], sample["tree"])}
 
 
-def execution_candidates(account, now):
-    ledger = read_ledger(account)
+def execution_candidates(account, now, symbol="XAUUSD"):
+    ledger = read_ledger(account, symbol)
     stamp = now // 900 * 900 - 900
     if not 0 <= now - stamp - 900 <= 120:
         return []
@@ -913,7 +932,7 @@ def validate_execution_signal(signal, account, now=None):
     if signal.get("shadow_only") is not False or not str(signal.get("strategy", "")).startswith("hast2_"):
         raise ExnessError("shadow_only_signal")
     try:
-        candidates = execution_candidates(account, now)
+        candidates = execution_candidates(account, now, signal.get("symbol", "XAUUSD"))
         for expected, _ in candidates:
             supplied = dict(signal)
             if supplied.get("tp_reason") == expected["htf_structure"]["target_reason"]:

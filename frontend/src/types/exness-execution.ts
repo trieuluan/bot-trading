@@ -213,6 +213,8 @@ export interface ExnessExecution {
   strategy: string;
   lot: string;
   max_concurrent: number;
+  max_concurrent_per_symbol: number;
+  symbol_open_count: number;
   planned_risk_ceiling_usd?: number;
   stop_management_available?: boolean;
   decision: string | null;

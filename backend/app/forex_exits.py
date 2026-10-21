@@ -40,7 +40,7 @@ def closed_rows(signal, minutes, hours, now):
                   key=lambda row: row.time)[-60:]
     if (len(rows) < 21 or not 0 <= now - rows[-1].time - duration < duration
             or any(after.time - before.time != duration
-                   and not regular_session_gap(before.time, after.time, duration)
+                   and not regular_session_gap(before.time, after.time, duration, signal.get("symbol", "XAUUSD"))
                    for before, after in zip(rows, rows[1:]))):
         return []
     if any(not all(math.isfinite(value) and value > 0 for value in (row.open, row.high, row.low, row.close))

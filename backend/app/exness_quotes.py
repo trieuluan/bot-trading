@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidSta
 
 from .exness import ExnessError, ExnessReadOnly, signed_headers
 from .forex_paper import sync_paper_quote
+from .forex_symbols import SYMBOLS, configured_symbols, request_symbol
 
 TICKS_PATH = "/v1/server-events/accounts/{account_id}/ws/ticks"
 CHART_FRAMES = {"15m": 900, "1h": 3600, "4h": 14400}
@@ -43,7 +44,7 @@ def stream_config(api):
             raise ValueError("Invalid WebSocket limits")
         intervals.append(window / limit)
     subscription = json.dumps(
-        {"id": "chart-xauusd", "subscribe": {"event": "ticks", "instruments": ["XAUUSD"]}}
+        {"id": "chart-xauusd", "subscribe": {"event": "ticks", "instruments": list(configured_symbols())}}
     )
     if len(subscription.encode()) > global_limits["max_inbound_message_bytes"]:
         raise ValueError("Subscription exceeds WebSocket limits")
@@ -51,7 +52,7 @@ def stream_config(api):
 
 
 def parse_quote(message, now):
-    if not isinstance(message, dict) or message.get("instrument") != "XAUUSD":
+    if not isinstance(message, dict) or message.get("instrument") not in SYMBOLS:
         return None
     try:
         if isinstance(message["bid"], bool) or isinstance(message["ask"], bool):
@@ -74,10 +75,15 @@ class QuoteStream:
     def __init__(self):
         self.status = "disabled"
         self.quote = None
+        self.markets = {}
         self.task = None
         self.candles = {frame: deque(maxlen=32) for frame in CHART_FRAMES}
 
-    def accept_quote(self, quote):
+    def accept_quote(self, quote, symbol="XAUUSD"):
+        if symbol != "XAUUSD":
+            market = self.markets.setdefault(symbol, QuoteStream())
+            market.accept_quote(quote)
+            return
         previous = self.quote
         if previous and quote["time"] < previous["time"]:
             return
@@ -105,7 +111,13 @@ class QuoteStream:
                     bar["close"] = quote[side]
         self.quote = quote
 
-    def snapshot(self):
+    def snapshot(self, symbol="XAUUSD"):
+        if symbol != "XAUUSD":
+            market = self.markets.get(symbol)
+            if market is None:
+                return {"symbol": symbol, "status": self.status if self.status != "connected" else "waiting", "quote": None, "age_seconds": None, "candles": {frame: [] for frame in CHART_FRAMES}}
+            market.status = self.status
+            return {**market.snapshot(), "symbol": symbol}
         age = None if self.quote is None else max(0, time.time() - self.quote["time"])
         status = self.status
         if status == "connected":
@@ -143,11 +155,8 @@ class QuoteStream:
     async def run_once(self):
         api = None
         try:
-            if (
-                os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo"
-                or os.getenv("EXNESS_SYMBOL", "XAUUSD") != "XAUUSD"
-            ):
-                raise ValueError("Demo XAUUSD only")
+            if os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo":
+                raise ValueError("Demo accounts only")
             api = ExnessReadOnly.from_env()
             setup_delay = 60
             while True:
@@ -164,6 +173,7 @@ class QuoteStream:
             path = TICKS_PATH.format(account_id=api.account_id)
             while True:
                 self.status = "connecting"
+                self.markets.clear()
                 self.quote = None
                 paper_gap = True
                 for rows in self.candles.values():
@@ -193,12 +203,14 @@ class QuoteStream:
                                 self.status = "rejected"
                                 return
                             quote = parse_quote(message, time.time())
-                            if quote and (
-                                self.quote is None or quote["time"] >= self.quote["time"]
-                            ):
-                                self.accept_quote(quote)
+                            if quote:
+                                symbol = message["instrument"]
+                                previous = self.quote if symbol == "XAUUSD" else getattr(self.markets.get(symbol), "quote", None)
+                                if previous and quote["time"] < previous["time"]:
+                                    continue
+                                self.accept_quote(quote, symbol)
                                 try:
-                                    await asyncio.to_thread(sync_paper_quote, quote, paper_gap)
+                                    await asyncio.to_thread(sync_paper_quote, quote, paper_gap) if symbol == "XAUUSD" else None
                                     paper_gap = False
                                 except Exception:
                                     paper_gap = True
@@ -246,10 +258,11 @@ quotes = QuoteStream()
 
 
 @router.get("/api/workspaces/exness_forex/quotes/stream")
-async def quote_events():
+async def quote_events(symbol: str = "XAUUSD"):
+    request_symbol(symbol)
     async def events():
         while True:
-            yield "data: " + json.dumps(quotes.snapshot()) + "\n\n"
+            yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
             await asyncio.sleep(1)
 
     return StreamingResponse(

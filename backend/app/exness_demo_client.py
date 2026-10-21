@@ -13,6 +13,7 @@ import httpx
 from .exness import ExnessError, b64url
 from .exness_management import max_lot, risk_budget, size_lot
 from .forex_buffer_study import exit_target
+from .forex_symbols import SYMBOLS, checked_symbol, configured_symbols
 
 
 def positive_decimal(value):
@@ -58,7 +59,7 @@ class ExnessDemoClient:
         self.last_submission = None
 
     def verify_demo(self):
-        if os.getenv("EXNESS_ENVIRONMENT") != "demo" or os.getenv("EXNESS_SYMBOL") != "XAUUSD":
+        if os.getenv("EXNESS_ENVIRONMENT") != "demo":
             raise ExnessError("Demo XAUUSD configuration required")
         account = self.api.account()
         if account.get("is_demo") is not True or str(account.get("account_id")) != self.api.account_id:
@@ -75,21 +76,23 @@ class ExnessDemoClient:
             raise ExnessError("Invalid trading state")
         return snapshot
 
-    def prepare(self, *, require_flat=True):
-        if os.getenv("EXNESS_ENVIRONMENT") != "demo" or os.getenv("EXNESS_SYMBOL") != "XAUUSD":
+    def prepare(self, symbol="XAUUSD", *, require_flat=True):
+        checked_symbol(symbol)
+        if os.getenv("EXNESS_ENVIRONMENT") != "demo":
             raise ExnessError("Demo XAUUSD configuration required")
-        identity = (self.api.account_id, self.api.base_url, self.api.api_key)
-        cached = getattr(self.api, "_prepared", None)
+        identity = (self.api.account_id, self.api.base_url, self.api.api_key, symbol)
+        cache = getattr(self.api, "_prepared_symbols", {})
+        cached = cache.get(symbol)
         if cached and cached[3] == identity and 0 <= time.monotonic() - cached[0] < PREPARE_TTL:
             self.can_modify = cached[2]
             if require_flat:
                 self._require_flat()
             return deepcopy(cached[1])
         self.verify_demo()
-        condition = self.api.condition("XAUUSD")
-        if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
-                or condition.get("exec_mode") != "market" or condition.get("quote_currency") != "USD"):
-            raise ExnessError("Only enabled USD XAUUSD market execution supported")
+        condition = self.api.condition(symbol)
+        if (condition.get("instrument") != symbol or condition.get("trade_mode") != "enabled"
+                or condition.get("exec_mode") != "market" or condition.get("quote_currency") not in ("USD", "JPY", "CAD", "CHF", "GBP")):
+            raise ExnessError(f"Market execution unavailable for {symbol}")
         volume = positive_decimal(condition.get("volume_min"))
         if volume > Decimal("0.01") or volume > positive_decimal(condition.get("volume_max")):
             raise ExnessError("Minimum lot exceeds calibration ceiling 0.01")
@@ -109,7 +112,8 @@ class ExnessDemoClient:
         self.api.request_interval = max(1.05, self.api.request_interval, *[
             float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
             for rate in rates])
-        self.api._prepared = (time.monotonic(), deepcopy(condition), self.can_modify, identity)
+        cache[symbol] = (time.monotonic(), deepcopy(condition), self.can_modify, identity)
+        self.api._prepared_symbols = cache
         if require_flat:
             self._require_flat()
         return condition
@@ -134,10 +138,13 @@ class ExnessDemoClient:
         if stop <= 0 or (side == "buy" and stop >= Decimal(str(quote["bid"]))) or (
                 side == "sell" and stop <= Decimal(str(quote["ask"]))):
             raise ExnessError("Cannot place protective stop within planned $5 risk")
-        return {"instrument": "XAUUSD", "side": side, "volume": format(volume, "f"),
+        return {"instrument": condition.get("instrument", "XAUUSD"), "side": side, "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "comment": key[:32]}
 
     def strategy_body(self, signal, condition, quote, key):
+        symbol = checked_symbol(signal.get("symbol", "XAUUSD"))
+        if symbol not in configured_symbols():
+            raise ExnessError("Instrument not enabled for entry")
         strategy = str(signal.get("strategy", ""))
         if strategy.startswith("hast2_"):
             from .forex_htf_v2 import validate_execution_signal
@@ -147,9 +154,9 @@ class ExnessDemoClient:
         validate_quote(quote)
         if signal.get("side") not in ("long", "short"):
             raise ValueError("Invalid signal side")
-        if (condition.get("instrument") != "XAUUSD" or condition.get("trade_mode") != "enabled"
-                or condition.get("exec_mode") != "market" or condition.get("quote_currency") != "USD"):
-            raise ExnessError("XAUUSD market execution unavailable")
+        if (condition.get("instrument") != symbol or condition.get("trade_mode") != "enabled"
+                or condition.get("exec_mode") != "market" or condition.get("quote_currency") not in ("USD", "JPY", "CAD", "CHF", "GBP")):
+            raise ExnessError(f"{symbol} market execution unavailable")
         digits = condition["point_digits"]
         if isinstance(digits, bool) or not isinstance(digits, int) or not 0 <= digits <= 10:
             raise ValueError("Invalid precision")
@@ -178,9 +185,10 @@ class ExnessDemoClient:
         if (volume - minimum) % step:
             raise ExnessError("Lot not aligned to broker step")
         units = volume * contract
-        planned_risk = risk_distance * units
+        conv = Decimal(str(condition.get("quote_to_account_loss", 1)))
+        planned_risk = risk_distance * units * conv
         if (planned_risk <= 0 or planned_risk > risk_budget()
-                or units * entry > 50000
+                or units * entry * conv > 50000
                 or (long and stop >= positive_decimal(quote["bid"]))
                 or (not long and stop <= positive_decimal(quote["ask"]))):
             raise ExnessError("Invalid structure stop or planned risk out of bounds")
@@ -188,13 +196,13 @@ class ExnessDemoClient:
         if strategy.startswith("hast2_"):
             from .forex_buffer_study import htf_exit_target
             from .forex_samples import slippage_estimate
-            slip = Decimal(str(slippage_estimate()["bps"])) / 10000
+            slip = Decimal(str(slippage_estimate(symbol)["bps"])) / 10000
             commission = Decimal(str(condition.get("commission_per_unit") or 0))
-            target, signal["tp_reason"] = htf_exit_target(signal, entry, stop, tick, slip, commission)
+            target, signal["tp_reason"] = htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
         elif signal.get("target_context") is not None:
             target, signal["tp_reason"] = exit_target(signal, entry, stop, tick)
         positive_decimal(target)
-        return {"instrument": "XAUUSD", "side": "buy" if long else "sell", "volume": format(volume, "f"),
+        return {"instrument": condition.get("instrument", "XAUUSD"), "side": "buy" if long else "sell", "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "take_profit_price": format(target, "f"),
                 "comment": key[:32]}
 
@@ -206,7 +214,7 @@ class ExnessDemoClient:
         if method not in ("POST", "DELETE", "PATCH") or not isinstance(key, str) or not key:
             raise ValueError("Explicit method and stable idempotency key required")
         if method == "POST" and (position_id is not None or not isinstance(body, dict)
-                                  or body.get("instrument") != "XAUUSD"):
+                                  or body.get("instrument") not in SYMBOLS):
             raise ValueError("Invalid demo open request")
         if method == "DELETE" and (not isinstance(position_id, str) or not position_id.isdigit() or body):
             raise ValueError("Invalid demo close request")
@@ -242,9 +250,9 @@ class ExnessDemoClient:
                           and row.get("order_type") == "sltp"), None)
             position = next((row for row in snapshot["positions"] if order
                              and row.get("position_id") == order.get("position_id")
-                             and row.get("instrument") == "XAUUSD"), None)
+                             ), None)
             if not order or not position:
-                raise ExnessError("No active XAUUSD protection to modify")
+                raise ExnessError("No active protection to modify")
             stop = positive_decimal(body["stop_loss_price"])
             old = positive_decimal(order.get("stop_loss_price"))
             if not (old < stop < Decimal(str(quote["bid"])) if position["direction"] == "buy"

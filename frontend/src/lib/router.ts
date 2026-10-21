@@ -14,6 +14,7 @@ export interface RouteState {
   workspace: string;
   page: string;
   tab?: string;
+  symbol?: string;
 }
 
 export function parseRoute(search = window.location.search): RouteState {
@@ -25,7 +26,8 @@ export function parseRoute(search = window.location.search): RouteState {
     workspace === 'exness_forex'
       ? tabs[page]?.find((value) => value === params.get('tab'))
       : undefined;
-  return { workspace, page, tab };
+  const symbol = workspace === 'exness_forex' ? params.get('symbol') || 'XAUUSD' : undefined;
+  return { workspace, page, tab, symbol };
 }
 
 export function setRoute(update: Partial<RouteState>, options: { replace?: boolean } = {}) {
@@ -34,6 +36,7 @@ export function setRoute(update: Partial<RouteState>, options: { replace?: boole
   const next: RouteState = {
     workspace: update.workspace !== undefined ? update.workspace : current.workspace,
     page: update.page ?? (workspaceChanged ? '' : current.page),
+    symbol: update.symbol ?? current.symbol,
     tab:
       'tab' in update
         ? update.tab
@@ -43,7 +46,7 @@ export function setRoute(update: Partial<RouteState>, options: { replace?: boole
   };
 
   const params = new URLSearchParams(window.location.search);
-  for (const key of ['workspace', 'page', 'tab'] as const) {
+  for (const key of ['workspace', 'page', 'tab', 'symbol'] as const) {
     params.delete(key);
     if (next[key]) params.set(key, next[key]);
   }
@@ -52,6 +55,8 @@ export function setRoute(update: Partial<RouteState>, options: { replace?: boole
   params.set('page', valid.page);
   if (valid.tab) params.set('tab', valid.tab);
   else params.delete('tab');
+  if (valid.symbol) params.set('symbol', valid.symbol);
+  else params.delete('symbol');
 
   const query = params.toString();
   const nextUrl = `${window.location.pathname}?${query}${window.location.hash}`;

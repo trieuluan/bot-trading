@@ -1,16 +1,14 @@
 import asyncio
 import hashlib
 import hmac
-import os
-import secrets
-from contextlib import suppress
 import json
 import math
+import os
+import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -19,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 
 from .alerts import watchdog
-from .notifications import notifications_loop
 from .auto_paper import router as auto_router
 from .db import (
     AutoPaperState,
@@ -42,14 +39,17 @@ from .feed import load_candles, save_candles
 from .forex_learning import router as learning_router
 from .forex_paper import forex_paper_summary
 from .forex_reporting import journal_csv
-from .futures_symbols import SYMBOLS, market_symbol, symbol_scope
-from .futures_learner import router as futures_learning_router
+from .forex_symbols import configured_symbols, request_symbol
 from .futures_history import router as futures_history_router
+from .futures_learner import router as futures_learning_router
+from .futures_symbols import SYMBOLS, market_symbol, symbol_scope
 from .market import DemoAdapter, serialize
 from .mexc import SOURCE, SYMBOL, TIMEFRAME, MarketDataError, MexcFuturesAdapter
+from .notifications import notifications_loop
 from .observation import router as observation_router
 from .paper import router as paper_router
-from .research import check_cooldown, market_failure, research_lock, router as research_router
+from .research import check_cooldown, market_failure, research_lock
+from .research import router as research_router
 from .settings import validate_mode
 
 
@@ -133,14 +133,17 @@ def auth_logout():
     return response
 
 @app.get("/api/workspaces/exness_forex/paper/trades.csv")
-def forex_journal(channel: Literal["live", "replay", "trend", "range", "router"] = "live"):
-    return StreamingResponse(journal_csv(channel), media_type="text/csv", headers={
-        "Content-Disposition": f'attachment; filename="exness-paper-{channel}.csv"',
+def forex_journal(channel: Literal["live", "replay", "trend", "range", "router"] = "live", symbol: str = "XAUUSD"):
+    symbol = request_symbol(symbol)
+    return StreamingResponse(journal_csv(channel, symbol), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="exness-paper-{symbol}-{channel}.csv"',
         "Cache-Control": "no-store",
     })
 
 @app.middleware("http")
 async def futures_symbol_scope(request, call_next):
+    if request.url.path.startswith("/api/workspaces/exness_forex"):
+        return await call_next(request)
     symbol = request.query_params.get("symbol") or request.headers.get("X-Futures-Symbol") or SYMBOLS[0]
     if symbol not in SYMBOLS:
         return JSONResponse(status_code=422, content={"detail": "Unsupported Futures symbol"})
@@ -182,7 +185,7 @@ class Control(BaseModel):
 
 def workspace_values(workspace):
     return {"id": workspace.id, "name": workspace.name, "venue": workspace.venue,
-            "symbol": workspace.symbol, "execution_enabled": workspace.id == "exness_forex" and demo_execution_enabled()}
+            "symbol": workspace.symbol, "symbols": list(configured_symbols()) if workspace.id == "exness_forex" else [workspace.symbol], "execution_enabled": workspace.id == "exness_forex" and demo_execution_enabled()}
 
 @app.get("/api/workspaces")
 def workspaces():
@@ -230,6 +233,7 @@ def workspace_candles(
     price_type: Literal["last", "bid", "ask"] | None = None,
     limit: int = Query(1000, ge=1, le=5000),
     before: int | None = Query(None, ge=1),
+    symbol: str | None = Query(None),
 ):
     with Session() as session:
         workspace = session.get(Workspace, workspace_id)
@@ -259,13 +263,13 @@ def workspace_candles(
         if before is not None:
             query = query.where(model.time < before)
         rows = session.scalars(query.where(
-            model.symbol == (market_symbol() if workspace.venue == SOURCE else workspace.symbol), model.timeframe == timeframe,
+            model.symbol == (market_symbol() if workspace.venue == SOURCE else (request_symbol(symbol) if symbol else workspace.symbol)), model.timeframe == timeframe,
         ).order_by(model.time.desc()).limit(limit + 1)).all()
         has_more = len(rows) > limit
         rows = rows[:limit]
         if mexc and timeframe == TIMEFRAME and rows and rows[-1].time > 0:
             has_more = True
-        return {"workspace": workspace_values(workspace), "timeframe": timeframe,
+        return {"workspace": {**workspace_values(workspace), **({"symbol": symbol or workspace.symbol} if not mexc else {})}, "timeframe": timeframe,
                 "has_more": has_more, "next_before": rows[-1].time if has_more else None,
                 "price_type": price_type, "candles": [
                     {field: getattr(row, field) for field in (
@@ -275,15 +279,30 @@ def workspace_candles(
                 ]}
 
 @app.get("/api/workspaces/{workspace_id}/dashboard")
-def workspace_dashboard(workspace_id: str):
+def workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
+    if workspace_id == "exness_forex":
+        request_symbol(symbol)
     with Session() as session:
         workspace = session.get(Workspace, workspace_id)
         if workspace is None:
             raise HTTPException(404, "Unknown workspace")
         identity = workspace_values(workspace)
+        if workspace_id == "exness_forex":
+            identity = {**identity, "symbol": symbol}
     if workspace_id == SOURCE:
         return {"workspace": identity, **dashboard()}
-    frames = feed_summary()
+    from .forex_conversion import cost_context
+    from .forex_costs import spec_summary
+    with Session() as session:
+        instrument = spec_summary(session, symbol=symbol)
+        try:
+            if instrument["status"] == "stale":
+                raise ValueError("stale_specs")
+            instrument = {**instrument, "profile": cost_context(instrument["profile"], int(time.time()), session,
+                            account=os.getenv("EXNESS_ACCOUNT_ID", "unconfigured"), symbol=symbol)}
+        except ValueError:
+            instrument = {**instrument, "profile": None}
+    frames = feed_summary(symbol=symbol if workspace_id != SOURCE else "XAUUSD")
     m15 = next((item for item in frames if item["timeframe"] == "15m"), None)
     bars = m15["bars_per_side"] if m15 else 0
     last_sync = m15["last_sync"] if m15 else None
@@ -295,17 +314,71 @@ def workspace_dashboard(workspace_id: str):
         status = "error"
     return {
         "workspace": identity,
+        "instrument": instrument,
         "mode": "demo_execution" if demo_execution_enabled() else "demo_read_only",
         "market": {
             "status": status,
-            "message": f"Đã lưu {bars:,} nến M15 mỗi phía bid/ask XAUUSD" if bars else "Chưa có nến XAUUSD trong kho",
+            "message": f"Đã lưu {bars:,} nến M15 mỗi phía bid/ask {symbol}" if bars else f"Chưa có nến {symbol} trong kho",
             "bars": bars, "last_sync": last_sync, "worker_online": worker_online,
         },
-        "observation": observation_summary(),
+        "observation": observation_summary(symbol=symbol),
         "paper": forex_paper_summary(),
         "execution_enabled": demo_execution_enabled(),
         "frames": frames,
     }
+
+@app.get("/api/workspaces/exness_forex/markets")
+def forex_markets():
+    from .db import ExnessExecutionState
+    from .exness_execution import max_positions, max_positions_per_symbol
+    from .forex_conversion import cost_context
+    from .forex_costs import spec_summary
+    from .forex_learning import execution_status
+
+    now = int(time.time())
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    with Session() as session:
+        state = session.get(ExnessExecutionState, account)
+        meta = state.snapshot if state else {}
+        broker = meta.get("broker", {})
+        positions = broker.get("positions", [])
+        markets = []
+        for symbol in configured_symbols():
+            specs = spec_summary(session, now, symbol)
+            frames = feed_summary(symbol)
+            stream = quotes.snapshot(symbol)
+            last = session.scalar(select(WorkspaceCandle).where(
+                WorkspaceCandle.workspace_id == "exness_forex", WorkspaceCandle.symbol == symbol,
+                WorkspaceCandle.timeframe == "15m", WorkspaceCandle.price_type == "bid",
+                WorkspaceCandle.time + 900 <= now,
+            ).order_by(WorkspaceCandle.time.desc()).limit(1))
+            profile = specs.get("profile")
+            reason = None
+            try:
+                if not profile or specs["status"] == "stale":
+                    raise ValueError("specs_unavailable_or_stale")
+                verified = cost_context(profile, now, session, account=account, symbol=symbol)
+                if verified.get("commission_per_unit") is None:
+                    raise ValueError("commission_unverified")
+            except ValueError as exc:
+                reason = str(exc)
+            execution = execution_status(account, now, symbol)
+            count = sum(position.get("instrument") == symbol for position in positions)
+            if count >= max_positions_per_symbol():
+                reason = "symbol_position_limit"
+            if len(positions) >= max_positions():
+                reason = "account_position_limit"
+            tick = stream.get("quote")
+            stamp = tick["time"] if tick else last.time + 900 if last else None
+            markets.append({"symbol": symbol, "feed": frames, "specs": specs["status"],
+                            "price": tick["bid"] if tick else last.close if last else None,
+                            "price_at": stamp, "price_source": "tick" if tick else "closed_m15",
+                            "age_seconds": max(0, now - stamp) if stamp is not None else None,
+                            "positions": count, "execution": execution,
+                            "blocked_reason": execution["blocked_reason"] or reason,
+                            "decision": meta.get("symbols", {}).get(symbol)})
+    return {"at": now, "markets": markets, "account_positions": len(positions),
+            "max_positions": max_positions(), "max_positions_per_symbol": max_positions_per_symbol()}
 
 
 RESEARCH_DIRECTORY = Path(__file__).resolve().parents[2] / "research-output"

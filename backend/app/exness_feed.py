@@ -12,6 +12,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import Session, Workspace, WorkspaceCandle, WorkspaceFeedState, utcnow
 from .exness import ExnessError, ExnessReadOnly
+from .forex_symbols import checked_symbol, configured_symbols
 
 WORKSPACE = "exness_forex"
 FRAMES = {"15m": ("M15", 900), "1h": ("H1", 3600), "4h": ("H4", 14400)}
@@ -19,7 +20,7 @@ HISTORY_FRAMES = {**FRAMES, "1m": ("M1", 60)}
 
 
 def connect_exness():
-    if os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo" or os.getenv("EXNESS_SYMBOL", "XAUUSD") != "XAUUSD":
+    if os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo":
         raise ExnessError("This feed requires demo configuration and XAUUSD")
     api = ExnessReadOnly.from_env()
     try:
@@ -35,8 +36,9 @@ def connect_exness():
             if not math.isfinite(interval) or interval <= 0:
                 raise ValueError
             api.request_interval = max(api.request_interval, interval + 0.05)
-        if "XAUUSD" not in api.instruments()["instruments"]:
-            raise ExnessError("XAUUSD unavailable for configured account")
+        api.available_instruments = set(api.instruments()["instruments"])
+        if not set(configured_symbols()) & api.available_instruments:
+            raise ExnessError("Configured instruments unavailable for account")
         return api
     except (KeyError, ValueError, TypeError, StopIteration, ZeroDivisionError) as exc:
         api.client.close()
@@ -46,7 +48,8 @@ def connect_exness():
         raise
 
 
-def normalize_rows(rows, frame, start, end):
+def normalize_rows(rows, frame, start, end, symbol="XAUUSD"):
+    checked_symbol(symbol)
     step = HISTORY_FRAMES[frame][1]
     unique = {}
     try:
@@ -69,7 +72,7 @@ def normalize_rows(rows, frame, start, end):
                     raise ValueError
                 if values["low"] > min(values["open"], values["close"]) or values["high"] < max(values["open"], values["close"]):
                     raise ValueError
-                pair.append({"workspace_id": WORKSPACE, "symbol": "XAUUSD", "timeframe": frame,
+                pair.append({"workspace_id": WORKSPACE, "symbol": symbol, "timeframe": frame,
                              "price_type": side, "time": int(timestamp), "tick_volume": volume, **values})
             if any(pair[1][field] < pair[0][field] for field in ("open", "high", "low", "close")):
                 raise ValueError
@@ -81,7 +84,10 @@ def normalize_rows(rows, frame, start, end):
     return [item for stamp in sorted(unique) for item in unique[stamp]]
 
 
-def sync_page(api, frame, days=90, now=None, *, older=False):
+def sync_page(api, frame, days=90, now=None, *, older=False, symbol="XAUUSD", live_first=False):
+    checked_symbol(symbol)
+    if symbol not in getattr(api, "available_instruments", {symbol}):
+        raise ExnessError(f"Instrument unavailable: {symbol}")
     if frame not in HISTORY_FRAMES or isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 365:
         raise ValueError("Choose 1m/15m/1h/4h and 1..365 initial calendar days")
     now = int(utcnow().timestamp()) if now is None else now
@@ -91,20 +97,22 @@ def sync_page(api, frame, days=90, now=None, *, older=False):
     try:
         with Session.begin() as session:
             workspace = session.get(Workspace, WORKSPACE)
-            if workspace is None or workspace.venue != WORKSPACE or workspace.symbol != "XAUUSD":
+            if workspace is None or workspace.venue != WORKSPACE:
                 raise ExnessError("Invalid Exness workspace; run migrations")
             state = session.scalar(select(WorkspaceFeedState).where(
-                WorkspaceFeedState.workspace_id == WORKSPACE, WorkspaceFeedState.timeframe == frame,
+                WorkspaceFeedState.workspace_id == WORKSPACE, WorkspaceFeedState.symbol == symbol, WorkspaceFeedState.timeframe == frame,
             ).with_for_update(skip_locked=True))
             if state is None:
-                return {"status": "busy_or_unmigrated", "frame": frame}
+                state = WorkspaceFeedState(workspace_id=WORKSPACE, symbol=symbol, timeframe=frame)
+                session.add(state)
+                session.flush()
             if state.retry_at and state.retry_at.replace(tzinfo=timezone.utc) > current:
                 return {"status": "cooldown", "frame": frame}
             target_start = end - days * 86400
             if older and (state.started_at is None or state.checked_until is None):
                 return {"status": "waiting_initial_sync", "frame": frame}
             if state.started_at is None:
-                state.started_at = target_start
+                state.started_at = max(target_start, end - min(api.candle_limit, 300) * step) if live_first else target_start
             cursor = state.checked_until if state.checked_until is not None else state.started_at
             if cursor > end:
                 raise ExnessError("Clock behind persisted Exness cursor")
@@ -123,10 +131,15 @@ def sync_page(api, frame, days=90, now=None, *, older=False):
                 if state.checked_until is not None and 0 < end - cursor <= step and cap > 2:
                     start = max(state.started_at, cursor - 2 * step)
                 batch_end = min(end, start + cap * step)
-            raw = api.candles("XAUUSD", code, start, batch_end, now=now)
-            if len(raw) > cap:
-                raise ExnessError("Exness returned more candles than the declared request cap")
-            entries = normalize_rows(raw, frame, start, batch_end)
+            windows = [(start, batch_end)]
+            if live_first and not older and batch_end < end:
+                windows.insert(0, (max(batch_end, end - min(cap, 3) * step), end))
+            entries = []
+            for window_start, window_end in windows:
+                raw = api.candles(symbol, code, window_start, window_end, now=now)
+                if len(raw) > cap:
+                    raise ExnessError("Exness returned more candles than the declared request cap")
+                entries.extend(normalize_rows(raw, frame, window_start, window_end, symbol))
             insert = sqlite_insert if session.bind.dialect.name == "sqlite" else postgres_insert
             for offset in range(0, len(entries), 500):
                 statement = insert(WorkspaceCandle).values(entries[offset:offset + 500])
@@ -147,7 +160,7 @@ def sync_page(api, frame, days=90, now=None, *, older=False):
                     "bars": len(entries) // 2, "remaining_intervals": remaining}
     except ExnessError as exc:
         with Session.begin() as session:
-            state = session.get(WorkspaceFeedState, (WORKSPACE, frame), with_for_update=True)
+            state = session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame), with_for_update=True)
             if state:
                 state.error = str(exc)[:200]
                 state.retry_at = current + timedelta(seconds=exc.retry_after)
@@ -158,11 +171,12 @@ def sync_page(api, frame, days=90, now=None, *, older=False):
                         feed.retry_at = retry_at
         raise
 
-def feed_retry_delay():
+def feed_retry_delay(symbol=None):
     now = utcnow()
     with Session() as session:
         retry_at = session.scalar(select(func.max(WorkspaceFeedState.retry_at)).where(
             WorkspaceFeedState.workspace_id == WORKSPACE,
+            *([WorkspaceFeedState.symbol == symbol] if symbol is not None else []),
         ))
         return max(0, (retry_at.replace(tzinfo=timezone.utc) - now).total_seconds()) if retry_at else 0
 
@@ -183,13 +197,13 @@ def record_connection_failure(retry_after=60):
                 state.retry_at = retry_at
 
 
-def feed_summary():
+def feed_summary(symbol="XAUUSD"):
     now = utcnow()
     with Session() as session:
-        rows = session.scalars(select(WorkspaceFeedState).where(WorkspaceFeedState.workspace_id == WORKSPACE)).all()
+        rows = session.scalars(select(WorkspaceFeedState).where(WorkspaceFeedState.workspace_id == WORKSPACE, WorkspaceFeedState.symbol == symbol)).all()
         counts = {frame: (count, first, last) for frame, count, first, last in session.execute(
             select(WorkspaceCandle.timeframe, func.count(), func.min(WorkspaceCandle.time), func.max(WorkspaceCandle.time))
-            .where(WorkspaceCandle.workspace_id == WORKSPACE, WorkspaceCandle.symbol == "XAUUSD", WorkspaceCandle.price_type == "bid")
+            .where(WorkspaceCandle.workspace_id == WORKSPACE, WorkspaceCandle.symbol == symbol, WorkspaceCandle.price_type == "bid")
             .group_by(WorkspaceCandle.timeframe)
         )}
         frames = []

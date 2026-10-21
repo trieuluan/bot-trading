@@ -10,6 +10,7 @@ from sqlalchemy import select
 from .db import ForexPaperTrade, Session
 from .exness_feed import WORKSPACE
 
+
 def trade_report(trades, starting_balance):
     closed = sorted(
         (row for row in trades if row.get("status") == "resolved"),
@@ -64,7 +65,7 @@ def trade_report(trades, starting_balance):
     }
 
 CSV_FIELDS = (
-    "channel", "journal_version", "execution_model", "confirm_time", "side", "status",
+    "symbol", "channel", "journal_version", "execution_model", "confirm_time", "side", "status",
     "signal.strategy", "signal.trend", "signal.ema_4h", "signal.closed_4h_time",
     "signal.breakout_time", "signal.level", "signal.touch_time", "signal.retest_extreme",
     "signal.reason", "entry_time", "entry_bid", "entry_ask", "entry_spread", "entry_price_raw",
@@ -75,7 +76,7 @@ CSV_FIELDS = (
     "cost_profile.observed_at", "cost_profile.commission_type", "holding_seconds",
 )
 
-def journal_csv(channel):
+def journal_csv(channel, symbol="XAUUSD"):
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(CSV_FIELDS)
@@ -85,9 +86,11 @@ def journal_csv(channel):
             ForexPaperTrade.workspace_id == WORKSPACE, ForexPaperTrade.channel == channel,
         ).order_by(ForexPaperTrade.confirm_time).execution_options(yield_per=100))
         for row in rows:
+            if row.snapshot.get("symbol", "XAUUSD") != symbol:
+                continue
             values = []
             for field in CSV_FIELDS:
-                value = {**row.snapshot, "channel": channel}
+                value = {**row.snapshot, "symbol": symbol, "channel": channel}
                 for part in field.split("."):
                     value = value.get(part) if isinstance(value, dict) else None
                 if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):

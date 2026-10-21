@@ -14,6 +14,7 @@ from backend.app.db import (
     Session,
 )
 from backend.app.exness import ExnessError, load_private_key
+from backend.app.forex_costs import account_tag
 from backend.app.main import app
 
 NOW = 1791900000
@@ -49,13 +50,18 @@ def dummy_api(positions=(), orders=(), is_demo=True, account_id="31000117657"):
 def setup_env(monkeypatch):
     monkeypatch.setenv("EXNESS_ENVIRONMENT", "demo")
     monkeypatch.setenv("EXNESS_SYMBOL", "XAUUSD")
+    monkeypatch.delenv("EXNESS_SYMBOLS", raising=False)
     monkeypatch.setenv("EXNESS_DEMO_EXECUTION_ENABLED", "true")
     monkeypatch.setenv("EXNESS_DEMO_ORDERS_ENABLED", "true")
     monkeypatch.setenv("EXNESS_ACCOUNT_ID", "31000117657")
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "1")
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.01")
     monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
-    monkeypatch.setattr(ee, "live_quote", lambda: {"bid": 4000.0, "ask": 4000.25, "time": NOW, "received_at": NOW})
+    monkeypatch.setattr(ee, "live_quote", lambda *_: {"bid": 4000.0, "ask": 4000.25, "time": NOW, "received_at": NOW})
+    monkeypatch.setattr("backend.app.forex_costs.spec_summary", lambda *_: {"profile": {
+        "observed_at": NOW, "account_currency": "USD", "quote_currency": "USD", "commission_per_unit": 0,
+        "instrument": "XAUUSD", "account_tag": account_tag("31000117657"),
+    }})
 
 def test_disabled_by_default(monkeypatch):
     monkeypatch.delenv("EXNESS_DEMO_EXECUTION_ENABLED", raising=False)
@@ -89,7 +95,7 @@ def test_commits_intent_before_submit_and_native_sltp(monkeypatch):
     seed_executor(api, monkeypatch)
     def request(method, url, **kwargs):
         with Session() as session:
-            row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
+            row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
             assert row.snapshot["status"] == "submitting"
             body = json.loads(kwargs["content"])
             assert row.snapshot["body"] == body
@@ -184,7 +190,7 @@ def test_max_positions_env_allows_more_than_one(monkeypatch):
     assert not ee.busy(broker)
     assert ee.busy({"positions": [pos, pos], "orders": []})
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "999")
-    assert ee.max_positions() == 20
+    assert ee.max_positions() == 66
 
 @pytest.mark.parametrize("value", ["0", "-1", "invalid", ""])
 def test_invalid_position_limit_fails_safe(monkeypatch, value):
@@ -222,8 +228,54 @@ def test_signal_splits_into_native_tp1_then_runner_only_after_first_fill(monkeyp
     assert ee._execution_tick(api, now=NOW) == "submitted"
     assert len(bodies) == 1 and bodies[0]["volume"] == "0.02"
     with Session() as session:
-        row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
         assert [leg["status"] for leg in row.snapshot["legs"]] == ["submitted", "planned"]
+
+@pytest.mark.parametrize("symbol_count,total_count", [(5, 5), (0, 65)])
+def test_entire_split_plan_must_fit_account_and_symbol_limits(monkeypatch, symbol_count, total_count):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    positions = [{"position_id": str(index), "instrument": "XAUUSD" if index < symbol_count else "EURUSD"}
+                 for index in range(total_count)]
+    api = dummy_api(positions=positions)
+    seed_executor(api, monkeypatch)
+    assert ee._execution_tick(api, now=NOW) == "position_capacity_for_split"
+    api.client.request.assert_not_called()
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)) is None
+
+def test_account_lock_blocks_competing_executor(monkeypatch, tmp_path):
+    import fcntl
+    import hashlib
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "research-output"
+    directory.mkdir()
+    api = dummy_api()
+    fingerprint = hashlib.sha256(api.account_id.encode()).hexdigest()[:16]
+    with (directory / f"exness-probe-{fingerprint}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert ee.execution_tick(api, now=NOW) == "calibration_or_executor_active"
+    api.client.request.assert_not_called()
+
+def test_one_symbol_failure_does_not_repeat_account_reconcile_or_block_other(monkeypatch):
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
+    api = dummy_api()
+    snapshot_mock = MagicMock(side_effect=api.get)
+    api.get = snapshot_mock
+    reconcile = MagicMock()
+    monkeypatch.setattr(ee, "reconcile", reconcile)
+    monkeypatch.setattr(ee, "sync_deals", lambda *_: None)
+    def evaluate_symbol(api, broker, now, symbol):
+        if symbol == "XAUUSD":
+            raise ExnessError("instrument unavailable")
+        return "waiting_signal"
+    monkeypatch.setattr(ee, "_symbol_execution_tick", evaluate_symbol)
+    result = ee._execution_tick(api, now=NOW)
+    assert result["EURUSD"] == "waiting_signal"
+    assert "instrument unavailable" in result["XAUUSD"]
+    snapshot_mock.assert_called_once()
+    reconcile.assert_called_once()
 
 def test_operation_404_falls_back_and_heartbeat_survives_api_error():
     def missing(path, params=None):
@@ -254,7 +306,7 @@ def test_reconciles_intent_older_than_one_day():
     api.get = get
     ee.reconcile(api, {"positions": [], "orders": []}, NOW)
     with Session() as session:
-        assert session.get(ExnessExecutionTrade, (api.account_id, old)).snapshot["status"] == "closed"
+        assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", old)).snapshot["status"] == "closed"
 
 
 def test_adaptive_signal_splits_and_manages_via_broker(monkeypatch):
@@ -277,7 +329,7 @@ def test_adaptive_signal_splits_and_manages_via_broker(monkeypatch):
     api.client.request.side_effect = request
     assert ee._execution_tick(api, now=NOW) == "submitted"
     with Session() as session:
-        row = session.get(ExnessExecutionTrade, (api.account_id, NOW - 900))
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
         assert [leg["role"] for leg in row.snapshot["legs"]] == ["partial1", "runner"]
 
 @pytest.mark.parametrize("copies", [1, 2])
@@ -303,14 +355,14 @@ def test_reconciles_when_broker_drops_comment(copies):
     api.get = get
     ee.reconcile(api, {"positions": [], "orders": []}, NOW)
     with Session() as session:
-        trade = session.get(ExnessExecutionTrade, (api.account_id, old))
+        trade = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", old))
         assert trade.snapshot["status"] == ("closed" if copies == 1 else "submitted")
         assert trade.snapshot.get("position_id") == ("P2" if copies == 1 else None)
 
 def test_journal_records_why_bot_stayed_out(monkeypatch):
     api = dummy_api()
     seed_executor(api, monkeypatch)
-    def blocked(session, now):
+    def blocked(session, now, symbol="XAUUSD"):
         session.info["execution_evaluation"] = {
             "candle_time": NOW - 900, "evaluated": True, "mode": "explore", "selected": "squeeze_breakout",
             "confirmed": [{"strategy": "squeeze_breakout", "side": "short", "shadow": False}]}
@@ -369,7 +421,7 @@ def test_rate_limit_before_submit_allows_retry(monkeypatch):
     real = api.account
     def flaky():
         calls["n"] += 1
-        if calls["n"] == 2:  # prepare passes (cached afterwards); mutate's verify_demo hits the limit
+        if calls["n"] == 3:
             raise ExnessError("limit", 5, rate_limited=True)
         return real()
     api.account = flaky
@@ -377,7 +429,7 @@ def test_rate_limit_before_submit_allows_retry(monkeypatch):
         ee._execution_tick(api, now=NOW)
     api.client.request.assert_not_called()
     with Session() as s:
-        assert s.get(ExnessExecutionTrade, (api.account_id, NOW - 900)).snapshot["retryable_pre_submit"]
+        assert s.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)).snapshot["retryable_pre_submit"]
     assert ee._execution_tick(api, now=NOW + 10) == "submitted"
 
 def test_prepare_cache_expires_and_rejects_env_change(monkeypatch):
@@ -407,14 +459,14 @@ def test_cached_prepare_still_requires_flat_and_returns_copy():
 def test_retry_expires_without_submission(monkeypatch):
     api = dummy_api()
     seed_executor(api, monkeypatch)
-    api.account = MagicMock(side_effect=[dummy_api().account(), ExnessError("limit", 5, rate_limited=True)])
+    api.account = MagicMock(side_effect=[dummy_api().account(), dummy_api().account(), ExnessError("limit", 5, rate_limited=True)])
     with pytest.raises(ExnessError):
         ee._execution_tick(api, now=NOW)
     api.account = dummy_api().account
     assert ee._execution_tick(api, now=NOW + ee.SIGNAL_WINDOW + 1) != "submitted"
     api.client.request.assert_not_called()
     with Session() as session:
-        assert session.get(ExnessExecutionTrade, (api.account_id, NOW - 900)).snapshot["status"] == "skipped"
+        assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)).snapshot["status"] == "skipped"
 
 def test_late_retry_window_bounds():
     sig = {"available_at": NOW, "ref_price": 4000.0, "stop": 3990.0}

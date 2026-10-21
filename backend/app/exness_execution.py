@@ -4,8 +4,10 @@ Strictly demo only. Configurable position and risk caps; split TP1/runner positi
 Deals synced from Exness are the ground truth for chart markers and trade history.
 """
 
+import csv
 import fcntl
 import hashlib
+import io
 import json
 import os
 import time
@@ -16,6 +18,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, StrictBool
 from sqlalchemy import select, text
 
@@ -44,6 +47,7 @@ from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .forex_htf_v2 import execution_candidates, validate_execution_signal
 from .forex_learning import summary as learning_summary
 from .forex_notifications import notify_reconciled
+from .forex_symbols import configured_symbols, request_symbol
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
 PENDING = ("planned", "submitting", "submitted", "uncertain", "closing")
@@ -56,15 +60,36 @@ def initial_stop_of(data):
 def enabled():
     return (os.getenv("EXNESS_DEMO_EXECUTION_ENABLED") == "true"
             and os.getenv("EXNESS_ENVIRONMENT") == "demo"
-            and os.getenv("EXNESS_SYMBOL") == "XAUUSD")
+            and bool(configured_symbols()))
 
 
 def max_positions():
-    # ponytail: cap 1..20 via env; add runtime settings when needed.
     try:
-        return min(20, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS", "1"))))
+        return min(66, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS", "1"))))
     except ValueError:
         return 1
+
+def max_positions_per_symbol():
+    try:
+        return min(6, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6"))))
+    except ValueError:
+        return 1
+
+def capacity_available(broker, account, symbol, additional=0):
+    positions = broker["positions"]
+    live_ids = {position["position_id"] for position in positions}
+    occupied = len(positions)
+    local = sum(position.get("instrument") == symbol for position in positions)
+    if any(order.get("order_type") != "sltp" for order in broker["orders"]):
+        return False
+    with Session() as session:
+        intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
+    for intent in intents:
+        for _, leg in leg_records(intent.snapshot):
+            if leg.get("status") in (*ACTIVE, "planned") and leg.get("position_id") not in live_ids:
+                occupied += 1
+                local += intent.symbol == symbol
+    return occupied + additional <= max_positions() and local + additional <= max_positions_per_symbol()
 
 def busy(broker):
     pending = [order for order in broker["orders"] if order.get("order_type") != "sltp"]
@@ -95,19 +120,19 @@ def utc(stamp):
     return datetime.fromtimestamp(stamp, timezone.utc).isoformat()
 
 
-def live_quote():
+def live_quote(symbol="XAUUSD"):
     base = os.getenv("EXNESS_QUOTE_BASE_URL", "http://api:8000")
     deadline = time.monotonic() + 5
-    with urlopen(base + "/api/workspaces/exness_forex/quotes/stream", timeout=5) as stream:
+    with urlopen(base + "/api/workspaces/exness_forex/quotes/stream?symbol=" + symbol, timeout=5) as stream:
         while time.monotonic() < deadline:
             line = stream.readline()
             if not line:
                 break
             if line.startswith(b"data: "):
                 data = json.loads(line[6:])
-                if data.get("symbol") == "XAUUSD" and data.get("status") == "live":
+                if data.get("symbol") == symbol and data.get("status") == "live":
                     return validate_quote(data.get("quote") or {})
-    raise ExnessError("Fresh XAUUSD quote unavailable")
+    raise ExnessError(f"Fresh {symbol} quote unavailable")
 
 
 def history(api, kind, start, end):
@@ -143,19 +168,22 @@ def sync_deals(api, now):
         state.snapshot = {**state.snapshot, "history_until": end, "history_synced_at": now}
 
 
-def persist(account, stamp, values):
+def persist(account, stamp, values, symbol="XAUUSD"):
     with Session.begin() as session:
-        row = session.get(ExnessExecutionTrade, (account, stamp))
+        row = session.get(ExnessExecutionTrade, (account, symbol, stamp))
         row.snapshot = {**row.snapshot, **values}
 
 
 def leg_records(data):
     return list(enumerate(data["legs"])) if data.get("legs") else [(None, data)]
 
-def persist_leg(account, stamp, index, values):
+def persist_leg(account, stamp, index, values, symbol="XAUUSD"):
     with Session.begin() as session:
-        row = session.get(ExnessExecutionTrade, (account, stamp))
+        row = session.get(ExnessExecutionTrade, (account, symbol, stamp))
         update_leg(row, index, values)
+
+def persist_symbol_leg(account, symbol, stamp, index, values):
+    persist_leg(account, stamp, index, values, symbol)
 
 def update_leg(row, index, values):
     if index is None:
@@ -198,7 +226,7 @@ def reconcile(api, broker, now):
                 continue
             def save(values):
                 with Session.begin() as session:
-                    current = session.get(ExnessExecutionTrade, (api.account_id, row.signal_time))
+                    current = session.get(ExnessExecutionTrade, (api.account_id, row.symbol, row.signal_time))
                     previous = current.snapshot["legs"][index] if index is not None else current.snapshot
                     updated = {**previous, **values}
                     position = next((item for item in broker["positions"]
@@ -220,7 +248,7 @@ def reconcile(api, broker, now):
                 orders = list(history(api, "orders", start, min(now, start + 86400)))
                 matching = [item["order"] for item in orders
                             if item["order"].get("comment") == data["key"][:32]
-                            and item["order"].get("instrument") == "XAUUSD"]
+                            and item["order"].get("instrument") == row.symbol]
                 if not matching:
                     body = data.get("body", {})
                     submitted = data.get("submitted_at", data["recorded_at"])
@@ -285,12 +313,12 @@ def reconcile(api, broker, now):
             save({"position_id": pid, "status": status, "take_profit_filled": tp_filled,
                   **({"management": management} if management else {})})
 
-def evaluate(session, now):
+def evaluate(session, now, symbol="XAUUSD"):
     detail = session.info["execution_evaluation"] = {
-        "candle_time": now // 900 * 900 - 900, "evaluated": False}
-    frames = load_frames(session, now)
-    feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
-    if audit_frames(frames)["status"] == "blocked" or any(
+        "symbol": symbol, "candle_time": now // 900 * 900 - 900, "evaluated": False}
+    frames = load_frames(session, now, symbol)
+    feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
+    if audit_frames(frames, symbol)["status"] == "blocked" or any(
         not state or state.error or state.checked_until is None
         or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
         for frame, state in zip(FRAMES, feeds)
@@ -308,7 +336,7 @@ def evaluate(session, now):
         return None
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     try:
-        candidates = execution_candidates(account, now)
+        candidates = execution_candidates(account, now, symbol)
     except (OSError, ValueError, KeyError, TypeError):
         detail["why"] = "v2_ledger_unavailable"
         return None
@@ -329,10 +357,11 @@ def record_journal(state, detail, outcome, now):
     if stamp is None:
         return
     rows = state.snapshot.get("journal", [])
-    old = next((row for row in rows if row["time"] == stamp), None)
+    symbol = detail.get("symbol", "XAUUSD")
+    old = next((row for row in rows if row["time"] == stamp and row.get("symbol", "XAUUSD") == symbol), None)
     if old and old["evaluated"] and not detail.get("evaluated"):
         detail = {**old, **detail, "evaluated": True, "candle_time": stamp}
-    entry = {"time": stamp, "at": now, "evaluated": bool(detail.get("evaluated")), "outcome": outcome,
+    entry = {"symbol": symbol, "time": stamp, "at": now, "evaluated": bool(detail.get("evaluated")), "outcome": outcome,
              "mode": detail.get("mode"), "selected": detail.get("selected"), "confirmed": detail.get("confirmed", []),
              "strategies": detail.get("strategies", []), "reason": detail.get("reason", (old or {}).get("reason")),
              "events": (old or {}).get("events", [])}
@@ -344,7 +373,7 @@ def record_journal(state, detail, outcome, now):
                 or (old["evaluated"] and outcome.startswith("unavailable:"))
                 or (old["outcome"] in ("api_rate_limited", "worker_error") and outcome.startswith("unavailable:"))):
         entry["outcome"] = old["outcome"]
-    rows = sorted([row for row in rows if row["time"] != stamp] + [entry], key=lambda row: row["time"])[-192:]
+    rows = sorted([row for row in rows if (row["time"], row.get("symbol", "XAUUSD")) != (stamp, symbol)] + [entry], key=lambda row: row["time"])[-192:]
     state.snapshot = {**state.snapshot, "journal": rows}
 
 def tick_outcome(reason, signal, detail):
@@ -390,7 +419,7 @@ def execution_tick(api, now=None):
                     state = session.get(ExnessExecutionState, api.account_id)
                     stamp = observed_at // 900 * 900 - 900
                     if state and not any(row["time"] == stamp for row in state.snapshot.get("journal", [])):
-                        signal = evaluate(session, observed_at)
+                        signal = evaluate(session, observed_at, configured_symbols()[0])
                         detail = session.info.get("execution_evaluation", {"candle_time": stamp})
                         record_journal(state, detail, tick_outcome(result, signal, detail), observed_at)
                 return result
@@ -406,7 +435,7 @@ def _execution_tick(api, now=None):
         return "disabled"
     beat(api.account_id, now)  # worker alive even if broker API is rate limited
     client = ExnessDemoClient(api)
-    condition = client.prepare(require_flat=False)
+    client.verify_demo()
     broker = client.snapshot()
     with Session.begin() as session:
         state = session.get(ExnessExecutionState, api.account_id)
@@ -415,15 +444,46 @@ def _execution_tick(api, now=None):
                                          snapshot={"history_from": now - 86400})
             session.add(state)
         state.snapshot = {**state.snapshot, "heartbeat": now, "broker": broker, "error": None,
-                          "demo_verified": True, "stop_management_available": client.can_modify}
+                          "demo_verified": True, "stop_management_available": getattr(client, "can_modify", False)}
     sync_deals(api, now)
     reconcile(api, broker, now)
-    near_close = session_closed_ahead(now // 900 * 900, 2)
+    with Session() as session:
+        managed = session.scalars(select(ExnessExecutionTrade.symbol).where(
+            ExnessExecutionTrade.account == api.account_id,
+        ).distinct()).all()
+    results = {}
+    for symbol in dict.fromkeys((*configured_symbols(), *managed)):
+        try:
+            results[symbol] = _symbol_execution_tick(api, broker, now, symbol)
+        except Exception as exc:
+            results[symbol] = type(exc).__name__ + ": " + str(exc)[:160]
+            record_error(api.account_id, exc, now)
+            if getattr(exc, "rate_limited", False) or getattr(exc, "account_blocked", False) or len(configured_symbols()) == 1:
+                raise
+    return next(iter(results.values())) if len(results) == 1 else results
+
+
+def _symbol_execution_tick(api, broker, now, symbol):
+    from .forex_conversion import cost_context
+    from .forex_costs import spec_summary
+    client = ExnessDemoClient(api)
+    condition = client.prepare(symbol, require_flat=False)
+    with Session() as session:
+        specs = spec_summary(session, now, symbol)
+        profile = specs.get("profile") if specs.get("status") != "stale" else None
+    costs_ready = profile is not None and 0 <= now - profile["observed_at"] < 3600
+    if costs_ready:
+        try:
+            condition = cost_context({**condition, **profile}, now, account=api.account_id, symbol=symbol)
+            costs_ready = condition.get("commission_per_unit") is not None
+        except ValueError:
+            costs_ready = False
+    near_close = session_closed_ahead(now // 900 * 900, 2, symbol=symbol)
     with Session() as session:
         own = session.scalars(select(ExnessExecutionTrade).where(
-            ExnessExecutionTrade.account == api.account_id)).all()
+            ExnessExecutionTrade.account == api.account_id, ExnessExecutionTrade.symbol == symbol)).all()
     with Session() as session:
-        frames = load_frames(session, now)
+        frames = load_frames(session, now, symbol)
     minutes = closed_minutes(frames, now)
     for row in own:
         legs = leg_records(row.snapshot)
@@ -448,12 +508,14 @@ def _execution_tick(api, now=None):
             manual = row.snapshot.get("close_requested") or data.get("close_requested")
             required_close = "session_close" if near_close else "missing_protection" if not protections else "manual" if manual else None
             if required_close:
-                key = f"rr-close-{api.account_id}-{row.signal_time}-{index}"
-                persist_leg(api.account_id, row.signal_time, index,
+                key = f"rr-close-{api.account_id}-{symbol}-{row.signal_time}-{index}"
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                             {"status": "closing", "close_key": key, "close_reason": required_close})
                 ack = client.mutate("DELETE", key, position_id=pid)
-                persist_leg(api.account_id, row.signal_time, index, {"close_ack": ack})
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"close_ack": ack})
                 return "closing"
+            if not costs_ready:
+                continue
             if sig.get("exit_policy") in ADAPTIVE_EXITS:
                 from .forex_exits import action as exits_action
                 from .forex_exits import closed_rows as exits_closed_rows
@@ -475,16 +537,16 @@ def _execution_tick(api, now=None):
                         from .forex_samples import slippage_estimate
                         act = exits_action(sig, ex_rows, open_val, risk_val, entry_time,
                                            float(protections[0]["stop_loss_price"]), condition, float(mark),
-                                           slippage_estimate()["bps"] / 10000,
+                                           slippage_estimate(symbol)["bps"] / 10000,
                                            float(condition.get("commission_per_unit") or 0))
                         if act:
-                            persist_leg(api.account_id, row.signal_time, index, {"adaptive_decision": act})
+                            persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"adaptive_decision": act})
                 if act and act.get("close_roles") and data.get("role") in act["close_roles"]:
-                    key = f"rr-close-{api.account_id}-{row.signal_time}-{index}"
-                    persist_leg(api.account_id, row.signal_time, index,
+                    key = f"rr-close-{api.account_id}-{symbol}-{row.signal_time}-{index}"
+                    persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                                 {"status": "closing", "close_key": key, "close_reason": act["reason"]})
                     ack = client.mutate("DELETE", key, position_id=pid)
-                    persist_leg(api.account_id, row.signal_time, index, {"close_ack": ack})
+                    persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"close_ack": ack})
                     return "closing"
                 pending_management = data.get("management", {}).get("status") in ("submitting", "submitted")
                 failed_stop = data.get("management", {}).get("status") == "failed" and data["management"].get("stop") == (act or {}).get("stop")
@@ -497,11 +559,11 @@ def _execution_tick(api, now=None):
                     order_id = str(protections[0]["order_id"])
                     key = f"sl-{pid}-{action['stop']}"
                     def on_modify(submission):
-                        persist_leg(api.account_id, row.signal_time, index,
+                        persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                                     {"management": {**action, "status": "submitting", "key": key}})
                     ack = client.mutate("PATCH", key, body={"stop_loss_price": action["stop"]}, order_id=order_id,
-                                        quote_source=live_quote, on_submit=on_modify)
-                    persist_leg(api.account_id, row.signal_time, index,
+                                        quote_source=lambda: live_quote(symbol), on_submit=on_modify)
+                    persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                                 {"management": {**action, "status": "submitted", "key": key, "ack": ack}})
                     return "managing_stop"
                 continue
@@ -511,11 +573,11 @@ def _execution_tick(api, now=None):
             reason = ("session_close" if near_close else "missing_protection" if not protections
                       else "manual" if manual else early)
             if reason:
-                key = f"rr-close-{api.account_id}-{row.signal_time}-{index}"
-                persist_leg(api.account_id, row.signal_time, index,
+                key = f"rr-close-{api.account_id}-{symbol}-{row.signal_time}-{index}"
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                             {"status": "closing", "close_key": key, "close_reason": reason})
                 ack = client.mutate("DELETE", key, position_id=pid)
-                persist_leg(api.account_id, row.signal_time, index, {"close_ack": ack})
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"close_ack": ack})
                 return "closing"
             initial = data.get("body", {}).get("stop_loss_price")
             pending_management = data.get("management", {}).get("status") in ("submitting", "submitted")
@@ -523,7 +585,7 @@ def _execution_tick(api, now=None):
                 continue
             if row.snapshot.get("signal", {}).get("partial_be") is False:
                 continue
-            quote = live_quote()
+            quote = live_quote(symbol)
             validate_quote(quote, now)
             action = protective_stop(position, initial, quote, protections[0], condition, mgmt_rows, partial_done)
             if action:
@@ -534,13 +596,15 @@ def _execution_tick(api, now=None):
             order_id = str(protections[0]["order_id"])
             key = f"sl-{pid}-{action['stop']}"
             def on_modify(submission):
-                persist_leg(api.account_id, row.signal_time, index,
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                             {"management": {**action, "status": "submitting", "key": key}})
             ack = client.mutate("PATCH", key, body={"stop_loss_price": action["stop"]}, order_id=order_id,
-                                quote_source=live_quote, on_submit=on_modify)
-            persist_leg(api.account_id, row.signal_time, index,
+                                quote_source=lambda: live_quote(symbol), on_submit=on_modify)
+            persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                         {"management": {**action, "status": "submitted", "key": key, "ack": ack}})
             return "managing_stop"
+    if not costs_ready:
+        return "costs_unverified"
     for row in own:
         retry = next(((index, data) for index, data in leg_records(row.snapshot)
                       if data["status"] == "planned" and data.get("retryable_pre_submit")), None)
@@ -549,7 +613,7 @@ def _execution_tick(api, now=None):
             if now - row.snapshot["signal"]["available_at"] > SIGNAL_WINDOW or near_close:
                 for leg_index, leg in leg_records(row.snapshot):
                     if leg["status"] == "planned":
-                        persist_leg(api.account_id, row.signal_time, leg_index,
+                        persist_symbol_leg(api.account_id, symbol, row.signal_time, leg_index,
                                     {"status": "skipped", "error": "signal_expired: retry window closed"})
                 continue
             result = submit_leg(client, row, index, data, condition, now)
@@ -566,17 +630,17 @@ def _execution_tick(api, now=None):
             first = row.snapshot["legs"][0]
             if (first["status"] in ("closed", "rejected", "skipped", "closing")
                     or row.snapshot.get("close_requested") or near_close):
-                persist_leg(api.account_id, row.signal_time, index, {"status": "skipped", "error": "Setup no longer active"})
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Setup no longer active"})
                 continue
             with Session() as session:
                 state = session.get(ExnessExecutionState, api.account_id)
             if not state.enabled:
-                persist_leg(api.account_id, row.signal_time, index, {"status": "skipped", "error": "Paused before runner"})
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Paused before runner"})
                 continue
             if first["status"] != "open":
                 continue
             if busy(broker):
-                persist_leg(api.account_id, row.signal_time, index, {"status": "skipped", "error": "Runner capacity unavailable"})
+                persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Runner capacity unavailable"})
                 continue
             return submit_leg(client, row, index, data, condition, now)
     with Session.begin() as session:
@@ -586,11 +650,11 @@ def _execution_tick(api, now=None):
         unresolved = any(row.snapshot["status"] in PENDING or any(
             leg.get("management", {}).get("status") in ("submitting", "submitted")
             for _, leg in leg_records(row.snapshot)) for row in pending)
-        reason = "paused" if not state.enabled else "reconciling" if unresolved else (
+        reason = "symbol_disabled" if symbol not in configured_symbols() else "costs_unverified" if not costs_ready else "paused" if not state.enabled else "reconciling" if unresolved else (
             "position_active" if busy(broker) else
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
-        signal = evaluate(session, now)
+        signal = evaluate(session, now, symbol)
         if signal and str(signal.get("strategy", "")).startswith("hast2_") and signal.get("shadow_only") is False:
             try:
                 signal = validate_execution_signal(signal, api.account_id, now)
@@ -599,27 +663,31 @@ def _execution_tick(api, now=None):
         elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_"))):
             reason, signal = "shadow_only_signal", None
         detail = session.info.get("execution_evaluation", {
-            "candle_time": now // 900 * 900 - 900, "evaluated": False})
+            "symbol": symbol, "candle_time": now // 900 * 900 - 900, "evaluated": False})
+        detail = {**detail, "symbol": symbol}
         if reason:
             signal = None
-        state.snapshot = {**state.snapshot, "decision": reason or (signal or {}).get("reason", "Waiting for fresh closed M15 signal")}
+        decision = reason or (signal or {}).get("reason", "Waiting for fresh closed M15 signal")
+        state.snapshot = {**state.snapshot, "decision": decision,
+                          "symbols": {**state.snapshot.get("symbols", {}), symbol: {"decision": decision, "at": now}}}
         record_journal(state, detail, tick_outcome(reason, signal, detail), now)
         if reason or not signal or signal["status"] != "confirmed":
             return reason or "waiting_signal"
         stamp = signal["candle_time"]
-        if signal["available_at"] < state.snapshot.get("armed_at", state.started_at) or session.get(ExnessExecutionTrade, (api.account_id, stamp)):
+        if signal["available_at"] < state.snapshot.get("armed_at", state.started_at) or session.get(ExnessExecutionTrade, (api.account_id, symbol, stamp)):
             record_journal(state, detail, "old_or_duplicate_signal", now)
             return "old_or_duplicate_signal"
-        key = f"rr-{api.account_id}-{stamp}"
+        digest = hashlib.sha256(f"{api.account_id}:{symbol}:{stamp}".encode()).hexdigest()[:16]
+        key = f"fx-{symbol}-{digest}"
         if signal.get("setup_id"):
             duplicate = any(row.snapshot.get("signal", {}).get("setup_id") == signal["setup_id"]
                             for row in session.scalars(select(ExnessExecutionTrade).where(
-                                ExnessExecutionTrade.account == api.account_id)).all())
+                                ExnessExecutionTrade.account == api.account_id, ExnessExecutionTrade.symbol == symbol)).all())
             if duplicate:
                 record_journal(state, detail, "old_or_duplicate_signal", now)
                 return "old_or_duplicate_signal"
         try:
-            quote = live_quote()
+            quote = live_quote(symbol)
             body = client.strategy_body(signal, condition, quote, key)
             late_drift_ok(signal, quote["ask" if body["side"] == "buy" else "bid"], now)
             if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
@@ -633,21 +701,21 @@ def _execution_tick(api, now=None):
             record_journal(state, detail, "blocked:preflight_failed", now)
             state.snapshot = {**state.snapshot, "decision": "preflight_failed: " + str(exc)[:160]}
             return "preflight_failed"
-        if len(broker["positions"]) + len(bodies) > max_positions():
+        if not capacity_available(broker, api.account_id, symbol, len(bodies)):
             record_journal(state, detail, "position_capacity_for_split", now)
             return "position_capacity_for_split"
         legs = [{"key": key + f"-{index}", "body": {name: value for name, value in part.items() if name != "role"},
                  "role": part["role"], "status": "planned", "recorded_at": now,
                  "contract_size": condition["contract_size"]} for index, part in enumerate(bodies)]
-        record = {"key": key, "recorded_at": now, "status": "planned", "signal": signal,
+        record = {"symbol": symbol, "key": key, "recorded_at": now, "status": "planned", "signal": signal,
                   "signal_time": stamp, "side": signal["side"], "reason": signal["reason"],
                   "legs": legs, "exit_policy": "structural_tp_v1" if signal.get("target_context") else "split_1r_2r_be_trail_early_v1"}
         if len(legs) == 1:
             record = {**record, **legs[0]}
             record.pop("legs")
         record_journal(state, detail, "order_planned", now)
-        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=stamp, snapshot=record))
-    row = type("Intent", (), {"snapshot": record, "signal_time": stamp})()
+        session.add(ExnessExecutionTrade(account=api.account_id, symbol=symbol, signal_time=stamp, snapshot=record))
+    row = type("Intent", (), {"snapshot": record, "signal_time": stamp, "symbol": symbol})()
     try:
         result = submit_leg(client, row, 0 if len(legs) > 1 else None, legs[0], condition, now)
         if result == "submitted":
@@ -665,21 +733,27 @@ def _execution_tick(api, now=None):
         raise
 
 def submit_leg(client, row, index, data, condition, now):
+    from .forex_conversion import cost_context
+    symbol = getattr(row, "symbol", "XAUUSD")
     api = client.api
     with Session() as session:
         state = session.get(ExnessExecutionState, api.account_id)
         if not state.enabled:
-            persist_leg(api.account_id, row.signal_time, index, {"status": "skipped", "error": "Paused before submit"})
+            persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Paused before submit"})
             return "paused"
     current = client.snapshot()
-    if busy(current):
-        persist_leg(api.account_id, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
+    if not capacity_available(current, api.account_id, symbol):
+        persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
         return "position_active"
     signal = row.snapshot["signal"]
     key = data["key"]
     def build(quote):
-        late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], max(now, int(time.time())))
-        full = client.strategy_body(signal, condition, quote, key)
+        submitted_at = max(now, int(time.time()))
+        fresh_condition = cost_context(condition, submitted_at, account=api.account_id, symbol=symbol)
+        if fresh_condition.get("commission_per_unit") is None:
+            raise ExnessError("costs_unverified")
+        late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], submitted_at)
+        full = client.strategy_body(signal, fresh_condition, quote, key)
         volume = positive_decimal(data["body"]["volume"])
         if volume > positive_decimal(full["volume"]):
             raise ExnessError("Fresh quote no longer supports planned lot")
@@ -695,29 +769,31 @@ def submit_leg(client, row, index, data, condition, now):
             other_entry = (positive_decimal(opened["open_price"]) if opened else
                            Decimal(str(other.get("quote", {}).get("ask" if full["side"] == "buy" else "bid", entry))))
             committed += abs(other_entry - positive_decimal(other["body"]["stop_loss_price"])) * positive_decimal(other["body"]["volume"]) * contract
-        if committed + abs(entry - Decimal(full["stop_loss_price"])) * volume * contract > risk_budget():
+        conversion = positive_decimal(fresh_condition["quote_to_account_loss"])
+        if (committed + abs(entry - Decimal(full["stop_loss_price"])) * volume * contract) * conversion > risk_budget():
             raise ExnessError("Combined split risk exceeds setup budget")
         if data["role"] == "tp1":
             target = entry + entry - Decimal(full["stop_loss_price"])
             full["take_profit_price"] = format(target.quantize(Decimal(1).scaleb(-condition["point_digits"])), "f")
         return full
     def on_submit(submission):
-        persist_leg(api.account_id, row.signal_time, index,
+        persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                     {"status": "submitting", "body": submission["body"], "quote": submission["quote"],
                      "tp_reason": signal.get("tp_reason"),
+                     "cost_profile": cost_context(condition, submission["submitted_at"], account=api.account_id, symbol=symbol),
                      "submitted_at": submission["submitted_at"]})
     try:
-        ack = client.mutate("POST", key, body=data["body"], quote_source=live_quote,
+        ack = client.mutate("POST", key, body=data["body"], quote_source=lambda: live_quote(symbol),
                             build=build, on_submit=on_submit)
-        persist_leg(api.account_id, row.signal_time, index, {"status": "submitted", "ack": ack})
+        persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "submitted", "ack": ack})
         return "submitted"
     except Exception as exc:
         if (getattr(exc, "rate_limited", False) and not client.last_submission
                 and index in (None, 0) and data["status"] == "planned"):
-            persist_leg(api.account_id, row.signal_time, index,
+            persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                         {"status": "planned", "retryable_pre_submit": True, "error": str(exc)[:200]})
             raise
-        persist_leg(api.account_id, row.signal_time, index,
+        persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                     {"status": "uncertain" if client.last_submission else "skipped",
                      "error": type(exc).__name__ + ": " + str(exc)[:200]})
         raise
@@ -734,28 +810,29 @@ def record_error(account, exc, now=None):
 
 
 @router.get("")
-def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD"):
+    request_symbol(symbol)
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     with Session() as session:
         state = session.get(ExnessExecutionState, account)
         deals = session.scalars(select(ExnessDeal).where(ExnessDeal.account == account,
             ExnessDeal.position_id.is_not(None)).order_by(ExnessDeal.event_time, ExnessDeal.deal_id)).all()
-        intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)
+        intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account, ExnessExecutionTrade.symbol == symbol)
                                   .order_by(ExnessExecutionTrade.signal_time.desc())).all()
     meta = state.snapshot if state else {}
     broker = meta.get("broker", {})
     positions = {}
     for row in deals:
         deal, pid = row.snapshot, row.position_id
-        if deal.get("instrument") != "XAUUSD":
+        if deal.get("instrument") != symbol:
             continue
-        position = positions.setdefault(pid, {"position_id": pid, "side": None, "volume": None,
+        position = positions.setdefault(pid, {"symbol": symbol, "position_id": pid, "side": None, "volume": None,
             "open_time": None, "open_price": None, "close_time": None, "close_price": None,
             "status": "history_incomplete", "pnl": None, "deals": [], "source": "external"})
         position["deals"].append(deal)
     for position in broker.get("positions", []):
-        if position.get("instrument") == "XAUUSD":
-            row = positions.setdefault(position["position_id"], {"position_id": position["position_id"],
+        if position.get("instrument") == symbol:
+            row = positions.setdefault(position["position_id"], {"symbol": symbol, "position_id": position["position_id"],
                 "close_time": None, "close_price": None, "pnl": None, "deals": [], "source": "external"})
             row.update(side=position["direction"], volume=float(position["volume"]),
                        open_price=float(position["open_price"]), status="open",
@@ -808,19 +885,47 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
     return {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
         "account": account, "strategy": "learning", "lot": f"0.01..{max_lot_size():.2f}",
-        "max_concurrent": max_positions(), "planned_risk_ceiling_usd": planned_risk_usd(),
+        "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(), "planned_risk_ceiling_usd": planned_risk_usd(),
         "stop_management_available": meta.get("stop_management_available", False),
-        "error": meta.get("error"), "decision": meta.get("decision"),
+        "error": meta.get("error"), "decision": meta.get("symbols", {}).get(symbol, {}).get("decision", meta.get("decision") if symbol == "XAUUSD" else None),
         "account_state": broker.get("account_state"), "synced_at": meta.get("history_synced_at"),
         "history_from": meta.get("history_from", state.started_at - 86400) if state else None,
         "positions": rows[offset:offset + limit], "total": len(rows),
         "has_more": offset + limit < len(rows), "intents": [row.snapshot for row in intents[:20]],
         "open_count": len(broker.get("positions", [])), "orders": broker.get("orders", []),
+        "symbol_open_count": sum(position.get("instrument") == symbol for position in broker.get("positions", [])),
         "closed_count": sum(row["status"] == "closed" for row in rows),
         "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2),
-        "learning": learning_summary(),
-        "journal": list(reversed(meta.get("journal", []))), "funnel": funnel(meta.get("journal", []))}
+        "learning": learning_summary(symbol=symbol),
+        "journal": list(reversed([row for row in meta.get("journal", []) if row.get("symbol", "XAUUSD") == symbol])), "funnel": funnel([row for row in meta.get("journal", []) if row.get("symbol", "XAUUSD") == symbol])}
 
+
+@router.get("/trades.csv")
+def execution_csv(symbol: str = "XAUUSD"):
+    request_symbol(symbol)
+    fields = ("symbol", "position_id", "source", "side", "status", "volume", "open_time", "open_price",
+              "close_time", "close_price", "stop", "target", "pnl", "signal_time", "reason")
+    def rows():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(fields)
+        yield buffer.getvalue()
+        offset = 0
+        while True:
+            page = execution_summary(offset=offset, limit=100, symbol=symbol)
+            for position in page["positions"]:
+                values = [position.get(field) for field in fields]
+                values = ["'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value
+                          for value in values]
+                buffer.seek(0)
+                buffer.truncate(0)
+                writer.writerow(values)
+                yield buffer.getvalue()
+            if not page["has_more"]:
+                break
+            offset += 100
+    return StreamingResponse(rows(), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="exness-{symbol}-trades.csv"', "Cache-Control": "no-store"})
 
 class ExecutionControl(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -828,7 +933,8 @@ class ExecutionControl(BaseModel):
 
 
 @router.patch("")
-def control(body: ExecutionControl):
+def control(body: ExecutionControl, symbol: str = "XAUUSD"):
+    request_symbol(symbol)
     if not enabled():
         raise HTTPException(409, "Demo execution not configured")
     with Session.begin() as session:
@@ -842,11 +948,12 @@ def control(body: ExecutionControl):
 
 
 @router.post("/trades/{signal_time}/close")
-def request_close(signal_time: int, position_id: str | None = Query(None, pattern=r"^[0-9]+$")):
+def request_close(signal_time: int, position_id: str | None = Query(None, pattern=r"^[0-9]+$"), symbol: str = "XAUUSD"):
+    request_symbol(symbol)
     if not enabled():
         raise HTTPException(409, "Demo execution not configured")
     with Session.begin() as session:
-        row = session.get(ExnessExecutionTrade, (os.getenv("EXNESS_ACCOUNT_ID", ""), signal_time))
+        row = session.get(ExnessExecutionTrade, (os.getenv("EXNESS_ACCOUNT_ID", ""), symbol, signal_time))
         if not row or not any(leg["status"] == "open" for _, leg in leg_records(row.snapshot)):
             raise HTTPException(409, "No open bot-owned position to close")
         if position_id is None:

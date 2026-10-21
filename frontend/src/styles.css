@@ -6403,3 +6403,29 @@ button.parent-chip {
   color: inherit;
   cursor: pointer;
 }
+.forex-markets {
+  margin-bottom: 20px;
+}
+.forex-market-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.forex-market-strip button {
+  display: grid;
+  gap: 5px;
+  min-width: 155px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+}
+.forex-market-strip button[aria-pressed='true'] {
+  border-color: currentColor;
+}
+.forex-markets summary {
+  cursor: pointer;
+  padding: 8px 0;
+}

@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .exness import ExnessError
-from .forex_indicators import ema
 from .forex_buffer_study import advance_variant, new_variants
+from .forex_indicators import ema
 
 REPORT = Path(__file__).resolve().parents[2] / "research-output/exness-learning.json"
 
@@ -28,8 +28,8 @@ def context(candle, hours, ask):
     }
 
 
-def slippage_estimate():
-    path = REPORT.with_name("exness-slippage-report.json")
+def slippage_estimate(symbol="XAUUSD"):
+    path = REPORT.with_name("exness-slippage-report.json" if symbol == "XAUUSD" else f"exness-slippage-report-{symbol}.json")
     if not path.exists():
         return {"bps": 0.0, "measured": False, "fills": 0}
     try:

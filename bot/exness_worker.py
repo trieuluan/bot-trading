@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import threading
+import time
 
 from backend.app.exness import ExnessError
 from backend.app.exness_execution import execution_tick, record_error
@@ -18,6 +19,7 @@ from backend.app.exness_feed import (
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_costs import sync_specs
 from backend.app.forex_htf_v2 import safe_htf_ast2_tick
+from backend.app.forex_symbols import configured_symbols
 from backend.app.settings import validate_mode
 
 
@@ -27,6 +29,8 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     api = None
+    retry_until = 0
+    history_index = 0
     try:
         while not stop.is_set():
             enabled = os.getenv("EXNESS_DATA_ENABLED", "false").lower() == "true"
@@ -34,27 +38,39 @@ def main():
             try:
                 worker_heartbeat(enabled)
                 if enabled:
-                    cooldown = feed_retry_delay()
-                    if cooldown > 0:
-                        stop.wait(min(cooldown, 15))
+                    if time.monotonic() < retry_until:
+                        stop.wait(15)
+                        continue
+                    if all(feed_retry_delay(symbol) > 0 for symbol in configured_symbols()):
+                        stop.wait(15)
                         continue
                     if api is None:
                         api = connect_exness()
-                    sync_specs(api)
-                    for frame in FRAMES:
-                        if stop.is_set():
-                            break
+                    throttled = False
+                    for symbol in configured_symbols():
                         try:
-                            sync_page(api, frame)
+                            worker_heartbeat(enabled)
+                            if symbol not in api.available_instruments or feed_retry_delay(symbol) > 0:
+                                continue
+                            sync_specs(api, symbol=symbol)
+                            for frame in FRAMES:
+                                if stop.is_set():
+                                    break
+                                sync_page(api, frame, symbol=symbol, live_first=True)
+                            observation_tick(symbol=symbol)
+                            safe_htf_ast2_tick(symbol=symbol)
                         except ExnessError as exc:
-                            logging.warning("Exness candle sync paused for %s; persisted retry", frame)
-                            delay = exc.retry_after
-                            break
-                    try:
-                        observation_tick()
-                    except Exception:
-                        logging.exception("Exness observation unavailable; no broker orders sent")
-                    safe_htf_ast2_tick()
+                            logging.warning("Exness sync paused for %s: %s", symbol, exc)
+                            if exc.rate_limited or exc.account_blocked:
+                                retry_until = time.monotonic() + exc.retry_after
+                                record_connection_failure(exc.retry_after)
+                                throttled = True
+                                break
+                        except Exception:
+                            logging.exception("Exness symbol unavailable: %s", symbol)
+                    if throttled:
+                        stop.wait(15)
+                        continue
                     try:
                         from backend.app.forex_paper import legacy_paper_tick
                         legacy_paper_tick()
@@ -66,12 +82,25 @@ def main():
                         record_error(api.account_id, exc)
                         logging.exception("Exness demo execution tick failed; no duplicate orders")
                         if isinstance(exc, ExnessError):
-                            stop.wait(exc.retry_after)
+                            retry_until = time.monotonic() + exc.retry_after
+                    if time.monotonic() >= retry_until and not stop.is_set():
+                        histories = [(symbol, frame) for symbol in configured_symbols() for frame in FRAMES]
+                        symbol, frame = histories[history_index % len(histories)]
+                        history_index += 1
+                        try:
+                            if symbol in api.available_instruments and not feed_retry_delay(symbol):
+                                sync_page(api, frame, symbol=symbol, older=True)
+                        except ExnessError as exc:
+                            logging.warning("Exness history paused for %s: %s", symbol, exc)
+                            if exc.rate_limited or exc.account_blocked:
+                                retry_until = time.monotonic() + exc.retry_after
+                                record_connection_failure(exc.retry_after)
                 else:
                     delay = 60
             except Exception as exc:
                 logging.warning("Exness feed unavailable; retrying without changing trading state")
                 delay = exc.retry_after if isinstance(exc, ExnessError) else 60
+                retry_until = time.monotonic() + delay
                 try:
                     record_connection_failure(delay)
                 except Exception:

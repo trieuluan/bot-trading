@@ -694,12 +694,34 @@ Không thay đổi ví MEXC, không gửi lệnh Demo hay tiền thật tới Ex
 
 ### Exness Demo: lệnh trên sàn
 
+**Runtime hiện tại: HTF AST V2 đa cặp.** Các mô tả family/learner/paper bên dưới là tài liệu
+lịch sử, không phải đường sinh tín hiệu đang hỗ trợ. V2 dùng H4 context, H1 setup/SL/TP,
+M15 trigger; không có cản hợp lệ hoặc runner R/R sau chi phí dưới 1.5 thì bỏ setup.
+
+- `EXNESS_SYMBOLS` nhận danh sách 11 cặp, bỏ trùng; khi để trống dùng `EXNESS_SYMBOL`
+  (mặc định XAUUSD). Compose/example cấu hình đủ 11 cặp, 66 vị thế toàn tài khoản và 6 mỗi cặp.
+- Một worker cấp nến M15/H1/H4; mỗi cặp có 56 cây, ledger, mẫu và fitness riêng.
+  Migration DB `0024` gán lịch sử cũ cho XAUUSD. Worker chuyển ledger XAUUSD dưới lock,
+  lưu archive/manifest và giữ nguyên mẫu/dòng dõi; 10 cặp còn lại tạo G0 sạch, không replay forward.
+- Các leg chốt phần/runner đều chiếm hạn mức. Reserve toàn bộ setup trước submit;
+  vị thế ngoài bot vẫn chiếm hạn mức nhưng không bị bot quản lý. Lệnh chưa rõ kết quả phải reconcile.
+- Specs/commission và tỷ giá bid/ask đã đóng được chụp theo thời điểm; thiếu, stale hoặc sai
+  tài khoản/cặp thì chặn entry. Hiện chỉ hỗ trợ tài khoản demo USD; không đoán phí hoặc tỷ giá.
+- URL/API Forex nhận `symbol`, mặc định XAUUSD; ngoài danh sách cấu hình trả 422.
+  `/api/workspaces/exness_forex/markets` trả giá/timestamp, feed, specs, vị thế và lý do chặn từng cặp.
+  Ví/equity vẫn chung tài khoản; trình duyệt chỉ render chart đang chọn, không điều khiển lịch feed.
+- Entry cần đồng thời `FOREX_HTF_V2_EXECUTION_ENABLED`, `EXNESS_DEMO_EXECUTION_ENABLED`,
+  `EXNESS_DEMO_ORDERS_ENABLED` và control tài khoản. Thay code/example không bật các cờ local.
+  Kiểm thử dùng broker giả, không cần chạy worker. Triển khai/migration dữ liệu thật là bước riêng.
+
+#### Tài liệu execution cũ (chỉ tham khảo lịch sử)
+
 Đặt `EXNESS_DEMO_EXECUTION_ENABLED=true` trong `.env`, chạy `docker compose up -d`
 sau migration `0014`. Executor chạy trong `exness-feed`, tách khỏi ví paper/replay và MEXC.
 Tài khoản phải được API xác nhận `is_demo=true`, USD, XAUUSD; không hỗ trợ tài khoản real.
 
 - `regime_router` chỉ gửi tín hiệu M15 đóng mới, trong 120 giây; bỏ qua tín hiệu trước lúc bật bot.
-- Mỗi lệnh 0.01 lot, tối đa `EXNESS_DEMO_MAX_POSITIONS` vị thế cùng lúc (mặc định 1, trần 20), không giới hạn số lệnh/ngày.
+- Mỗi lệnh 0.01 lot, tối đa `EXNESS_DEMO_MAX_POSITIONS` vị thế toàn tài khoản (mặc định 1, trần 66, khuyến nghị triển khai đa cặp 66) và tối đa `EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL` vị thế mỗi cặp (mặc định 6, trần 6), không giới hạn số lệnh/ngày. Hỗ trợ 11 cặp: XAUUSD, EURUSD, GBPUSD, AUDUSD, NZDUSD, USDJPY, USDCAD, USDCHF, EURJPY, GBPJPY, EURGBP qua `EXNESS_SYMBOLS`.
 - SL theo cấu trúc, lùi thêm `max(0.25 × ATR14 M15, spread)` (chiến lược tự sinh đã có ATR nên không lùi thêm). TP tại cản H1/H4 gần nhất trừ đệm, không có cản thì 2R; cản dưới 1R thì bỏ tín hiệu. R thực tế thay đổi theo giá khớp.
   Bỏ qua nếu mức lỗ dự kiến tới SL vượt $25; đây không phải bảo đảm mức lỗ tối đa khi gap/slippage.
 - SL/TP đặt tại Exness, tiếp tục có hiệu lực khi Mac ngủ. Đóng trước kỳ nghỉ theo lịch chuẩn

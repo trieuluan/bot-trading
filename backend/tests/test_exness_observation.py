@@ -4,9 +4,21 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from backend.app.db import ForexObservation, MarketCandle, PaperWallet, Session, WorkspaceCandle, WorkspaceFeedState
+from backend.app.db import (
+    ForexObservation,
+    MarketCandle,
+    PaperWallet,
+    Session,
+    WorkspaceCandle,
+    WorkspaceFeedState,
+)
 from backend.app.exness_feed import FRAMES, WORKSPACE, sync_page
-from backend.app.exness_observation import audit_frames, observe_forex, observation_summary, observation_tick
+from backend.app.exness_observation import (
+    audit_frames,
+    observation_summary,
+    observation_tick,
+    observe_forex,
+)
 from backend.tests.test_exness_feed import FakeApi
 
 NOW = 720000
@@ -92,7 +104,7 @@ def test_worker_cursor_restart_catchup_idempotency_and_mexc_isolation():
         assert rows[-1].candle_time == NOW + 2700
         assert rows[1].snapshot["provenance"] == "catch_up"
     with Session.begin() as session:
-        session.get(WorkspaceFeedState, (WORKSPACE, "1h")).error = "sync failed"
+        session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1h")).error = "sync failed"
     assert observation_tick(NOW + 3600)["status"] == "blocked"
     summary = observation_summary(NOW + 3600)
     assert summary["status"] == "data_paused"
@@ -142,7 +154,7 @@ def test_sleep_resume_matches_continuous_observation_and_reports_backlog(offline
         session.query(ForexObservation).filter(ForexObservation.candle_time >= start).delete()
         session.query(WorkspaceCandle).filter(WorkspaceCandle.time >= start).delete()
         for frame, (_, step) in FRAMES.items():
-            session.get(WorkspaceFeedState, (WORKSPACE, frame)).checked_until = start // step * step
+            session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", frame)).checked_until = start // step * step
     assert observation_summary(end)["status"] == "data_paused"
     api.candle_limit = 48
     for frame in FRAMES:

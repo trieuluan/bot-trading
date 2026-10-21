@@ -53,6 +53,7 @@ class WorkspaceCandle(Base):
 class WorkspaceFeedState(Base):
     __tablename__ = "workspace_feed_state"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="XAUUSD")
     timeframe: Mapped[str] = mapped_column(String(10), primary_key=True)
     started_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checked_until: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -66,12 +67,14 @@ class WorkspaceFeedState(Base):
 class ForexObservation(Base):
     __tablename__ = "forex_observations"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="XAUUSD")
     candle_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
 
 class ForexGapAudit(Base):
     __tablename__ = "forex_gap_audits"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="XAUUSD")
     after: Mapped[int] = mapped_column(Integer, primary_key=True)
     before: Mapped[int] = mapped_column(Integer, primary_key=True)
     checked_at: Mapped[int] = mapped_column(Integer)
@@ -81,6 +84,7 @@ class ForexGapAudit(Base):
 class ForexInstrumentState(Base):
     __tablename__ = "forex_instrument_state"
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="XAUUSD")
     checked_at: Mapped[int] = mapped_column(Integer)
     snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -112,6 +116,7 @@ class ExnessExecutionState(Base):
 class ExnessExecutionTrade(Base):
     __tablename__ = "exness_execution_trades"
     account: Mapped[str] = mapped_column(String(32), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), primary_key=True, default="XAUUSD")
     signal_time: Mapped[int] = mapped_column(Integer, primary_key=True)
     snapshot: Mapped[dict] = mapped_column(JSON)
 

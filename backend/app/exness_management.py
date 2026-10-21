@@ -39,18 +39,22 @@ def structure_stop_buffer(rows, multiplier=Decimal("0.25")):
         ranges.append(max(high - low, abs(high - close), abs(low - close)))
     return float(sum(ranges) / 14 * factor)
 
-def size_lot(distance, condition):
+def size_lot(distance, condition, conversion_rate=Decimal("1")):
+    conv = Decimal(str(condition.get("quote_to_account_loss", condition.get("conversion_rate", conversion_rate))))
     minimum = max(Decimal("0.01"), Decimal(condition["volume_min"]))
     step = Decimal(condition["volume_step"])
     contract = Decimal(condition["contract_size"])
     maximum = min(max_lot(), Decimal(condition["volume_max"]))
-    raw = min(maximum, risk_budget() / (distance * contract))
+    usd_risk = distance * contract * conv
+    if usd_risk <= 0:
+        raise ExnessError("Invalid risk or conversion")
+    raw = min(maximum, risk_budget() / usd_risk)
     if raw < minimum:
         raise ExnessError("Minimum lot exceeds risk budget; skip signal")
     volume = Decimal(condition["volume_min"]) + (
         (raw - Decimal(condition["volume_min"])) / step
     ).to_integral_value(rounding=ROUND_FLOOR) * step
-    if volume < minimum or volume * distance * contract > risk_budget():
+    if volume < minimum or volume * usd_risk > risk_budget():
         raise ExnessError("No valid lot within risk budget")
     return volume
 

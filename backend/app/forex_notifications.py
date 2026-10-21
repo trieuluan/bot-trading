@@ -22,12 +22,13 @@ def shown(value, signed=False):
     return (signed_price(parsed) if signed else price(parsed)) if parsed is not None else "chưa xác minh"
 
 def event_key(now, trade, pid, event):
-    identity = f"{trade.account}:{trade.signal_time}:{pid}:{event}"
+    identity = f"{trade.account}:{getattr(trade, 'symbol', 'XAUUSD')}:{trade.signal_time}:{pid}:{event}"
     return f"{now:010d}-forex-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
 def notify_reconciled(session, trade, previous, updated, position, protection, deals, now):
     """Enqueue Telegram alerts inside the reconcile transaction without extra locks."""
+    symbol = esc(getattr(trade, "symbol", None) or "XAUUSD")
     stamp = trade.signal_time
     pid = updated.get("position_id")
     signal = trade.snapshot.get("signal", {})
@@ -59,7 +60,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             session,
             event_key(now, trade, pid, "open"),
             "\n".join([
-                f"{icon} <b>MỞ VỊ THẾ FOREX · {side} XAUUSD</b>",
+                f"{icon} <b>MỞ VỊ THẾ FOREX · {side} {symbol}</b>",
                 f"🌲 <b>Chiến thuật:</b> <code>{esc(strat)}</code>",
                 "🧪 Exness DEMO · khớp sàn đã đối soát",
                 f"🎯 <b>Vai trò:</b> {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
@@ -98,7 +99,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             session,
             event_key(now, trade, pid, f"sl:{new_mgmt.get('key')}:{old_stop}:{new_stop}"),
             "\n".join([
-                "🛡️ <b>CẬP NHẬT DỜI SL FOREX · XAUUSD</b>",
+                f"🛡️ <b>CẬP NHẬT DỜI SL FOREX · {symbol}</b>",
                 f"📌 Vị thế #{esc(pid)} · {esc(stage_text)} · {esc(signal.get('management_frame', ''))}",
                 "",
                 f"🛑 SL cũ: <code>{shown(old_stop)}</code> ➔ Mức mới: <code>{shown(new_stop)}</code>" + (f" (Δ giá {shown(diff, signed=True)})" if diff is not None else ""),
@@ -127,7 +128,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             session,
             event_key(now, trade, pid, f"tp:{old_target}:{new_target}"),
             "\n".join([
-                "🎯 <b>CẬP NHẬT DỜI TP FOREX · XAUUSD</b>",
+                f"🎯 <b>CẬP NHẬT DỜI TP FOREX · {symbol}</b>",
                 f"📌 Vị thế #{esc(pid)} · {esc(role_vn)} · {esc(signal.get('management_frame', ''))}",
                 "",
                 f"🎯 TP cũ: <code>{shown(old_target)}</code> ➔ Mức mới: <code>{shown(new_target)}</code>" + (f" (Δ giá {shown(diff_target, signed=True)})" if diff_target is not None else ""),
@@ -162,7 +163,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             session,
             event_key(now, trade, pid, "close"),
             "\n".join([
-                f"{pnl_icon} <b>ĐÓNG VỊ THẾ FOREX · {side} XAUUSD</b>",
+                f"{pnl_icon} <b>ĐÓNG VỊ THẾ FOREX · {side} {symbol}</b>",
                 f"📌 Vị thế #{esc(pid)} · {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
                 f"💡 Lý do: <b>{esc(reason_vn)}</b>",
                 "",

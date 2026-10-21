@@ -22,6 +22,7 @@ from .exness_observation import audit_frames, load_frames
 from .exness_sessions import gap_details, regular_session_gap, session_closed_ahead
 from .forex_costs import lot_size, spec_summary
 from .forex_reporting import trade_report
+
 STRATEGY_CHANNELS = {"trend": "trend_pullback", "range": "range_rejection", "router": "regime_router"}
 
 STARTING_BALANCE = 10000.0
@@ -327,7 +328,7 @@ def legacy_paper_tick(now=None):
     with Session.begin() as session:
         session.scalar(select(Workspace).where(Workspace.id == WORKSPACE).with_for_update())
         frames = load_frames(session, now)
-        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", frame)) for frame in FRAMES]
         if audit_frames(frames)["status"] == "blocked" or any(
             state is None
             or state.error

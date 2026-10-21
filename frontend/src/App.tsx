@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Bell, FlaskConical, Menu, RefreshCw, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { ForexMarkets } from './components/ForexMarkets';
 import { HelpDialog } from './components/HelpDialog';
 import { useTradingDashboard } from './hooks/useTradingDashboard';
 import { BotControlPanel } from './components/BotControlPanel';
@@ -45,6 +46,14 @@ interface FrameSummary {
 export interface ForexDashboard {
   workspace: Workspace;
   execution_enabled?: boolean;
+  instrument?: {
+    profile: {
+      contract_size: string;
+      point_digits: number;
+      quote_to_account_loss: string;
+      quote_to_account_gain: string;
+    } | null;
+  };
   market: {
     status: string;
     message: string;
@@ -131,7 +140,7 @@ export default function App() {
     </div>
   );
   return selected === 'exness_forex' ? (
-    <ForexWorkspace key={selected} workspacePicker={picker} />
+    <ForexWorkspace key={`${selected}:${route.symbol}`} workspacePicker={picker} />
   ) : (
     <MexcWorkspace key={selected} workspacePicker={picker} />
   );
@@ -155,9 +164,12 @@ function ForexOverviewPage({
       if (inflight) return;
       inflight = true;
       try {
-        const response = await fetch('/api/workspaces/exness_forex/execution?limit=1', {
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-        });
+        const response = await fetch(
+          `/api/workspaces/exness_forex/execution?symbol=${dashboard.workspace.symbol}&limit=1`,
+          {
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+          },
+        );
         if (!response.ok) throw new Error();
         const data: ExnessExecution = await response.json();
         if (!controller.signal.aborted) {
@@ -193,7 +205,7 @@ function ForexOverviewPage({
       )}
       <section className="forex-overview-lead" aria-label="Trạng thái vận hành">
         <div>
-          <span className="execution-eyebrow">XAUUSD / EXNESS DEMO</span>
+          <span className="execution-eyebrow">{dashboard.workspace.symbol} / EXNESS DEMO</span>
           <h2>
             {!verified || !data
               ? 'Chưa xác minh trạng thái bot'
@@ -378,6 +390,7 @@ function ForexResearchWorkspace({
 
 function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [route] = useRoute();
+  const symbol = route.symbol ?? 'XAUUSD';
   const page = route.page;
   const setPage = (next: string) => setRoute({ page: next, tab: undefined });
   const [menu, setMenu] = useState(false);
@@ -393,7 +406,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     function refreshForex() {
       if (inflight) return;
       inflight = true;
-      void fetch('/api/workspaces/exness_forex/dashboard', { signal: AbortSignal.timeout(10000) })
+      void fetch(`/api/workspaces/exness_forex/dashboard?symbol=${encodeURIComponent(symbol)}`, {
+        signal: AbortSignal.timeout(10000),
+      })
         .then(async (response) => {
           if (!response.ok) throw new Error('Không tải được workspace Exness.');
           const data = (await response.json()) as ForexDashboard;
@@ -417,7 +432,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [revision]);
+  }, [revision, symbol]);
   return (
     <div className="shell forex-shell">
       {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
@@ -444,7 +459,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             >
               <Menu size={20} />
             </button>
-            <span>Exness XAUUSD</span>
+            <span>Exness {symbol}</span>
             <span>/</span>
             <strong>{page}</strong>
           </div>
@@ -457,17 +472,18 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <div>
               <h1>
                 {page === 'Bot'
-                  ? 'Bot Demo · XAUUSD'
+                  ? `Bot Demo · ${symbol}`
                   : page === 'Nghiên cứu'
                     ? 'Nghiên cứu chiến lược'
                     : 'Exness · Forex Demo'}
               </h1>
-              <p>XAUUSD · Workspace riêng, không dùng ví hoặc tín hiệu MEXC.</p>
+              <p>{symbol} · Quần thể riêng, ví và giới hạn vị thế chung tài khoản.</p>
             </div>
             <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
               <RefreshCw size={15} /> Làm mới
             </button>
           </div>
+          <ForexMarkets symbol={symbol} />
           <div className="demo-banner">
             <FlaskConical size={17} />
             <span>
@@ -546,7 +562,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </p>
               {dashboard.observation.snapshot && (
                 <div className="frames-summary">
-                  <h3>MTF XAUUSD · 4h / 1h / 15m · chỉ quan sát</h3>
+                  <h3>MTF {symbol} · 4h / 1h / 15m · chỉ quan sát</h3>
                   <p>
                     Trạng thái: {dashboard.observation.status} · Xu hướng 4h:{' '}
                     {dashboard.observation.snapshot.trend ?? 'chưa đủ nến'}
@@ -587,8 +603,18 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                         {frame.timeframe}: {frame.paired_bars} cặp nến · {frame.unpaired_bars} thiếu
                         phía · {frame.invalid_bars} lỗi OHLC/thời gian · {frame.crossed_bars} đảo
                         bid/ask · {frame.gap_count} khoảng trống · spread close trung bình/tối đa:{' '}
-                        {frame.close_spread_mean?.toFixed(3) ?? '—'}/
-                        {frame.close_spread_max?.toFixed(3) ?? '—'} USD/oz
+                        {frame.close_spread_mean != null
+                          ? frame.close_spread_mean.toFixed(
+                              symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5,
+                            )
+                          : '—'}
+                        /
+                        {frame.close_spread_max != null
+                          ? frame.close_spread_max.toFixed(
+                              symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5,
+                            )
+                          : '—'}{' '}
+                        {symbol === 'XAUUSD' ? 'USD/oz' : 'quote'}
                       </li>
                     ))}
                   </ul>

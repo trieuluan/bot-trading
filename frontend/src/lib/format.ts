@@ -1,6 +1,9 @@
 export const formatPrice = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+export const formatForexPrice = (v: number) =>
+  v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 10 });
+
 export const formatQuote = (v: number) => {
   const digits = Math.abs(v) >= 100 ? 2 : Math.abs(v) >= 1 ? 3 : Math.abs(v) >= 0.1 ? 4 : 5;
   return v.toLocaleString('en-US', {

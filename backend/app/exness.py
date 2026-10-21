@@ -15,10 +15,11 @@ EMPTY_BODY_HASH = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
 
 
 class ExnessError(RuntimeError):
-    def __init__(self, message, retry_after=60, rate_limited=False):
+    def __init__(self, message, retry_after=60, rate_limited=False, account_blocked=False):
         super().__init__(message)
         self.retry_after = retry_after
         self.rate_limited = rate_limited
+        self.account_blocked = account_blocked
 
 
 def validate_host(base_url):
@@ -121,7 +122,7 @@ class ExnessReadOnly:
             self.rate_limit_until = time.monotonic() + cooldown
             raise ExnessError("Exness rate limit; waiting before retry", cooldown, rate_limited=True)
         if response.status_code != 200:
-            raise ExnessError(f"Exness HTTP {response.status_code}")
+            raise ExnessError(f"Exness HTTP {response.status_code}", account_blocked=response.status_code in (401, 403))
         try:
             payload = response.json()
             if not isinstance(payload, dict):

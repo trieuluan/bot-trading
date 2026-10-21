@@ -1,4 +1,4 @@
-"""Read-only, timestamped XAUUSD specification audit. Never assumes missing fees are zero."""
+"""Read-only, timestamped instrument audit. Never assumes missing fees are zero."""
 
 import hashlib
 import os
@@ -8,6 +8,7 @@ from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from .db import ForexInstrumentState, Session
 from .exness import ExnessError
 from .exness_feed import WORKSPACE
+from .forex_symbols import checked_symbol
 
 SPEC_TTL = 3600
 
@@ -25,10 +26,11 @@ def decimal_value(value, positive=False):
         raise ValueError("Invalid numeric specification")
     return result
 
-def normalize_specs(account, condition, now, account_id=None):
+def normalize_specs(account, condition, now, account_id=None, symbol="XAUUSD"):
+    checked_symbol(symbol)
     settings = account.get("settings", {})
-    if account.get("is_demo") is not True or condition.get("instrument") != "XAUUSD":
-        raise ValueError("Only verified Demo XAUUSD specifications are accepted")
+    if account.get("is_demo") is not True or condition.get("instrument") != symbol:
+        raise ValueError("Only verified matching Demo instrument specifications are accepted")
     numbers = {
         key: str(decimal_value(condition.get(key), positive=True))
         for key in ("contract_size", "volume_min", "volume_max", "volume_step")
@@ -44,7 +46,7 @@ def normalize_specs(account, condition, now, account_id=None):
         if row.get("day") not in ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN") or not 0 <= multiplier <= 10:
             raise ValueError("Invalid swap schedule")
         multipliers.append({"day": row["day"], "multiplier": str(multiplier)})
-    currencies_valid = settings.get("currency") == condition.get("quote_currency") == "USD"
+    currencies_valid = settings.get("currency") == "USD" and condition.get("quote_currency") in ("USD", "JPY", "CAD", "CHF", "GBP")
     commission = condition.get("commission_settings") or {}
     value = commission.get("commission_value") or {}
     amount = value.get("amount")
@@ -69,14 +71,14 @@ def normalize_specs(account, condition, now, account_id=None):
         commission_per_unit = float(fee / Decimal(numbers["contract_size"]))
         commission_type, source = "operator_override_round_turn", "operator_override"
     return {
-        "version": "exness_specs_v1", "observed_at": now, "account_tag": account_tag(account_id if account_id is not None else account.get("account_id")), "instrument": "XAUUSD",
+        "version": "exness_specs_v1", "observed_at": now, "account_tag": account_tag(account_id if account_id is not None else account.get("account_id")), "instrument": symbol,
         "account_currency": settings.get("currency"), "quote_currency": condition.get("quote_currency"),
         "account_leverage": str(decimal_value(settings.get("leverage"), positive=True)),
         "point_digits": digits, "trade_mode": condition.get("trade_mode"), **numbers,
         "margin_percent": str(decimal_value(condition.get("margin_percent"), positive=True)),
         "calc_mode": condition.get("calc_mode"), "margin_currency": condition.get("margin_currency"),
         "commission_type": commission_type,
-        "commission_per_unit": commission_per_unit, "commission_source": source,
+        "commission_per_unit": commission_per_unit, "commission_account_per_unit": commission_per_unit, "commission_source": source,
         "swap_long": str(decimal_value(condition.get("swap_long"))),
         "swap_short": str(decimal_value(condition.get("swap_short"))),
         "swap_multipliers": multipliers,
@@ -86,47 +88,52 @@ def normalize_specs(account, condition, now, account_id=None):
         + ["swap_units_and_rollover_unverified", "dynamic_margin_unverified", "slippage_assumed"],
     }
 
-def sync_specs(api, now=None):
+def sync_specs(api, now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     try:
         with Session.begin() as session:
-            state = session.get(ForexInstrumentState, WORKSPACE)
+            state = session.get(ForexInstrumentState, (WORKSPACE, symbol))
             # ponytail: cache keyed by account only; commission override changes still wait for TTL.
             aid = getattr(api, "account_id", None)
             stale = bool(aid is not None and state and state.snapshot and state.snapshot.get("account_tag") != account_tag(aid))
             if state and state.retry_at > now and not stale:
                 return
             if state is None:
-                state = ForexInstrumentState(workspace_id=WORKSPACE, checked_at=now, retry_at=now + SPEC_TTL)
+                state = ForexInstrumentState(workspace_id=WORKSPACE, symbol=symbol, checked_at=now, retry_at=now + SPEC_TTL)
                 session.add(state)
             else:
                 state.retry_at = now + SPEC_TTL
     except Exception:
         return
+    blocked = None
     try:
         acc = api.account()
         aid = getattr(api, "account_id", acc.get("account_id"))
-        snapshot = normalize_specs(acc, api.condition("XAUUSD"), now, account_id=aid)
+        snapshot = normalize_specs(acc, api.condition(symbol), now, account_id=aid, symbol=symbol)
         error = None
         retry = now + SPEC_TTL
     except (ExnessError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        if isinstance(exc, ExnessError) and (exc.rate_limited or exc.account_blocked):
+            blocked = exc
         snapshot = None
         error = "Instrument specification unavailable; costs remain unverified"
         retry = now + max(SPEC_TTL, int(getattr(exc, "retry_after", SPEC_TTL)))
     try:
         with Session.begin() as session:
-            state = session.get(ForexInstrumentState, WORKSPACE)
+            state = session.get(ForexInstrumentState, (WORKSPACE, symbol))
             if state is not None:
                 state.checked_at, state.error, state.retry_at = now, error, retry
                 if snapshot is not None:
                     state.snapshot = snapshot
     except Exception:
         pass
+    if blocked:
+        raise blocked
 
-def spec_summary(session, now=None):
+def spec_summary(session, now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     try:
-        state = session.get(ForexInstrumentState, WORKSPACE)
+        state = session.get(ForexInstrumentState, (WORKSPACE, symbol))
     except Exception:
         return {
             "status": "unavailable",

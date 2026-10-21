@@ -3,10 +3,13 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
 import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
+import { formatForexPrice } from '../lib/format';
 
 const url = '/api/workspaces/exness_forex/execution';
 const amount = (value: number | string | null | undefined) =>
-  value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 3 });
+  value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+const quotePrice = (value: number | string | null | undefined) =>
+  value == null ? '—' : formatForexPrice(Number(value));
 const date = (stamp: number | null) =>
   stamp == null ? '—' : new Date(stamp * 1000).toLocaleString('vi-VN');
 
@@ -61,6 +64,7 @@ const isBot = (source: string) =>
   source === 'learning' || source === 'hast2' || source === 'regime_router';
 
 export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard }) {
+  const symbol = dashboard.workspace.symbol;
   const [data, setData] = useState<ExnessExecution | null>(null);
   const [selectedId, setSelectedId] = useState<string>();
   const [offset, setOffset] = useState(0);
@@ -79,7 +83,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
       if (inflight) return;
       inflight = true;
       try {
-        const response = await fetch(`${url}?offset=${offset}&limit=50`, {
+        const response = await fetch(`${url}?symbol=${symbol}&offset=${offset}&limit=50`, {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
         });
         if (!response.ok) throw new Error();
@@ -101,16 +105,19 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
       controller.abort();
       clearInterval(timer);
     };
-  }, [offset, revision]);
+  }, [offset, revision, symbol]);
 
   async function action(path: string, method: string, body?: object) {
     setBusy(true);
     try {
-      const response = await fetch(url + path, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      const response = await fetch(
+        `${url}${path}${path.includes('?') ? '&' : '?'}symbol=${symbol}`,
+        {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+        },
+      );
       if (!response.ok) throw new Error();
       setRevision((value) => value + 1);
     } catch {
@@ -147,7 +154,8 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
             <h2>Bot Exness Demo</h2>
             <p>
               Tài khoản {data?.account ?? '—'} · {data?.lot ?? '0.01'} lot · tối đa{' '}
-              {data?.max_concurrent ?? 1} vị thế cùng lúc
+              {data?.max_concurrent ?? '—'} vị thế toàn tài khoản ·{' '}
+              {data?.max_concurrent_per_symbol ?? '—'} mỗi cặp
             </p>
           </div>
           <button
@@ -202,7 +210,10 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 <span className="val">
                   {data.open_count} / {data.closed_count}
                 </span>
-                <span className="sub">Giới hạn mở: {data.max_concurrent}</span>
+                <span className="sub">
+                  Tài khoản: {data.max_concurrent} · {symbol}: {data.symbol_open_count}/
+                  {data.max_concurrent_per_symbol}
+                </span>
               </div>
             </div>
             <div className="decision-banner" role="status">
@@ -467,6 +478,10 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                     ))}
                   </div>
                   <div className="orders-header-note">
+                    <a href={`${url}/trades.csv?symbol=${symbol}`} download>
+                      Xuất CSV {symbol}
+                    </a>
+                    {' · '}
                     {data.total ? offset + 1 : 0}–{Math.min(offset + 50, data.total)} / {data.total}{' '}
                     lệnh
                   </div>
@@ -513,12 +528,12 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                             </td>
                             <td className="num font-mono">{amount(position.volume)}</td>
                             <td className="num font-mono">
-                              <div>{amount(position.open_price)}</div>
-                              <small className="muted">{amount(position.close_price)}</small>
+                              <div>{quotePrice(position.open_price)}</div>
+                              <small className="muted">{quotePrice(position.close_price)}</small>
                             </td>
                             <td className="num font-mono">
-                              <div>{amount(position.stop)}</div>
-                              <small className="muted">{amount(position.target)}</small>
+                              <div>{quotePrice(position.stop)}</div>
+                              <small className="muted">{quotePrice(position.target)}</small>
                             </td>
                             <td
                               className={`num font-mono font-bold ${
@@ -640,7 +655,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                               {deal.type} · {deal.direction}
                             </td>
                             <td>
-                              {amount(deal.price)} · {amount(deal.volume)}
+                              {quotePrice(deal.price)} · {amount(deal.volume)}
                             </td>
                             <td>{date(deal.event_time)}</td>
                             <td>
@@ -696,7 +711,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           >
             <div className="execution-selection">
               <div>
-                <span className="execution-eyebrow">GIAO DỊCH / XAUUSD</span>
+                <span className="execution-eyebrow">GIAO DỊCH / {symbol}</span>
                 <h3>
                   {chartPosition
                     ? `Vị thế #${chartPosition.position_id} · ${chartPosition.side?.toUpperCase() ?? '—'}`
@@ -704,7 +719,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 </h3>
                 <p>
                   {chartPosition
-                    ? `Vào ${amount(chartPosition.open_price)} · SL ${amount(chartPosition.stop)} · TP ${amount(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}${chartPosition.exit_variant ? ` · SL/TP ${chartPosition.exit_variant} (${chartPosition.exit_variant_mode === 'validated' ? 'đã kiểm chứng mô phỏng' : 'mặc định'})` : ''}`
+                    ? `Vào ${quotePrice(chartPosition.open_price)} · SL ${quotePrice(chartPosition.stop)} · TP ${quotePrice(chartPosition.target)}${chartPosition.tp_reason ? ` · ${chartPosition.tp_reason}` : ''}${chartPosition.exit_variant ? ` · SL/TP ${chartPosition.exit_variant} (${chartPosition.exit_variant_mode === 'validated' ? 'đã kiểm chứng mô phỏng' : 'mặc định'})` : ''}`
                     : 'Chart chỉ hiển thị vị thế đang mở. Lịch sử lệnh đã đóng nằm ở tab Lệnh trên sàn.'}
                 </p>
               </div>

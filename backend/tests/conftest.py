@@ -12,6 +12,7 @@ os.environ["TRADING_MODE"] = "paper"
 
 @pytest.fixture(autouse=True)
 def database(monkeypatch):
+    monkeypatch.delenv("EXNESS_SYMBOLS", raising=False)
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
@@ -28,8 +29,6 @@ def database(monkeypatch):
         BotState,
         Event,
         ExnessDeal,
-        FuturesOpenInterest,
-        FuturesLearningState,
         ExnessExecutionState,
         ExnessExecutionTrade,
         ForexGapAudit,
@@ -37,14 +36,16 @@ def database(monkeypatch):
         ForexObservation,
         ForexPaperAccount,
         ForexPaperTrade,
+        FuturesLearningState,
+        FuturesOpenInterest,
         MarketCandle,
         MarketState,
         MtfObservationEvent,
         MtfObservationState,
         MtfResearchSample,
         PaperCommand,
-        PaperNotification,
         PaperFunding,
+        PaperNotification,
         PaperTrade,
         PaperWallet,
         Session,

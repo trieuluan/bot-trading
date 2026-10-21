@@ -11,18 +11,18 @@ from .exness_sessions import gap_details
 
 ACTIVE = ("waiting_retest", "waiting_confirm")
 
-def load_frames(session, now):
+def load_frames(session, now, symbol="XAUUSD"):
     return {
         frame: session.scalars(select(WorkspaceCandle).where(
             WorkspaceCandle.workspace_id == WORKSPACE,
-            WorkspaceCandle.symbol == "XAUUSD",
+            WorkspaceCandle.symbol == symbol,
             WorkspaceCandle.timeframe == frame,
             WorkspaceCandle.time + step <= now,
         ).order_by(WorkspaceCandle.time)).all()
         for frame, (_, step) in FRAMES.items()
     }
 
-def audit_frames(frames):
+def audit_frames(frames, symbol="XAUUSD"):
     reports = []
     for frame, (_, step) in FRAMES.items():
         sides = {side: {row.time: row for row in frames[frame] if row.price_type == side}
@@ -39,7 +39,7 @@ def audit_frames(frames):
         crossed = sum(any(getattr(asks[stamp], field) < getattr(bids[stamp], field)
                           for field in ("open", "high", "low", "close")) for stamp in paired)
         spreads = [asks[stamp].close - bids[stamp].close for stamp in paired]
-        gaps = [gap_details(before, after, step)
+        gaps = [gap_details(before, after, step, symbol)
                 for before, after in zip(paired, paired[1:]) if after - before > step]
         reports.append({
             "timeframe": frame, "paired_bars": len(paired), "invalid_bars": invalid,
@@ -115,18 +115,18 @@ def observe_forex(candle, hours, higher, previous=None):
                             reason="1h breakout cùng chiều 4h; chờ retest từ nến 15m kế tiếp")
     return snapshot
 
-def latest_observation(session):
+def latest_observation(session, symbol="XAUUSD"):
     return session.scalar(select(ForexObservation).where(
-        ForexObservation.workspace_id == WORKSPACE,
+        ForexObservation.workspace_id == WORKSPACE, ForexObservation.symbol == symbol,
     ).order_by(ForexObservation.candle_time.desc()).limit(1))
 
-def observation_tick(now=None):
+def observation_tick(now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     with Session.begin() as session:
         session.scalar(select(Workspace).where(Workspace.id == WORKSPACE).with_for_update())
-        frames = load_frames(session, now)
-        quality = audit_frames(frames)
-        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+        frames = load_frames(session, now, symbol)
+        quality = audit_frames(frames, symbol)
+        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
         if quality["status"] == "blocked" or any(
             state is None or state.error or state.checked_until is None
             or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]
@@ -134,29 +134,29 @@ def observation_tick(now=None):
         ):
             return {"status": "blocked", "reason": "Chờ dữ liệu hợp lệ và cả 3 khung đồng bộ xong"}
         bids = {frame: [row for row in rows if row.price_type == "bid"] for frame, rows in frames.items()}
-        latest = latest_observation(session)
+        latest = latest_observation(session, symbol)
         previous = latest.snapshot if latest else None
         pending = [row for row in bids["15m"] if latest is None or row.time > latest.candle_time]
         pending = pending[:96] if latest else pending[-1:]
         for candle in pending:
             previous = observe_forex(candle, bids["1h"], bids["4h"], previous)
             previous["provenance"] = "catch_up" if candle.time + 1800 <= now else "live"
-            session.add(ForexObservation(workspace_id=WORKSPACE, candle_time=candle.time, snapshot=previous))
+            session.add(ForexObservation(workspace_id=WORKSPACE, symbol=symbol, candle_time=candle.time, snapshot=previous))
         return previous
 
-def observation_summary(now=None):
+def observation_summary(now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     with Session() as session:
-        frames = load_frames(session, now)
-        quality = audit_frames(frames)
-        latest = latest_observation(session)
+        frames = load_frames(session, now, symbol)
+        quality = audit_frames(frames, symbol)
+        latest = latest_observation(session, symbol)
         events = session.scalars(select(ForexObservation).where(
-            ForexObservation.workspace_id == WORKSPACE,
+            ForexObservation.workspace_id == WORKSPACE, ForexObservation.symbol == symbol,
         ).order_by(ForexObservation.candle_time.desc()).limit(20)).all()
         snapshot = latest.snapshot if latest else None
         closed_times = [row.time for row in frames["15m"] if row.price_type == "bid"]
         pending = sum(stamp > latest.candle_time for stamp in closed_times) if latest else min(1, len(closed_times))
-        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, frame)) for frame in FRAMES]
+        feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
         paused = quality["status"] == "blocked" or any(
             state is None or state.error or state.checked_until is None
             or state.checked_until < now // FRAMES[frame][1] * FRAMES[frame][1]

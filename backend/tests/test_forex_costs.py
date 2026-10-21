@@ -77,7 +77,7 @@ def test_refresh_persists_sanitized_profile_and_throttles_across_restart():
     with Session() as session:
         assert spec_summary(session, 1002)["status"] == "partial"
         assert spec_summary(session, 5000)["status"] == "stale"
-        assert session.get(ForexInstrumentState, WORKSPACE).snapshot["contract_size"] == "100"
+        assert session.get(ForexInstrumentState, (WORKSPACE, "XAUUSD")).snapshot["contract_size"] == "100"
 
 def test_failed_refresh_preserves_profile_but_marks_it_unusable():
     with Session.begin() as session:
@@ -96,7 +96,7 @@ def test_failed_refresh_preserves_profile_but_marks_it_unusable():
         assert result["status"] == "stale"
         assert result["profile"]["observed_at"] == 1000
         assert "credential-not-to-leak" not in str(result)
-        assert session.get(ForexInstrumentState, WORKSPACE).retry_at == 9200
+        assert session.get(ForexInstrumentState, (WORKSPACE, "XAUUSD")).retry_at == 9200
 
 def test_operator_override_only_when_api_omits_commission(monkeypatch):
     monkeypatch.setenv("EXNESS_COMMISSION_PER_LOT_USD", "0")

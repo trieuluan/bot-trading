@@ -13,7 +13,8 @@ from backend.app.db import (
     WorkspaceFeedState,
 )
 from backend.app.exness_feed import FRAMES, WORKSPACE
-from backend.app.forex_paper import _step_trade, forex_paper_summary, legacy_paper_tick as paper_tick, sync_paper_quote
+from backend.app.forex_paper import _step_trade, forex_paper_summary, sync_paper_quote
+from backend.app.forex_paper import legacy_paper_tick as paper_tick
 
 NOW = 720000
 
@@ -170,7 +171,7 @@ def test_failed_live_exit_rolls_back_balance_and_trade(monkeypatch):
 def seed(stamps, confirmations=()):
     with Session.begin() as session:
         for frame, (_, step) in FRAMES.items():
-            feed = session.get(WorkspaceFeedState, (WORKSPACE, frame))
+            feed = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", frame))
             feed.checked_until = NOW + 100 * 14400
             for stamp in stamps if frame == "15m" else [NOW - step]:
                 for side in ("bid", "ask"):
@@ -373,8 +374,8 @@ def test_process_restart_cannot_close_persisted_trade_twice():
 
 @pytest.mark.parametrize("capital,expected_units", [(10000, 2), (3000, None)])
 def test_entry_uses_lot_floor_without_increasing_risk_to_reach_minimum(capital, expected_units):
-    from backend.tests.test_forex_costs import account, specification
     from backend.app.forex_costs import normalize_specs
+    from backend.tests.test_forex_costs import account, specification
 
     trade = {
         "status": "pending", "side": "long", "last_candle": NOW - 900, "stop": 3980,

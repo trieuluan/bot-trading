@@ -16,7 +16,7 @@ import {
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
-import { formatPrice, observationStatusLabels } from '../lib/format';
+import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { placeChartTags } from '../lib/chart-tags';
 
@@ -35,6 +35,7 @@ export function MtfObservationChart({
   executions = [],
   selectedPositionId,
   frameSeconds = 900,
+  pricePrecision = 3,
   onLoadOlder,
   trendLabel = 'Xu hướng 4h',
   levelLabel = 'Mức breakout',
@@ -55,6 +56,7 @@ export function MtfObservationChart({
   executions?: BrokerPosition[];
   selectedPositionId?: string;
   frameSeconds?: number;
+  pricePrecision?: number;
   onLoadOlder?: () => void;
   trendLabel?: string;
   levelLabel?: string;
@@ -179,6 +181,12 @@ export function MtfObservationChart({
       previousTimes.current = [];
     };
   }, []);
+
+  useEffect(() => {
+    series.current?.applyOptions({
+      priceFormat: { type: 'price', precision: pricePrecision, minMove: 10 ** -pricePrecision },
+    });
+  }, [pricePrecision]);
 
   useEffect(() => {
     const priceSeries = series.current;

@@ -14,13 +14,13 @@ from .exness_management import (
     split_bodies,
     structure_stop_buffer,
 )
-from .forex_htf_v2 import EXIT_TRAITS
+from .exness_sessions import regular_session_gap, session_closed_ahead
+from .exness_targets import structural_target, target_context
+from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .forex_exits import action as exits_action
 from .forex_exits import closed_rows as exits_closed_rows
 from .forex_exits import plan_legs
-from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
-from .exness_sessions import regular_session_gap, session_closed_ahead
-from .exness_targets import structural_target, target_context
+from .forex_htf_v2 import EXIT_TRAITS
 
 DEFAULT_VARIANT = "k0.25_structural"
 VARIANTS = {f"k{factor}_{mode}": {"sl_buffer_k": factor, "tp_mode": mode}
@@ -34,7 +34,7 @@ def variant_settings(name):
     return dict(VARIANTS[name])
 
 
-def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0):
+def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=None):
     verified = signal.get("shadow_only") is False and signal.get("execution_source") == "live_forward_htf_ast2_shadow"
     if ((not signal.get("shadow_only") and not verified) or not isinstance(signal.get("strategy"), str)
             or not signal["strategy"].startswith(("hast_", "hast2_"))
@@ -57,8 +57,11 @@ def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0):
     if risk > 3 * atr:
         raise ExnessError("sl_too_wide")
     target = target.quantize(tick, rounding=ROUND_FLOOR if direction == 1 else ROUND_CEILING)
-    reward = direction * (target * (1 - direction * slip) - entry) - commission
-    loss = direction * (entry - stop * (1 - direction * slip)) + commission
+    gain_rate = Decimal(str((condition or {}).get("quote_to_account_gain", "1")))
+    loss_rate = Decimal(str((condition or {}).get("quote_to_account_loss", "1")))
+    fee = commission * gain_rate
+    reward = direction * (target * (1 - direction * slip) - entry) * gain_rate - fee
+    loss = direction * (entry - stop * (1 - direction * slip)) * loss_rate + fee
     if reward < Decimal("1.5") * loss:
         raise ExnessError("poor_rr")
     if not isinstance(reason, str) or not reason:
@@ -147,7 +150,7 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
     if row["status"] not in ("pending", "open"):
         return
     if bid.time != ask.time or bid.time != row["last_candle"] + 900:
-        row.update(status="excluded", reason="session_gap" if regular_session_gap(row["last_candle"], bid.time) else "data_gap")
+        row.update(status="excluded", reason="session_gap" if regular_session_gap(row["last_candle"], bid.time, 900, row["signal"].get("symbol", "XAUUSD")) else "data_gap")
         return
     row["last_candle"] = bid.time
     signal, condition = row["signal"], row["condition"]
@@ -155,7 +158,7 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
     tick = Decimal(1).scaleb(-condition["point_digits"])
     exit_bar = bid if direction == 1 else ask
     if row["status"] == "pending":
-        if session_closed_ahead(bid.time, 4):
+        if session_closed_ahead(bid.time, 4, 900, signal.get("symbol", "XAUUSD")):
             row.update(status="skipped", reason="session_close_near")
             return
         entry = Decimal(str((ask.open if direction == 1 else bid.open) * (1 + direction * slip)))
@@ -171,14 +174,14 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             row.update(status="invalid", reason="stop_inside_spread")
             return
         try:
-            target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission)
+            target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
                               if signal.get("htf_ast") or signal.get("htf_ast_v2")
                               else exit_target(signal, entry, stop, tick))
             volume = size_lot(risk, condition)
         except ExnessError as exc:
             row.update(status="skipped", reason=str(exc))
             return
-        if volume * Decimal(str(condition["contract_size"])) * entry > 50000:
+        if volume * Decimal(str(condition["contract_size"])) * entry * Decimal(str(condition.get("quote_to_account_loss", "1"))) > 50000:
             row.update(status="skipped", reason="notional_ceiling")
             return
         body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
@@ -201,7 +204,7 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
         management_rows = sorted((hour for hour in hours if hour.time + 3600 <= bid.time + 900),
                                  key=lambda hour: hour.time)[-60:]
         if (len(management_rows) < 21 or management_rows[-1].time + 7200 <= bid.time + 900 or
-                any(after.time - before.time != 3600 and not regular_session_gap(before.time, after.time, 3600)
+                any(after.time - before.time != 3600 and not regular_session_gap(before.time, after.time, 3600, signal.get("symbol", "XAUUSD"))
                     for before, after in zip(management_rows, management_rows[1:]))):
             management_rows = []
     policy = signal.get("exit_policy")
@@ -239,11 +242,15 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             price, outcome = stop, "stop"
         elif target_hit:
             price, outcome = target, "target"
-        elif early or session_closed_ahead(bid.time, 2):
+        elif early or session_closed_ahead(bid.time, 2, 900, signal.get("symbol", "XAUUSD")):
             price, outcome = exit_bar.close, early or "session_close"
         if outcome:
             price *= 1 - direction * slip
-            row["net_r"] += leg["weight"] * (direction * (price - row["entry"]) - commission) / row["risk"]
+            gross = direction * (price - row["entry"])
+            gain_rate = float(condition.get("quote_to_account_gain", 1))
+            loss_rate = float(condition.get("quote_to_account_loss", 1))
+            net = gross * (gain_rate if gross >= 0 else loss_rate) - commission * gain_rate
+            row["net_r"] += leg["weight"] * net / (row["risk"] * loss_rate)
             leg.update(open=False, outcome=outcome)
             if signal.get("htf_ast_v2"):
                 row["management_history"].append({"at": bid.time + 900, "action": outcome,

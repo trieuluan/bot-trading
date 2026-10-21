@@ -7,7 +7,7 @@ import {
   type ObservationChartSnapshot,
 } from '../components/MtfObservationChart';
 import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
-import { formatPrice, observationStatusLabels } from '../lib/format';
+import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 interface ForexCandle {
@@ -767,6 +767,7 @@ export function ForexStrategyPage({
   onClosePosition?: (position: BrokerPosition) => void;
   onSelectPosition?: (id: string) => void;
 }) {
+  const symbol = dashboard.workspace.symbol;
   const [candles, setCandles] = useState<ForexCandle[]>([]);
   const [analysis, setAnalysis] = useState<LearnerAnalysis | null>(null);
   const [htf2Shadow, setHtf2Shadow] =
@@ -775,12 +776,13 @@ export function ForexStrategyPage({
     const controller = new AbortController();
     const load = async () => {
       try {
-        const res = await fetch('/api/workspaces/exness_forex/learning/analysis', {
+        const res = await fetch(`/api/workspaces/exness_forex/learning/analysis?symbol=${symbol}`, {
           signal: controller.signal,
         });
         const body = (await res.json()) as (LearnerAnalysis | { status: string }) & {
           htf_ast2_shadow?: typeof htf2Shadow;
         };
+        if (controller.signal.aborted) return;
         setHtf2Shadow(res.ok ? body.htf_ast2_shadow : undefined);
         setAnalysis(res.ok && 'levels' in body ? body : null);
       } catch {
@@ -796,7 +798,7 @@ export function ForexStrategyPage({
       controller.abort();
       window.clearInterval(timer);
     };
-  }, []);
+  }, [symbol]);
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
   const [side, setSide] = useState('bid');
@@ -831,12 +833,12 @@ export function ForexStrategyPage({
   );
 
   useEffect(() => {
-    const stream = new EventSource('/api/workspaces/exness_forex/quotes/stream');
+    const stream = new EventSource(`/api/workspaces/exness_forex/quotes/stream?symbol=${symbol}`);
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     stream.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.symbol !== 'XAUUSD' || typeof data.status !== 'string') return;
+        if (data.symbol !== symbol || typeof data.status !== 'string') return;
         const quote = data.quote;
         if (
           quote !== null &&
@@ -891,7 +893,7 @@ export function ForexStrategyPage({
       stream.close();
       window.clearInterval(timer);
     };
-  }, []);
+  }, [symbol]);
   const shadow =
     view === 'mtf' ? null : dashboard.paper.portfolios?.find((row) => row.channel === view);
   const shadowObs = shadow?.observation ?? null;
@@ -959,7 +961,7 @@ export function ForexStrategyPage({
       setChartError('');
       try {
         const res = await fetch(
-          `/api/workspaces/exness_forex/candles?timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : historyBefore ? `&before=${historyBefore + 18000}` : ''}`,
+          `/api/workspaces/exness_forex/candles?symbol=${symbol}&timeframe=${frame}&price_type=${side}&limit=500${older ? `&before=${oldest}` : historyBefore ? `&before=${historyBefore + 18000}` : ''}`,
           {
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
           },
@@ -1004,14 +1006,14 @@ export function ForexStrategyPage({
       active = false;
       controller.abort();
     };
-  }, [frame, side, historyBefore]);
+  }, [frame, side, historyBefore, symbol]);
 
   useEffect(() => {
     historyActions.current.refresh();
   }, [dashboard.market.last_sync]);
 
   const pnlAt = (position: BrokerPosition, price: number) => {
-    const contract = Number(dashboard.paper?.calibration?.profile?.contract_size);
+    const contract = Number(dashboard.instrument?.profile?.contract_size);
     if (
       (position.side !== 'buy' && position.side !== 'sell') ||
       ![contract, position.volume, position.open_price, price].every(
@@ -1021,7 +1023,14 @@ export function ForexStrategyPage({
       return null;
     const move =
       position.side === 'buy' ? price - position.open_price! : position.open_price! - price;
-    return move * position.volume! * contract;
+    const conversion = Number(
+      move >= 0
+        ? dashboard.instrument?.profile?.quote_to_account_gain
+        : dashboard.instrument?.profile?.quote_to_account_loss,
+    );
+    return Number.isFinite(conversion) && conversion > 0
+      ? move * position.volume! * contract * conversion
+      : null;
   };
   const pnlOf = (position: BrokerPosition) => {
     const quote = quoteState.quote;
@@ -1040,7 +1049,7 @@ export function ForexStrategyPage({
             <span className="broker-symbol">XAU</span>
             <div>
               <h2>
-                Gold / US Dollar <span>XAUUSD</span>
+                {symbol} <span>Exness</span>
               </h2>
               <p>
                 Exness Demo <span>·</span> Giá gốc sàn <span>·</span> UTC
@@ -1063,7 +1072,7 @@ export function ForexStrategyPage({
                   : view === 'trend'
                     ? 'Trend Pullback'
                     : 'Range Rejection'}{' '}
-              · XAUUSD
+              · {symbol}
             </h2>
             <p>
               {executionOnly
@@ -1434,6 +1443,10 @@ export function ForexStrategyPage({
       )}
       <MtfObservationChart
         key={`${frame}-${side}`}
+        pricePrecision={
+          dashboard.instrument?.profile?.point_digits ??
+          (symbol === 'XAUUSD' ? 3 : symbol.endsWith('JPY') ? 3 : 5)
+        }
         onLoadOlder={hasMore && !chartError ? () => historyActions.current.older() : undefined}
         candles={candles}
         liveCandles={liveCandles}
@@ -1458,7 +1471,7 @@ export function ForexStrategyPage({
               }
             : null
         }
-        title={`Exness XAUUSD · ${executionOnly ? 'FILL SÀN DEMO' : view} · ${side.toUpperCase()} ${frame} · USD/oz · UTC`}
+        title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : view} · ${side.toUpperCase()} ${frame} · UTC`}
       />
       {executionOnly && (
         <div className="bot-footer">
@@ -1538,18 +1551,20 @@ export function ForexStrategyPage({
 
 export function ForexObservationLog({
   events,
+  symbol = 'XAUUSD',
 }: {
   events: (Partial<ObservationChartSnapshot> & {
     candle_time: number;
     status: string;
     reason: string;
   })[];
+  symbol?: string;
 }) {
   return (
     <section className="panel prose">
       <div className="section-head">
         <div>
-          <h2>Nhật ký quan sát Exness XAUUSD</h2>
+          <h2>Nhật ký quan sát Exness {symbol}</h2>
           <p>
             20 nến quan sát gần nhất; trạng thái setup và lý do hủy/hết hạn. Không phải lịch sử đặt
             lệnh.

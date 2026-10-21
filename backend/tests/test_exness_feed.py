@@ -57,7 +57,7 @@ def test_backfill_atomic_pairs_and_independent_timeframes(monkeypatch):
         assert session.query(WorkspaceCandle).count() == 2 * (96 + 24 + 6)
         assert session.query(MarketCandle).count() == 0
         assert session.get(PaperWallet, 1).balance == 10000
-        assert session.get(WorkspaceFeedState, (WORKSPACE, "15m")).checked_until == NOW
+        assert session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "15m")).checked_until == NOW
     with TestClient(app) as client:
         data = client.get("/api/workspaces/exness_forex/dashboard").json()
         assert data["market"]["bars"] == 96
@@ -130,7 +130,7 @@ def test_invalid_ask_rolls_back_whole_page_then_retries_from_same_boundary():
     with pytest.raises(ExnessError):
         sync_page(api, "15m", days=1, now=NOW)
     with Session() as session:
-        state = session.get(WorkspaceFeedState, (WORKSPACE, "15m"))
+        state = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "15m"))
         assert state.checked_until is None
         assert state.error
         assert session.query(WorkspaceCandle).count() == 0
@@ -290,7 +290,7 @@ def test_worker_keeps_heartbeat_without_api_calls_during_cooldown(monkeypatch):
     monkeypatch.setattr(exness_worker.signal, "signal", lambda *args: None)
     monkeypatch.setattr(exness_worker, "validate_mode", lambda: None)
     monkeypatch.setattr(exness_worker, "worker_heartbeat", heartbeats.append)
-    monkeypatch.setattr(exness_worker, "feed_retry_delay", lambda: 120)
+    monkeypatch.setattr(exness_worker, "feed_retry_delay", lambda *_: 120)
     monkeypatch.setattr(exness_worker, "connect_exness", lambda: connections.append(True))
     exness_worker.main()
     assert waits == [15, 15]
@@ -323,7 +323,7 @@ def test_m1_backfills_older_history_after_catching_up(monkeypatch):
     while sync_page(api, "1m", days=1, now=NOW)["status"] == "backfill":
         pass
     with Session() as session:
-        first = session.get(WorkspaceFeedState, (WORKSPACE, "1m")).started_at
+        first = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1m")).started_at
     results = []
     while True:
         result = sync_page(api, "1m", days=2, now=NOW, older=True)
@@ -332,7 +332,7 @@ def test_m1_backfills_older_history_after_catching_up(monkeypatch):
             break
     assert "backfill_history" in results
     with Session() as session:
-        state = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        state = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1m"))
         assert state.started_at == NOW // 60 * 60 - 2 * 86400 < first
         assert state.checked_until == NOW
         assert session.query(WorkspaceCandle).filter_by(timeframe="1m", price_type="bid").count() == 2 * 1440
@@ -346,13 +346,13 @@ def test_older_backfill_waits_for_live_cursor_and_rolls_back_invalid_page():
     assert result["status"] == "waiting_live_sync"
     assert len(api.calls) == before_calls
     with Session.begin() as session:
-        feed = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        feed = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1m"))
         feed.checked_until = NOW
         original_start = feed.started_at
     api.rows = [candle(NOW + 60)]
     with pytest.raises(ExnessError, match="candles"):
         sync_page(api, "1m", days=30, now=NOW, older=True)
     with Session() as session:
-        feed = session.get(WorkspaceFeedState, (WORKSPACE, "1m"))
+        feed = session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "1m"))
         assert feed.started_at == original_start
         assert feed.checked_until == NOW

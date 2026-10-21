@@ -1,69 +1,45 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
 
-// Test URL parse logic directly
-const pages = {
-  mexc_futures: ['Giao dịch & Bot', 'Cài đặt & Kết nối'],
-  exness_forex: ['Tổng quan', 'Bot', 'Nghiên cứu', 'Kết nối sàn'],
-};
-
-const tabs = {
-  Bot: ['chart', 'orders', 'learning'],
-  'Nghiên cứu': ['backtest', 'paper', 'log'],
-};
-
-function parseRoute(search) {
-  const params = new URLSearchParams(search);
-  const workspace = params.get('workspace') === 'exness_forex' ? 'exness_forex' : 'mexc_futures';
-  const allowedPages = pages[workspace];
-  const page = allowedPages.find((v) => v === params.get('page')) ?? allowedPages[0];
-  const tab =
-    workspace === 'exness_forex' ? tabs[page]?.find((v) => v === params.get('tab')) : undefined;
-  return { workspace, page, tab };
-}
-
-// 1. Default empty url
-assert.deepEqual(parseRoute(''), {
-  workspace: 'mexc_futures',
-  page: 'Giao dịch & Bot',
-  tab: undefined,
-});
-
-// 2. Exness default
-assert.deepEqual(parseRoute('?workspace=exness_forex'), {
-  workspace: 'exness_forex',
-  page: 'Tổng quan',
-  tab: undefined,
-});
-
-// 3. Exness Bot page with tab
-assert.deepEqual(parseRoute('?workspace=exness_forex&page=Bot&tab=learning'), {
-  workspace: 'exness_forex',
-  page: 'Bot',
-  tab: 'learning',
-});
-
-// 4. Invalid tab drops to undefined
-assert.deepEqual(parseRoute('?workspace=exness_forex&page=Bot&tab=invalid_tab'), {
-  workspace: 'exness_forex',
-  page: 'Bot',
-  tab: undefined,
-});
-
-// 5. Invalid page drops to default page
-assert.deepEqual(parseRoute('?workspace=exness_forex&page=NonExistent'), {
-  workspace: 'exness_forex',
-  page: 'Tổng quan',
-  tab: undefined,
-});
-
-// 6. Tab not allowed on Mexc
-assert.deepEqual(
-  parseRoute('?workspace=mexc_futures&page=Giao%20d%E1%BB%8Bch%20%26%20Bot&tab=learning'),
-  {
-    workspace: 'mexc_futures',
-    page: 'Giao dịch & Bot',
-    tab: undefined,
+const history = ['?workspace=exness_forex&page=Bot&tab=learning&symbol=XAUUSD'];
+let cursor = 0;
+const window = {
+  location: { pathname: '/', search: history[0], hash: '' },
+  history: {
+    pushState(_, __, url) {
+      history.splice(++cursor, history.length, url.slice(1));
+      window.location.search = history[cursor];
+    },
+    replaceState(_, __, url) {
+      history[cursor] = url.slice(1);
+      window.location.search = history[cursor];
+    },
   },
-);
-
-console.log('✓ All router tests passed.');
+  dispatchEvent() {},
+};
+const source = readFileSync(new URL('../src/lib/router.ts', import.meta.url), 'utf8');
+const { outputText } = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+});
+const exports = {};
+vm.runInNewContext(outputText, { exports, require: () => ({}), window, URLSearchParams, Event });
+const { parseRoute, setRoute } = exports;
+assert.equal(parseRoute('').workspace, 'mexc_futures');
+assert.equal(parseRoute('?workspace=exness_forex').symbol, 'XAUUSD');
+assert.equal(parseRoute('?workspace=exness_forex&page=Bot&tab=orders&symbol=EURUSD').tab, 'orders');
+assert.equal(parseRoute('?workspace=exness_forex&symbol=UNKNOWN').symbol, 'UNKNOWN');
+setRoute({ symbol: 'EURUSD' });
+setRoute({ symbol: 'GBPJPY' });
+assert.equal(parseRoute().symbol, 'GBPJPY');
+assert.equal(parseRoute().tab, 'learning');
+window.location.search = history[--cursor];
+assert.equal(parseRoute().symbol, 'EURUSD');
+window.location.search = history[++cursor];
+assert.equal(parseRoute().symbol, 'GBPJPY');
+setRoute({ page: 'Tổng quan' });
+assert.equal(parseRoute().symbol, 'GBPJPY');
+assert.equal(parseRoute().tab, undefined);
+assert.equal(parseRoute(window.location.search).symbol, 'GBPJPY');
+console.log('Router: symbol, refresh, Back/Forward, page and tab checks passed.');
