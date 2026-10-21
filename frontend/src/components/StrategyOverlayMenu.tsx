@@ -29,6 +29,15 @@ export function StrategyOverlayMenu({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<TabType>('all');
+  const [tip, setTip] = useState<{ name: string; top: number; left: number } | null>(null);
+  const showTip = (name: string, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setTip({
+      name,
+      top: r.bottom + 6,
+      left: Math.max(8, Math.min(r.left, window.innerWidth - 300)),
+    });
+  };
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -246,6 +255,17 @@ export function StrategyOverlayMenu({
             )}
           </div>
 
+          {tip && strategies[tip.name] !== undefined && (
+            <div className="strategy-tooltip" style={{ top: tip.top, left: tip.left }}>
+              <div className="evo-tooltip-title">
+                {treeLabel(strategies[tip.name], tip.name).full}
+              </div>
+              {strategies[tip.name]?.description && (
+                <div className="evo-tooltip-body">{strategies[tip.name]?.description}</div>
+              )}
+              <div className="evo-tooltip-code">{tip.name}</div>
+            </div>
+          )}
           <div className="strategy-popover-footer">
             <span>
               {activeCount === 0
@@ -266,12 +286,12 @@ export function StrategyOverlayMenu({
     const isHolding = holding.includes(name);
     const isConfirmed = item?.status === 'confirmed';
     const zone = item?.captured_zone ?? item?.zone;
-    const tooltip = [label.full, item?.description, name].filter(Boolean).join('\n');
     return (
       <label
         key={name}
         className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''}`}
-        title={tooltip}
+        onMouseEnter={(e) => showTip(name, e.currentTarget)}
+        onMouseLeave={() => setTip(null)}
       >
         <input
           type="checkbox"
