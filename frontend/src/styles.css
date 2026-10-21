@@ -8346,6 +8346,46 @@ main.forex-terminal-main {
 button.ap-cell {
   cursor: pointer;
 }
+.ap-cell:hover,
+button.ap-cell:focus-visible {
+  outline: 2px solid #26372e;
+  outline-offset: 1px;
+  z-index: 2;
+}
+.ap-portal-tooltip {
+  position: fixed;
+  z-index: 9999;
+  width: min(280px, calc(100vw - 20px));
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #17211c;
+  color: #f4f7f2;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 140ms ease,
+    visibility 140ms ease,
+    top 100ms ease-out,
+    left 100ms ease-out;
+}
+.ap-portal-tooltip.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ap-portal-tooltip {
+    transition: none;
+  }
+}
+.ap-portal-tooltip.below {
+  transform: translateX(-50%);
+}
 .ap-cell.no_setup {
   background: #c9d8cb;
 }

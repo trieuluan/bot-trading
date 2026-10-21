@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { TriangleAlert } from 'lucide-react';
 import type { AutoPaperState } from '../types/paper';
 import { formatTime } from '../lib/time-format';
@@ -23,6 +25,13 @@ export function AutoJournal({
   state: AutoPaperState | null;
   onViewTrade?: (id: number) => void;
 }) {
+  const [tip, setTip] = useState<{
+    text: string;
+    top: number;
+    left: number;
+    below: boolean;
+    visible: boolean;
+  }>({ text: '', top: 0, left: 0, below: false, visible: false });
   const coverage = state?.coverage;
   if (!coverage) return null;
   const timeline = state.timeline ?? [];
@@ -35,6 +44,17 @@ export function AutoJournal({
       tracked: candle >= coverage.start_time,
     };
   });
+  const showTip = (
+    event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
+    text: string,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const half = Math.min(280, window.innerWidth - 20) / 2 + 10;
+    const left = Math.max(half, Math.min(rect.left + rect.width / 2, window.innerWidth - half));
+    const below = rect.top < 72;
+    setTip({ text, top: below ? rect.bottom + 8 : rect.top - 8, left, below, visible: true });
+  };
+  const hideTip = () => setTip((current) => ({ ...current, visible: false }));
   const events = timeline.filter(
     (entry) => entry.action === 'opened' || entry.action === 'skipped',
   );
@@ -55,7 +75,14 @@ export function AutoJournal({
       </header>
       <div
         className="ap-strip"
-        role="img"
+        role="group"
+        onMouseLeave={hideTip}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) hideTip();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') hideTip();
+        }}
         aria-label={`${coverage.evaluated}/${coverage.tracked_candles} nến đã xét, ${coverage.opened} mở lệnh, ${coverage.skipped} bỏ qua, ${missedTotal} lỡ trong ${coverage.window_candles} nến gần nhất`}
       >
         {cells.map(({ candle, entry, tracked }) => {
@@ -72,15 +99,32 @@ export function AutoJournal({
               key={candle}
               type="button"
               className={`ap-cell ${action}`}
-              title={title}
               aria-label={title}
+              onMouseEnter={(e) => showTip(e, title)}
+              onFocus={(e) => showTip(e, title)}
               onClick={() => onViewTrade(entry.trade_id!)}
             />
           ) : (
-            <span key={candle} className={`ap-cell ${action}`} title={title} />
+            <span
+              key={candle}
+              className={`ap-cell ${action}`}
+              onMouseEnter={(e) => showTip(e, title)}
+            />
           );
         })}
       </div>
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className={`ap-portal-tooltip${tip.below ? ' below' : ''}${tip.visible ? ' is-visible' : ''}`}
+            style={{ top: `${tip.top}px`, left: `${tip.left}px` }}
+            role="tooltip"
+            aria-hidden={!tip.visible}
+          >
+            {tip.text}
+          </div>,
+          document.body,
+        )}
       <div className="ap-strip-axis" aria-hidden="true">
         <span>{time(cells[0].candle)}</span>
         <span>{time(coverage.end_time)}</span>
