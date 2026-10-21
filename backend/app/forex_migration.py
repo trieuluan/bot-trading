@@ -6,7 +6,7 @@ import json
 import os
 import tempfile
 
-MIGRATION_ID = "htf_v2_only_1"
+MIGRATION_ID = "htf_v3_only_1"
 
 
 def atomic_bytes(path, value):
@@ -77,38 +77,53 @@ def migrate_symbol_ledger(path, legacy, account, symbol, now):
     if path.exists():
         ledger = json.loads(path.read_text())
         if (ledger.get("account"), ledger.get("symbol"), ledger.get("runtime"), ledger.get("schema")) != (account, symbol, RUNTIME, SCHEMA):
-            raise ValueError("Invalid multi-symbol V2 ledger identity")
+            raise ValueError("Invalid multi-symbol V3 ledger identity")
         return ledger
-    legacy.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with legacy.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if path.exists():
             ledger = json.loads(path.read_text())
             if (ledger.get("account"), ledger.get("symbol"), ledger.get("runtime"), ledger.get("schema")) != (account, symbol, RUNTIME, SCHEMA):
-                raise ValueError("Invalid multi-symbol V2 ledger identity")
+                raise ValueError("Invalid multi-symbol V3 ledger identity")
             return ledger
         if symbol == "XAUUSD" and legacy.exists():
             ledger = json.loads(legacy.read_text())
             if ((ledger.get("account"), ledger.get("runtime"), ledger.get("schema")) != (account, RUNTIME, SCHEMA)
                     or ledger.get("symbol") not in (None, "XAUUSD")):
-                raise ValueError("Invalid legacy V2 ledger identity; migration blocked")
+                raise ValueError("Invalid legacy ledger identity; migration blocked")
             manifest = path.with_suffix(".migration.json")
             raw = legacy.read_bytes()
-            archive = path.parent / "archive" / "forex_multi_symbol_1" / legacy.name
+            archive = path.parent / "archive" / MIGRATION_ID / legacy.name
             archive.parent.mkdir(parents=True, exist_ok=True)
             if archive.exists() and archive.read_bytes() != raw:
-                raise ValueError("Legacy ledger changed during multi-symbol migration")
+                raise ValueError("Legacy ledger changed during migration")
             if not archive.exists():
                 atomic_bytes(archive, raw)
-            atomic_json(manifest, {"id": "forex_multi_symbol_1", "symbol": symbol,
+            atomic_json(manifest, {"id": MIGRATION_ID, "symbol": symbol,
                                    "sha256": hashlib.sha256(raw).hexdigest(), "archive": str(archive)})
             ledger = {**ledger, "symbol": symbol}
-        else:
-            trees = g0_trees()
-            ledger = {"runtime": RUNTIME, "schema": SCHEMA, "account": account, "symbol": symbol,
-                      "since": now, "generation": 0, "population": trees, "samples": [],
-                      "last_capture": None, "rejections": {},
-                      "members": {tree_id(tree): {"tree": tree, "generation": 0, "parents": [], "born_at": now}
-                                  for tree in trees}}
+            atomic_json(path, ledger)
+            return ledger
+        tag = hashlib.sha256(account.encode()).hexdigest()[:16]
+        archive = path.parent / "archive" / MIGRATION_ID / tag
+        old_v2 = path.parent / path.name.replace("-ast3-", "-ast2-")
+        if old_v2.exists():
+            raw = old_v2.read_bytes()
+            saved = archive / old_v2.name
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            if saved.exists() and saved.read_bytes() != raw:
+                raise ValueError("Archive source changed during migration")
+            if not saved.exists():
+                atomic_bytes(saved, raw)
+            atomic_json(archive / f"{symbol}.manifest.json", {"migration": MIGRATION_ID, "source": old_v2.name,
+                                                              "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)})
+        trees = g0_trees(symbol)
+        ledger = {"runtime": RUNTIME, "schema": SCHEMA, "account": account, "symbol": symbol,
+                  "since": now, "generation": 0, "population": trees, "samples": [],
+                  "last_capture": None, "rejections": {},
+                  "migration": {"id": MIGRATION_ID, "cutoff": now, "archive": str(archive)},
+                  "members": {tree_id(tree): {"tree": tree, "generation": 0, "parents": [], "born_at": now}
+                              for tree in trees}}
         atomic_json(path, ledger)
         return ledger

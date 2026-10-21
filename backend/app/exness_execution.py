@@ -663,12 +663,12 @@ def _symbol_execution_tick(api, broker, now, symbol):
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
         signal = evaluate(session, now, symbol)
-        if signal and str(signal.get("strategy", "")).startswith("hast2_") and signal.get("shadow_only") is False:
+        if signal and str(signal.get("strategy", "")).startswith("hast3_") and signal.get("shadow_only") is False:
             try:
                 signal = validate_execution_signal(signal, api.account_id, now)
             except ExnessError as exc:
                 reason, signal = str(exc), None
-        elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_"))):
+        elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_", "hast3_"))):
             reason, signal = "shadow_only_signal", None
         detail = session.info.get("execution_evaluation", {
             "symbol": symbol, "candle_time": now // 900 * 900 - 900, "evaluated": False})

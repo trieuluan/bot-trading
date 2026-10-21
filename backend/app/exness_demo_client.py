@@ -146,10 +146,10 @@ class ExnessDemoClient:
         if symbol not in configured_symbols():
             raise ExnessError("Instrument not enabled for entry")
         strategy = str(signal.get("strategy", ""))
-        if strategy.startswith("hast2_"):
+        if strategy.startswith("hast3_"):
             from .forex_htf_v2 import validate_execution_signal
             signal = validate_execution_signal(signal, self.api.account_id)
-        elif signal.get("shadow_only") or strategy.startswith(("ast_", "hast_")):
+        elif signal.get("shadow_only") or strategy.startswith(("ast_", "hast_", "hast2_")):
             raise ExnessError("shadow_only_signal")
         validate_quote(quote)
         if signal.get("side") not in ("long", "short"):
@@ -193,7 +193,7 @@ class ExnessDemoClient:
                 or (not long and stop <= positive_decimal(quote["ask"]))):
             raise ExnessError("Invalid structure stop or planned risk out of bounds")
         target = (entry + (2 if long else -2) * risk_distance).quantize(tick)
-        if strategy.startswith("hast2_"):
+        if strategy.startswith("hast3_"):
             from .forex_buffer_study import htf_exit_target
             from .forex_samples import slippage_estimate
             slip = Decimal(str(slippage_estimate(symbol)["bps"])) / 10000

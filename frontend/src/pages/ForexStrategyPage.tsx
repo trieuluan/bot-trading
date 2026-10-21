@@ -157,6 +157,20 @@ export function ForexCatchupStatus({
 }
 
 const rejectLabels: Record<string, [string, string]> = {
+  adx_weak: ['ADX H4 yếu', 'ADX14 chưa vượt ngưỡng của cây'],
+  price_zone_opposed: ['Ngoài vùng giá H4', 'Long cần nửa dưới, Short cần nửa trên biên H4'],
+  adr_exhausted: ['Đã dùng biên ADR', 'Biên ngày đạt ngưỡng ADR, không phải trần giá'],
+  spread_wide: ['Spread rộng', 'Spread vượt hệ số so với các nến trước'],
+  outside_liquid_session: ['Ngoài phiên thanh khoản', 'Giờ London/New York có điều chỉnh DST'],
+  smt_no_reference: [
+    'SMT không áp dụng',
+    'Cặp này chưa có cặp tham chiếu, cây không được bỏ qua filter',
+  ],
+  smt_not_confirmed: ['Chưa có SMT', 'Cặp chính và tham chiếu chưa tạo phân kỳ cực trị H1'],
+  smt_history_missing: ['Chờ dữ liệu SMT', 'Thiếu nến H1 đồng thời của cặp tham chiếu'],
+  daily_history_missing: ['Chờ lịch sử ngày', 'Chưa đủ ngày UTC hoàn chỉnh theo lịch chuẩn'],
+  spread_history_missing: ['Chờ lịch sử spread', 'Thiếu nến bid/ask đóng đồng thời'],
+  adx_history_missing: ['Chờ dữ liệu ADX', 'Chưa đủ nến H4 đóng'],
   h4_trend_opposed: ['Ngược xu hướng H4', 'Hướng setup đi ngược EMA50 H4'],
   no_h1_setup: ['Chưa có setup H1', 'H1 chưa hình thành cấu trúc cần thiết'],
   no_m15_trigger: ['Chưa có trigger M15', 'Setup H1 đạt nhưng nến M15 chưa kích hoạt'],
@@ -176,7 +190,7 @@ const rejectLabels: Record<string, [string, string]> = {
 };
 
 type Tree2 = NonNullable<
-  NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']
+  NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']
 >['trees'][number];
 
 function GenBadge({ tree }: { tree?: Tree2 }) {
@@ -630,6 +644,13 @@ export function HtfLineage({
               </strong>
             </div>
           </div>
+          {detail.sides && (
+            <p className="micro">
+              Long: {detail.sides.long.resolved} mẫu · {detail.sides.long.mean_r?.toFixed(2) ?? '—'}
+              R{' · '}Short: {detail.sides.short.resolved} mẫu ·{' '}
+              {detail.sides.short.mean_r?.toFixed(2) ?? '—'}R
+            </p>
+          )}
         </div>
       )}
 
@@ -740,7 +761,7 @@ export function ForexStrategyPage({
   });
   const [analysis, setAnalysis] = useState<LearnerAnalysis | null>(null);
   const [htf2Shadow, setHtf2Shadow] =
-    useState<NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']>();
+    useState<NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']>();
   useEffect(() => {
     const controller = new AbortController();
     setAnalysis(null);
@@ -751,10 +772,10 @@ export function ForexStrategyPage({
           signal: controller.signal,
         });
         const body = (await res.json()) as (LearnerAnalysis | { status: string }) & {
-          htf_ast2_shadow?: typeof htf2Shadow;
+          htf_ast3_shadow?: typeof htf2Shadow;
         };
         if (controller.signal.aborted) return;
-        setHtf2Shadow(res.ok ? body.htf_ast2_shadow : undefined);
+        setHtf2Shadow(res.ok ? body.htf_ast3_shadow : undefined);
         setAnalysis(res.ok && 'levels' in body ? body : null);
       } catch {
         if (!controller.signal.aborted) {
@@ -784,7 +805,7 @@ export function ForexStrategyPage({
       [
         ...new Set(
           executions
-            .filter((row) => row.status === 'open' && row.strategy?.startsWith('hast2_'))
+            .filter((row) => row.status === 'open' && /^hast[23]_/.test(row.strategy ?? ''))
             .map((row) => row.strategy as string),
         ),
       ].filter((id) => analysis?.strategies[id]),
@@ -1465,7 +1486,7 @@ export function ForexStrategyPage({
         <div className="learning-section-card">
           <div className="card-header">
             <div>
-              <h4>AST HTF V2 — Quần thể & Dòng dõi tiến hoá</h4>
+              <h4>AST HTF V3 — Hai chiều · thuận H4</h4>
               <p className="muted-desc">
                 {htf2Shadow.note}. Thế hệ {htf2Shadow.generation}, {htf2Shadow.tree_count} cây.
               </p>

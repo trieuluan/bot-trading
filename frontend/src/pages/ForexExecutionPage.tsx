@@ -25,7 +25,7 @@ const panels: [Panel, string][] = [
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
 const isBot = (source: string) =>
-  source === 'learning' || source === 'hast2' || source === 'regime_router';
+  source === 'learning' || source === 'hast2' || source === 'hast3' || source === 'regime_router';
 
 export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard }) {
   const symbol = dashboard.workspace.symbol;
@@ -118,7 +118,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   );
   const wins = closedRows.filter((position) => (position.pnl ?? 0) > 0).length;
   const picked = data?.learning?.latest?.selected;
-  const treeCount = data?.learning?.htf_ast2_shadow?.tree_count ?? 56;
+  const treeCount = data?.learning?.htf_ast3_shadow?.tree_count ?? 56;
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
   const label = { offline: 'Worker offline', live: 'Đang chạy', paused: 'Tạm dừng mở lệnh' }[state];
   const equity = data?.account_state?.equity;
@@ -328,7 +328,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                               <span className="pos-id">#{position.position_id}</span>
                               <span className="pos-source">
                                 {position.source === 'learning'
-                                  ? 'Bot · HTF V2'
+                                  ? 'Bot · HTF V3'
                                   : position.source === 'regime_router'
                                     ? 'Bot · Cũ'
                                     : 'Thủ công / Probe'}
@@ -522,7 +522,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           >
             <div className="learning-overview-grid">
               <div className="learning-stat-card">
-                <span className="card-label">Execution V2</span>
+                <span className="card-label">Execution V3</span>
                 <div className="card-value" style={{ fontSize: '18px' }}>
                   {data.learning?.execution_v2?.enabled ? 'Đang gửi lệnh' : 'Chỉ shadow'}
                 </div>
@@ -549,11 +549,11 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                 <div className="card-sub">Cần ≥10 mẫu forward và R trung bình &gt; 0</div>
               </div>
               <div className="learning-stat-card">
-                <span className="card-label">Mẫu forward V2</span>
-                <div className="card-value">{data.learning?.htf_ast2_shadow?.resolved ?? 0}</div>
+                <span className="card-label">Mẫu forward V3</span>
+                <div className="card-value">{data.learning?.htf_ast3_shadow?.resolved ?? 0}</div>
                 <div className="card-sub">
-                  {data.learning?.htf_ast2_shadow?.pending ?? 0} đang chạy · thế hệ G
-                  {data.learning?.htf_ast2_shadow?.generation ?? 0}
+                  {data.learning?.htf_ast3_shadow?.pending ?? 0} đang chạy · thế hệ G
+                  {data.learning?.htf_ast3_shadow?.generation ?? 0}
                 </div>
               </div>
             </div>
@@ -570,26 +570,26 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               </div>
               <DecisionJournal journal={data.journal} funnel={data.funnel} />
             </div>
-            {data.learning?.htf_ast2_shadow && (
+            {data.learning?.htf_ast3_shadow && (
               <div className="learning-section-card">
                 <div className="card-header">
                   <div>
-                    <h4>Quần thể HTF V2 · dòng dõi G0 → G1…</h4>
+                    <h4>Quần thể HTF V3 · dòng dõi G0 → G1…</h4>
                     <span className="muted-desc">
-                      Thế hệ {data.learning.htf_ast2_shadow.generation} ·{' '}
-                      {data.learning.htf_ast2_shadow.tree_count} cây ·{' '}
-                      {data.learning.htf_ast2_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
+                      Thế hệ {data.learning.htf_ast3_shadow.generation} ·{' '}
+                      {data.learning.htf_ast3_shadow.tree_count} cây ·{' '}
+                      {data.learning.htf_ast3_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
                       swap
                     </span>
                   </div>
                   <span className="badge-count">
-                    {data.learning.htf_ast2_shadow.resolved} đã đóng ·{' '}
-                    {data.learning.htf_ast2_shadow.pending} đang chạy
+                    {data.learning.htf_ast3_shadow.resolved} đã đóng ·{' '}
+                    {data.learning.htf_ast3_shadow.pending} đang chạy
                   </span>
                 </div>
                 <HtfLineage
-                  trees={data.learning.htf_ast2_shadow.trees}
-                  nextEvolutionAt={data.learning.htf_ast2_shadow.next_evolution_at}
+                  trees={data.learning.htf_ast3_shadow.trees}
+                  nextEvolutionAt={data.learning.htf_ast3_shadow.next_evolution_at}
                 />
               </div>
             )}

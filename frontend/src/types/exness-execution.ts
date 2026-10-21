@@ -107,7 +107,7 @@ export interface ExnessExecution {
       reasons: string[];
     }[];
     retired_genomes?: string[];
-    htf_ast2_shadow?: {
+    htf_ast3_shadow?: {
       status: string;
       generation: number;
       last_capture: { time: number; at: number; status: string } | null;
@@ -143,6 +143,7 @@ export interface ExnessExecution {
         resolved: number;
         excluded: number;
         mean_r: number | null;
+        sides?: Record<'long' | 'short', { resolved: number; mean_r: number | null }>;
         lower_r: number | null;
         last_levels: { stop: number; target: number; reason: string; time: number } | null;
       }[];

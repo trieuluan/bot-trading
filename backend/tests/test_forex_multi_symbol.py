@@ -87,9 +87,9 @@ def test_ledger_path_per_symbol():
 def test_independent_g0_population_per_symbol():
     with tempfile.TemporaryDirectory() as tmp:
         dir_path = Path(tmp)
-        legacy = dir_path / "exness-htf-ast2-shadow-acc.json"
-        p_xau = dir_path / "exness-htf-ast2-shadow-acc-XAUUSD.json"
-        p_eur = dir_path / "exness-htf-ast2-shadow-acc-EURUSD.json"
+        legacy = dir_path / "exness-htf-ast3-shadow-acc.json"
+        p_xau = dir_path / "exness-htf-ast3-shadow-acc-XAUUSD.json"
+        p_eur = dir_path / "exness-htf-ast3-shadow-acc-EURUSD.json"
 
         led_xau = migrate_symbol_ledger(p_xau, legacy, "acc", "XAUUSD", NOW)
         led_eur = migrate_symbol_ledger(p_eur, legacy, "acc", "EURUSD", NOW)
@@ -121,22 +121,6 @@ def test_capacity_limits_66_total_and_6_per_symbol(monkeypatch):
         "orders": [],
     }
     assert capacity_available(full_broker, "acc", "EURUSD", additional=1) is False
-
-
-def test_migration_preserves_xau_population_samples_and_restart(tmp_path):
-    from backend.app.forex_htf_v2 import RUNTIME, SCHEMA, g0_trees
-    legacy = tmp_path / "legacy.json"
-    path = tmp_path / "legacy-XAUUSD.json"
-    previous = {"runtime": RUNTIME, "schema": SCHEMA, "account": "acc", "population": g0_trees(),
-                "samples": [{"strategy": "saved", "status": "open"}], "generation": 2, "since": 123}
-    raw = json.dumps(previous).encode()
-    legacy.write_bytes(raw)
-    migrated = migrate_symbol_ledger(path, legacy, "acc", "XAUUSD", NOW)
-    assert migrated == {**previous, "symbol": "XAUUSD"}
-    assert legacy.read_bytes() == raw
-    assert migrate_symbol_ledger(path, legacy, "acc", "XAUUSD", NOW + 999) == migrated
-    manifest = json.loads(path.with_suffix(".migration.json").read_text())
-    assert Path(manifest["archive"]).read_bytes() == raw
 
 
 def test_failed_archive_never_overwrites_source_or_creates_ledger(tmp_path, monkeypatch):
@@ -364,3 +348,15 @@ def test_broker_csv_filters_symbol_and_has_price_precision(monkeypatch):
     rows = list(csv.DictReader(io.StringIO(response.text)))
     assert len(rows) == 1 and rows[0]["symbol"] == "EURUSD" and rows[0]["open_price"] == "1.12345"
     assert client.get("/api/workspaces/exness_forex/execution/trades.csv?symbol=GBPUSD").status_code == 422
+
+
+def test_v3_archives_v2_ledger_and_restart_does_not_reset(tmp_path):
+    old = tmp_path / "exness-htf-ast2-shadow-acc-EURUSD.json"
+    raw = json.dumps({"samples": [{"strategy": "hast2_x", "net_r_ex_swap": 9}]}).encode()
+    old.write_bytes(raw)
+    path = tmp_path / "exness-htf-ast3-shadow-acc-EURUSD.json"
+    first = migrate_symbol_ledger(path, tmp_path / "legacy.json", "acc", "EURUSD", NOW)
+    assert first["samples"] == [] and len({t and json.dumps(t, sort_keys=True) for t in first["population"]}) == 56
+    archived = Path(first["migration"]["archive"]) / old.name
+    assert archived.read_bytes() == raw and old.read_bytes() == raw
+    assert migrate_symbol_ledger(path, tmp_path / "legacy.json", "acc", "EURUSD", NOW + 99)["since"] == NOW

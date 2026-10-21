@@ -13,7 +13,6 @@ import os
 import random
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from statistics import mean, stdev
@@ -25,17 +24,18 @@ from .forex_detectors import H1_DETECTORS, M15_TRIGGERS, family_context
 from .forex_exits import BOUNDS as EXIT_BOUNDS
 from .forex_exits import DEFAULTS as EXIT_DEFAULTS
 from .forex_exits import barrier_runner, parameters
+from .forex_features import FILTER_BOUNDS, FILTER_DEFAULTS, NEW_H1_DETECTORS, filter_result
 
-SCHEMA = "forex_htf_ast_v2"
-RUNTIME = "htf_v2_only_1"
-PROVENANCE = "live_forward_htf_ast2_shadow"
-LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast2-shadow.json"
+SCHEMA = "forex_htf_ast_v3"
+RUNTIME = "htf_v3_only_1"
+PROVENANCE = "live_forward_htf_ast3_shadow"
+LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast3-shadow.json"
 
 H4_FEATURES = ("trend_ema50",)
-H1_FAMILIES = ("channel_breakout", "squeeze", "retest", "sweep", "pullback", "fvg", "mss")
+H1_FAMILIES = ("channel_breakout", "squeeze", "retest", "sweep", "pullback", "fvg", "mss", *NEW_H1_DETECTORS)
 M15_FAMILIES = (
     "channel", "rsi", "fvg", "session", "squeeze", "sweep",
-    "pullback", "range", "retest", "router", "orb", "vsa", "mss", "vwap"
+    "pullback", "range", "retest", "router", "orb", "vsa", "mss", "vwap", "setup_reclaim", "engulfing"
 )
 EXIT_POLICIES = ("partial_be_h1", "partial_be_m15", "fixed_structural", *EXIT_DEFAULTS)
 # policy -> (management frame, legacy split TP1 flag)
@@ -45,6 +45,7 @@ EXIT_TRAITS = {
     "evidence_h1": ("H1", False), "evidence_m15": ("M15", False),
     "barrier_partial_h1": ("H1", True),
     "runner_h1": ("H1", False),
+    "trail_swing_h1": ("H1", False),
     "ladder_h1": ("H1", True),
 }
 
@@ -67,7 +68,12 @@ TRIGGER_TO_H1_SETUP = {
 }
 
 # (key, step, low, high) per family
+ROUND_STEPS = {"XAUUSD": 50, "JPY": 0.5, "FX": 0.005}
+
 H1_BOUNDS = {
+    "order_block": (("lookback", 5, 20, 40), ("impulse_mult", 0.25, 1.5, 2.5)),
+    "pdh_pdl_sweep": (), "asia_sweep": (), "inside_bar": (),
+    "round_level": (),
     "channel_breakout": (("lookback", 5, 8, 60),),
     "squeeze": (("lookback", 10, 20, 60), ("bars", 2, 5, 15), ("ratio", 0.1, 1.0, 5.0)),
     "retest": (("lookback", 5, 10, 40), ("wait_hours", 1, 2, 12)),
@@ -78,6 +84,7 @@ H1_BOUNDS = {
 }
 
 M15_BOUNDS = {
+    "setup_reclaim": (), "engulfing": (),
     "channel": (("lookback", 5, 8, 60),),
     "rsi": (("period", 1, 7, 21), ("oversold", 5, 20, 35), ("overbought", 5, 65, 80)),
     "fvg": (("min_gap", 0.1, 0.0, 1.0),),
@@ -101,13 +108,21 @@ def validate_params(bounds_dict, family, params):
     bounds = bounds_dict.get(family, ())
     allowed = {key for key, *_ in bounds}
     if bounds_dict is M15_BOUNDS:
-        allowed |= {"trend"} | ({"mode"} if family == "channel" else set()) | ({"session"} if family == "orb" else set())
-        if not isinstance(params.get("trend"), bool):
+        allowed |= ({"trend"} if family not in ("setup_reclaim", "engulfing") else set()) | ({"mode"} if family == "channel" else set()) | ({"session"} if family == "orb" else set())
+        if family not in ("setup_reclaim", "engulfing") and not isinstance(params.get("trend"), bool):
             raise ValueError("M15 params require boolean trend")
         if family == "channel" and params.get("mode") not in ("breakout", "fade"):
             raise ValueError("Invalid channel mode")
         if family == "orb" and params.get("session") not in ("london", "new_york"):
             raise ValueError("Invalid orb session")
+    if bounds_dict is H1_BOUNDS and family == "inside_bar":
+        allowed.add("nr7")
+        if type(params.get("nr7")) is not bool:
+            raise ValueError("Invalid NR7 mode")
+    if bounds_dict is H1_BOUNDS and family == "round_level":
+        allowed.add("step")
+        if params.get("step") not in ROUND_STEPS.values():
+            raise ValueError("Invalid round step")
     if set(params) - allowed:
         raise ValueError(f"Unused params for {family}: {sorted(set(params) - allowed)}")
     for key, step, low, high in bounds:
@@ -134,13 +149,12 @@ def validate_htf2_tree(tree):
             or root.get("op") != "all" or not isinstance(root.get("children"), list)):
         raise ValueError("Invalid HTF v2 root")
     children = root["children"]
-    if len(children) not in (4, 5):
+    if not 4 <= len(children) <= 7:
         raise ValueError("HTF v2 tree requires H4 context, H1 setup, M15 trigger, exit policy, and optional filter")
 
     h4, h1, m15, exit_node = children[:4]
-    if (not isinstance(h4, dict) or set(h4) != {"frame", "feature", "side"}
-            or h4["frame"] != "H4" or h4["feature"] not in H4_FEATURES
-            or h4["side"] not in ("long", "short")):
+    if (not isinstance(h4, dict) or set(h4) != {"frame", "feature"}
+            or h4["frame"] != "H4" or h4["feature"] not in H4_FEATURES):
         raise ValueError("Invalid H4 context node")
 
     if (not isinstance(h1, dict) or set(h1) != {"frame", "family", "params"}
@@ -164,25 +178,39 @@ def validate_htf2_tree(tree):
     elif "params" in exit_node:
         raise ValueError("Unused exit params")
 
-    if len(children) == 5:
-        flt = children[4]
-        if (not isinstance(flt, dict) or set(flt) != {"frame", "name", "buckets"} or flt.get("frame") != "filter"
-                or flt.get("name") != "session" or not isinstance(flt.get("buckets"), list)
-                or not flt["buckets"] or len(set(flt["buckets"])) != len(flt["buckets"])
-                or not all(type(b) is int and 0 <= b <= 3 for b in flt["buckets"])):
-            raise ValueError("Invalid session filter node")
+    seen = set()
+    for flt in children[4:]:
+        if not isinstance(flt, dict) or flt.get("frame") != "filter" or not isinstance(flt.get("name"), str):
+            raise ValueError("Invalid filter")
+        name = flt["name"]
+        if name in seen:
+            raise ValueError("Duplicate filter")
+        seen.add(name)
+        if name == "session":
+            if (set(flt) != {"frame", "name", "buckets"} or not isinstance(flt["buckets"], list)
+                    or not flt["buckets"] or not all(type(bucket) is int and 0 <= bucket <= 3 for bucket in flt["buckets"])
+                    or len(set(flt["buckets"])) != len(flt["buckets"])):
+                raise ValueError("Invalid session filter")
+        elif name in FILTER_DEFAULTS:
+            if set(flt) != {"frame", "name", "params"} or not isinstance(flt["params"], dict) or set(flt["params"]) != set(FILTER_DEFAULTS[name]):
+                raise ValueError("Invalid filter params")
+            if any(type(value) not in (int, float) or value not in FILTER_BOUNDS[name][key] for key, value in flt["params"].items()):
+                raise ValueError("Filter param out of bounds")
+        else:
+            raise ValueError("Unknown filter")
     return len(children)
 
 
 def tree_id(tree):
     validate_htf2_tree(tree)
-    body = json.dumps({"schema": tree["schema"], "children": tree["root"]["children"]}, sort_keys=True)
-    return "hast2_" + hashlib.sha256(body.encode()).hexdigest()[:12]
+    nodes = tree["root"]["children"]
+    body = json.dumps({"schema": tree["schema"], "children": nodes[:4] + sorted(nodes[4:], key=lambda node: node["name"])}, sort_keys=True)
+    return "hast3_" + hashlib.sha256(body.encode()).hexdigest()[:12]
 
 
 def describe(tree):
     c = tree["root"]["children"]
-    side = "mua" if c[0]["side"] == "long" else "bán"
+    side = "Hai chiều · thuận H4"
     h1_name = c[1]["family"]
     m15_name = c[2]["family"]
     exit_policy = c[3]["policy"]
@@ -200,13 +228,17 @@ def describe(tree):
 
 
 SETUP_NAMES = {"channel_breakout": "Phá kênh", "squeeze": "Nén biên độ", "retest": "Retest", "sweep": "Quét thanh khoản",
-               "pullback": "Pullback EMA", "fvg": "FVG", "mss": "Đổi cấu trúc (MSS)"}
+               "pullback": "Pullback EMA", "fvg": "FVG", "mss": "Đổi cấu trúc (MSS)", "order_block": "Order Block",
+               "pdh_pdl_sweep": "Quét đỉnh/đáy ngày trước", "asia_sweep": "Quét hộp Á UTC",
+               "inside_bar": "Inside Bar / NR7", "round_level": "Từ chối mốc tròn"}
 TRIGGER_NAMES = {"channel": "Phá kênh", "rsi": "RSI", "fvg": "FVG", "session": "Phiên", "squeeze": "Nén", "sweep": "Quét",
                  "pullback": "Pullback", "range": "Biên", "retest": "Retest", "router": "Router", "orb": "ORB",
-                 "vsa": "VSA", "mss": "MSS", "vwap": "VWAP"}
+                 "vsa": "VSA (tick volume)", "mss": "MSS", "vwap": "VWAP (tick volume)",
+                 "setup_reclaim": "Lấy lại level", "engulfing": "Nến nhấn chìm"}
 POLICY_NAMES = {"partial_be_h1": "Chốt 1 phần · BE H1", "partial_be_m15": "Chốt 1 phần · BE M15",
                 "fixed_structural": "Cấu trúc thuần", "evidence_h1": "Thoát theo nến H1", "evidence_m15": "Thoát theo nến M15",
-                "barrier_partial_h1": "Chốt tại cản H1", "runner_h1": "Giữ runner H1", "ladder_h1": "Chốt từng nấc"}
+                "barrier_partial_h1": "Chốt tại cản H1", "runner_h1": "Giữ runner H1", "ladder_h1": "Chốt từng nấc",
+                "trail_swing_h1": "Gồng 100% · trailing swing H1"}
 
 def tree_label(tree, generation=0):
     """Tên đọc được cho UI; id chỉ là hậu tố tra cứu. Tham số khác mặc định được nêu để cây con không trùng tên."""
@@ -215,13 +247,16 @@ def tree_label(tree, generation=0):
     changed = [f"{k} {v}" for k, v in c[1].get("params", {}).items() if v != default_h1_params(h1).get(k)]
     changed += [f"{k} {v}" for k, v in c[2].get("params", {}).items() if v != M15_DEFAULTS[m15].get(k)]
     changed += [f"{k} {v}" for k, v in (c[3].get("params") or {}).items() if v != EXIT_DEFAULTS.get(policy, {}).get(k)]
-    title = f"{'Mua' if c[0]['side'] == 'long' else 'Bán'} · H1 {SETUP_NAMES[h1]} → M15 {TRIGGER_NAMES[m15]}"
+    title = f"Hai chiều · thuận H4 · H1 {SETUP_NAMES[h1]} → M15 {TRIGGER_NAMES[m15]}"
     policy_name = POLICY_NAMES.get(policy, policy)
     return {"title": title, "policy": policy_name, "params": ", ".join(changed), "generation": generation,
-            "short": tree_id(tree).removeprefix("hast2_")[:4],
+            "short": tree_id(tree).removeprefix("hast3_")[:4],
             "full": f"{title} · {policy_name}" + (f" · {', '.join(changed)}" if changed else "") + f" · G{generation} #{tree_id(tree)[6:10]}"}
 
 def default_h1_params(family):
+    if family in NEW_H1_DETECTORS:
+        return {"order_block": {"lookback": 20, "impulse_mult": 1.5}, "pdh_pdl_sweep": {},
+                "asia_sweep": {}, "inside_bar": {"nr7": False}, "round_level": {"step": 50}}[family]
     return {"channel_breakout": {"lookback": 20}, "squeeze": {"lookback": 40, "bars": 10, "ratio": 3.0},
             "fvg": {"min_gap": 0.1}, "pullback": {"entry_ema": 20, "fast_ema": 20},
             "retest": {"lookback": 20, "wait_hours": 6},
@@ -229,6 +264,7 @@ def default_h1_params(family):
 
 
 M15_DEFAULTS = {
+    "setup_reclaim": {}, "engulfing": {},
     "channel": {"mode": "breakout", "lookback": 20, "trend": True},
     "rsi": {"period": 14, "oversold": 30, "overbought": 70, "trend": False},
     "fvg": {"min_gap": 0.0, "trend": True},
@@ -248,34 +284,46 @@ M15_DEFAULTS = {
 def default_m15_params(family):
     return copy.deepcopy(M15_DEFAULTS[family])
 
-def g0_trees():
-    """Initial population of 56 trees: 14 trigger families x 2 sides x 2 exit policies."""
+def round_step(symbol):
+    """Stored in the tree; fixed per instrument class, never inferred from digits."""
+    return ROUND_STEPS["XAUUSD"] if symbol == "XAUUSD" else ROUND_STEPS["JPY"] if symbol.endswith("JPY") else ROUND_STEPS["FX"]
+
+def _tree(h1_family, h1_params, m15_family, m15_params, policy, filters=()):
+    tree = {"schema": SCHEMA, "root": {"op": "all", "children": [
+        {"frame": "H4", "feature": "trend_ema50"},
+        {"frame": "H1", "family": h1_family, "params": copy.deepcopy(h1_params)},
+        {"frame": "M15", "family": m15_family, "params": copy.deepcopy(m15_params)},
+        {"frame": "exit", "policy": policy},
+        *copy.deepcopy(list(filters))]}}
+    validate_htf2_tree(tree)
+    return tree
+
+def _filter(name):
+    return {"frame": "filter", "name": name, "params": dict(FILTER_DEFAULTS[name])}
+
+def g0_trees(symbol="XAUUSD"):
+    """56 bidirectional trees: 28 base + 20 new setups + 8 filter trees."""
     trees = []
-    for trigger_family in M15_FAMILIES:
-        h1_family = TRIGGER_TO_H1_SETUP[trigger_family]
-        m15_params = default_m15_params(trigger_family)
-        h1_params = default_h1_params(h1_family)
-
-        for side in ("long", "short"):
-            for exit_policy in ("partial_be_h1", "partial_be_m15"):
-                tree = {
-                    "schema": SCHEMA,
-                    "root": {
-                        "op": "all",
-                        "children": [
-                            {"frame": "H4", "feature": "trend_ema50", "side": side},
-                            {"frame": "H1", "family": h1_family, "params": copy.deepcopy(h1_params)},
-                            {"frame": "M15", "family": trigger_family, "params": copy.deepcopy(m15_params)},
-                            {"frame": "exit", "policy": exit_policy},
-                        ],
-                    },
-                }
-                validate_htf2_tree(tree)
-                trees.append(tree)
-
-    assert len(trees) == 56, f"Expected 56 G0 trees, got {len(trees)}"
+    for trigger in M15_FAMILIES[:14]:
+        for policy in ("partial_be_h1", "partial_be_m15"):
+            trees.append(_tree(TRIGGER_TO_H1_SETUP[trigger], default_h1_params(TRIGGER_TO_H1_SETUP[trigger]),
+                               trigger, default_m15_params(trigger), policy))
+    for setup in NEW_H1_DETECTORS:
+        params = default_h1_params(setup)
+        if setup == "round_level":
+            params = {"step": round_step(symbol)}
+        for trigger in ("setup_reclaim", "engulfing"):
+            for policy in ("partial_be_h1", "trail_swing_h1"):
+                trees.append(_tree(setup, params, trigger, {}, policy))
+    combos = (("adx_regime",), ("price_zone",), ("adr_headroom",), ("spread_guard",), ("smt_divergence",),
+              ("liquid_session",), ("adx_regime", "price_zone"), ("spread_guard", "adr_headroom"))
+    for names in combos:
+        family = "pullback"
+        trigger_params = default_m15_params("pullback")
+        h1 = default_h1_params("pullback")
+        trees.append(_tree(family, h1, "pullback", trigger_params, "runner_h1", [_filter(n) for n in names]))
+    assert len(trees) == 56 and len({tree_id(tree) for tree in trees}) == 56
     return trees
-
 
 # ---------------------------------------------------------------------------
 # Data handling & Evaluation
@@ -309,8 +357,15 @@ def _h4_context(candle, higher, symbol="XAUUSD"):
     return "long" if last > ema_val else "short"
 
 
-def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, commission=0, symbol="XAUUSD"):
-    """Diagnose HTF AST v2 tree on closed bars. Returns (signal, None) or (None, reason)."""
+def detect_setup(node, closed, side, symbol):
+    """Shared by evaluator and chart preview; PDH/PDL needs full-day history, others use 60 H1."""
+    if node["family"] == "pdh_pdl_sweep":
+        return NEW_H1_DETECTORS["pdh_pdl_sweep"](closed, side, symbol=symbol)
+    return {**H1_DETECTORS, **NEW_H1_DETECTORS}[node["family"]](closed[-60:], side, **node["params"])
+
+def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, commission=0, symbol="XAUUSD",
+             market=None):
+    """Diagnose bidirectional V3 tree on closed bars. Returns (signal, None) or (None, reason)."""
     validate_htf2_tree(tree)
     if (candle.time % 900 or not all(math.isfinite(value) and value > 0 for value in
                                    (candle.open, candle.high, candle.low, candle.close))
@@ -318,35 +373,34 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
         return None, "invalid_m15"
 
     c = tree["root"]["children"]
-    h4_node, h1_node, m15_node, exit_node = c[:4]
+    _, h1_node, m15_node, exit_node = c[:4]
 
     # 1. H4 Context
     side = _h4_context(candle, higher, symbol)
     if not side:
         return None, "h4_stale"
-    if side != h4_node["side"]:
-        return None, "h4_trend_opposed"
 
     # 2. H1 Setup
-    closed_h1 = _closed_rows(candle, hours, 3600, 50, symbol)[-60:]
+    closed_all = _closed_rows(candle, hours, 3600, 50, symbol)
+    closed_h1 = closed_all[-60:]
     if not closed_h1:
         return None, "h1_not_closed"
-    h1_func = H1_DETECTORS.get(h1_node["family"])
-    if not h1_func:
-        return None, "unknown_h1_detector"
-    setup = h1_func(closed_h1, side, **h1_node["params"])
+    setup = detect_setup(h1_node, closed_all, side, symbol)
     if not setup:
         return None, "no_h1_setup"
 
     # Setup expiration check (4 hours = 14400s max age)
     if candle.time - setup["setup_time"] > 14400:
         return None, "h1_setup_expired"
+    if candle.time < setup["confirmed_h1"] + 3600:
+        return None, "h1_not_closed"
 
     direction = Decimal(1) if side == "long" else Decimal(-1)
     entry = Decimal(str(candle.close))
     atr = Decimal(str(setup["atr"]))
     invalidation = Decimal(str(setup["invalidation"]))
-    stop = (invalidation - direction * Decimal("0.25") * atr).quantize(Decimal("0.001"))
+    tick = Decimal("0.001") if symbol == "XAUUSD" or symbol.endswith("JPY") else Decimal("0.00001")
+    stop = (invalidation - direction * Decimal("0.25") * atr).quantize(tick)
     risk = direction * (entry - stop)
     if risk <= 0:
         return None, "no_h1_invalidation"
@@ -369,29 +423,31 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     if not triggered:
         return None, "no_m15_trigger"
 
-    # 4. Optional Filter (session bucket)
-    if len(c) == 5:
-        flt = c[4]
-        if flt["name"] == "session":
-            bucket = datetime.fromtimestamp(candle.time + 900, timezone.utc).hour // 6
-            if bucket not in flt["buckets"]:
-                return None, "session_filtered"
+    # 4. Filters: fail closed on missing data.
+    market = {"minutes": [*history, candle], "asks": {} if ask is None else {ask.time: ask}, **(market or {})}
+    closed_higher = [row for row in higher if row.time + 14400 <= candle.time + 900]
+    filters = []
+    for flt in c[4:]:
+        reason, audit = filter_result(flt, candle, closed_all, closed_higher, side, symbol, market)
+        filters.append(audit)
+        if reason:
+            return None, reason
 
     # 5. Structural TP & R/R
     try:
         ctx = target_context(candle, hours, higher)
         runner = barrier_runner(side, entry, stop, ctx) if exit_node["policy"] == "barrier_partial_h1" else None
         if runner:
-            target, label = Decimal(str(runner[0])).quantize(Decimal("0.001")), runner[1]
+            target, label = Decimal(str(runner[0])).quantize(tick), runner[1]
         else:
-            target, label = structural_target(side, entry, stop, ctx, Decimal("0.001"))
+            target, label = structural_target(side, entry, stop, ctx, tick)
     except ExnessError as exc:
         text = str(exc)
         return None, "poor_rr" if "poor_rr" in text else "no_target" if "Need" not in text else "h1_not_closed"
     if label == "fixed_2r":
         return None, "no_target"
 
-    target_r = float((target - entry) / risk)
+    target_r = float(direction * (target - entry) / risk)
     policy = exit_node["policy"]
     management_frame, split = EXIT_TRAITS[policy]
 
@@ -412,16 +468,20 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
         "generated": True,
         "shadow_only": True,
         "htf_ast_v2": True,
+        "htf_ast_v3": True,
+        "filters": filters,
         "htf_structure": {
             "atr": setup["atr"],
             "level": setup["level"],
             "invalidation": setup["invalidation"],
+            "audit": {key: value for key, value in setup.items()
+                      if key not in ("atr", "level", "invalidation", "setup_time", "confirmed_h1")},
             "target_reason": label,
             "setup_time": setup["setup_time"],
             "confirmed_h1": setup["confirmed_h1"],
             "confirmed_h4": max(row.time for row in higher if row.time + 14400 <= candle.time + 900),
         },
-        "reason": f"HTF AST v2 shadow {describe(tree)} (SL: H1, TP: {label})",
+        "reason": f"HTF AST v3 {describe(tree)} (SL: H1, TP: {label})",
     }
 
     # Verify executable price and spread
@@ -434,7 +494,7 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     executable = (ask.close if ask is not None and side == "long" else candle.close)
     executable = Decimal(str(executable)) * (1 + direction * slip)
     try:
-        htf_exit_target(signal, executable, stop, Decimal("0.001"), slip, commission)
+        htf_exit_target(signal, executable, stop, tick, slip, commission)
     except ExnessError as exc:
         return None, str(exc)
 
@@ -456,20 +516,29 @@ def crossover(parent_a, parent_b, rng=None):
     validate_htf2_tree(parent_a)
     validate_htf2_tree(parent_b)
     child = copy.deepcopy(parent_a)
-    index = rng.randrange(4)
-    child["root"]["children"][index] = copy.deepcopy(parent_b["root"]["children"][index])
-    validate_htf2_tree(child)
+    nodes = child["root"]["children"]
+    index = rng.randrange(1, 5)
+    if index == 4:  # filters travel together; same role only
+        nodes[4:] = copy.deepcopy(parent_b["root"]["children"][4:])
+    else:
+        nodes[index] = copy.deepcopy(parent_b["root"]["children"][index])
+    try:
+        validate_htf2_tree(child)
+    except ValueError:
+        return copy.deepcopy(parent_a)
     return child
 
+def _random_filter(rng, taken):
+    names = [name for name in (*FILTER_DEFAULTS, "session") if name not in taken]
+    name = rng.choice(names)
+    return {"frame": "filter", "name": name, "buckets": [rng.randrange(4)]} if name == "session" else _filter(name)
 
-def mutate(tree, rng=None):
+def mutate(tree, rng=None, symbol="XAUUSD"):
     rng = random if rng is None else rng
     child = copy.deepcopy(tree)
     nodes = child["root"]["children"]
-    index = rng.randrange(5)
-    if index == 0:
-        nodes[0]["side"] = "short" if nodes[0]["side"] == "long" else "long"
-    elif index == 3:
+    index = rng.randrange(1, 5)  # H4 node has nothing to mutate; direction is never stored
+    if index == 3:
         node = nodes[3]
         if node["policy"] in EXIT_DEFAULTS and rng.random() < 0.5:
             params = parameters(node["policy"], node.get("params"))
@@ -484,18 +553,28 @@ def mutate(tree, rng=None):
             if node["policy"] in EXIT_DEFAULTS:
                 node["params"] = parameters(node["policy"])
     elif index == 4:
-        if len(nodes) == 5:
-            nodes.pop()
-        else:
-            nodes.append({"frame": "filter", "name": "session", "buckets": [rng.randrange(4)]})
+        filters = nodes[4:]
+        action = rng.choice(("add", "remove", "tune"))
+        tunable = [node for node in filters if node["name"] in FILTER_DEFAULTS and FILTER_BOUNDS[node["name"]]]
+        if action == "tune" and tunable:
+            node = rng.choice(tunable)
+            key = rng.choice(list(node["params"]))
+            node["params"][key] = rng.choice([v for v in FILTER_BOUNDS[node["name"]][key] if v != node["params"][key]])
+        elif action == "remove" and filters:
+            nodes.remove(rng.choice(filters))
+        elif len(filters) < 3:
+            nodes.append(_random_filter(rng, {node["name"] for node in filters}))
     else:
         node = nodes[index]
         registry = H1_BOUNDS if index == 1 else M15_BOUNDS
-        if rng.random() < 0.5:
+        bounds = registry[node["family"]]
+        if rng.random() < 0.5 or not bounds:
             node["family"] = rng.choice([family for family in registry if family != node["family"]])
             node["params"] = (default_h1_params if index == 1 else default_m15_params)(node["family"])
+            if node["family"] == "round_level":
+                node["params"] = {"step": round_step(symbol)}
         else:
-            key, step, low, high = rng.choice(registry[node["family"]])
+            key, step, low, high = rng.choice(bounds)
             candidates = [round(node["params"][key] + delta, 6) for delta in (-step, step)]
             candidates = [value for value in candidates if low <= value <= high]
             if candidates:
@@ -506,10 +585,9 @@ def mutate(tree, rng=None):
         return copy.deepcopy(tree)
     return child
 
-
 def logic_version():
     names = ("forex_htf_v2.py", "forex_detectors.py", "forex_buffer_study.py",
-             "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py", "forex_exits.py")
+             "forex_features.py", "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py", "forex_exits.py")
     return hashlib.sha256(b"".join(Path(__file__).with_name(name).read_bytes() for name in names)).hexdigest()[:16]
 
 
@@ -576,7 +654,7 @@ def evolve_population(ledger, now, random_seed=None, version=None):
             break
         selected = rng.sample(parents, 2) if len(parents) > 1 else [parents[0]]
         base = crossover(*selected, rng) if len(selected) == 2 else selected[0]
-        child = mutate(base, rng)
+        child = mutate(base, rng, ledger.get("symbol", "XAUUSD"))
         identifier = tree_id(child)
         if identifier in known:
             continue
@@ -618,7 +696,18 @@ def ledger_path(account, symbol="XAUUSD"):
     return legacy.with_name(legacy.stem + "-" + symbol + ".json")
 
 
-def htf_ast2_tick(now=None, symbol="XAUUSD"):
+def reference_market(session, now, symbol):
+    """SMT reference H1 loaded once per tick; never one broker call per tree."""
+    from .exness_observation import load_frames
+    from .forex_features import SMT_REFERENCES
+    from .forex_symbols import configured_symbols
+    reference = SMT_REFERENCES.get(symbol)
+    if reference is None or reference not in configured_symbols():
+        return {}
+    rows = load_frames(session, now, reference)["1h"]
+    return {"reference_hours": sorted((row for row in rows if row.price_type == "bid"), key=lambda row: row.time)}
+
+def htf_ast3_tick(now=None, symbol="XAUUSD"):
     from .db import ForexInstrumentState, Session, WorkspaceFeedState
     from .exness_feed import FRAMES, WORKSPACE
     from .exness_observation import audit_frames, load_frames
@@ -656,6 +745,7 @@ def htf_ast2_tick(now=None, symbol="XAUUSD"):
 
         with Session() as session:
             frames = load_frames(session, now, symbol)
+            market = reference_market(session, now, symbol)
             feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
             feed_ready = all(state and not state.error and state.checked_until is not None
                              and state.checked_until >= now // FRAMES[frame][1] * FRAMES[frame][1]
@@ -711,7 +801,8 @@ def htf_ast2_tick(now=None, symbol="XAUUSD"):
             for tree in ledger["population"]:
                 signal, reason = diagnose(tree, candle, bids["1h"], history, higher=bids["4h"],
                                           ask=asks[stamp], slippage_bps=costs["slippage_bps"],
-                                          commission=costs["commission_per_unit"] or 0, symbol=symbol)
+                                          commission=costs["commission_per_unit"] or 0, symbol=symbol,
+                                          market={**market, "asks": asks})
                 if signal is None:
                     rejected[reason] += 1
                     rejected_total[reason] = rejected_total.get(reason, 0) + 1
@@ -746,8 +837,8 @@ def htf_ast2_tick(now=None, symbol="XAUUSD"):
         return capture["status"]
 
 
-def _htf_ast2_summary(account, symbol="XAUUSD"):
-    trees = g0_trees()
+def _htf_ast3_summary(account, symbol="XAUUSD"):
+    trees = g0_trees(symbol)
     base = {
         "status": "shadow_only", "generation": 0, "tree_count": len(trees), "since": None,
         "last_capture": None, "last_evolution": None, "pending": 0, "resolved": 0, "excluded": 0,
@@ -759,7 +850,7 @@ def _htf_ast2_summary(account, symbol="XAUUSD"):
         "samples": [], "population": trees, "generation": 0
     }
     if ledger.get("runtime") not in (None, RUNTIME):
-        raise ValueError("Unsupported V2 runtime")
+        raise ValueError("Unsupported V3 runtime")
     members, now = ledger.get("members", {}), int(time.time())
     version = logic_version()
     pop = ledger.get("population", trees)
@@ -788,6 +879,10 @@ def _htf_ast2_summary(account, symbol="XAUUSD"):
             "resolved": len(values),
             "excluded": sum(s["status"] in ("excluded", "invalid", "skipped") for s in samples),
             "mean_r": mean(values) if values else None,
+            "sides": {side: {"resolved": len(side_values), "mean_r": mean(side_values) if side_values else None}
+                      for side in ("long", "short")
+                      for side_values in [[s["net_r_ex_swap"] for s in samples
+                                           if s["status"] == "resolved" and s["side"] == side]]},
             "lower_r": mean(values) - 1.96 * stdev(values) / len(values) ** 0.5 if len(values) > 1 else None
         })
 
@@ -842,9 +937,9 @@ def _htf_ast2_summary(account, symbol="XAUUSD"):
     }
 
 
-def htf_ast2_summary(account, symbol="XAUUSD"):
+def htf_ast3_summary(account, symbol="XAUUSD"):
     try:
-        return _htf_ast2_summary(account, symbol)
+        return _htf_ast3_summary(account, symbol)
     except Exception:
         logging.exception("HTF AST v2 shadow summary unavailable")
         return {
@@ -854,9 +949,9 @@ def htf_ast2_summary(account, symbol="XAUUSD"):
         }
 
 
-def safe_htf_ast2_tick(now=None, symbol="XAUUSD"):
+def safe_htf_ast3_tick(now=None, symbol="XAUUSD"):
     try:
-        status = htf_ast2_tick(now, symbol)
+        status = htf_ast3_tick(now, symbol)
         account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
         if account and status not in ("busy", "waiting_next_candle"):
             ledger_path(account, symbol).with_suffix(".error.json").unlink(missing_ok=True)
@@ -884,13 +979,13 @@ def read_ledger(account, symbol="XAUUSD"):
     ledger = json.loads(path.read_text())
     if (ledger.get("runtime") != RUNTIME or ledger.get("schema") != SCHEMA or ledger.get("account") != account
             or ledger.get("symbol") != symbol):
-        raise ValueError("V2 migration pending or ledger identity invalid")
+        raise ValueError("V3 migration pending or ledger identity invalid")
     population = ledger.get("population")
     if not isinstance(population, list) or len(population) != 56:
-        raise ValueError("Invalid V2 population")
+        raise ValueError("Invalid V3 population")
     identifiers = [tree_id(tree) for tree in population]
     if len(set(identifiers)) != 56:
-        raise ValueError("Duplicate V2 population")
+        raise ValueError("Duplicate V3 population")
     for tree in population:
         validate_htf2_tree(tree)
     return ledger
@@ -951,7 +1046,7 @@ def validate_execution_signal(signal, account, now=None):
     now = int(time.time()) if now is None else now
     if not execution_enabled() or os.getenv("EXNESS_DEMO_EXECUTION_ENABLED", "false").lower() != "true":
         raise ExnessError("v2_execution_disabled")
-    if signal.get("shadow_only") is not False or not str(signal.get("strategy", "")).startswith("hast2_"):
+    if signal.get("shadow_only") is not False or not str(signal.get("strategy", "")).startswith("hast3_"):
         raise ExnessError("shadow_only_signal")
     try:
         candidates = execution_candidates(account, now, signal.get("symbol", "XAUUSD"))

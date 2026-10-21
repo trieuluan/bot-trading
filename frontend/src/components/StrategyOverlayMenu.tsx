@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Layers, Search, X, Sparkles } from 'lucide-react';
-import { treeLabel } from '../lib/forex-tree-label';
+import { compactTreeTitle, treeLabel } from '../lib/forex-tree-label';
 import type { ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 
 export const CONTEXT_STRATEGY_KEY = '__context__';
 
 type Tree2 = NonNullable<
-  NonNullable<ExnessExecution['learning']>['htf_ast2_shadow']
+  NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']
 >['trees'][number];
 
 interface StrategyOverlayMenuProps {
@@ -117,7 +117,7 @@ export function StrategyOverlayMenu({
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="Chọn cây V2 để vẽ vùng setup H1, mức vô hiệu và SL lên chart (cây đang giữ lệnh tự vẽ)"
+        title="Chọn cây V3 để vẽ vùng setup H1, mức vô hiệu và SL lên chart (cây đang giữ lệnh tự vẽ)"
       >
         <Layers size={13} className="menu-icon" />
         <span>Chiến thuật</span>
@@ -138,7 +138,7 @@ export function StrategyOverlayMenu({
         <div
           className="strategy-popover-dropdown"
           role="dialog"
-          aria-label="Lựa chọn cây V2 hiển thị trên chart"
+          aria-label="Lựa chọn cây V3 hiển thị trên chart"
         >
           <div className="strategy-popover-header">
             <div className="popover-title-row">
@@ -266,10 +266,12 @@ export function StrategyOverlayMenu({
     const isHolding = holding.includes(name);
     const isConfirmed = item?.status === 'confirmed';
     const zone = item?.captured_zone ?? item?.zone;
+    const tooltip = [label.full, item?.description, name].filter(Boolean).join('\n');
     return (
       <label
         key={name}
         className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''}`}
+        title={tooltip}
       >
         <input
           type="checkbox"
@@ -279,16 +281,14 @@ export function StrategyOverlayMenu({
         />
         <div className="strategy-item-meta">
           <div className="strategy-item-title-line">
-            <span className="strategy-item-name" title={`${label.full}\n${name}`}>
-              {label.title}
-            </span>
+            <span className="strategy-item-name">{compactTreeTitle(label.title)}</span>
             {isHolding && <span className="status-pill-sub status-holding">ĐANG GIỮ LỆNH</span>}
             {isConfirmed && <span className="status-pill-sub status-confirmed">TÍN HIỆU M15</span>}
             {zone && !isHolding && !isConfirmed && (
               <span className="strategy-chart-indicator">Vùng H1 {zone.side.toUpperCase()}</span>
             )}
           </div>
-          <div className="strategy-item-reason" title={item?.reason ?? undefined}>
+          <div className="strategy-item-reason">
             {label.policy} · G{label.generation} · #{label.short}
             {label.params && <span className="strategy-label-params">{label.params}</span>}
           </div>

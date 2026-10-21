@@ -10,19 +10,20 @@ from .db import Session
 from .exness import ExnessError
 from .exness_observation import load_frames
 from .exness_targets import target_context
-from .forex_detectors import H1_DETECTORS
 from .forex_htf_v2 import (
     PROVENANCE,
     SCHEMA,
     _closed_rows,
     _h4_context,
     describe,
+    detect_setup,
     diagnose,
     execution_candidates,
     execution_enabled,
-    htf_ast2_summary,
+    htf_ast3_summary,
     qualified_trees,
     read_ledger,
+    reference_market,
     tree_id,
     tree_label,
 )
@@ -36,10 +37,10 @@ def h1_setup_zone(tree, candle, hours, higher, symbol="XAUUSD"):
     """Read-only setup preview using the evaluator's closed-bar guards and detectors."""
     children = tree["root"]["children"]
     side = _h4_context(candle, higher, symbol)
-    if side is None or side != children[0]["side"]:
+    if side is None:
         return None
-    closed = _closed_rows(candle, hours, 3600, 50, symbol)[-60:]
-    setup = H1_DETECTORS[children[1]["family"]](closed, side, **children[1]["params"]) if closed else None
+    closed = _closed_rows(candle, hours, 3600, 50, symbol)
+    setup = detect_setup(children[1], closed, side, symbol) if closed else None
     if not setup or candle.time - setup["setup_time"] > 14400:
         return None
     direction = Decimal(1) if side == "long" else Decimal(-1)
@@ -107,8 +108,8 @@ def symbols_endpoint():
 def summary(symbol: str = "XAUUSD"):
     request_symbol(symbol)
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
-    return {"symbol": symbol, "engine": SCHEMA, "mode": "v2_shadow", "execution_v2": execution_status(account, int(time.time()), symbol),
-            "htf_ast2_shadow": htf_ast2_summary(account, symbol)}
+    return {"symbol": symbol, "engine": SCHEMA, "mode": "v3_shadow", "execution_v2": execution_status(account, int(time.time()), symbol),
+            "htf_ast3_shadow": htf_ast3_summary(account, symbol)}
 
 
 def current_analysis(now=None, symbol="XAUUSD"):
@@ -116,6 +117,7 @@ def current_analysis(now=None, symbol="XAUUSD"):
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     with Session() as session:
         frames = load_frames(session, now, symbol)
+        market = reference_market(session, now, symbol)
     durations = {"15m": 900, "1h": 3600, "4h": 14400}
     frames = {frame: [row for row in rows if row.time + durations[frame] <= now] for frame, rows in frames.items()}
     bids = {frame: sorted((row for row in rows if row.price_type == "bid"), key=lambda row: row.time)
@@ -130,7 +132,7 @@ def current_analysis(now=None, symbol="XAUUSD"):
     try:
         ledger = read_ledger(account, symbol)
     except (OSError, ValueError, KeyError, TypeError):
-        return {"status": "unavailable", "reason": "Chờ worker chuyển sang G0 V2 mới"}
+        return {"status": "unavailable", "reason": "Chờ worker chuyển sang G0 V3 mới"}
     as_of = candle.time + 900
     captured = {}
     for sample in ledger.get("samples", []):
@@ -140,7 +142,8 @@ def current_analysis(now=None, symbol="XAUUSD"):
             captured[sample["strategy"]] = sample
     strategies = {}
     for tree in ledger["population"]:
-        signal, reason = diagnose(tree, candle, hours, minutes, higher, ask, symbol=symbol)
+        signal, reason = diagnose(tree, candle, hours, minutes, higher, ask, symbol=symbol,
+                                  market={**market, "asks": {row.time: row for row in frames["15m"] if row.price_type == "ask"}})
         try:
             zone = h1_setup_zone(tree, candle, hours, higher, symbol)
         except (KeyError, TypeError, ValueError):

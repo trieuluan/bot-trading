@@ -35,9 +35,9 @@ def variant_settings(name):
 
 
 def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=None):
-    verified = signal.get("shadow_only") is False and signal.get("execution_source") == "live_forward_htf_ast2_shadow"
+    verified = signal.get("shadow_only") is False and signal.get("execution_source") == "live_forward_htf_ast3_shadow"
     if ((not signal.get("shadow_only") and not verified) or not isinstance(signal.get("strategy"), str)
-            or not signal["strategy"].startswith(("hast_", "hast2_"))
+            or not signal["strategy"].startswith(("hast_", "hast2_", "hast3_"))
             or signal.get("side") not in ("long", "short")):
         raise ExnessError("invalid_htf_shadow_signal")
     try:
@@ -106,7 +106,7 @@ def coarse(key):
 def new_variants(signal, minutes, hours, higher, features, candle, condition):
     if signal.get("htf_ast_v2"):
         policy = signal.get("exit_policy")
-        if (not signal.get("shadow_only") or not signal["strategy"].startswith("hast2_")
+        if (not signal.get("shadow_only") or not signal["strategy"].startswith("hast3_")
                 or policy not in EXIT_TRAITS):
             raise ExnessError("invalid_htf_shadow_signal")
         return [{"status": "pending", "variant": DEFAULT_VARIANT,

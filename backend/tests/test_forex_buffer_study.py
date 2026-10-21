@@ -157,7 +157,7 @@ def test_new_samples_share_learning_context_but_keep_session_slots():
     assert first["slot"] != second["slot"]
 
 def _htf_signal(policy, target=2630.0):
-    return {"strategy": "hast2_x", "shadow_only": True, "htf_ast_v2": True, "exit_policy": policy,
+    return {"strategy": "hast3_x", "shadow_only": True, "htf_ast_v2": True, "exit_policy": policy,
             "management_frame": "M15", "side": "long", "stop": 2590.0, "target": target,
             "split": policy == "ladder_h1", "generated": True,
             "target_context": {"barriers": [], "buffer": 0.1},

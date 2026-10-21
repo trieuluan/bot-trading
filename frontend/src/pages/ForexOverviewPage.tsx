@@ -22,7 +22,7 @@ export function ForexOverviewPage({
   const verified = !error && !disconnected;
   const data = verified ? execution : null;
   const status = botStatus(data, !verified || !execution);
-  const ast = data?.learning?.htf_ast2_shadow;
+  const ast = data?.learning?.htf_ast3_shadow;
   const v2 = data?.learning?.execution_v2;
   const treeCount = ast?.tree_count ?? 56;
   const balance = data?.account_state?.balance;
@@ -116,7 +116,7 @@ export function ForexOverviewPage({
 
       <div className="forex-overview-grid">
         <section className="forex-overview-panel">
-          <span className="execution-eyebrow">Quần thể HTF AST V2 · {symbol}</span>
+          <span className="execution-eyebrow">Quần thể HTF AST V3 · {symbol}</span>
           <h2>
             Thế hệ G{ast?.generation ?? '—'} · {treeCount} cây
           </h2>

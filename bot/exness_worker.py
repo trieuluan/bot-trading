@@ -18,7 +18,7 @@ from backend.app.exness_feed import (
 )
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_costs import sync_specs
-from backend.app.forex_htf_v2 import safe_htf_ast2_tick
+from backend.app.forex_htf_v2 import safe_htf_ast3_tick
 from backend.app.forex_symbols import configured_symbols
 from backend.app.settings import validate_mode
 
@@ -66,7 +66,7 @@ def main():
                                     break
                                 sync_page(api, frame, symbol=symbol, live_first=True)
                             observation_tick(symbol=symbol)
-                            safe_htf_ast2_tick(symbol=symbol)
+                            safe_htf_ast3_tick(symbol=symbol)
                         except ExnessError as exc:
                             logging.warning("Exness sync paused for %s: %s", symbol, exc)
                             if exc.rate_limited or exc.account_blocked:

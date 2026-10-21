@@ -11,6 +11,7 @@ DEFAULTS = {
     "evidence_m15": {"fraction": 0.3, "min_r": 1.0, "trail_r": 1.5},
     "barrier_partial_h1": {"fraction": 0.3, "min_r": 1.0, "trail_r": 1.5},
     "runner_h1": {"trail_r": 1.5, "atr_multiple": 2.0},
+    "trail_swing_h1": {"trail_r": 1.5},
     "ladder_h1": {"fraction": 0.3, "step_r": 1.0, "trail_r": 1.5},
 }
 BOUNDS = {
@@ -73,7 +74,7 @@ def plan_legs(signal, body, condition, entry):
     params = parameters(policy, signal.get("exit_params"))
     runner = {**body, "role": "runner"}
     signal["partial_skip_reason"] = None
-    if policy == "runner_h1":
+    if policy in ("runner_h1", "trail_swing_h1"):
         return [runner]
     direction = 1 if signal["side"] == "long" else -1
     risk = direction * (float(entry) - float(body["stop_loss_price"]))
@@ -134,7 +135,13 @@ def action(signal, rows, entry, risk, entry_time, stop, condition, mark, slip=0,
         roles = [f"partial{index + 1}" for index in range(2) if progress >= (index + 1) * params["step_r"]]
     new_stop = entry if progress >= 1 else None
     if progress >= params["trail_r"]:
-        if policy == "runner_h1":
+        if policy == "trail_swing_h1":
+            pivots = [row for index, row in enumerate(rows[2:-2], 2)
+                      if (all(row.low < other.low for other in rows[index - 2:index] + rows[index + 1:index + 3])
+                          if direction == 1 else
+                          all(row.high > other.high for other in rows[index - 2:index] + rows[index + 1:index + 3]))]
+            candidate = (pivots[-1].low if direction == 1 else pivots[-1].high) - direction * 0.1 * atr if pivots else entry
+        elif policy == "runner_h1":
             recent = [row for row in rows if row.time >= entry_time]
             anchor = max(row.high for row in recent) if direction == 1 else min(row.low for row in recent)
             candidate = anchor - direction * params["atr_multiple"] * atr

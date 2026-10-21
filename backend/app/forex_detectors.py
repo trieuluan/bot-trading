@@ -277,7 +277,7 @@ def family_context(family, params, candle, hours, higher=()):
     fast = ema([row.close for row in closed], 20)
     slow = ema([row.close for row in closed], 50)
     bias = "long" if fast > slow else "short" if fast < slow else None
-    context = {"frame": "H1", "trend_side": bias, "trend_required": params["trend"]}
+    context = {"frame": "H1", "trend_side": bias, "trend_required": params.get("trend", False)}
     if family == "pullback":
         fast = ema([row.close for row in closed], params["fast_ema"])
         context["pullback_side"] = ("long" if fast > slow and closed[-1].close > fast else
@@ -408,6 +408,19 @@ def extra_setup(genome, candle, history):
 
 def trigger(candle, history, side, setup, params, context=None, *, family):
     """Legacy recognition only; H1 dependencies supplied explicitly by context."""
+    if family in ("setup_reclaim", "engulfing"):
+        previous = next((row for row in reversed(history) if row.time == candle.time - 900), None)
+        if previous is None or candle.time < setup["confirmed_h1"] + 3600:
+            return False
+        direction = 1 if side == "long" else -1
+        level = setup["level"]
+        if family == "setup_reclaim":
+            return direction * (previous.close - level) <= 0 < direction * (candle.close - level)
+        return (direction * (candle.close - candle.open) > 0
+                and direction * (previous.close - previous.open) < 0
+                and min(candle.open, candle.close) <= min(previous.open, previous.close)
+                and max(candle.open, candle.close) >= max(previous.open, previous.close)
+                and direction * (candle.close - level) > 0)
     needed = max(20, params.get("lookback", 20) + (params.get("wait_bars", 0) if family == "mss" else 0))
     history = [row for row in history if row.time < candle.time][-96:]
     if (len(history) < needed or history[-1].time != candle.time - 900 or
@@ -504,4 +517,4 @@ def trigger(candle, history, side, setup, params, context=None, *, family):
 
 M15_TRIGGERS = {family: partial(trigger, family=family) for family in (
     "channel", "rsi", "fvg", "session", "squeeze", "sweep", "pullback", "range",
-    "retest", "router", "orb", "vsa", "mss", "vwap")}
+    "retest", "router", "orb", "vsa", "mss", "vwap", "setup_reclaim", "engulfing")}

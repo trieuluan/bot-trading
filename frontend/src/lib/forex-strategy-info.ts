@@ -9,6 +9,16 @@ export const forexSetupGuides: Record<string, string> = {
   retest:
     'Sau khi H1 phá kênh, giá kiểm định lại mốc breakout trong cửa sổ chờ của cây; đóng giữ mốc và chưa phá mức vô hiệu.',
   mss: 'H1 quét cực trị rồi phá cấu trúc đối diện; giá hồi về tỷ lệ retracement của cây và đóng giữ vùng, chưa phá cực trị quét.',
+  order_block:
+    'Nến ngược chiều trước xung lực mạnh phá đỉnh/đáy H1; nến H1 hiện tại retest vùng thân OB rồi đóng xác nhận. Vô hiệu tại râu OB.',
+  pdh_pdl_sweep:
+    'H1 quét đỉnh (PDH) hoặc đáy (PDL) của ngày UTC đóng hoàn chỉnh trước đó rồi đóng trở lại trong biên ngày.',
+  asia_sweep:
+    'Hộp phiên Á UTC (00:00–06:00 UTC); nến H1 mở từ 07:00 đến trước 10:00 UTC quét biên hộp rồi đóng trở lại.',
+  inside_bar:
+    'Nến H1 nằm hoàn toàn trong biên nến trước (hoặc biến thể NR7 biên nhỏ nhất 7 nến); xác nhận phá biên theo hướng H4.',
+  round_level:
+    'Nến H1 xuyên qua mốc giá tròn (50 giá vàng, 0.5 JPY, 50 pip Forex) rồi đóng từ chối quay trở lại theo xu hướng H4.',
 };
 
 export const forexTriggerGuides: Record<string, string> = {
@@ -33,6 +43,10 @@ export const forexTriggerGuides: Record<string, string> = {
     'Vùng range H1 đạt điều kiện độ rộng và hiệu quả giá; M15 chạm vùng biên rồi đóng ngược vào trong với thân cùng hướng.',
   router:
     'Độ tách EMA H1 quyết định nhánh: pullback EMA M15 khi có trend, hoặc từ chối biên range H1 khi đi ngang.',
+  setup_reclaim:
+    'M15 cắt xuyên mức level của setup H1 từ phía đối diện rồi đóng vượt mốc theo hướng lệnh; chỉ nhận sau khi H1 đã đóng.',
+  engulfing:
+    'Nến M15 cùng hướng, phủ thân nến ngược chiều trước đó và đóng vượt mức level của setup H1.',
 };
 
 const partialGuide = (frame: string) =>
@@ -50,5 +64,7 @@ export const forexExitGuides: Record<string, string> = {
     'Chốt 30% tại cản H1 gần nhất (tối thiểu +1R, trước TP runner); phần còn lại tới cản H4 xa hơn. Không có cản hợp lệ thì chỉ giữ runner.',
   runner_h1:
     'Giữ 100% tới cản, không chốt một phần. Từ +1.5R trailing 2 ATR H1 tính từ đỉnh/đáy sau khi vào lệnh.',
+  trail_swing_h1:
+    'Giữ 100% vị thế (single runner, không partial). BE tại +1R; từ +1.5R trailing theo swing pivot H1 (2 nến trái, 2 nến phải đã đóng) kèm đệm 0.1 ATR H1, chỉ siết không nới.',
   ladder_h1: 'Chốt 30% tại +1R và 30% tại +2R, 40% còn lại gồng tới cản. BE và trailing theo H1.',
 };
