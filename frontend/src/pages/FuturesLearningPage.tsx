@@ -654,18 +654,23 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   </dl>
                   <details className="evo-more">
                     <summary>Cách đánh</summary>
-                    <p>
-                      <b>Vào lệnh:</b> {row.rule_text ?? info.entry}
-                    </p>
-                    <p>
-                      <b>Thoát:</b> {riskText(row.genome, info.stop)}
-                    </p>
-                    <p>
-                      <b>Nguồn:</b>{' '}
-                      {row.generation === 0
-                        ? 'Chiến thuật gốc, tham số mặc định.'
-                        : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
-                    </p>
+                    {/* Capped and scrolled so one open card doesn't stretch its whole grid row. */}
+                    <div className="evo-more-body" tabIndex={0}>
+                      {!row.rule_text && (
+                        <p>
+                          <b>Vào lệnh:</b> {info.entry}
+                        </p>
+                      )}
+                      <p>
+                        <b>Thoát:</b> {riskText(row.genome, info.stop)}
+                      </p>
+                      <p>
+                        <b>Nguồn:</b>{' '}
+                        {row.generation === 0
+                          ? 'Chiến thuật gốc, tham số mặc định.'
+                          : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
+                      </p>
+                    </div>
                   </details>
                   {row.promoted ? (
                     <button

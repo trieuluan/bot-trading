@@ -5337,6 +5337,17 @@ main:has(.futures-desk) {
   margin: 6px 0 0;
   line-height: 1.45;
 }
+.evo-more-body {
+  max-height: 140px;
+  margin-top: 6px;
+  padding: 0 8px 6px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid #e2e7dd;
+}
+.evo-more-body > p:first-child {
+  margin-top: 0;
+}
 
 .leverage-box {
   border: 1px solid var(--border);
