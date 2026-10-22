@@ -796,9 +796,9 @@ def htf_ast3_tick(now=None, symbol="XAUUSD"):
         elif valid and feed_ready and bids["15m"] and bids["15m"][-1].time == stamp and stamp in asks:
             candle, history = bids["15m"][-1], [row for row in bids["15m"] if row.time < stamp][-96:]
             slippage = slippage_estimate(symbol)
-            costs = {"slippage_bps": slippage["bps"], "commission_per_unit": commission,
-                     "conversion": (condition or {}).get("conversion"),
-                     "verified": bool(slippage["measured"] and commission is not None)}
+            costs = {"slippage_bps": slippage["bps"], "slippage_source": slippage["source"],
+                     "commission_per_unit": commission, "conversion": (condition or {}).get("conversion"),
+                     "verified": commission is not None}
             hits, rejected = 0, defaultdict(int)
             rejected_total = ledger.setdefault("rejections", {})
 

@@ -10,6 +10,8 @@ from .forex_buffer_study import advance_variant, new_variants
 from .forex_indicators import ema
 
 REPORT = Path(__file__).resolve().parents[2] / "research-output/exness-learning.json"
+# ponytail: unmeasured pairs assume 1 bps/side (XAU measured ~0); replace once a pair has >=2 demo fills.
+ASSUMED_SLIPPAGE_BPS = 1.0
 
 
 def context(candle, hours, ask):
@@ -30,8 +32,9 @@ def context(candle, hours, ask):
 
 def slippage_estimate(symbol="XAUUSD"):
     path = REPORT.with_name("exness-slippage-report.json" if symbol == "XAUUSD" else f"exness-slippage-report-{symbol}.json")
+    assumed = {"bps": ASSUMED_SLIPPAGE_BPS, "measured": False, "fills": 0, "source": "assumed"}
     if not path.exists():
-        return {"bps": 0.0, "measured": False, "fills": 0}
+        return assumed
     try:
         audit = json.loads(path.read_text())
         value = audit.get("per_side_mean_bps")
@@ -42,15 +45,16 @@ def slippage_estimate(symbol="XAUUSD"):
             or not isinstance(value, (int, float))
             or not math.isfinite(value)
         ):
-            return {"bps": 0.0, "measured": False, "fills": 0}
+            return assumed
         return {
             "bps": min(100.0, max(0.0, float(value))),
             "measured": True,
             "fills": audit["fills"],
             "measured_at": audit["as_of"],
+            "source": "measured",
         }
     except Exception:
-        return {"bps": 0.0, "measured": False, "fills": 0}
+        return assumed
 
 
 def attach_execution(sample, minutes, hours, higher, features, candle, condition):

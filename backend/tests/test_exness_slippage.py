@@ -114,3 +114,9 @@ def test_failure_after_correlated_open_attempts_cleanup_once(monkeypatch):
         probe.round_trip(ExnessDemoClient(None), None, CONDITION, "buy")
     assert calls == [("open", None), ("close", "123")]
     assert logs[-1]["event"] == "flat_verified"
+
+def test_unmeasured_pair_uses_assumed_slippage(monkeypatch, tmp_path):
+    from backend.app import forex_samples
+    monkeypatch.setattr(forex_samples, "REPORT", tmp_path / "exness-learning.json")
+    assert forex_samples.slippage_estimate("USDCHF") == {
+        "bps": forex_samples.ASSUMED_SLIPPAGE_BPS, "measured": False, "fills": 0, "source": "assumed"}
