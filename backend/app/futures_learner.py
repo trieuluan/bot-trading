@@ -31,7 +31,6 @@ from .strategy import Setup
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 8 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS)
-RULE_TRIAL_CAP = 256
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
 VERSION = "futures_htf_v1"
@@ -267,8 +266,6 @@ def evolve(state, now, max_children=1, force=False):
         return 0
     rng, made = random.Random(now // EVOLVE_SECONDS), 0
     for _ in range(max_children):
-        if len(state["candidates"]) + len(archive) >= RULE_TRIAL_CAP:
-            break
         if sum(exit_policy_enabled(candidate["genome"])
                for candidate in state["candidates"].values()) >= CAP:
             weak = [name for name, candidate in state["candidates"].items()

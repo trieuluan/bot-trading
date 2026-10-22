@@ -479,3 +479,18 @@ def test_summary_splits_replay_forward_and_paper_counts():
     assert (row["replay_samples"], row["forward_samples"], row["forward_open"]) == (0, 1, 1)
     assert row["paper"] == {"closed": 2, "wins": 1, "net_pnl": 3.5, "last_trade_id": 9}
     assert [item["strategy"] for item in result["retired_paper"]] == ["gone:1"]
+
+
+def test_evolution_not_blocked_by_archive_growth():
+    state = learner.new_state(0)
+    now = 100000
+    state["evolved_at"] = 0
+    # Simulate an archive that exceeded previous trial cap of 256
+    state["rule_archive"] = {f"old_{i}": candidate() for i in range(300)}
+    first = next(iter(state["candidates"]))
+    state["samples"] = [
+        sample(strategy=first, status="resolved", net_r=1.5, candle_time=0, entry_time=900, label_available_at=now - 1)
+        for _ in range(12)
+    ]
+    made = learner.evolve(state, now, force=True)
+    assert made == 1
