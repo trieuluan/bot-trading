@@ -46,9 +46,14 @@ def structural_target(side, entry, stop, context, tick):
             raise ExnessError("Invalid TP barrier")
         if barrier["side"] == side and direction * (price - entry) > 0:
             ahead.append((direction * (price - entry), price, barrier["reason"]))
-    if ahead:  # nearest barrier decides, even beyond 2R
-        _, price, label = min(ahead, key=lambda item: item[0])
-        target, reason = price - direction * buffer, f"{label} @ {price}"
+    viable = [
+        (distance, (price - direction * buffer).quantize(tick), price, label)
+        for distance, price, label in ahead
+        if direction * ((price - direction * buffer).quantize(tick) - entry) >= Decimal("1.5") * risk
+    ]
+    if viable:
+        _, target, price, label = min(viable, key=lambda item: item[0])
+        reason = f"{label} @ {price}"
     target = target.quantize(tick)
     if direction * (target - entry) < Decimal("1.5") * risk:
         raise ExnessError("skipped_poor_rr: structural TP below 1.5R")

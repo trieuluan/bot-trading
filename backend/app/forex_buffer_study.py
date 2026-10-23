@@ -52,7 +52,7 @@ def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=N
         raise ExnessError("invalid_htf_levels")
     direction = Decimal(1) if signal["side"] == "long" else Decimal(-1)
     risk = direction * (entry - stop)
-    if risk < Decimal("1" if signal["strategy"].startswith("hast4_") else "0.3") * atr:
+    if risk < Decimal("0.5" if signal["strategy"].startswith("hast4_") else "0.3") * atr:
         raise ExnessError("sl_too_tight")
     if risk > 3 * atr:
         raise ExnessError("sl_too_wide")

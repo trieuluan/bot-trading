@@ -28,10 +28,17 @@ def test_structural_target_pulls_back_to_barrier_minus_buffer():
     assert target == Decimal("2619.500")
     assert reason == "H1 swing high @ 2620.0"
 
-def test_structural_target_skips_when_barrier_below_1_5r():
-    context = {"barriers": [{"side": "long", "price": 2614.0, "reason": "H1 swing high"}], "buffer": 0.5}
-    with pytest.raises(ExnessError, match="skipped_poor_rr"):
-        structural_target("long", Decimal("2600"), Decimal("2590"), context, Decimal("0.001"))
+def test_structural_target_skips_close_barrier_for_next_viable_or_2r_fallback():
+    context = {"barriers": [
+        {"side": "long", "price": 2614.0, "reason": "H1 swing high"},
+        {"side": "long", "price": 2625.0, "reason": "H4 swing high"},
+    ], "buffer": 0.5}
+    target, reason = structural_target("long", Decimal("2600"), Decimal("2590"), context, Decimal("0.001"))
+    assert target == Decimal("2624.500")
+    assert reason == "H4 swing high @ 2625.0"
+    only_close = {"barriers": [{"side": "long", "price": 2614.0, "reason": "H1 swing high"}], "buffer": 0.5}
+    fallback, fallback_reason = structural_target("long", Decimal("2600"), Decimal("2590"), only_close, Decimal("0.001"))
+    assert fallback == Decimal("2620.000") and fallback_reason == "fixed_2r"
 
 def test_target_context_extracts_h1_and_h4():
     m15 = candle(100000, 2600, 2605, 2595, 2602)

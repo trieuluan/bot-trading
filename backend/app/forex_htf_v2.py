@@ -31,7 +31,7 @@ RUNTIME = "htf_v3_only_1"
 PROVENANCE = "live_forward_htf_ast3_shadow"
 SETUP_MAX_AGE = 14400  # 4h; replay studies override this
 SETUP_PERSIST_H1 = 3  # tìm lại setup tối đa 3 nến H1 trước, còn sống nếu chưa bị đóng xuyên mức vô hiệu
-MIN_RISK_ATR = Decimal("1.0")  # replay B 3 tháng: SL < 1 ATR H1 bị quét nhiều; bỏ lệnh, không nới SL
+MIN_RISK_ATR = Decimal("0.5")  # ponytail: 0.5 ATR H1 keeps tight H1 setups; raise if live stopouts spike
 MAX_RISK_ATR = Decimal("3.0")
 LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast3-shadow.json"
 
@@ -498,8 +498,6 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     except ExnessError as exc:
         text = str(exc)
         return None, "poor_rr" if "poor_rr" in text else "no_target" if "Need" not in text else "h1_not_closed"
-    if label == "fixed_2r":
-        return None, "no_target"
 
     target_r = float(direction * (target - entry) / risk)
     policy = exit_node["policy"]
