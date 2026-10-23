@@ -1,9 +1,15 @@
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 from backend.app.db import PaperNotification, Session
-from backend.app.forex_notifications import notify_reconciled
+from backend.app.forex_notifications import (
+    notify_reconciled,
+    profit_text,
+    setup_progress,
+    strategy_text,
+)
 from backend.app.notifications import deliver
 
 
@@ -65,7 +71,7 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
 
         # 3. Closed with deals
         deal_open = SimpleNamespace(position_id="100", event_time=1700000010, deal_id="d1", snapshot={"type": "open", "price": "2610.0", "volume": "0.01", "direction": "buy"})
-        deal_close = SimpleNamespace(position_id="100", event_time=1700000030, deal_id="d2", snapshot={"type": "close", "price": "2620.0", "volume": "0.01", "profit": "10.0"})
+        deal_close = SimpleNamespace(position_id="100", event_time=1700000030, deal_id="d2", snapshot={"type": "close", "price": "2620.0", "volume": "0.01", "profit": {"amount": "10.0", "currency": "USD"}})
         notify_reconciled(
             session, trade,
             previous={"status": "open", "position_id": "100"},
@@ -90,3 +96,74 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
     assert "ĐÓNG VỊ THẾ FOREX · BUY XAUUSD" in sent[3]
     assert "+10 USD" in sent[3]
     assert "Chạm Take Profit (TP)" in sent[3]
+
+
+def deal(identifier, kind, volume, profit=None, pid="100", at=1700000010):
+    return SimpleNamespace(position_id=pid, event_time=at, deal_id=identifier,
+                           snapshot={"type": kind, "price": "2620", "volume": volume,
+                                     "profit": profit, "direction": "buy"})
+
+
+def test_partial_close_uses_actual_volume_and_does_not_repeat(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "mock-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "mock-chat")
+    trade = SimpleNamespace(account="demo", symbol="EURUSD", signal_time=1700000000,
+                            snapshot={"signal": {"side": "long"}, "position_id": "100"})
+    deals = [deal("open", "open", "0.10"),
+             deal("partial", "close", "0.03", {"amount": "12.50", "currency": "EUR"}),
+             deal("future", "close", "0.07", {"amount": "80", "currency": "EUR"}, at=1700000050)]
+    previous = {"position_id": "100", "status": "open"}
+    updated = dict(previous)
+    with Session.begin() as session:
+        notify_reconciled(session, trade, previous, updated,
+                          {"direction": "buy", "volume": "0.07"}, None, deals, 1700000020)
+    with Session.begin() as session:
+        notify_reconciled(session, trade, updated, dict(updated),
+                          {"direction": "buy", "volume": "0.07"}, None, deals, 1700000030)
+    with Session() as session:
+        notes = session.scalars(select(PaperNotification)).all()
+        assert len(notes) == 1
+        message = notes[0].message
+    assert "CHỐT MỘT PHẦN FOREX · BUY EURUSD" in message
+    assert "30.0%" in message and "70.0%" in message
+    assert "+12.5 EUR" in message and "USD" not in message.replace("EURUSD", "")
+    assert "92.5" not in message
+    assert "không gồm PnL thả nổi" in message
+    assert updated["notified_close_deals"] == ["partial"]
+
+
+def test_setup_progress_excludes_unfilled_legs_and_other_positions():
+    trade = SimpleNamespace(snapshot={"legs": [{"position_id": "100"}, {"position_id": "200"},
+                                              {"status": "skipped", "body": {"volume": "1"}}]})
+    deals = [deal("o1", "open", "0.03"), deal("o2", "open", "0.07", pid="200"),
+             deal("c1", "close", "0.03", {"amount": "12.50", "currency": "USD"}),
+             deal("unrelated", "close", "5", pid="999")]
+    result = "\n".join(setup_progress(trade, {"position_id": "100"}, deals))
+    assert "30.0%" in result and "70.0%" in result
+    assert "+12.5 USD" in result
+
+
+@pytest.mark.parametrize("deals", [[], [{"profit": None}], [{"profit": "5"}],
+    [{"profit": {"amount": "nan", "currency": "USD"}}],
+    [{"profit": {"amount": "5", "currency": "USD"}}, {"profit": {"amount": "5", "currency": "EUR"}}]])
+def test_profit_unknown_is_not_reported_as_usd(deals):
+    assert profit_text(deals) == "chưa xác minh"
+
+
+def test_labels_v3_v4_and_legacy():
+    from backend.app.forex_entry_policy import with_entry
+    from backend.app.forex_htf_v2 import g0_trees, tree_id
+    for tree in (g0_trees()[0], with_entry(g0_trees()[0])):
+        result = strategy_text({"tree": tree, "strategy": tree_id(tree)})
+        assert "H1" in result and "M15" in result
+        assert tree_id(tree) in result
+        assert "limit_or_stop" not in result
+    assert strategy_text({"strategy": "old<&"}) == "<code>old&lt;&amp;</code>"
+
+
+def test_compose_injects_telegram_into_forex_worker():
+    from pathlib import Path
+    compose = (Path(__file__).parents[2] / "compose.yaml").read_text()
+    worker = compose.split("  exness-feed:\n", 1)[1].split("  frontend:\n", 1)[0]
+    assert "TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}" in worker
+    assert "TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}" in worker

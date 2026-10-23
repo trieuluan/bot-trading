@@ -26,6 +26,60 @@ def event_key(now, trade, pid, event):
     return f"{now:010d}-forex-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
+def strategy_text(signal):
+    from .forex_htf_v2 import tree_label
+    identifier = str(signal.get("strategy") or "HTF Forex")
+    try:
+        label = tree_label(signal["tree"])
+    except (KeyError, TypeError, ValueError):
+        return f"<code>{esc(identifier)}</code>"
+    title = label["title"]
+    for policy, name in {"limit_or_stop": "Limit/Stop ảo", "limit_setup_mid": "Limit giữa vùng",
+                         "stop_trigger_break": "Stop phá nến", "market": "Market"}.items():
+        title = title.replace(policy, name)
+    return f"{esc(title)} · {esc(label['policy'])}\nMã: <code>{esc(identifier)}</code>"
+
+
+def profit_text(deals):
+    amounts, currencies = [], set()
+    for deal in deals:
+        profit = deal.get("profit")
+        amount = number(profit.get("amount")) if isinstance(profit, dict) else number(profit)
+        currency = profit.get("currency") if isinstance(profit, dict) else deal.get("profit_currency")
+        if amount is None or not isinstance(currency, str) or not currency.strip():
+            return "chưa xác minh"
+        amounts.append(amount)
+        currencies.add(currency.strip())
+    if not amounts or len(currencies) != 1:
+        return "chưa xác minh"
+    return f"{shown(sum(amounts), signed=True)} {esc(currencies.pop())}"
+
+
+def setup_progress(trade, updated, deals):
+    legs = trade.snapshot.get("legs") or [trade.snapshot]
+    position_ids = {leg.get("position_id") for leg in legs if leg.get("position_id")}
+    position_ids.add(updated["position_id"])
+    matched = [deal.snapshot for deal in deals if deal.position_id in position_ids]
+    opens = [deal for deal in matched if deal.get("type") == "open"]
+    closes = [deal for deal in matched if deal.get("type") == "close"]
+    if not opens or any(not any(deal.position_id == pid and deal.snapshot.get("type") == "open"
+                                for deal in deals) for pid in position_ids):
+        return ["Tỷ lệ đã đóng/còn mở: chưa xác minh"]
+    opened = [number(deal.get("volume")) for deal in opens]
+    closed = [number(deal.get("volume")) for deal in closes]
+    if any(value is None or value <= 0 for value in opened + closed):
+        return ["Tỷ lệ đã đóng/còn mở: chưa xác minh"]
+    total, done = sum(opened), sum(closed)
+    if done > total + 1e-9:
+        return ["Tỷ lệ đã đóng/còn mở: chưa xác minh"]
+    remaining = max(0.0, total - done)
+    return [
+        f"Đã đóng <b>{done / total:.1%}</b> ({shown(done)} lot) · Còn mở <b>{remaining / total:.1%}</b> ({shown(remaining)} lot)",
+        "Tỷ lệ theo khối lượng đã khớp của setup; không tính leg chưa khớp.",
+        f"Profit đã chốt của setup: <b>{profit_text(closes)}</b> · chưa xác minh phí/swap; không gồm PnL thả nổi",
+    ]
+
+
 def notify_reconciled(session, trade, previous, updated, position, protection, deals, now):
     """Enqueue Telegram alerts inside the reconcile transaction without extra locks."""
     symbol = esc(getattr(trade, "symbol", None) or "XAUUSD")
@@ -54,7 +108,6 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         target = (protection or {}).get("take_profit_price")
         icon = "🟢" if side == "BUY" else "🔴"
         vol = (position or {}).get("volume")
-        strat = signal.get("strategy", "HTF V2")
         branch_text = ""
         if signal.get("entry_branch"):
             branch_name = {"limit": "Limit giữa", "stop": "Stop phá nến", "market": "Market"}.get(signal["entry_branch"], "Chưa xác minh")
@@ -65,10 +118,11 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             event_key(now, trade, pid, "open"),
             "\n".join([
                 f"{icon} <b>MỞ VỊ THẾ FOREX · {side} {symbol}</b>",
-                f"🌲 <b>Chiến thuật:</b> <code>{esc(strat)}</code>",
+                f"🌲 <b>Chiến thuật:</b> {strategy_text(signal)}",
                 *( [branch_text.strip()] if branch_text else [] ),
                 "🧪 Exness DEMO · khớp sàn đã đối soát",
                 f"🎯 <b>Vai trò:</b> {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
+                f"📌 Vị thế #{esc(pid)}",
                 "",
                 f"▫️ Giá khớp sàn: <code>{shown(open_price)}</code>",
                 f"🛑 SL: <code>{shown(stop)}</code> · 🎯 TP: <code>{shown(target)}</code>",
@@ -143,14 +197,21 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         )
 
     # 3. Position confirmed CLOSED
-    if previous.get("status") != "closed" and updated.get("status") == "closed":
+    close_deal_ids = [deal.deal_id for deal in matched_deals if deal.snapshot.get("type") == "close"]
+    partial_close = (position and updated.get("status") == "open" and close_deal_ids
+                     and set(close_deal_ids) != set(previous.get("notified_close_deals", [])))
+    if partial_close or (previous.get("status") != "closed" and updated.get("status") == "closed"):
         open_deals = opens
         close_deals = [deal.snapshot for deal in matched_deals if deal.snapshot.get("type") == "close"]
         open_p = open_deals[0].get("price") if open_deals else None
         close_p = close_deals[-1].get("price") if close_deals else None
-        profits = [number(deal.get("profit")) for deal in close_deals]
+        profits = [number(deal["profit"].get("amount")) if isinstance(deal.get("profit"), dict)
+                   else number(deal.get("profit")) for deal in close_deals]
         profit = sum(profits) if profits and all(value is not None for value in profits) else None
         vol = open_deals[0].get("volume") if open_deals else None
+        closed_volume = [number(deal.get("volume")) for deal in close_deals]
+        if closed_volume and all(value is not None for value in closed_volume):
+            vol = sum(closed_volume)
         tp_filled = updated.get("take_profit_filled")
         reason = "take_profit" if tp_filled else updated.get("close_reason", "closed_by_broker")
         pnl_icon = "✅" if profit is not None and profit > 0 else "🛑" if profit is not None and profit < 0 else "⚪"
@@ -163,17 +224,20 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             "closed_by_broker": "Sàn đã đóng; chưa xác minh nguyên nhân",
             "missing_protection": "Thoát bảo vệ do thiếu SL/TP",
         }.get(reason, reason or "Khớp lệnh thoát trên sàn")
+        heading = "CHỐT MỘT PHẦN FOREX" if partial_close else "ĐÓNG VỊ THẾ FOREX"
 
         queue(
             session,
-            event_key(now, trade, pid, "close"),
+            event_key(now, trade, pid, "partial:" + ":".join(close_deal_ids) if partial_close else "close"),
             "\n".join([
-                f"{pnl_icon} <b>ĐÓNG VỊ THẾ FOREX · {side} {symbol}</b>",
-                f"📌 Vị thế #{esc(pid)} · {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
+                f"{pnl_icon} <b>{heading} · {side} {symbol}</b>",
+                f"📌 Vị thế #{esc(pid)} · {esc(role_vn)} · Đã đóng: <code>{shown(vol)} lot</code>",
                 f"💡 Lý do: <b>{esc(reason_vn)}</b>",
                 "",
                 f"▫️ Giá vào: <code>{shown(open_p)}</code> ➔ Giá ra: <code>{shown(close_p)}</code>",
-                f"💰 Profit deal sàn: <b>{shown(profit, signed=True)} USD</b> · chưa xác minh phí/swap, không phải PnL ròng",
+                f"💰 Profit deal sàn: <b>{profit_text(close_deals)}</b> · chưa xác minh phí/swap, không phải PnL ròng",
+                *setup_progress(trade, updated, [deal for deal in deals if deal.event_time <= now]),
                 f"🕒 Lúc: {when(now)}",
             ]),
         )
+        updated["notified_close_deals"] = close_deal_ids
