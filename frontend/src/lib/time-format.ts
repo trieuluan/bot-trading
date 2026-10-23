@@ -1,5 +1,5 @@
 // Định dạng giờ dùng chung cho mọi workspace, theo múi giờ hiển thị đang chọn.
-import { timeParts, timeZoneLabel } from './time-zone';
+import { timeParts, timeZoneLabel } from './time-zone.ts';
 
 const pad = (value: number) => String(value).padStart(2, '0');
 

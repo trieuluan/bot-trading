@@ -11,7 +11,8 @@ import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { treeLabel, shortTreeId } from '../lib/forex-tree-label';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
-import { feedErrorText, priceDigits } from '../lib/forex-labels';
+import { ForexSessionStatus } from '../components/ForexSessionStatus';
+import { feedErrorText, marketSessionDisplay, priceDigits } from '../lib/forex-labels';
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
@@ -1276,11 +1277,18 @@ export function ForexStrategyPage({
   });
   const [quoteHeartbeat, setQuoteHeartbeat] = useState(0);
   const [clock, setClock] = useState(Date.now());
+  const session = marketSessionDisplay(dashboard.market_session, clock);
+  const closedSession = session.status === 'closed';
   const quoteLive =
+    !closedSession &&
     quoteState.status === 'live' &&
     clock - quoteHeartbeat < 5000 &&
     quoteState.quote !== null &&
     clock / 1000 - quoteState.quote.time <= 15;
+  const visibleQuote = quoteLive || closedSession ? quoteState.quote : null;
+  const streamInterrupted =
+    clock - quoteHeartbeat >= 5000 ||
+    !['connecting', 'connected', 'waiting', 'live', 'stale'].includes(quoteState.status);
 
   const liveCandles = useMemo(
     () =>
@@ -1515,28 +1523,38 @@ export function ForexStrategyPage({
             </div>
           </div>
           <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
+            <ForexSessionStatus session={dashboard.market_session} now={clock} />
             <span>
               BID{' '}
               <strong className="broker-bid">
-                {quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}
+                {visibleQuote ? formatPrice(visibleQuote.bid) : '—'}
               </strong>
             </span>
             <span>
               ASK{' '}
               <strong className="broker-ask">
-                {quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}
+                {visibleQuote ? formatPrice(visibleQuote.ask) : '—'}
               </strong>
             </span>
             <span>
               SPREAD{' '}
               <strong>
-                {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
+                {visibleQuote ? formatPrice(visibleQuote.ask - visibleQuote.bid) : '—'}
               </strong>
             </span>
           </div>
-          <span className={`broker-stream-state ${quoteLive ? 'is-live' : ''}`} role="status">
+          <span
+            className={`broker-stream-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''}`}
+            role="status"
+          >
             <span aria-hidden="true" />
-            {quoteLive ? 'Tick trực tiếp' : 'Stream gián đoạn'}
+            {quoteLive
+              ? 'Tick trực tiếp'
+              : closedSession && !streamInterrupted
+                ? visibleQuote
+                  ? `Giá cuối phiên · ${formatTime(visibleQuote.time, true)}`
+                  : 'Nghỉ phiên · chờ mở phiên'
+                : 'Stream gián đoạn'}
           </span>
         </header>
       ) : (
@@ -1724,29 +1742,34 @@ export function ForexStrategyPage({
       {chartError && <p role="alert">{chartError}</p>}
       {!executionOnly && (
         <div className="mtf-quote-strip" aria-label="Giá Exness trực tiếp">
-          <span className={`mtf-quote-state ${quoteLive ? 'is-live' : ''}`}>
-            {quoteStatusLabels[
-              quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
-            ] ?? 'Stream chưa sẵn sàng'}
+          <ForexSessionStatus session={dashboard.market_session} now={clock} />
+          <span
+            className={`mtf-quote-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''}`}
+          >
+            {closedSession && !streamInterrupted
+              ? visibleQuote
+                ? `Giá cuối phiên · ${formatTime(visibleQuote.time, true)}`
+                : 'Nghỉ phiên · chưa có giá'
+              : (quoteStatusLabels[
+                  quoteState.status === 'live' && !quoteLive ? 'stale' : quoteState.status
+                ] ?? 'Stream chưa sẵn sàng')}
           </span>
           <span>
-            BID <strong>{quoteLive ? formatPrice(quoteState.quote!.bid) : '—'}</strong>
+            BID <strong>{visibleQuote ? formatPrice(visibleQuote.bid) : '—'}</strong>
           </span>
           <span>
-            ASK <strong>{quoteLive ? formatPrice(quoteState.quote!.ask) : '—'}</strong>
+            ASK <strong>{visibleQuote ? formatPrice(visibleQuote.ask) : '—'}</strong>
           </span>
           <span>
             SPREAD{' '}
-            <strong>
-              {quoteLive ? formatPrice(quoteState.quote!.ask - quoteState.quote!.bid) : '—'}
-            </strong>
+            <strong>{visibleQuote ? formatPrice(visibleQuote.ask - visibleQuote.bid) : '—'}</strong>
           </span>
         </div>
       )}
       {!executionOnly && (
         <p className="micro">
-          Nến đang chạy ghép từ tick {side.toUpperCase()} Exness, cập nhật mỗi giây. Nến live chỉ để
-          theo dõi; nến đóng từ REST thay thế khi đồng bộ, MTF và paper không đổi.{' '}
+          Nến đang chạy ghép từ tick {side.toUpperCase()} Exness theo thời gian thực. Nến live chỉ
+          để theo dõi; nến đóng từ REST thay thế khi đồng bộ, MTF và paper không đổi.{' '}
           {!quoteLive
             ? 'Stream tạm dừng; không hiển thị nến live cũ.'
             : quoteState.candles?.[frame]?.at(-1)?.partial
@@ -1883,12 +1906,22 @@ export function ForexStrategyPage({
               {' · '}
               {hasMore ? 'Kéo trái để tải thêm' : 'Hết lịch sử đã lưu'}
             </span>
-            <span className={quoteLive && selectedPosition?.status !== 'closed' ? 'is-live' : ''}>
+            <span
+              className={
+                quoteLive && selectedPosition?.status !== 'closed'
+                  ? 'is-live'
+                  : closedSession && !streamInterrupted
+                    ? 'is-closed'
+                    : ''
+              }
+            >
               {selectedPosition?.status === 'closed'
                 ? 'Xem lịch sử vị thế · không ghép tick'
-                : quoteLive
-                  ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
-                  : 'Tick tạm dừng · không dùng giá cũ'}
+                : closedSession && !streamInterrupted
+                  ? `${session.label} · ${session.transition}`
+                  : quoteLive
+                    ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
+                    : 'Tick tạm dừng · không dùng giá cũ'}
             </span>
           </div>
           {analysis && (

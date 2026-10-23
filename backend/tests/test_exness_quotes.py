@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -322,6 +323,7 @@ def test_rate_limit_backs_off_and_reconnects(monkeypatch):
 @pytest.mark.parametrize("phase", ["setup", "handshake"])
 def test_rate_limit_recovers_to_ticks_after_retry_after(monkeypatch, phase):
     from types import SimpleNamespace
+
     from websockets.exceptions import InvalidStatus
 
     attempts, waits = [], []
@@ -429,3 +431,29 @@ def test_sse_uses_shared_state_without_upstream_per_tab(monkeypatch):
 
     assert asyncio.run(read_once())["status"] == "disabled"
     assert stream.task is None
+
+
+def test_chart_sse_pushes_on_tick_without_waiting_full_second(monkeypatch):
+    stream = QuoteStream()
+    stream.status = "connected"
+    monkeypatch.setattr(exness_quotes, "quotes", stream)
+    monkeypatch.setattr(exness_quotes, "chart_subscribers", {})
+
+    async def run():
+        response = await exness_quotes.quote_events("XAUUSD")
+        events = response.body_iterator
+        try:
+            first = json.loads((await anext(events)).removeprefix("data: "))
+            assert first["status"] == "waiting"
+            now = time.time()
+            quote = {"bid": 2400.1, "ask": 2400.3, "time": now, "received_at": now}
+            stream.accept_quote(quote, "XAUUSD")
+            exness_quotes.publish_entry({"status": "live", "symbol": "XAUUSD", "quote": quote})
+            second = json.loads((await asyncio.wait_for(anext(events), timeout=0.3)).removeprefix("data: "))
+            assert second["status"] == "live"
+            assert second["quote"]["bid"] == 2400.1
+        finally:
+            await events.aclose()
+        assert not exness_quotes.chart_subscribers["XAUUSD"]
+
+    asyncio.run(run())

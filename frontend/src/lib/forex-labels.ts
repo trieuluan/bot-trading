@@ -1,5 +1,7 @@
 // Nhãn và định dạng dùng chung cho workspace Exness Forex.
 
+import { formatTime, relativeTime } from './time-format.ts';
+
 export function forexSignalCount(
   execution:
     | {
@@ -99,6 +101,82 @@ export const provenanceText: Record<string, string> = {
 };
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'idle';
+
+export interface ForexMarketSession {
+  status: 'open' | 'closed' | 'unknown';
+  reason: string;
+  as_of: number | null;
+  observed_at: number | null;
+  next_open_at: number | null;
+  next_close_at: number | null;
+  source: string;
+}
+
+const sessionReasonText: Record<string, string> = {
+  missing_schedule: 'Chưa có lịch giao dịch từ Exness',
+  invalid_schedule: 'Lịch Exness không hợp lệ',
+  overlapping_schedule: 'Lịch Exness có khoảng chồng lấn',
+  uncovered_time: 'Thời điểm hiện tại nằm ngoài lịch Exness',
+  stale_schedule: 'Lịch Exness đã quá hạn làm mới',
+  invalid_timestamp: 'Mốc cập nhật lịch không hợp lệ',
+  identity_mismatch: 'Lịch không khớp cặp hoặc tài khoản hiện tại',
+  sync_error: 'Đồng bộ thông số Exness đang lỗi',
+};
+
+export function marketSessionDisplay(
+  session: ForexMarketSession | null | undefined,
+  now = Date.now(),
+  unverified = false,
+): {
+  status: 'open' | 'closed' | 'unknown';
+  tone: Tone;
+  label: string;
+  transition: string;
+  tooltip: string;
+} {
+  const nowSec = now / 1000;
+  const observed = session?.observed_at ?? null;
+  const expired =
+    unverified || !session || observed == null || observed > nowSec || nowSec - observed >= 3600;
+  const nextOpen =
+    session?.next_open_at != null && session.next_open_at > nowSec ? session.next_open_at : null;
+  const nextClose =
+    session?.next_close_at != null && session.next_close_at > nowSec ? session.next_close_at : null;
+  const current =
+    expired || session.status === 'unknown'
+      ? 'unknown'
+      : session.status === 'open' && nextClose == null && session.next_close_at != null
+        ? 'unknown'
+        : session.status === 'closed' && nextOpen == null && session.next_open_at != null
+          ? 'unknown'
+          : session.status;
+  const label =
+    current === 'open'
+      ? 'Đang mở'
+      : current === 'closed'
+        ? session?.reason === 'weekend'
+          ? 'Đóng cuối tuần'
+          : 'Nghỉ phiên'
+        : 'Chưa xác minh';
+  const transition =
+    current === 'open' && nextClose
+      ? `Nghỉ dự kiến ${formatTime(nextClose)} (${relativeTime(nextClose, now)})`
+      : current === 'closed' && nextOpen
+        ? `Mở dự kiến ${formatTime(nextOpen)} (${relativeTime(nextOpen, now)})`
+        : (sessionReasonText[
+            expired && session?.status !== 'unknown'
+              ? 'stale_schedule'
+              : (session?.reason ?? 'missing_schedule')
+          ] ?? 'Chưa xác minh lịch giao dịch');
+  const observedText = observed ? `Cập nhật lịch: ${formatTime(observed)}` : 'Chưa có mốc cập nhật';
+  return {
+    status: current,
+    tone: current === 'open' ? 'ok' : 'idle',
+    label,
+    transition,
+    tooltip: `${label} · ${transition} · ${observedText} · Theo lịch Exness · giờ thực tế có thể thay đổi`,
+  };
+}
 
 interface StatusInput {
   configured: boolean;

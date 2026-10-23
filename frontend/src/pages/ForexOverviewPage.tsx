@@ -1,4 +1,5 @@
 import type { ForexDashboard } from '../App';
+import { ForexSessionStatus } from '../components/ForexSessionStatus';
 import { ForexMarkets, feedText, feedTone } from '../components/ForexMarkets';
 import { useForexExecution } from '../hooks/useForexExecution';
 import { botStatus, executorState } from '../lib/forex-labels';
@@ -46,6 +47,7 @@ export function ForexOverviewPage({
           </h2>
           <p>{status.reason}</p>
           {status.hint && <p className="ov-status-hint">{status.hint}</p>}
+          <ForexSessionStatus session={dashboard.market_session} />
           <div className="ov-health" aria-label="Sức khỏe hệ thống">
             <span className={`dot-label tone-${executor.tone}`}>
               Worker thực thi: {executor.text.toLowerCase()}

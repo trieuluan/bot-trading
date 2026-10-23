@@ -245,6 +245,8 @@ class QuoteStream:
                 finally:
                     for symbol in tuple(entry_subscribers):
                         publish_entry({"status": "disconnected", "symbol": symbol})
+                        for symbol in tuple(chart_subscribers):
+                            publish_chart(symbol)
                 if self.status != "rate_limited":
                     self.status = "reconnecting"
                 await asyncio.sleep(delay)
@@ -260,8 +262,10 @@ class QuoteStream:
 
 quotes = QuoteStream()
 entry_subscribers = {}
+chart_subscribers = {}
 
 def publish_entry(event):
+    publish_chart(event["symbol"])
     for queue in tuple(entry_subscribers.get(event["symbol"], ())):
         if queue.full():
             while not queue.empty():
@@ -269,6 +273,10 @@ def publish_entry(event):
             queue.put_nowait({"status": "overflow", "symbol": event["symbol"]})
         else:
             queue.put_nowait(event)
+
+def publish_chart(symbol):
+    for signal in tuple(chart_subscribers.get(symbol, ())):
+        signal.set()
 
 
 @router.get("/api/workspaces/exness_forex/quotes/stream")
@@ -295,9 +303,18 @@ async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart"):
             finally:
                 entry_subscribers[symbol].discard(queue)
             return
-        while True:
-            yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
-            await asyncio.sleep(1)
+        signal = asyncio.Event()
+        chart_subscribers.setdefault(symbol, set()).add(signal)
+        try:
+            while True:
+                signal.clear()
+                yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
+                try:
+                    await asyncio.wait_for(signal.wait(), timeout=1)
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            chart_subscribers[symbol].discard(signal)
 
     return StreamingResponse(
         events(),

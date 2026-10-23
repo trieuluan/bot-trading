@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Zap } from 'lucide-react';
+import { ForexSessionStatus } from './ForexSessionStatus';
 import { subscribeForexStream } from '../lib/forex-stream';
 import { useRoute, setRoute } from '../lib/router';
 import { useStickyBar } from '../hooks/useStickyBar';
@@ -7,7 +8,9 @@ import {
   blockLabel,
   feedErrorText,
   forexSignalCount,
+  marketSessionDisplay,
   priceDigits,
+  type ForexMarketSession,
   type Tone,
 } from '../lib/forex-labels';
 import { relativeTime, formatTime } from '../lib/time-format';
@@ -26,11 +29,13 @@ interface Feed {
 interface Market {
   symbol: string;
   price: number | null;
+  price_at: number | null;
   age_seconds: number | null;
   price_source: string;
   positions: number;
   specs: string;
   blocked_reason: string | null;
+  market_session?: ForexMarketSession;
   execution?: {
     entry_allowed_count?: number;
     evolution_ready_count?: number;
@@ -165,6 +170,7 @@ export function ForexMarkets({
           onScroll={updateEdges}
         >
           {data?.markets.map((market) => {
+            const session = marketSessionDisplay(market.market_session, now);
             const signals =
               !error && market.feed.some((feed) => feed.worker_online)
                 ? forexSignalCount(market.execution, now)
@@ -176,10 +182,11 @@ export function ForexMarkets({
                 aria-pressed={market.symbol === symbol}
                 aria-busy={loading && market.symbol === symbol}
                 onClick={() => select(market.symbol)}
-                title={`${market.symbol} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
+                title={`${market.symbol} · ${session.tooltip} · Giá ${formatTime(market.price_at, true)} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
               >
                 <strong>{market.symbol}</strong>
                 <span>{formatPrice(market)}</span>
+                <ForexSessionStatus session={market.market_session} now={now} compact />
                 {loading && market.symbol === symbol && (
                   <span className="pair-loading" aria-hidden="true" />
                 )}
@@ -219,6 +226,7 @@ export function ForexMarkets({
     variant === 'table' ? (
       <tr>
         <th>Cặp</th>
+        <th>Phiên dự kiến</th>
         <th className="num">Giá bid</th>
         <th>Độ mới</th>
         <th className="num">Vị thế</th>
@@ -260,13 +268,15 @@ export function ForexMarkets({
             {!data &&
               Array.from({ length: 6 }, (_, index) => (
                 <tr key={index} className="skeleton-row" aria-hidden="true">
-                  <td colSpan={6}>
+                  <td colSpan={variant === 'table' ? 7 : 6}>
                     <span className="skeleton-line" />
                   </td>
                 </tr>
               ))}
             {rows.map((market) => {
               const active = market.symbol === symbol;
+              const session = marketSessionDisplay(market.market_session, now);
+              const closed = session.status === 'closed';
               const fresh = market.age_seconds != null && market.age_seconds <= 30;
               const blocked = blockLabel(market.blocked_reason);
               return (
@@ -291,12 +301,20 @@ export function ForexMarkets({
                   </th>
                   {variant === 'table' ? (
                     <>
+                      <td>
+                        <ForexSessionStatus session={market.market_session} now={now} />
+                      </td>
                       <td className="num font-mono">{formatPrice(market)}</td>
                       <td>
-                        <span className={`dot-label tone-${fresh ? 'ok' : 'warn'}`}>
+                        <span
+                          className={`dot-label tone-${closed ? 'idle' : fresh ? 'ok' : 'warn'}`}
+                          title={formatTime(market.price_at, true)}
+                        >
                           {market.age_seconds == null
                             ? 'Chưa có giá'
-                            : `${Math.floor(market.age_seconds)}s · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
+                            : closed
+                              ? `Giá cuối phiên · ${formatTime(market.price_at)}`
+                              : `${Math.floor(market.age_seconds)}s · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
                         </span>
                       </td>
                       <td className="num">
@@ -310,8 +328,8 @@ export function ForexMarkets({
                         </span>
                       </td>
                       <td>
-                        <span className={`status-chip tone-${blocked ? 'warn' : 'ok'}`}>
-                          {blocked ?? 'Sẵn sàng'}
+                        <span className={`status-chip tone-${blocked ? 'warn' : 'idle'}`}>
+                          {blocked ?? 'Chờ tín hiệu · qua kiểm tra execution'}
                         </span>
                       </td>
                     </>
@@ -319,8 +337,12 @@ export function ForexMarkets({
                     <>
                       <td>
                         <span className="font-mono">{formatPrice(market)}</span>{' '}
-                        <small className={fresh ? 'positive' : 'muted'}>
-                          {market.age_seconds == null ? '' : `${Math.floor(market.age_seconds)}s`}
+                        <small className={!closed && fresh ? 'positive' : 'muted'}>
+                          {market.age_seconds == null
+                            ? ''
+                            : closed
+                              ? `Giá cuối phiên · ${formatTime(market.price_at)}`
+                              : `${Math.floor(market.age_seconds)}s`}
                         </small>
                       </td>
                       {['15m', '1h', '4h'].map((frame) => {

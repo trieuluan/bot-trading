@@ -1,9 +1,41 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from backend.app.db import ForexInstrumentState, Session
 from backend.app.exness import ExnessError
 from backend.app.exness_feed import WORKSPACE
 from backend.app.forex_costs import lot_size, normalize_specs, spec_summary, sync_specs
+from backend.app.forex_market_sessions import market_session
+
+XAU_SESSIONS = [
+    {"trade_mode": "trading_disabled", "week_start_time": "Sun, 00:00:00", "week_end_time": "Sun, 22:01:29"},
+    {"trade_mode": "enabled", "week_start_time": "Sun, 22:01:30", "week_end_time": "Sun, 22:04:59"},
+    {"trade_mode": "enabled", "week_start_time": "Sun, 22:05:00", "week_end_time": "Sun, 23:59:59"},
+    *[row for day in ("Mon", "Tue", "Wed", "Thu") for row in (
+        {"trade_mode": "enabled", "week_start_time": f"{day}, 00:00:00", "week_end_time": f"{day}, 20:57:59"},
+        {"trade_mode": "trading_disabled", "week_start_time": f"{day}, 20:58:00", "week_end_time": f"{day}, 22:00:29"},
+        {"trade_mode": "enabled", "week_start_time": f"{day}, 22:00:30", "week_end_time": f"{day}, 22:01:59"},
+        {"trade_mode": "enabled", "week_start_time": f"{day}, 22:02:00", "week_end_time": f"{day}, 23:59:59"},
+    )],
+    {"trade_mode": "enabled", "week_start_time": "Fri, 00:00:00", "week_end_time": "Fri, 20:57:59"},
+    {"trade_mode": "trading_disabled", "week_start_time": "Fri, 20:58:00", "week_end_time": "Fri, 23:59:59"},
+    {"trade_mode": "trading_disabled", "week_start_time": "Sat, 00:00:00", "week_end_time": "Sat, 23:59:59"},
+]
+
+EUR_SESSIONS = [
+    {"trade_mode": "trading_disabled", "week_start_time": "Sun, 00:00:00", "week_end_time": "Sun, 21:04:59"},
+    {"trade_mode": "enabled", "week_start_time": "Sun, 21:05:00", "week_end_time": "Sun, 23:59:59"},
+    *[{"trade_mode": "enabled", "week_start_time": f"{day}, 00:00:00", "week_end_time": f"{day}, 23:59:59"}
+      for day in ("Mon", "Tue", "Wed", "Thu")],
+    {"trade_mode": "enabled", "week_start_time": "Fri, 00:00:00", "week_end_time": "Fri, 20:58:59"},
+    {"trade_mode": "trading_disabled", "week_start_time": "Fri, 20:59:00", "week_end_time": "Fri, 23:59:59"},
+    {"trade_mode": "trading_disabled", "week_start_time": "Sat, 00:00:00", "week_end_time": "Sat, 23:59:59"},
+]
+
+
+def utc(day, hour, minute, second=0):
+    return int(datetime(2026, 10, day, hour, minute, second, tzinfo=timezone.utc).timestamp())
 
 
 def specification():
@@ -141,3 +173,85 @@ def test_cache_invalidated_when_account_changes():
     assert API.calls == 1
     sync_specs(API(), 2001)
     assert API.calls == 1
+
+
+def test_exness_trade_sessions_boundaries_rollover_and_symbol_schedules():
+    def eval_at(symbol, sessions, now):
+        cond = {**specification(), "instrument": symbol, "trade_sessions": sessions}
+        specs = {"status": "partial", "error": None,
+                 "profile": normalize_specs(account(), cond, now - 10, account_id="demo", symbol=symbol)}
+        return market_session(specs, now, symbol, "demo")
+
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(18, 22, 1, 29)) == {
+        "status": "closed", "reason": "weekend", "as_of": utc(18, 22, 1, 29),
+        "observed_at": utc(18, 22, 1, 19), "next_open_at": utc(18, 22, 1, 30),
+        "next_close_at": utc(19, 20, 58, 0), "source": "exness_trade_sessions",
+    }
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(18, 22, 1, 30))["status"] == "open"
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(18, 23, 59, 59))["next_close_at"] == utc(19, 20, 58, 0)
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(20, 20, 57, 59))["status"] == "open"
+    daily_break = eval_at("XAUUSD", XAU_SESSIONS, utc(20, 20, 58, 0))
+    assert (daily_break["status"], daily_break["reason"], daily_break["next_open_at"]) == (
+        "closed", "session_break", utc(20, 22, 0, 30))
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(20, 22, 0, 29))["status"] == "closed"
+    assert eval_at("XAUUSD", XAU_SESSIONS, utc(20, 22, 0, 30))["next_close_at"] == utc(21, 20, 58, 0)
+    eur_during_gold_break = eval_at("EURUSD", EUR_SESSIONS, utc(20, 21, 15, 0))
+    assert (eur_during_gold_break["status"], eur_during_gold_break["next_close_at"]) == (
+        "open", utc(23, 20, 59, 0))
+    fri_close = eval_at("EURUSD", EUR_SESSIONS, utc(23, 20, 59, 0))
+    assert (fri_close["status"], fri_close["reason"], fri_close["next_open_at"]) == (
+        "closed", "weekend", utc(25, 21, 5, 0))
+
+
+@pytest.mark.parametrize("sessions,delta,error,account_id,symbol,reason", [
+    (None, -10, None, "demo", "XAUUSD", "missing_schedule"),
+    ([], -10, None, "demo", "XAUUSD", "missing_schedule"),
+    ([{"trade_mode": "enabled", "week_start_time": "Bad", "week_end_time": "Sun, 01:00:00"}],
+     -10, None, "demo", "XAUUSD", "invalid_schedule"),
+    ([{"trade_mode": "enabled", "week_start_time": "Sun, 00:00:00", "week_end_time": "Sun, 02:00:00"},
+      {"trade_mode": "trading_disabled", "week_start_time": "Sun, 01:00:00", "week_end_time": "Sun, 03:00:00"}],
+     -10, None, "demo", "XAUUSD", "overlapping_schedule"),
+    ([{"trade_mode": "enabled", "week_start_time": "Mon, 00:00:00", "week_end_time": "Mon, 01:00:00"}],
+     -10, None, "demo", "XAUUSD", "uncovered_time"),
+    (XAU_SESSIONS, -3600, None, "demo", "XAUUSD", "stale_schedule"),
+    (XAU_SESSIONS, 1, None, "demo", "XAUUSD", "invalid_timestamp"),
+    (XAU_SESSIONS, -10, "sync failed", "demo", "XAUUSD", "sync_error"),
+    (XAU_SESSIONS, -10, None, "other", "XAUUSD", "identity_mismatch"),
+    (XAU_SESSIONS, -10, None, "demo", "EURUSD", "identity_mismatch"),
+])
+def test_market_session_fails_closed_to_unknown_without_breaking_cost_specs(
+    sessions, delta, error, account_id, symbol, reason
+):
+    now = utc(20, 12, 0, 0)
+    profile = normalize_specs(account(), {**specification(), "trade_sessions": sessions},
+                              now + delta, account_id="demo", symbol="XAUUSD")
+    assert profile["contract_size"] == "100"
+    result = market_session({"status": "partial", "error": error, "profile": profile}, now, symbol, account_id)
+    assert (result["status"], result["reason"]) == ("unknown", reason)
+
+
+def test_dashboard_and_markets_preserve_schedule_when_fx_conversion_or_commission_unverified(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.app import main
+    monkeypatch.setenv("EXNESS_ACCOUNT_ID", "demo")
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,USDJPY")
+    now = utc(20, 21, 15, 0)
+    monkeypatch.setattr(main.time, "time", lambda: now)
+    main._dashboard_cache.clear()
+    with Session.begin() as session:
+        for symbol, quote_ccy, sessions in (("XAUUSD", "USD", XAU_SESSIONS), ("USDJPY", "JPY", EUR_SESSIONS)):
+            cond = {**specification(), "instrument": symbol, "quote_currency": quote_ccy, "trade_sessions": sessions}
+            session.add(ForexInstrumentState(
+                workspace_id=WORKSPACE, symbol=symbol, checked_at=now - 5, retry_at=now + 3600,
+                snapshot=normalize_specs(account(), cond, now - 5, account_id="demo", symbol=symbol),
+            ))
+    with TestClient(main.app) as client:
+        dash = client.get("/api/workspaces/exness_forex/dashboard?symbol=USDJPY").json()
+        assert dash["instrument"]["profile"] is None
+        assert dash["market_session"]["status"] == "open"
+        rows = {row["symbol"]: row for row in client.get("/api/workspaces/exness_forex/markets").json()["markets"]}
+        assert rows["XAUUSD"]["market_session"]["status"] == "closed"
+        assert rows["XAUUSD"]["market_session"]["reason"] == "session_break"
+        assert rows["USDJPY"]["market_session"]["status"] == "open"
+        assert rows["USDJPY"]["blocked_reason"] is not None

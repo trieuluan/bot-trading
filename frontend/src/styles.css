@@ -2696,6 +2696,10 @@ footer {
   background: #173624;
   color: #7ee0a3;
 }
+.broker-stream-state.is-closed {
+  background: #232d29;
+  color: #c3d0c8;
+}
 .broker-chart-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -3245,6 +3249,23 @@ footer {
 .mtf-quote-state.is-live {
   background: #dff1e6;
   color: #1e6b45;
+}
+.mtf-quote-state.is-closed {
+  background: #eff1ec;
+  color: #5e6b62;
+}
+.forex-session {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.forex-session small {
+  color: #6c7a70;
+  font-size: 11px;
+}
+.broker-quote-pair .forex-session small {
+  color: #9baaa1;
 }
 .mtf-observation > p.micro {
   text-align: left;
@@ -6983,9 +7004,9 @@ main.forex-terminal-main {
 /* Mỗi cặp 2 dòng: tên trên, giá dưới; cột phải dành cho badge tín hiệu và số lệnh mở. */
 .forex-markets.is-compact .forex-market-strip button {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   align-items: center;
-  gap: 1px 8px;
+  gap: 1px 6px;
   padding: 4px 10px;
   line-height: 1.2;
 }
@@ -6998,6 +7019,13 @@ main.forex-terminal-main {
 .forex-markets.is-compact .forex-market-strip button > span:not([class]) {
   grid-area: 2 / 1;
 }
+.forex-markets.is-compact .forex-market-strip .forex-session.is-compact {
+  grid-area: 1 / 2 / 3 / 3;
+}
+.forex-markets.is-compact .forex-market-strip .forex-session.is-compact .status-chip {
+  padding: 1px 6px;
+  font-size: 10px;
+}
 .forex-markets.is-compact .forex-market-strip .pair-signal,
 .forex-markets.is-compact .forex-market-strip .forex-strip-positions {
   justify-self: end;
@@ -7005,10 +7033,10 @@ main.forex-terminal-main {
   line-height: 14px;
 }
 .forex-markets.is-compact .forex-market-strip .pair-signal {
-  grid-area: 1 / 2;
+  grid-area: 1 / 3;
 }
 .forex-markets.is-compact .forex-market-strip .forex-strip-positions {
-  grid-area: 2 / 2;
+  grid-area: 2 / 3;
 }
 .forex-markets.is-compact .forex-market-strip button > span:not([class]) {
   color: #6c7a70;

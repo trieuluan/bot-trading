@@ -312,8 +312,11 @@ def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
         return {"workspace": identity, **dashboard()}
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
+    from .forex_market_sessions import market_session
+    now = int(time.time())
     with Session() as session:
-        instrument = spec_summary(session, symbol=symbol)
+        instrument = spec_summary(session, now, symbol=symbol)
+        session_status = market_session(instrument, now, symbol, os.getenv("EXNESS_ACCOUNT_ID") or None)
         try:
             if instrument["status"] == "stale":
                 raise ValueError("stale_specs")
@@ -334,6 +337,7 @@ def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
     return {
         "workspace": identity,
         "instrument": instrument,
+        "market_session": session_status,
         "mode": "demo_execution" if demo_execution_enabled() else "demo_read_only",
         "market": {
             "status": status,
@@ -352,6 +356,7 @@ def forex_markets():
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
     from .forex_learning import execution_status
+    from .forex_market_sessions import market_session
 
     now = int(time.time())
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
@@ -390,6 +395,7 @@ def forex_markets():
             tick = stream.get("quote")
             stamp = tick["time"] if tick else last.time + 900 if last else None
             markets.append({"symbol": symbol, "feed": frames, "specs": specs["status"],
+                            "market_session": market_session(specs, now, symbol, account or None),
                             "price": tick["bid"] if tick else last.close if last else None,
                             "price_at": stamp, "price_source": "tick" if tick else "closed_m15",
                             "age_seconds": max(0, now - stamp) if stamp is not None else None,

@@ -21,6 +21,7 @@ import type { ObservationChartSnapshot } from './components/MtfObservationChart'
 import { ForexExecutionPage } from './pages/ForexExecutionPage';
 import { ForexOverviewPage } from './pages/ForexOverviewPage';
 import { ForexConnectionPage } from './pages/ForexConnectionPage';
+import type { ForexMarketSession } from './lib/forex-labels';
 import type { ExnessExecution } from './types/exness-execution';
 
 interface Workspace {
@@ -46,6 +47,7 @@ interface FrameSummary {
 export interface ForexDashboard {
   workspace: Workspace;
   execution_enabled?: boolean;
+  market_session?: ForexMarketSession;
   instrument?: {
     profile: {
       contract_size: string;
@@ -276,7 +278,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             </div>
           )}
           {!dashboard && !error && <ForexSkeleton page={page} />}
-          {dashboard && page !== 'Kết nối sàn' && (
+          {dashboard && !switching && page !== 'Kết nối sàn' && (
             <ForexCatchupStatus dashboard={dashboard} disconnected={!!error} compact />
           )}
           {dashboard && page === 'Bot' && (
@@ -287,13 +289,14 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               onRetry={() => setRevision((value) => value + 1)}
             />
           )}
-          {dashboard && page === 'Tổng quan' && (
+          {dashboard && !switching && page === 'Tổng quan' && (
             <ForexOverviewPage
               key={dashboard.workspace.symbol}
               dashboard={dashboard}
               disconnected={!!error}
             />
           )}
+          {switching && page === 'Tổng quan' && <ForexSkeleton page={page} />}
           {dashboard && page === 'Kết nối sàn' && (
             <ForexConnectionPage
               key={dashboard.workspace.symbol}

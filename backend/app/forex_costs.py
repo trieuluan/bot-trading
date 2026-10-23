@@ -75,6 +75,7 @@ def normalize_specs(account, condition, now, account_id=None, symbol="XAUUSD"):
         "account_currency": settings.get("currency"), "quote_currency": condition.get("quote_currency"),
         "account_leverage": str(decimal_value(settings.get("leverage"), positive=True)),
         "point_digits": digits, "trade_mode": condition.get("trade_mode"), **numbers,
+        "trade_sessions": condition.get("trade_sessions"),
         "margin_percent": str(decimal_value(condition.get("margin_percent"), positive=True)),
         "calc_mode": condition.get("calc_mode"), "margin_currency": condition.get("margin_currency"),
         "commission_type": commission_type,
