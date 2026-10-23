@@ -30,7 +30,9 @@ export function useForexExecution(symbol: string) {
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 15000);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 15000);
     return () => {
       controller.abort();
       window.clearInterval(timer);

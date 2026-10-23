@@ -70,7 +70,7 @@ def read_ledger(account, symbol, *, path=None):
 def tick(account, symbol, now=None):
     from .db import ForexInstrumentState, Session
     from .exness_feed import WORKSPACE
-    from .exness_observation import audit_frames, load_frames
+    from .exness_observation import TICK_WINDOW, audit_frames, load_frames
     from .forex_conversion import cost_context
     from .forex_costs import SPEC_TTL, account_tag
     from .forex_htf_v2 import diagnose, reference_market, setup_identity
@@ -85,7 +85,7 @@ def tick(account, symbol, now=None):
         ledger = read_ledger(account, symbol) if path.exists() else initialize(path, account, symbol, read_control(account, symbol)["population"], now)
         stamp = now // 900 * 900 - 900
         with Session() as session:
-            frames = load_frames(session, now, symbol)
+            frames = load_frames(session, now, symbol, window=TICK_WINDOW)
             market = reference_market(session, now, symbol)
             specs = session.get(ForexInstrumentState, (WORKSPACE, symbol))
             condition = dict(specs.snapshot) if specs and specs.snapshot else None

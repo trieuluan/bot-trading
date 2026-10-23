@@ -92,7 +92,9 @@ export function ForexExecutionPage({
       }
     }
     void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
+    const timer = setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 5000);
     return () => {
       controller.abort();
       clearInterval(timer);

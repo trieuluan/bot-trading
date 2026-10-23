@@ -211,7 +211,9 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     }
     // Đổi cặp liên tục (bấm lướt, phím mũi tên) chỉ tải cặp dừng lại cuối cùng.
     const first = setTimeout(refreshForex, cached ? 0 : 150);
-    const interval = setInterval(refreshForex, 15000);
+    const interval = setInterval(() => {
+      if (!document.hidden) refreshForex();
+    }, 15000);
     return () => {
       controller.abort();
       clearTimeout(first);

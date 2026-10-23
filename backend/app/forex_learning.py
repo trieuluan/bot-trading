@@ -245,6 +245,21 @@ def cached_analysis(symbol, now=None):
     return result
 
 
+SUMMARY_TTL = 5
+_summary_cache = {}
+_summary_guard = threading.Lock()
+
+def cached_summary(symbol, now=None):
+    """/execution poll 5s mỗi tab: đọc ledger JSON một lần mỗi SUMMARY_TTL cho mọi client của cặp."""
+    now = time.monotonic() if now is None else now
+    with _summary_guard:
+        lock = _analysis_locks.setdefault(("summary", symbol), threading.Lock())
+    with lock:
+        hit = _summary_cache.get(symbol)
+        if not hit or now - hit[0] >= SUMMARY_TTL:
+            hit = _summary_cache[symbol] = (now, summary(symbol))
+        return hit[1]
+
 @router.get("/analysis")
 def analysis_endpoint(symbol: str = "XAUUSD"):
     request_symbol(symbol)

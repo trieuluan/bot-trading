@@ -49,3 +49,17 @@ def test_concurrent_analysis_requests_compute_once(monkeypatch):
     for thread in threads:
         thread.join(2)
     assert calls == ["GBPUSD"]
+
+def test_worker_analyses_once_per_candle_after_capture_window():
+    from bot.exness_worker import tick_due
+    done = {}
+    assert tick_due(done, "EURUSD", 900 + 10) and tick_due(done, "EURUSD", 900 + 60)
+    assert tick_due(done, "EURUSD", 900 + 200)
+    assert not tick_due(done, "EURUSD", 900 + 400)
+    assert tick_due(done, "EURUSD", 1800 + 5)
+    assert tick_due(done, "GBPUSD", 900 + 400)
+
+
+def test_tick_window_keeps_enough_history():
+    from backend.app.exness_observation import TICK_WINDOW
+    assert TICK_WINDOW["15m"] >= 10 * 86400 and TICK_WINDOW["4h"] >= 120 * 86400

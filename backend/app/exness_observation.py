@@ -11,13 +11,17 @@ from .exness_sessions import gap_details
 
 ACTIVE = ("waiting_retest", "waiting_confirm")
 
-def load_frames(session, now, symbol="XAUUSD"):
+# Cửa sổ đủ cho mọi detector/filter (EMA50 H4, ADR 5 ngày, 96 M15); tick định kỳ không đọc cả lịch sử.
+TICK_WINDOW = {"15m": 14 * 86400, "1h": 45 * 86400, "4h": 180 * 86400}
+
+def load_frames(session, now, symbol="XAUUSD", *, window=None):
     return {
         frame: session.scalars(select(WorkspaceCandle).where(
             WorkspaceCandle.workspace_id == WORKSPACE,
             WorkspaceCandle.symbol == symbol,
             WorkspaceCandle.timeframe == frame,
             WorkspaceCandle.time + step <= now,
+            *([WorkspaceCandle.time >= now - window[frame]] if window else []),
         ).order_by(WorkspaceCandle.time)).all()
         for frame, (_, step) in FRAMES.items()
     }
@@ -124,7 +128,7 @@ def observation_tick(now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     with Session.begin() as session:
         session.scalar(select(Workspace).where(Workspace.id == WORKSPACE).with_for_update())
-        frames = load_frames(session, now, symbol)
+        frames = load_frames(session, now, symbol, window=TICK_WINDOW)
         quality = audit_frames(frames, symbol)
         feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
         if quality["status"] == "blocked" or any(

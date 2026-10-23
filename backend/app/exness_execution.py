@@ -45,7 +45,7 @@ from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
 from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .forex_htf_v2 import execution_candidates, validate_execution_signal
-from .forex_learning import summary as learning_summary
+from .forex_learning import cached_summary as learning_summary
 from .forex_notifications import notify_reconciled
 from .forex_symbols import configured_symbols, request_symbol
 

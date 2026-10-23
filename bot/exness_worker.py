@@ -26,6 +26,15 @@ from backend.app.settings import validate_mode
 def throttle_delay(retry_after, streak):
     return max(retry_after, min(max(60, retry_after) * 2 ** min(max(streak - 1, 0), 4), 900))
 
+def tick_due(done, symbol, now):
+    """Phân tích chỉ cần mỗi nến M15; 3 phút đầu sau nến đóng chạy mỗi vòng (cửa sổ capture 120s), sau đó một lần."""
+    stamp = now // 900 * 900
+    if done.get(symbol) == stamp:
+        return False
+    if now - stamp >= 180:
+        done[symbol] = stamp
+    return True
+
 def execute_entry(account, identifier, symbol):
     from backend.app.forex_entry_intents import execute_trigger
     client = connect_exness()
@@ -49,6 +58,7 @@ def main():
     symbol_index = 0
     history_after = 0.0
     entry_consumers = None
+    analysed = {}
     try:
         while not stop.is_set():
             enabled = os.getenv("EXNESS_DATA_ENABLED", "false").lower() == "true"
@@ -84,6 +94,8 @@ def main():
                                 if stop.is_set():
                                     break
                                 sync_page(api, frame, symbol=symbol, live_first=True)
+                            if not tick_due(analysed, symbol, int(time.time())):
+                                continue
                             observation_tick(symbol=symbol)
                             try:
                                 from backend.app.forex_entry_pilot import tick as pilot_tick

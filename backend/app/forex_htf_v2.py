@@ -778,19 +778,19 @@ def ledger_path(account, symbol="XAUUSD"):
 
 def reference_market(session, now, symbol):
     """SMT reference H1 loaded once per tick; never one broker call per tree."""
-    from .exness_observation import load_frames
+    from .exness_observation import TICK_WINDOW, load_frames
     from .forex_features import SMT_REFERENCES
     from .forex_symbols import configured_symbols
     reference = SMT_REFERENCES.get(symbol)
     if reference is None or reference not in configured_symbols():
         return {}
-    rows = load_frames(session, now, reference)["1h"]
+    rows = load_frames(session, now, reference, window=TICK_WINDOW)["1h"]
     return {"reference_hours": sorted((row for row in rows if row.price_type == "bid"), key=lambda row: row.time)}
 
 def htf_ast3_tick(now=None, symbol="XAUUSD"):
     from .db import ForexInstrumentState, Session, WorkspaceFeedState
     from .exness_feed import FRAMES, WORKSPACE
-    from .exness_observation import audit_frames, load_frames
+    from .exness_observation import TICK_WINDOW, audit_frames, load_frames
     from .forex_migration import migrate_symbol_ledger
     from .forex_samples import advance_learning_sample, attach_execution, context, slippage_estimate
 
@@ -824,7 +824,7 @@ def htf_ast3_tick(now=None, symbol="XAUUSD"):
             return "waiting_next_candle"
 
         with Session() as session:
-            frames = load_frames(session, now, symbol)
+            frames = load_frames(session, now, symbol, window=TICK_WINDOW)
             market = reference_market(session, now, symbol)
             feeds = [session.get(WorkspaceFeedState, (WORKSPACE, symbol, frame)) for frame in FRAMES]
             feed_ready = all(state and not state.error and state.checked_until is not None
