@@ -60,7 +60,8 @@ export function useForexMarkets() {
         (value) => {
           setShared({ data: value as MarketsData, error: false });
         },
-        (online) => setShared((previous) => ({ ...previous, error: !online })),
+        (online, connecting) =>
+          setShared((previous) => ({ ...previous, error: !online && !connecting })),
       ),
     [symbol],
   );

@@ -15,7 +15,7 @@ export function useForexExecution(symbol: string) {
         const next = value as ExnessExecution;
         if (next.symbol === symbol) setData(next);
       },
-      (online) => setError(!online),
+      (online, connecting) => setError(!online && !connecting),
     );
   }, [symbol]);
   return { data: data?.symbol === symbol ? data : null, error };

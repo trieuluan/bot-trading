@@ -1,5 +1,9 @@
 type Part = 'dashboard' | 'execution' | 'markets' | 'analysis';
-type Listener = { part: Part; data: (value: unknown) => void; status: (online: boolean) => void };
+type Listener = {
+  part: Part;
+  data: (value: unknown) => void;
+  status: (online: boolean, connecting: boolean) => void;
+};
 type Channel = { symbol: string; offset: number; listeners: Set<Listener>; close: () => void };
 
 const channels = new Map<string, Channel>();
@@ -23,7 +27,6 @@ export function subscribeForexStream(
   channel.listeners.add(listener);
   const cached = snapshots.get(`${key}:${part}`);
   if (cached !== undefined) data(cached);
-  status(false);
   connect(channel, key);
   return () => {
     channel.listeners.delete(listener);
@@ -42,11 +45,15 @@ function connect(channel: Channel, key: string) {
   let backoff = 3000;
   const failed = new Set<Part>();
   const ready = new Set<Part>();
-  const report = (online: boolean) => {
+  const report = (online: boolean, connecting = false) => {
     channel.listeners.forEach((listener) =>
-      listener.status(online && ready.has(listener.part) && !failed.has(listener.part)),
+      listener.status(
+        online && ready.has(listener.part) && !failed.has(listener.part),
+        !failed.has(listener.part) && (connecting || (online && !ready.has(listener.part))),
+      ),
     );
   };
+  report(false, true);
   const open = () => {
     if (disposed || document.hidden) return;
     const parts = [...new Set([...channel.listeners].map((listener) => listener.part))].sort();
@@ -107,7 +114,7 @@ function connect(channel: Channel, key: string) {
     clearTimeout(retry);
     source?.close();
     source = undefined;
-    report(false);
+    report(false, true);
     if (!document.hidden) {
       last = Date.now();
       schedule();

@@ -75,7 +75,10 @@ export function ForexExecutionPage({
         if (next.symbol !== symbol) return;
         setData(next);
       },
-      (online) => setError(online ? '' : 'Stream lệnh sàn đang kết nối lại; dữ liệu có thể đã cũ.'),
+      (online, connecting) =>
+        setError(
+          online || connecting ? '' : 'Stream lệnh sàn đang kết nối lại; dữ liệu có thể đã cũ.',
+        ),
       offset,
     );
   }, [offset, revision, symbol]);

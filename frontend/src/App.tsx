@@ -195,7 +195,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           setDashboard(next);
           setError('');
         },
-        (online) => setError(online ? '' : 'Stream Exness đang kết nối lại; giữ dữ liệu cuối.'),
+        (online, connecting) =>
+          setError(online || connecting ? '' : 'Stream Exness đang kết nối lại; giữ dữ liệu cuối.'),
       ),
     [revision, symbol],
   );
