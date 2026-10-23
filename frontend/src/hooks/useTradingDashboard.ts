@@ -30,6 +30,7 @@ export function useTradingDashboard() {
         setConnected(ok);
         setConnecting(false);
       },
+      async () => ({ dashboard: await fetchDashboard() }),
     );
   }, []);
 

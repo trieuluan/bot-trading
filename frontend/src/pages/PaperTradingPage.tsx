@@ -121,12 +121,30 @@ export function PaperTradingPage({
             latest.current = next;
             setWallet(next);
           }
+          return !!next;
         },
-        auto: (data) => data && setAuto(data as AutoPaperState),
+        auto: (data) => {
+          if (!data) return false;
+          setAuto(data as AutoPaperState);
+        },
       },
       (ok) => {
         setOnline(ok);
         setConnecting(false);
+      },
+      async () => {
+        const get = async (path: string) => {
+          const response = await fetch(`${path}?symbol=${symbol}`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!response.ok) throw new Error(`Futures: ${response.status}`);
+          return response.json();
+        };
+        const [nextWallet, nextAuto] = await Promise.all([
+          get('/api/paper/wallet'),
+          get('/api/paper/auto'),
+        ]);
+        return { selected: { wallet: nextWallet }, auto: nextAuto };
       },
     );
     const ticker = setInterval(() => setClock(Date.now()), 1000);

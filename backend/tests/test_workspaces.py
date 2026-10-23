@@ -153,5 +153,5 @@ def test_stream_events_split_fast_and_slow_tiers():
 
     fs.invalidate()
     names = [name for name, *_ in fs.events_for("BTC_USDT", "board,selected")]
-    assert names == ["board", "learning", "selected"]
-    assert [name for name, *_ in fs.events_for("BTC_USDT", "selected")] == ["selected"]
+    assert names == ["board", "learning", "selected", "auto"]
+    assert [name for name, *_ in fs.events_for("BTC_USDT", "selected")] == ["selected", "auto"]

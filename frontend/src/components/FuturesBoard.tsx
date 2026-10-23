@@ -152,6 +152,21 @@ export function useFuturesBoard(active: boolean): Board {
       'parts=board',
       { board: merge('board'), learning: merge('learning') },
       () => undefined,
+      async () => {
+        const response = await fetch('/api/workspaces/mexc_futures/board', {
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) throw new Error(`Board: ${response.status}`);
+        const data = await response.json();
+        return {
+          board: data,
+          learning: {
+            symbols: Object.fromEntries(
+              FUTURES_SYMBOLS.map((pair) => [pair, data.symbols[pair]?.learning]),
+            ),
+          },
+        };
+      },
     );
   }, [active]);
   return board;
