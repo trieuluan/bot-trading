@@ -625,6 +625,18 @@ export function HtfLineage({
             <div className="lineage-step-card">
               <span className="step-num">4</span>
               <div className="step-content">
+                <strong>Vào lệnh</strong>
+                <span className="step-tag">Market</span>
+                <p>
+                  Gửi lệnh Market ngay khi nến M15 trigger đóng. Tín hiệu chỉ có hiệu lực 2 phút sau
+                  khi nến đóng; quá hạn thì bỏ, không đuổi giá.
+                </p>
+              </div>
+            </div>
+
+            <div className="lineage-step-card">
+              <span className="step-num">5</span>
+              <div className="step-content">
                 <strong>Quản lý lệnh</strong>
                 <span className="step-tag">{label(detail.exit_policy)}</span>
                 <p>
@@ -785,6 +797,38 @@ const winnerLabels: Record<string, string> = {
   market: 'Market',
 };
 
+const entryDefaults: Record<string, number> = {
+  limit_ratio: 0.5,
+  stop_buffer_atr: 0.05,
+  wait_bars: 4,
+};
+// Tham số mỗi kiểu vào lệnh dùng (khớp backend forex_entry_policy.entry_node).
+const entryPolicyParams: Record<string, string[]> = {
+  market: [],
+  limit_setup_mid: ['limit_ratio', 'wait_bars'],
+  stop_trigger_break: ['stop_buffer_atr', 'wait_bars'],
+  limit_or_stop: ['limit_ratio', 'stop_buffer_atr', 'wait_bars'],
+};
+const entryPolicyLabels: Record<string, string> = {
+  market: 'Market',
+  limit_setup_mid: 'Limit ảo',
+  stop_trigger_break: 'Stop ảo',
+  limit_or_stop: 'Limit/Stop ảo',
+};
+const entryParamText = (name: string, value: number) =>
+  name === 'limit_ratio'
+    ? `Limit ${Math.round(value * 100)}%`
+    : name === 'stop_buffer_atr'
+      ? `Stop +${value} ATR`
+      : `chờ ${value} nến`;
+/** Giá trị một tham số trên cả nhóm: một số nếu mọi cây giống nhau, ngược lại khoảng min–max. */
+function paramSpread(values: number[]) {
+  if (!values.length) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return { min, max, same: min === max };
+}
+
 export function ForexEntryPilotPanel({
   entryPilot,
   symbol,
@@ -804,7 +848,28 @@ export function ForexEntryPilotPanel({
   const comparison = pilot?.comparison;
   // Mọi cây cùng một kiểu vào lệnh thì đưa lên tiêu đề, không lặp lại từng dòng.
   const policies = new Set(trees.map((tree) => tree.entry_policy));
-  const policyLabel = (policy: string) => (policy === 'limit_or_stop' ? 'Limit/Stop ảo' : policy);
+  const policyLabel = (policy: string) => entryPolicyLabels[policy] ?? policy;
+  const spread = (name: string) =>
+    paramSpread(
+      trees
+        .map((tree) => tree.entry_params?.[name])
+        .filter((value): value is number => typeof value === 'number'),
+    );
+  const limitRatio = spread('limit_ratio');
+  const stopBuffer = spread('stop_buffer_atr');
+  const waitBars = spread('wait_bars');
+  const showValue = (
+    value: ReturnType<typeof paramSpread>,
+    format: (n: number) => string,
+    name: string,
+  ) =>
+    !value
+      ? format(entryDefaults[name])
+      : value.same
+        ? format(value.min)
+        : `${format(value.min)}–${format(value.max)} tuỳ cây`;
+  // Cột tham số từng cây chỉ cần khi các cây khác nhau.
+  const paramsVary = [limitRatio, stopBuffer, waitBars].some((value) => value && !value.same);
   const needle = entrySearch.trim().toLowerCase();
   const shownTrees = needle
     ? trees.filter((tree) =>
@@ -918,6 +983,49 @@ export function ForexEntryPilotPanel({
             </p>
           </div>
 
+          <div className="entry-pilot-howto" aria-label="Cách vào lệnh">
+            <h5>Cách vào lệnh</h5>
+            <p>
+              Khi nến M15 trigger đóng, bot không vào Market ngay mà đặt hai mức ảo (không phải
+              pending trên sàn) và canh giá qua tick stream. Mức nào chạm trước thì gửi Market lên
+              Exness Demo, mức còn lại huỷ.
+            </p>
+            <ol>
+              {policies.has('limit_or_stop') || policies.has('limit_setup_mid') ? (
+                <li>
+                  <strong>Limit · chờ hồi</strong>
+                  <span>
+                    Giá hồi về{' '}
+                    <b>{showValue(limitRatio, (n) => `${Math.round(n * 100)}%`, 'limit_ratio')}</b>{' '}
+                    quãng từ giá đóng M15 tới mức cấu trúc H1 (Mua: dưới giá đóng · Bán: trên giá
+                    đóng).
+                  </span>
+                </li>
+              ) : null}
+              {policies.has('limit_or_stop') || policies.has('stop_trigger_break') ? (
+                <li>
+                  <strong>Stop · phá nến</strong>
+                  <span>
+                    Giá vượt đỉnh (Mua) hoặc thủng đáy (Bán) nến trigger thêm{' '}
+                    <b>{showValue(stopBuffer, (n) => `${n} ATR`, 'stop_buffer_atr')}</b>.
+                  </span>
+                </li>
+              ) : null}
+              <li>
+                <strong>Hết hạn</strong>
+                <span>
+                  Chờ tối đa{' '}
+                  <b>{showValue(waitBars, (n) => `${n} nến M15 (${n * 15} phút)`, 'wait_bars')}</b>{' '}
+                  và không quá 4h15 kể từ setup H1. Hết hạn mà chưa chạm thì bỏ setup.
+                </span>
+              </li>
+            </ol>
+            <p className="micro">
+              SL/TP vẫn theo cấu trúc H1 như cây V3 gốc; chỉ giá vào lệnh khác.
+              {!paramsVary && ' Tất cả cây đang dùng cùng tham số entry.'}
+            </p>
+          </div>
+
           <details className="entry-pilot-intents">
             <summary>
               <span>Canh giá & kết quả broker</span>
@@ -1007,7 +1115,7 @@ export function ForexEntryPilotPanel({
               <thead>
                 <tr>
                   <th>Cây V4 · gốc V3</th>
-                  {policies.size > 1 && <th>Vào lệnh</th>}
+                  {(policies.size > 1 || paramsVary) && <th>Vào lệnh</th>}
                   <th>Setup H1 → Trigger M15</th>
                   <th>Quản lý</th>
                   <th className="num">Mẫu</th>
@@ -1022,7 +1130,27 @@ export function ForexEntryPilotPanel({
                       <code className="entry-tree-id">{t.id}</code>
                       <small className="entry-tree-parent">từ {t.control_tree_id}</small>
                     </td>
-                    {policies.size > 1 && <td>{policyLabel(t.entry_policy)}</td>}
+                    {(policies.size > 1 || paramsVary) && (
+                      <td>
+                        {policies.size > 1 && (
+                          <span className="entry-tree-policy">{policyLabel(t.entry_policy)}</span>
+                        )}
+                        <span className="entry-tree-params">
+                          {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
+                            .filter((name) => typeof t.entry_params?.[name] === 'number')
+                            .map((name) => (
+                              <span
+                                key={name}
+                                className={
+                                  t.entry_params[name] === entryDefaults[name] ? '' : 'is-tuned'
+                                }
+                              >
+                                {entryParamText(name, t.entry_params[name])}
+                              </span>
+                            ))}
+                        </span>
+                      </td>
+                    )}
                     <td>
                       <span className="lineage-tags-inline">
                         <span className="lineage-tag tag-h1">{label(t.h1_setup)}</span>
@@ -1041,7 +1169,10 @@ export function ForexEntryPilotPanel({
                 ))}
                 {!shownTrees.length && (
                   <tr>
-                    <td colSpan={policies.size > 1 ? 7 : 6} className="entry-pilot-empty">
+                    <td
+                      colSpan={policies.size > 1 || paramsVary ? 7 : 6}
+                      className="entry-pilot-empty"
+                    >
                       Không có cây nào khớp “{entrySearch.trim()}”.
                     </td>
                   </tr>
