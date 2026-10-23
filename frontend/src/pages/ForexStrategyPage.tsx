@@ -775,6 +775,211 @@ export function HtfLineage({
     </div>
   );
 }
+export function ForexEntryPilotPanel({ entryPilot }: { entryPilot?: ForexEntryPilot }) {
+  const [entrySearch, setEntrySearch] = useState('');
+  return (
+    <>
+      {entryPilot && entryPilot.pilot.status !== 'ready' && (
+        <div className="learning-section-card" role="status">
+          <h4>Limit/Stop ảo — bot canh giá</h4>
+          <p className="muted-desc">
+            {entryPilot.pilot.status === 'not_initialized'
+              ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
+              : 'Nhóm đối chiếu chưa sẵn sàng. Entry thử nghiệm bị chặn.'}
+          </p>
+          {(entryPilot.error || entryPilot.pilot.error) && (
+            <p>{entryPilot.error || entryPilot.pilot.error}</p>
+          )}
+        </div>
+      )}
+      {entryPilot?.pilot?.trees && (
+        <div className="learning-section-card">
+          <div className="card-header">
+            <div>
+              <h4>AST V4 Pilot · 56 Cây Limit/Stop Ảo Đối Chiếu</h4>
+              <p className="muted-desc">
+                {entryPilot.pilot.note ||
+                  'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
+                .
+              </p>
+            </div>
+            <div>
+              <input
+                type="search"
+                value={entrySearch}
+                onChange={(e) => setEntrySearch(e.target.value)}
+                placeholder="Lọc cây đối chiếu..."
+                aria-label="Lọc cây đối chiếu"
+              />
+              <span className="badge-count">
+                {entryPilot.intents?.filter((i) => i.status === 'waiting').length || 0} đang canh ·{' '}
+                {entryPilot.pilot.tree_count} cây
+              </span>
+            </div>
+          </div>
+          {entryPilot.pilot.comparison && entryPilot.pilot.comparison.matched_signals > 0 && (
+            <div className="bot-footer-note">
+              <div>
+                <strong>Đối chiếu cùng setup:</strong> {entryPilot.pilot.comparison.matched_signals}{' '}
+                tín hiệu
+              </div>
+              <div>
+                Cặp đã đóng cả hai: {entryPilot.pilot.comparison.resolved_pairs}. R Market shadow:{' '}
+                {entryPilot.pilot.comparison.market_mean_r !== null
+                  ? `${entryPilot.pilot.comparison.market_mean_r.toFixed(2)}R`
+                  : '—'}
+              </div>
+              <div>
+                R Limit/Stop shadow cùng cặp:{' '}
+                {entryPilot.pilot.comparison.hybrid_mean_r !== null
+                  ? `${entryPilot.pilot.comparison.hybrid_mean_r.toFixed(2)}R`
+                  : '—'}
+              </div>
+              <div>
+                Chênh lệch:{' '}
+                <strong>
+                  {entryPilot.pilot.comparison.delta_r !== null
+                    ? `${entryPilot.pilot.comparison.delta_r > 0 ? '+' : ''}${entryPilot.pilot.comparison.delta_r.toFixed(2)}R`
+                    : '—'}
+                </strong>
+              </div>
+            </div>
+          )}
+          <p className="bot-footer-note">
+            {entryPilot.enabled
+              ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có.'
+              : 'Execution nhóm thử đang tắt.'}{' '}
+            Kết quả shadow không phải giao dịch broker. R sau chi phí, chưa swap.
+          </p>
+          {entryPilot.pilot.since && (
+            <p className="bot-footer-note">
+              Cutoff nhóm đối chiếu: {formatTime(entryPilot.pilot.since, true)}. Không nhận fitness
+              từ cây nguồn.
+            </p>
+          )}
+          <p className="bot-footer-note">
+            {Object.entries(entryPilot.pilot.counts ?? {})
+              .map(([state, count]) => `${entryStateLabels[state] ?? state}: ${count}`)
+              .join(' · ') || 'Chưa có mẫu shadow'}
+          </p>
+          <details>
+            <summary>
+              Canh giá & kết quả broker · {entryPilot.intents.length} setup gần nhất
+            </summary>
+            <div className="table-wrap">
+              <table className="learner-clean-table">
+                <thead>
+                  <tr>
+                    <th>Cây / hướng</th>
+                    <th>Trạng thái</th>
+                    <th>Limit / Stop ảo</th>
+                    <th>Hết hạn</th>
+                    <th>Nhánh thắng</th>
+                    <th>Khớp broker / lệch mức</th>
+                    <th>Lý do hủy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entryPilot.intents.map((intent) => (
+                    <tr key={intent.id}>
+                      <td>
+                        <code>{intent.strategy}</code> · {intent.side === 'long' ? 'Mua' : 'Bán'}
+                      </td>
+                      <td>
+                        {intent.broker_fills?.length
+                          ? 'Broker đã xác nhận khớp'
+                          : (entryStateLabels[intent.status] ?? intent.status)}
+                      </td>
+                      <td>
+                        {intent.limit_price ?? '—'} / {intent.stop_price ?? '—'}
+                      </td>
+                      <td>{formatTime(intent.expires_at, true)}</td>
+                      <td>
+                        {intent.winner === 'limit'
+                          ? 'Limit giữa'
+                          : intent.winner === 'stop'
+                            ? 'Stop phá nến'
+                            : intent.winner === 'market'
+                              ? 'Market'
+                              : '—'}
+                      </td>
+                      <td>
+                        {intent.broker_fills?.length
+                          ? intent.broker_fills.map((fill) => (
+                              <div key={fill.position_id}>
+                                {fill.price} · lệch{' '}
+                                {fill.deviation === null
+                                  ? '—'
+                                  : `${fill.deviation > 0 ? '+' : ''}${Number(fill.deviation.toPrecision(6))}`}
+                              </div>
+                            ))
+                          : 'Chưa xác nhận'}
+                      </td>
+                      <td title={intent.reason}>
+                        {rejectLabels[intent.reason ?? '']?.[0] ?? intent.reason ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <div className="table-wrap">
+            <table className="learner-clean-table">
+              <thead>
+                <tr>
+                  <th>ID Cây V4</th>
+                  <th>Cây Gốc V3</th>
+                  <th>Vào Lệnh</th>
+                  <th>H1 Setup</th>
+                  <th>M15 Trigger</th>
+                  <th>Quản Lý</th>
+                  <th>Mẫu</th>
+                  <th>Đã Đóng</th>
+                  <th>Mean R</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entryPilot.pilot.trees
+                  .filter(
+                    (t) =>
+                      !entrySearch ||
+                      t.id.includes(entrySearch) ||
+                      t.control_tree_id.includes(entrySearch) ||
+                      t.h1_setup.includes(entrySearch),
+                  )
+                  .map((t) => (
+                    <tr key={t.id}>
+                      <td>
+                        <code>{t.id}</code>
+                      </td>
+                      <td>
+                        <code>{t.control_tree_id}</code>
+                      </td>
+                      <td>
+                        {t.entry_policy === 'limit_or_stop' ? 'Limit/Stop ảo' : t.entry_policy}
+                      </td>
+                      <td>{label(t.h1_setup)}</td>
+                      <td>{label(t.m15_trigger)}</td>
+                      <td>{label(t.exit_policy)}</td>
+                      <td>{t.samples_count}</td>
+                      <td>{t.resolved_count}</td>
+                      <td>
+                        {t.mean_r !== null
+                          ? `${t.mean_r > 0 ? '+' : ''}${t.mean_r.toFixed(2)}R`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function ForexStrategyPage({
   dashboard,
   disconnected,
@@ -804,7 +1009,6 @@ export function ForexStrategyPage({
   const [htf2Shadow, setHtf2Shadow] =
     useState<NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']>();
   const [entryPilot, setEntryPilot] = useState<ForexEntryPilot>();
-  const [entrySearch, setEntrySearch] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     setAnalysis(null);
@@ -1530,203 +1734,7 @@ export function ForexStrategyPage({
           </p>
         </div>
       )}
-      {!executionOnly && entryPilot && entryPilot.pilot.status !== 'ready' && (
-        <div className="learning-section-card" role="status">
-          <h4>Limit/Stop ảo — bot canh giá</h4>
-          <p className="muted-desc">
-            {entryPilot.pilot.status === 'not_initialized'
-              ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
-              : 'Nhóm đối chiếu chưa sẵn sàng. Entry thử nghiệm bị chặn.'}
-          </p>
-          {(entryPilot.error || entryPilot.pilot.error) && (
-            <p>{entryPilot.error || entryPilot.pilot.error}</p>
-          )}
-        </div>
-      )}
-      {!executionOnly && entryPilot?.pilot?.trees && (
-        <div className="learning-section-card">
-          <div className="card-header">
-            <div>
-              <h4>AST V4 Pilot · 56 Cây Limit/Stop Ảo Đối Chiếu</h4>
-              <p className="muted-desc">
-                {entryPilot.pilot.note ||
-                  'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
-                .
-              </p>
-            </div>
-            <div>
-              <input
-                type="search"
-                value={entrySearch}
-                onChange={(e) => setEntrySearch(e.target.value)}
-                placeholder="Lọc cây đối chiếu..."
-                aria-label="Lọc cây đối chiếu"
-              />
-              <span className="badge-count">
-                {entryPilot.intents?.filter((i) => i.status === 'waiting').length || 0} đang canh ·{' '}
-                {entryPilot.pilot.tree_count} cây
-              </span>
-            </div>
-          </div>
-          {entryPilot.pilot.comparison && entryPilot.pilot.comparison.matched_signals > 0 && (
-            <div className="bot-footer-note">
-              <div>
-                <strong>Đối chiếu cùng setup:</strong> {entryPilot.pilot.comparison.matched_signals}{' '}
-                tín hiệu
-              </div>
-              <div>
-                Cặp đã đóng cả hai: {entryPilot.pilot.comparison.resolved_pairs}. R Market shadow:{' '}
-                {entryPilot.pilot.comparison.market_mean_r !== null
-                  ? `${entryPilot.pilot.comparison.market_mean_r.toFixed(2)}R`
-                  : '—'}
-              </div>
-              <div>
-                R Limit/Stop shadow cùng cặp:{' '}
-                {entryPilot.pilot.comparison.hybrid_mean_r !== null
-                  ? `${entryPilot.pilot.comparison.hybrid_mean_r.toFixed(2)}R`
-                  : '—'}
-              </div>
-              <div>
-                Chênh lệch:{' '}
-                <strong>
-                  {entryPilot.pilot.comparison.delta_r !== null
-                    ? `${entryPilot.pilot.comparison.delta_r > 0 ? '+' : ''}${entryPilot.pilot.comparison.delta_r.toFixed(2)}R`
-                    : '—'}
-                </strong>
-              </div>
-            </div>
-          )}
-          <p className="bot-footer-note">
-            {entryPilot.enabled
-              ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có.'
-              : 'Execution nhóm thử đang tắt.'}{' '}
-            Kết quả shadow không phải giao dịch broker. R sau chi phí, chưa swap.
-          </p>
-          {entryPilot.pilot.since && (
-            <p className="bot-footer-note">
-              Cutoff nhóm đối chiếu: {formatTime(entryPilot.pilot.since, true)}. Không nhận fitness
-              từ cây nguồn.
-            </p>
-          )}
-          <p className="bot-footer-note">
-            {Object.entries(entryPilot.pilot.counts ?? {})
-              .map(([state, count]) => `${entryStateLabels[state] ?? state}: ${count}`)
-              .join(' · ') || 'Chưa có mẫu shadow'}
-          </p>
-          <details>
-            <summary>
-              Canh giá & kết quả broker · {entryPilot.intents.length} setup gần nhất
-            </summary>
-            <div className="table-wrap">
-              <table className="learner-clean-table">
-                <thead>
-                  <tr>
-                    <th>Cây / hướng</th>
-                    <th>Trạng thái</th>
-                    <th>Limit / Stop ảo</th>
-                    <th>Hết hạn</th>
-                    <th>Nhánh thắng</th>
-                    <th>Khớp broker / lệch mức</th>
-                    <th>Lý do hủy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entryPilot.intents.map((intent) => (
-                    <tr key={intent.id}>
-                      <td>
-                        <code>{intent.strategy}</code> · {intent.side === 'long' ? 'Mua' : 'Bán'}
-                      </td>
-                      <td>
-                        {intent.broker_fills?.length
-                          ? 'Broker đã xác nhận khớp'
-                          : (entryStateLabels[intent.status] ?? intent.status)}
-                      </td>
-                      <td>
-                        {intent.limit_price ?? '—'} / {intent.stop_price ?? '—'}
-                      </td>
-                      <td>{formatTime(intent.expires_at, true)}</td>
-                      <td>
-                        {intent.winner === 'limit'
-                          ? 'Limit giữa'
-                          : intent.winner === 'stop'
-                            ? 'Stop phá nến'
-                            : intent.winner === 'market'
-                              ? 'Market'
-                              : '—'}
-                      </td>
-                      <td>
-                        {intent.broker_fills?.length
-                          ? intent.broker_fills.map((fill) => (
-                              <div key={fill.position_id}>
-                                {fill.price} · lệch{' '}
-                                {fill.deviation === null
-                                  ? '—'
-                                  : `${fill.deviation > 0 ? '+' : ''}${Number(fill.deviation.toPrecision(6))}`}
-                              </div>
-                            ))
-                          : 'Chưa xác nhận'}
-                      </td>
-                      <td title={intent.reason}>
-                        {rejectLabels[intent.reason ?? '']?.[0] ?? intent.reason ?? '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-          <div className="table-wrap">
-            <table className="learner-clean-table">
-              <thead>
-                <tr>
-                  <th>ID Cây V4</th>
-                  <th>Cây Gốc V3</th>
-                  <th>Vào Lệnh</th>
-                  <th>H1 Setup</th>
-                  <th>M15 Trigger</th>
-                  <th>Quản Lý</th>
-                  <th>Mẫu</th>
-                  <th>Đã Đóng</th>
-                  <th>Mean R</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entryPilot.pilot.trees
-                  .filter(
-                    (t) =>
-                      !entrySearch ||
-                      t.id.includes(entrySearch) ||
-                      t.control_tree_id.includes(entrySearch) ||
-                      t.h1_setup.includes(entrySearch),
-                  )
-                  .map((t) => (
-                    <tr key={t.id}>
-                      <td>
-                        <code>{t.id}</code>
-                      </td>
-                      <td>
-                        <code>{t.control_tree_id}</code>
-                      </td>
-                      <td>
-                        {t.entry_policy === 'limit_or_stop' ? 'Limit/Stop ảo' : t.entry_policy}
-                      </td>
-                      <td>{label(t.h1_setup)}</td>
-                      <td>{label(t.m15_trigger)}</td>
-                      <td>{label(t.exit_policy)}</td>
-                      <td>{t.samples_count}</td>
-                      <td>{t.resolved_count}</td>
-                      <td>
-                        {t.mean_r !== null
-                          ? `${t.mean_r > 0 ? '+' : ''}${t.mean_r.toFixed(2)}R`
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {!executionOnly && <ForexEntryPilotPanel key={symbol} entryPilot={entryPilot} />}
       {!executionOnly && htf2Shadow && (
         <div className="learning-section-card">
           <div className="card-header">

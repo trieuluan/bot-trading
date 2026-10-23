@@ -2,7 +2,7 @@ import { useRoute, setRoute } from '../lib/router';
 import { useEffect, useMemo, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
-import { ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
+import { ForexEntryPilotPanel, ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 import { formatForexPrice } from '../lib/format';
 import { blockLabel } from '../lib/forex-labels';
 import { formatTime } from '../lib/time-format';
@@ -570,6 +570,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               </div>
               <DecisionJournal journal={data.journal} funnel={data.funnel} />
             </div>
+            <ForexEntryPilotPanel key={symbol} entryPilot={data.learning?.entry_pilot} />
             {data.learning?.htf_ast3_shadow && (
               <div className="learning-section-card">
                 <div className="card-header">
