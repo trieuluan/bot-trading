@@ -135,9 +135,12 @@ const select = (symbol: string) => setRoute({ symbol });
 export function ForexMarkets({
   symbol,
   variant = 'strip',
+  loading = false,
 }: {
   symbol: string;
   variant?: 'strip' | 'table' | 'health';
+  /** Cặp `symbol` đã chọn nhưng dữ liệu cặp đó chưa về. */
+  loading?: boolean;
 }) {
   const { data, error } = useForexMarkets();
   const now = useNow(1000);
@@ -169,9 +172,12 @@ export function ForexMarkets({
     return (
       <section
         ref={barRef}
-        className={`forex-markets is-compact${stuck ? ' is-stuck' : ''}`}
+        className={`forex-markets is-compact${stuck ? ' is-stuck' : ''}${loading ? ' is-loading' : ''}`}
         aria-label="Các cặp Forex"
       >
+        {loading && (
+          <span className="route-progress" role="status" aria-label={`Đang tải ${symbol}`} />
+        )}
         <div
           ref={stripRef}
           className={`forex-market-strip${edges.left ? ' fade-left' : ''}${edges.right ? ' fade-right' : ''}`}
@@ -187,6 +193,7 @@ export function ForexMarkets({
                 key={market.symbol}
                 type="button"
                 aria-pressed={market.symbol === symbol}
+                aria-busy={loading && market.symbol === symbol}
                 onPointerEnter={() => prefetchSymbol(market.symbol)}
                 onFocus={() => prefetchSymbol(market.symbol)}
                 onClick={() => select(market.symbol)}
@@ -194,6 +201,9 @@ export function ForexMarkets({
               >
                 <strong>{market.symbol}</strong>
                 <span>{formatPrice(market)}</span>
+                {loading && market.symbol === symbol && (
+                  <span className="pair-loading" aria-hidden="true" />
+                )}
                 {signals > 0 && (
                   <span
                     className="pair-signal"

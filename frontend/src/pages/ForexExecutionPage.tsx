@@ -1,5 +1,5 @@
 import { useRoute, setRoute } from '../lib/router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ExnessExecution } from '../types/exness-execution';
 import type { ForexDashboard } from '../App';
 import { ForexEntryPilotPanel, ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
@@ -28,8 +28,19 @@ type Filter = 'all' | 'open' | 'closed' | 'bot';
 const isBot = (source: string) =>
   source === 'learning' || source === 'hast2' || source === 'hast3' || source === 'regime_router';
 
-export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard }) {
+export function ForexExecutionPage({
+  dashboard,
+  pendingSymbol,
+}: {
+  dashboard: ForexDashboard;
+  /** Cặp vừa chọn nhưng dashboard của nó chưa về; trang đang hiển thị dữ liệu cặp cũ. */
+  pendingSymbol?: string;
+}) {
   const symbol = dashboard.workspace.symbol;
+  const stale = !!pendingSymbol;
+  // Đọc trong action() để chặn cả thao tác bắt đầu trước khi đổi cặp (vd. sau hộp confirm).
+  const staleRef = useRef(stale);
+  staleRef.current = stale;
   const [data, setData] = useState<ExnessExecution | null>(null);
   const [selectedId, setSelectedId] = useState<string>();
   const [offset, setOffset] = useState(0);
@@ -84,6 +95,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   }, [offset, revision, symbol]);
 
   async function action(path: string, method: string, body?: object) {
+    if (staleRef.current) return;
     setBusy(true);
     try {
       const response = await fetch(
@@ -127,7 +139,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const balance = data?.account_state?.balance;
   const floating = equity != null && balance != null ? Number(equity) - Number(balance) : null;
   return (
-    <div className="execution-desk trade-terminal">
+    <div className={`execution-desk trade-terminal${stale ? ' is-stale' : ''}`} aria-busy={stale}>
       <div
         ref={accountRef}
         className={`terminal-account-bar${accountStuck ? ' is-stuck' : ''}`}
@@ -177,7 +189,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
         </span>
         <button
           className={`terminal-toggle ${data?.enabled ? 'is-on' : ''}`}
-          disabled={busy || !data?.configured || !!error}
+          disabled={busy || stale || !data?.configured || !!error}
           onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
           title={`Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? '0.01'} lot`}
         >
@@ -189,17 +201,25 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           {error}
         </p>
       )}
-      {data && (
-        <div className="terminal-decision" role="status">
-          <strong>Bot:</strong>
-          <span>
-            {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
-            {data.error ? ` · Lỗi: ${data.error}` : ''}
-          </span>
-          <span className="muted">
-            {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
-          </span>
+      {stale ? (
+        <div className="terminal-decision is-switching" role="status">
+          <span className="switching-spinner" aria-hidden="true" />
+          <strong>Đang tải {pendingSymbol}…</strong>
+          <span>Số liệu bên dưới vẫn là {symbol}; bật/tắt bot và đóng lệnh tạm khoá.</span>
         </div>
+      ) : (
+        data && (
+          <div className="terminal-decision" role="status">
+            <strong>Bot:</strong>
+            <span>
+              {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
+              {data.error ? ` · Lỗi: ${data.error}` : ''}
+            </span>
+            <span className="muted">
+              {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
+            </span>
+          </div>
+        )
       )}
       <section
         id="execution-chart"
@@ -217,6 +237,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
           onClosePosition={(position) => {
             if (
               !busy &&
+              !stale &&
               !error &&
               data?.worker_online &&
               window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
@@ -396,6 +417,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
                                   className="btn-action btn-danger"
                                   disabled={
                                     busy ||
+                                    stale ||
                                     !!error ||
                                     position.close_requested ||
                                     !data.worker_online

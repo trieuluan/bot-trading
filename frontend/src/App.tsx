@@ -185,7 +185,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     let inflight = false;
     // Giữ dashboard cũ khi đổi cặp (không gỡ trang); dùng cache nếu cặp đã xem.
     const cached = cachedDashboard(symbol);
@@ -194,28 +194,32 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     function refreshForex() {
       if (inflight) return;
       inflight = true;
-      fetchDashboard(symbol)
+      fetchDashboard(symbol, controller.signal)
         .then((data) => {
-          if (!cancelled) {
+          if (!controller.signal.aborted) {
             setDashboard(data);
             setError('');
           }
         })
         .catch(() => {
-          if (!cancelled)
+          if (!controller.signal.aborted)
             setError('Mất kết nối API; giữ dữ liệu Exness cuối. Không dùng dữ liệu MEXC thay thế.');
         })
         .finally(() => {
           inflight = false;
         });
     }
-    refreshForex();
+    // Đổi cặp liên tục (bấm lướt, phím mũi tên) chỉ tải cặp dừng lại cuối cùng.
+    const first = setTimeout(refreshForex, cached ? 0 : 150);
     const interval = setInterval(refreshForex, 15000);
     return () => {
-      cancelled = true;
+      controller.abort();
+      clearTimeout(first);
       clearInterval(interval);
     };
   }, [revision, symbol]);
+  // Dữ liệu đang hiển thị là của cặp cũ: chờ dashboard cặp mới.
+  const switching = !!dashboard && dashboard.workspace.symbol !== symbol;
   return (
     <div className="shell forex-shell">
       {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
@@ -234,7 +238,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
       />
       <div className="main">
         <header className="topbar">
-          {dashboard && dashboard.workspace.symbol !== symbol && (
+          {switching && page !== 'Bot' && (
             <span className="route-progress" role="status" aria-label={`Đang tải ${symbol}`} />
           )}
           <div className="breadcrumb">
@@ -283,7 +287,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </button>
             </div>
           )}
-          {page === 'Bot' && <ForexMarkets symbol={symbol} />}
+          {page === 'Bot' && <ForexMarkets symbol={symbol} loading={switching} />}
           {error && (
             <div className="feedback" role="alert">
               {error}
@@ -293,7 +297,12 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           {dashboard && page !== 'Kết nối sàn' && (
             <ForexCatchupStatus dashboard={dashboard} disconnected={!!error} compact />
           )}
-          {dashboard && page === 'Bot' && <ForexExecutionPage dashboard={dashboard} />}
+          {dashboard && page === 'Bot' && (
+            <ForexExecutionPage
+              dashboard={dashboard}
+              pendingSymbol={switching ? symbol : undefined}
+            />
+          )}
           {dashboard && page === 'Tổng quan' && (
             <ForexOverviewPage
               key={dashboard.workspace.symbol}

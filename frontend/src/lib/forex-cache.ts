@@ -13,7 +13,11 @@ export interface CachedCandle {
 }
 
 const dashboards = new Map<string, ForexDashboard>();
-const dashboardRequests = new Map<string, Promise<ForexDashboard>>();
+// Request dùng chung theo cặp; chỉ huỷ khi mọi nơi đang chờ đều đã bỏ (đổi sang cặp khác).
+const dashboardRequests = new Map<
+  string,
+  { promise: Promise<ForexDashboard>; controller: AbortController; waiters: number }
+>();
 const candles = new Map<string, { rows: CachedCandle[]; hasMore: boolean }>();
 const candleRequests = new Set<string>();
 
@@ -22,23 +26,44 @@ export const candleKey = (symbol: string, frame: string, side: string) =>
 
 export const cachedDashboard = (symbol: string) => dashboards.get(symbol);
 
-export function fetchDashboard(symbol: string): Promise<ForexDashboard> {
-  const pending = dashboardRequests.get(symbol);
-  if (pending) return pending;
-  const request = fetch(
-    `/api/workspaces/exness_forex/dashboard?symbol=${encodeURIComponent(symbol)}`,
-    { signal: AbortSignal.timeout(10000) },
-  )
-    .then(async (response) => {
-      if (!response.ok) throw new Error('Không tải được workspace Exness.');
-      const data = (await response.json()) as ForexDashboard;
-      if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
-      dashboards.set(symbol, data);
-      return data;
-    })
-    .finally(() => dashboardRequests.delete(symbol));
-  dashboardRequests.set(symbol, request);
-  return request;
+/** `signal` huỷ phần chờ của caller; request mạng chỉ bị huỷ khi không còn ai chờ. Không truyền `signal` (prefetch) thì request luôn chạy hết. */
+export function fetchDashboard(symbol: string, signal?: AbortSignal): Promise<ForexDashboard> {
+  let entry = dashboardRequests.get(symbol);
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = fetch(
+      `/api/workspaces/exness_forex/dashboard?symbol=${encodeURIComponent(symbol)}`,
+      { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Không tải được workspace Exness.');
+        const data = (await response.json()) as ForexDashboard;
+        if (data.workspace.id !== 'exness_forex') throw new Error('Sai nguồn workspace.');
+        dashboards.set(symbol, data);
+        return data;
+      })
+      .finally(() => {
+        if (dashboardRequests.get(symbol)?.promise === promise) dashboardRequests.delete(symbol);
+      });
+    entry = { promise, controller, waiters: 0 };
+    dashboardRequests.set(symbol, entry);
+  }
+  const current = entry;
+  current.waiters += 1;
+  if (!signal) return current.promise;
+  const release = () => {
+    current.waiters -= 1;
+    if (current.waiters === 0) {
+      current.controller.abort();
+      if (dashboardRequests.get(symbol) === current) dashboardRequests.delete(symbol);
+    }
+  };
+  if (signal.aborted) {
+    release();
+    return Promise.reject(signal.reason);
+  }
+  signal.addEventListener('abort', release, { once: true });
+  return current.promise.finally(() => signal.removeEventListener('abort', release));
 }
 
 export const cachedCandles = (key: string) => candles.get(key);

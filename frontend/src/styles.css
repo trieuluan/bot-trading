@@ -9141,3 +9141,75 @@ button.ap-cell:focus-visible {
   color: #47617f;
   font-weight: 650;
 }
+
+/* Đổi cặp: vạch tiến trình dưới dải cặp (sticky nên luôn thấy), spinner trên cặp vừa chọn,
+   dữ liệu cặp cũ mờ đi và không bấm được cho tới khi dashboard cặp mới về. */
+.forex-markets.is-compact .route-progress {
+  bottom: 0;
+  left: 16px;
+  width: 25%;
+  max-width: 240px;
+}
+.forex-markets.is-compact .forex-market-strip button[aria-busy='true'] {
+  padding-right: 24px;
+}
+.pair-loading,
+.switching-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #cfdcd2;
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: pair-loading-spin 0.7s linear infinite;
+}
+.forex-markets.is-compact .forex-market-strip .pair-loading {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  margin-top: -5px;
+}
+.switching-spinner {
+  flex: none;
+  align-self: center;
+}
+@keyframes pair-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pair-loading,
+  .switching-spinner {
+    animation-duration: 2.4s;
+  }
+}
+.terminal-decision.is-switching {
+  align-items: center;
+  color: #1e5b47;
+}
+.terminal-decision.is-switching > .switching-spinner {
+  flex: none;
+}
+.terminal-decision.is-switching > span:last-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.trade-terminal .terminal-account-bar > *,
+.trade-terminal .execution-chart-panel,
+.trade-terminal .terminal-bottom {
+  transition: opacity 0.15s;
+}
+.trade-terminal.is-stale .terminal-account-bar > :not(.badge-status),
+.trade-terminal.is-stale .execution-chart-panel,
+.trade-terminal.is-stale .terminal-bottom {
+  opacity: 0.45;
+}
+.trade-terminal.is-stale .execution-chart-panel,
+.trade-terminal.is-stale .terminal-bottom {
+  pointer-events: none;
+  user-select: none;
+}
