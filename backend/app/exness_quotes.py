@@ -209,6 +209,7 @@ class QuoteStream:
                                 if previous and quote["time"] < previous["time"]:
                                     continue
                                 self.accept_quote(quote, symbol)
+                                publish_entry({"status": "live", "symbol": symbol, "quote": quote})
                                 try:
                                     await asyncio.to_thread(sync_paper_quote, quote, paper_gap) if symbol == "XAUUSD" else None
                                     paper_gap = False
@@ -241,6 +242,9 @@ class QuoteStream:
                         raise
                     self.status = "rate_limited"
                     delay = max(delay, exc.retry_after)
+                finally:
+                    for symbol in tuple(entry_subscribers):
+                        publish_entry({"status": "disconnected", "symbol": symbol})
                 if self.status != "rate_limited":
                     self.status = "reconnecting"
                 await asyncio.sleep(delay)
@@ -255,12 +259,42 @@ class QuoteStream:
 
 
 quotes = QuoteStream()
+entry_subscribers = {}
+
+def publish_entry(event):
+    for queue in tuple(entry_subscribers.get(event["symbol"], ())):
+        if queue.full():
+            while not queue.empty():
+                queue.get_nowait()
+            queue.put_nowait({"status": "overflow", "symbol": event["symbol"]})
+        else:
+            queue.put_nowait(event)
 
 
 @router.get("/api/workspaces/exness_forex/quotes/stream")
-async def quote_events(symbol: str = "XAUUSD"):
+async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart"):
     request_symbol(symbol)
     async def events():
+        if purpose == "entry":
+            queue = asyncio.Queue(maxsize=256)
+            entry_subscribers.setdefault(symbol, set()).add(queue)
+            try:
+                yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=1)
+                    except asyncio.TimeoutError:
+                        if quotes.status != "connected":
+                            event = {"status": "disconnected", "symbol": symbol}
+                        else:
+                            yield ": heartbeat\n\n"
+                            continue
+                    yield "data: " + json.dumps(event) + "\n\n"
+                    if event["status"] != "live":
+                        return
+            finally:
+                entry_subscribers[symbol].discard(queue)
+            return
         while True:
             yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
             await asyncio.sleep(1)

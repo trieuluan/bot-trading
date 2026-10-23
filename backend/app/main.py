@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import hmac
 import os
-import secrets
 import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
@@ -14,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 
 from .alerts import watchdog
+from .app_auth import AUTH_TTL, COOKIE, auth_token
 from .auto_paper import router as auto_router
 from .db import (
     AutoPaperState,
@@ -81,15 +81,6 @@ app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
 app.include_router(stream_router)
-
-COOKIE = "signal_desk_auth"
-AUTH_TTL = 86400
-
-def auth_token():
-    password = os.getenv("APP_PASSWORD", "")
-    payload = f"{int(time.time()) + AUTH_TTL}.{secrets.token_hex(16)}"
-    signature = hmac.new(password.encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return f"{payload}.{signature}"
 
 def authenticated(request):
     password = os.getenv("APP_PASSWORD", "")

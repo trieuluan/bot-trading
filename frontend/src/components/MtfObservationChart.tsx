@@ -17,6 +17,7 @@ import {
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
+import type { ForexEntryIntent } from '../types/forex-entry';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
@@ -34,6 +35,7 @@ export function MtfObservationChart({
   candles,
   snapshot,
   analysis = null,
+  entryIntents,
   shown = [],
   livePrice = null,
   liveCandles = [],
@@ -54,6 +56,7 @@ export function MtfObservationChart({
   candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
   snapshot: ObservationChartSnapshot | null;
   analysis?: LearnerAnalysis | null;
+  entryIntents?: ForexEntryIntent[];
   shown?: string[];
   title?: string;
   livePrice?: { price: number; label: string } | null;
@@ -210,6 +213,41 @@ export function MtfObservationChart({
       priceFormat: { type: 'price', precision: pricePrecision, minMove: 10 ** -pricePrecision },
     });
   }, [pricePrecision]);
+
+  useEffect(() => {
+    const priceSeries = series.current;
+    if (!priceSeries) return;
+    const virtualLines: IPriceLine[] = [];
+    for (const intent of entryIntents ?? []) {
+      const waiting = intent.status === 'waiting';
+      const triggered =
+        ['triggered', 'submitting', 'uncertain'].includes(intent.status) ||
+        (intent.status === 'submitted' &&
+          intent.broker_fills?.some((fill) =>
+            executions.some(
+              (position) => position.position_id === fill.position_id && position.status === 'open',
+            ),
+          ));
+      for (const branch of ['limit', 'stop'] as const) {
+        const price = branch === 'limit' ? intent.limit_price : intent.stop_price;
+        if (!price || (!waiting && !(triggered && intent.winner === branch))) continue;
+        virtualLines.push(
+          priceSeries.createPriceLine({
+            price,
+            color: branch === 'limit' ? '#138b79' : '#cb8428',
+            lineWidth: waiting ? 1 : 2,
+            lineStyle: waiting ? LineStyle.Dashed : LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `${branch === 'limit' ? 'Limit giữa' : 'Stop phá nến'} ảo · ${waiting ? 'chờ giá' : 'đã kích hoạt'}`,
+          }),
+        );
+      }
+    }
+    return () => {
+      if (series.current === priceSeries)
+        virtualLines.forEach((line) => priceSeries.removePriceLine(line));
+    };
+  }, [entryIntents, executions]);
 
   useEffect(() => {
     const priceSeries = series.current;

@@ -26,6 +26,16 @@ from backend.app.settings import validate_mode
 def throttle_delay(retry_after, streak):
     return max(retry_after, min(max(60, retry_after) * 2 ** min(max(streak - 1, 0), 4), 900))
 
+def execute_entry(account, identifier, symbol):
+    from backend.app.forex_entry_intents import execute_trigger
+    client = connect_exness()
+    try:
+        if client.account_id != account:
+            raise ExnessError("Virtual entry account changed")
+        execute_trigger(client, identifier, symbol)
+    finally:
+        client.client.close()
+
 def main():
     validate_mode()
     stop = threading.Event()
@@ -38,6 +48,7 @@ def main():
     last_throttle = 0.0
     symbol_index = 0
     history_after = 0.0
+    entry_consumers = None
     try:
         while not stop.is_set():
             enabled = os.getenv("EXNESS_DATA_ENABLED", "false").lower() == "true"
@@ -53,6 +64,14 @@ def main():
                         continue
                     if api is None:
                         api = connect_exness()
+                    from backend.app.forex_entry_intents import pilot_enabled
+                    if pilot_enabled() and (entry_consumers is None or entry_consumers.failed.is_set()):
+                        from backend.app.forex_entry_consumer import EntryConsumers
+                        entry_consumers = EntryConsumers(api.account_id, stop,
+                            lambda identifier, symbol, account=api.account_id: execute_entry(account, identifier, symbol))
+                        threading.Thread(target=entry_consumers.run, daemon=True, name="forex-entry-supervisor").start()
+                        if not entry_consumers.ready.wait(5):
+                            raise ExnessError("Virtual entry supervisor unavailable")
                     throttled = False
                     symbols = configured_symbols()
                     for symbol in symbols[symbol_index:] + symbols[:symbol_index]:
@@ -66,6 +85,11 @@ def main():
                                     break
                                 sync_page(api, frame, symbol=symbol, live_first=True)
                             observation_tick(symbol=symbol)
+                            try:
+                                from backend.app.forex_entry_pilot import tick as pilot_tick
+                                pilot_tick(api.account_id, symbol)
+                            except Exception:
+                                logging.exception("Forex entry pilot tick failed: %s", symbol)
                             safe_htf_ast3_tick(symbol=symbol)
                         except ExnessError as exc:
                             logging.warning("Exness sync paused for %s: %s", symbol, exc)

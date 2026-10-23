@@ -29,6 +29,7 @@ def database(monkeypatch):
         BotState,
         Event,
         ExnessDeal,
+        ExnessEntryIntent,
         ExnessExecutionState,
         ExnessExecutionTrade,
         ForexGapAudit,
@@ -58,6 +59,7 @@ def database(monkeypatch):
     with Session.begin() as session:
         for model in (
             ExnessExecutionTrade,
+            ExnessEntryIntent,
             ExnessExecutionState,
             ExnessDeal,
             ForexGapAudit,

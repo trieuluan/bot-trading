@@ -55,6 +55,10 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         icon = "🟢" if side == "BUY" else "🔴"
         vol = (position or {}).get("volume")
         strat = signal.get("strategy", "HTF V2")
+        branch_text = ""
+        if signal.get("entry_branch"):
+            branch_name = {"limit": "Limit giữa", "stop": "Stop phá nến", "market": "Market"}.get(signal["entry_branch"], "Chưa xác minh")
+            branch_text = f"\n🎯 <b>Nhánh kích hoạt:</b> {branch_name} (bot canh giá)"
 
         queue(
             session,
@@ -62,6 +66,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
             "\n".join([
                 f"{icon} <b>MỞ VỊ THẾ FOREX · {side} {symbol}</b>",
                 f"🌲 <b>Chiến thuật:</b> <code>{esc(strat)}</code>",
+                *( [branch_text.strip()] if branch_text else [] ),
                 "🧪 Exness DEMO · khớp sàn đã đối soát",
                 f"🎯 <b>Vai trò:</b> {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
                 "",

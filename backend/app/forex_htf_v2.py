@@ -146,6 +146,9 @@ def validate_params(bounds_dict, family, params):
 
 
 def validate_htf2_tree(tree):
+    if isinstance(tree, dict) and tree.get("schema") == "forex_htf_ast_v4":
+        from .forex_entry_policy import validate_tree
+        return validate_tree(tree)
     if not isinstance(tree, dict) or set(tree) != {"schema", "root"} or tree["schema"] != SCHEMA:
         raise ValueError("Invalid HTF v2 schema")
     root = tree["root"]
@@ -206,6 +209,9 @@ def validate_htf2_tree(tree):
 
 
 def tree_id(tree):
+    if isinstance(tree, dict) and tree.get("schema") == "forex_htf_ast_v4":
+        from .forex_entry_policy import tree_id as entry_tree_id
+        return entry_tree_id(tree)
     validate_htf2_tree(tree)
     nodes = tree["root"]["children"]
     body = json.dumps({"schema": tree["schema"], "children": nodes[:4] + sorted(nodes[4:], key=lambda node: node["name"])}, sort_keys=True)
@@ -213,6 +219,9 @@ def tree_id(tree):
 
 
 def describe(tree):
+    if tree.get("schema") == "forex_htf_ast_v4":
+        from .forex_entry_policy import control_tree
+        return describe(control_tree(tree)) + " + " + tree["root"]["children"][3]["policy"]
     c = tree["root"]["children"]
     side = "Hai chiều · thuận H4"
     h1_name = c[1]["family"]
@@ -247,14 +256,19 @@ POLICY_NAMES = {"partial_be_h1": "Chốt 1 phần · BE H1", "partial_be_m15": "
 def tree_label(tree, generation=0):
     """Tên đọc được cho UI; id chỉ là hậu tố tra cứu. Tham số khác mặc định được nêu để cây con không trùng tên."""
     c = tree["root"]["children"]
-    h1, m15, policy = c[1]["family"], c[2]["family"], c[3]["policy"]
+    v4 = tree["schema"] == "forex_htf_ast_v4"
+    h1 = c[1]["family"]
+    m15 = c[2]["family"]
+    policy = c[4]["policy"] if v4 else c[3]["policy"]
     changed = [f"{k} {v}" for k, v in c[1].get("params", {}).items() if v != default_h1_params(h1).get(k)]
     changed += [f"{k} {v}" for k, v in c[2].get("params", {}).items() if v != M15_DEFAULTS[m15].get(k)]
-    changed += [f"{k} {v}" for k, v in (c[3].get("params") or {}).items() if v != EXIT_DEFAULTS.get(policy, {}).get(k)]
-    title = f"Hai chiều · thuận H4 · H1 {SETUP_NAMES[h1]} → M15 {TRIGGER_NAMES[m15]}"
+    changed += [f"{k} {v}" for k, v in c[4 if v4 else 3].get("params", {}).items() if v != EXIT_DEFAULTS.get(policy, {}).get(k)]
+    entry_str = f" · {c[3]['policy']}" if v4 else ""
+    title = f"Hai chiều · thuận H4 · H1 {SETUP_NAMES[h1]} → M15 {TRIGGER_NAMES[m15]}{entry_str}"
     policy_name = POLICY_NAMES.get(policy, policy)
+    prefix = "hast4_" if v4 else "hast3_"
     return {"title": title, "policy": policy_name, "params": ", ".join(changed), "generation": generation,
-            "short": tree_id(tree).removeprefix("hast3_")[:4],
+            "short": tree_id(tree).removeprefix(prefix)[:4],
             "full": f"{title} · {policy_name}" + (f" · {', '.join(changed)}" if changed else "") + f" · G{generation} #{tree_id(tree)[6:10]}"}
 
 def default_h1_params(family):
@@ -394,6 +408,17 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
              market=None):
     """Diagnose bidirectional V3 tree on closed bars. Returns (signal, None) or (None, reason)."""
     validate_htf2_tree(tree)
+    if tree["schema"] == "forex_htf_ast_v4":
+        from .forex_entry_policy import control_tree, levels
+        signal, reason = diagnose(control_tree(tree), candle, hours, minutes, higher, ask, slippage_bps,
+                                  commission, symbol, market)
+        if signal is None:
+            return None, reason
+        try:
+            virtual = levels(signal, candle, tree["root"]["children"][3])
+        except ValueError as exc:
+            return None, str(exc)
+        return {**signal, "strategy": tree_id(tree), "htf_ast_v4": True, "entry_policy": virtual}, None
     if (candle.time % 900 or not all(math.isfinite(value) and value > 0 for value in
                                    (candle.open, candle.high, candle.low, candle.close))
             or candle.low > min(candle.open, candle.close) or candle.high < max(candle.open, candle.close)):
@@ -544,6 +569,14 @@ def crossover(parent_a, parent_b, rng=None):
     rng = random if rng is None else rng
     validate_htf2_tree(parent_a)
     validate_htf2_tree(parent_b)
+    if "forex_htf_ast_v4" in (parent_a["schema"], parent_b["schema"]):
+        from .forex_entry_policy import control_tree, entry_node, with_entry
+        first = control_tree(parent_a) if parent_a["schema"] == "forex_htf_ast_v4" else parent_a
+        second = control_tree(parent_b) if parent_b["schema"] == "forex_htf_ast_v4" else parent_b
+        child = crossover(first, second, rng)
+        source = rng.choice((parent_a, parent_b))
+        node = source["root"]["children"][3] if source["schema"] == "forex_htf_ast_v4" else entry_node("market")
+        return with_entry(child, node)
     child = copy.deepcopy(parent_a)
     nodes = child["root"]["children"]
     index = rng.randrange(1, 5)
@@ -564,6 +597,23 @@ def _random_filter(rng, taken):
 
 def mutate(tree, rng=None, symbol="XAUUSD"):
     rng = random if rng is None else rng
+    from .forex_entry_intents import pilot_enabled
+    if tree["schema"] == SCHEMA and pilot_enabled() and rng.randrange(5) == 0:
+        from .forex_entry_policy import POLICIES, entry_node, with_entry
+        return with_entry(tree, entry_node(rng.choice(POLICIES)))
+    if tree["schema"] == "forex_htf_ast_v4":
+        from .forex_entry_policy import POLICIES, control_tree, entry_node, with_entry
+        if rng.randrange(5) == 0:
+            node = copy.deepcopy(tree["root"]["children"][3])
+            if node["params"] and rng.random() < 0.5:
+                key = rng.choice(list(node["params"]))
+                values = {"wait_bars": (1, 2, 3, 4), "limit_ratio": (0.25, 0.5, 0.75, 1),
+                          "stop_buffer_atr": (0, 0.025, 0.05, 0.1, 0.25)}[key]
+                node["params"][key] = rng.choice([value for value in values if value != node["params"][key]])
+            else:
+                node = entry_node(rng.choice([policy for policy in POLICIES if policy != node["policy"]]))
+            return with_entry(tree, node)
+        return with_entry(mutate(control_tree(tree), rng, symbol), tree["root"]["children"][3])
     child = copy.deepcopy(tree)
     nodes = child["root"]["children"]
     index = rng.randrange(1, 5)  # H4 node has nothing to mutate; direction is never stored
@@ -616,7 +666,8 @@ def mutate(tree, rng=None, symbol="XAUUSD"):
 
 def logic_version():
     names = ("forex_htf_v2.py", "forex_detectors.py", "forex_buffer_study.py",
-             "forex_features.py", "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py", "forex_exits.py")
+             "forex_features.py", "forex_samples.py", "forex_indicators.py", "exness_targets.py", "exness_management.py", "exness_sessions.py", "forex_exits.py",
+             "forex_entry_policy.py", "forex_entry_replay.py")
     return hashlib.sha256(b"".join(Path(__file__).with_name(name).read_bytes() for name in names)).hexdigest()[:16]
 
 
@@ -668,7 +719,7 @@ def evolve_population(ledger, now, random_seed=None, version=None):
     replacements = sorted((tree for tree in population if scores[tree_id(tree)]["ready"]
                             and tree not in parents
                             and scores[tree_id(tree)]["mean_r"] < scores[tree_id(parents[0])]["mean_r"]
-                            and not any(sample["strategy"] == tree_id(tree) and sample["status"] in ("pending", "open")
+                            and not any(sample["strategy"] == tree_id(tree) and sample["status"] in ("waiting", "pending", "open")
                                         for sample in ledger["samples"])),
                            key=lambda tree: (scores[tree_id(tree)]["mean_r"], tree_id(tree)))[:1]
     if not replacements:
@@ -798,7 +849,12 @@ def htf_ast3_tick(now=None, symbol="XAUUSD"):
         valid = audit_frames(frames, symbol)["status"] != "blocked"
 
         if valid:
+            from .forex_entry_replay import advance_forward
+            advance_forward([sample for sample in ledger["samples"]
+                             if sample["tree"]["schema"] == "forex_htf_ast_v4"], bids, asks, now)
             for sample in ledger["samples"]:
+                if sample["tree"]["schema"] == "forex_htf_ast_v4":
+                    continue
                 if sample["status"] not in ("pending", "open"):
                     continue
                 for index, candle in enumerate(bids["15m"]):
@@ -851,8 +907,12 @@ def htf_ast3_tick(now=None, symbol="XAUUSD"):
                     "stop": signal["stop"], "confirm_time": stamp, "recorded_at": now, "last_candle": stamp,
                     "status": "pending", "costs": costs, "provenance": PROVENANCE
                 }
-                attach_execution(sample, bids["15m"][-60:], bids["1h"], bids["4h"],
-                                 context(candle, bids["1h"], asks[stamp]), candle, condition)
+                if tree["schema"] == "forex_htf_ast_v4":
+                    signal["setup_id"] = setup_identity(signal, tree)
+                    sample.update(status="waiting", condition=condition)
+                else:
+                    attach_execution(sample, bids["15m"][-60:], bids["1h"], bids["4h"],
+                                     context(candle, bids["1h"], asks[stamp]), candle, condition)
                 ledger["samples"].append(sample)
 
             capture.update(status="captured", confirmed=hits, rejected=dict(rejected))
@@ -894,17 +954,19 @@ def _htf_ast3_summary(account, symbol="XAUUSD"):
         values = [s["net_r_ex_swap"] for s in samples if s["status"] == "resolved"]
         last = samples[-1] if samples else None
         c = tree["root"]["children"]
+        exit_node = c[4 if tree["schema"] == "forex_htf_ast_v4" else 3]
         stats = parent_stats(samples, now, version, max(ledger.get("since", 0), members.get(tid, {}).get("born_at", 0)))
         rows.append({
             "id": tid, "description": describe(tree), "label": tree_label(tree, members.get(tid, {}).get("generation", 0)), "signals": len(samples),
             "generation": members.get(tid, {}).get("generation", 0), "parents": members.get(tid, {}).get("parents", []),
             "fitness": stats, "eligible": stats["eligible"],
-            "h1_setup": c[1]["family"], "m15_trigger": c[2]["family"], "exit_policy": c[3]["policy"],
-            "exit_params": parameters(c[3]["policy"], c[3].get("params")) if c[3]["policy"] in EXIT_DEFAULTS else {},
+            "h1_setup": c[1]["family"], "m15_trigger": c[2]["family"], "exit_policy": c[4 if tree["schema"] == "forex_htf_ast_v4" else 3]["policy"],
+            "entry_policy": c[3]["policy"] if tree["schema"] == "forex_htf_ast_v4" else "market",
+            "exit_params": parameters(exit_node["policy"], exit_node.get("params")) if exit_node["policy"] in EXIT_DEFAULTS else {},
             "last_levels": {"stop": last["signal"]["stop"], "target": last["signal"]["target"],
                             "reason": last["signal"]["reason"], "time": last["confirm_time"]} if last else None,
             "costs_verified": bool(samples) and all(sample["costs"]["verified"] for sample in samples),
-            "pending": sum(s["status"] in ("pending", "open") for s in samples),
+            "pending": sum(s["status"] in ("waiting", "pending", "open") for s in samples),
             "resolved": len(values),
             "excluded": sum(s["status"] in ("excluded", "invalid", "skipped") for s in samples),
             "mean_r": mean(values) if values else None,
@@ -1066,15 +1128,35 @@ def execution_candidates(account, now, symbol="XAUUSD"):
                        and sample["strategy_version"] == version and sample["confirm_time"] == stamp
                        and sample.get("provenance") == PROVENANCE and sample.get("costs", {}).get("verified") is True
                        and sample["status"] in ("pending", "open")), None)
-        if sample and sample["tree"] in ledger["population"]:
+        if sample and sample["tree"] in ledger["population"] and sample["tree"]["schema"] == SCHEMA:
             result.append((execution_signal(sample), stats))
+    from .forex_entry_intents import pilot_enabled
+    if pilot_enabled():
+        from .forex_entry_pilot import read_ledger as read_pilot
+        pilot = read_pilot(account, symbol)
+        controls = {member["control_tree_id"] for member in pilot["members"].values()}
+        paired = {sample["setup_id"] for sample in pilot["samples"]}
+        result = [(signal, stats) for signal, stats in result
+                  if signal["strategy"] not in controls and signal["setup_id"] not in paired]
     return result
+
+def virtual_candidates(account, symbol, now):
+    ledger = read_ledger(account, symbol)
+    version = logic_version()
+    return [sample for sample in ledger["samples"]
+            if sample["tree"]["schema"] == "forex_htf_ast_v4" and sample["tree"] in ledger["population"]
+            and sample["status"] in ("waiting", "pending") and sample.get("strategy_version") == version
+            and sample.get("provenance") == PROVENANCE and sample.get("costs", {}).get("verified") is True
+            and sample["signal"]["available_at"] <= now < sample["signal"]["entry_policy"]["expires_at"]]
 
 
 def validate_execution_signal(signal, account, now=None):
-    now = int(time.time()) if now is None else now
+    now = time.time() if now is None else now
     if not execution_enabled() or os.getenv("EXNESS_DEMO_EXECUTION_ENABLED", "false").lower() != "true":
         raise ExnessError("v2_execution_disabled")
+    if str(signal.get("strategy", "")).startswith("hast4_"):
+        from .forex_entry_intents import validate_execution_signal as validate_entry
+        return validate_entry(signal, account, now)
     if signal.get("shadow_only") is not False or not str(signal.get("strategy", "")).startswith("hast3_"):
         raise ExnessError("shadow_only_signal")
     try:

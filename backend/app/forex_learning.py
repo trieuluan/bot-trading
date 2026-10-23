@@ -111,8 +111,21 @@ def symbols_endpoint():
 def summary(symbol: str = "XAUUSD"):
     request_symbol(symbol)
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from .forex_entry_intents import pilot_enabled
+    from .forex_entry_intents import summary as intent_summary
+    from .forex_entry_pilot import summary as pilot_summary
+    try:
+        with Session() as session:
+            active_intents = intent_summary(session, account, symbol) if account else []
+        intent_status = "ready"
+    except SQLAlchemyError:
+        active_intents, intent_status = [], "intent_storage_unavailable"
     return {"symbol": symbol, "engine": SCHEMA, "mode": "v3_shadow", "execution_v2": execution_status(account, int(time.time()), symbol),
-            "htf_ast3_shadow": htf_ast3_summary(account, symbol)}
+            "htf_ast3_shadow": htf_ast3_summary(account, symbol),
+            "entry_pilot": {"enabled": pilot_enabled(), "status": intent_status,
+                            "pilot": pilot_summary(account, symbol), "intents": active_intents}}
 
 
 def current_analysis(now=None, symbol="XAUUSD"):

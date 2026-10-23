@@ -324,6 +324,25 @@ engine = create_engine(
 Session = sessionmaker(engine)
 
 
+class ExnessEntryIntent(Base):
+    __tablename__ = "exness_entry_intents"
+    __table_args__ = (UniqueConstraint("account", "symbol", "setup_id", "side", name="uq_exness_entry_setup"),)
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    account: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    setup_id: Mapped[str] = mapped_column(String(64), index=True)
+    strategy: Mapped[str] = mapped_column(String(64))
+    side: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(20), default="waiting", index=True)
+    limit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    available_at: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[int] = mapped_column(Integer)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class PaperNotification(Base):
     __tablename__ = "paper_notifications"
     id: Mapped[str] = mapped_column(String(100), primary_key=True)

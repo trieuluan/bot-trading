@@ -1,4 +1,5 @@
 import type { TreeLabel } from '../lib/forex-tree-label';
+import type { ForexEntryPilot } from './forex-entry';
 export interface BrokerPosition {
   position_id: string;
   side: 'buy' | 'sell' | null;
@@ -107,6 +108,7 @@ export interface ExnessExecution {
       reasons: string[];
     }[];
     retired_genomes?: string[];
+    entry_pilot?: ForexEntryPilot;
     htf_ast3_shadow?: {
       status: string;
       generation: number;

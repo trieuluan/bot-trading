@@ -100,6 +100,9 @@ def chart_overlays(candle, minutes, hours, higher, symbol):
 
 def tree_overlays(tree, candle, minutes, hours, higher, symbol, shared, cache):
     """Owned price lines with the evaluator's timeframe, parameters and EMA windows."""
+    if tree["schema"] == "forex_htf_ast_v4":
+        from .forex_entry_policy import control_tree
+        tree = control_tree(tree)
     children = tree["root"]["children"]
     setup, trigger, exit_node = children[1:4]
     filters = {node["name"]: node.get("params", {}) for node in children[4:]}

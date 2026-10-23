@@ -35,9 +35,9 @@ def variant_settings(name):
 
 
 def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=None):
-    verified = signal.get("shadow_only") is False and signal.get("execution_source") == "live_forward_htf_ast3_shadow"
+    verified = signal.get("shadow_only") is False and signal.get("execution_source") in ("live_forward_htf_ast3_shadow", "live_forward_htf_ast4_entry_pilot")
     if ((not signal.get("shadow_only") and not verified) or not isinstance(signal.get("strategy"), str)
-            or not signal["strategy"].startswith(("hast_", "hast2_", "hast3_"))
+            or not signal["strategy"].startswith(("hast_", "hast2_", "hast3_", "hast4_"))
             or signal.get("side") not in ("long", "short")):
         raise ExnessError("invalid_htf_shadow_signal")
     try:
@@ -52,7 +52,7 @@ def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=N
         raise ExnessError("invalid_htf_levels")
     direction = Decimal(1) if signal["side"] == "long" else Decimal(-1)
     risk = direction * (entry - stop)
-    if risk < Decimal("0.3") * atr:
+    if risk < Decimal("1" if signal["strategy"].startswith("hast4_") else "0.3") * atr:
         raise ExnessError("sl_too_tight")
     if risk > 3 * atr:
         raise ExnessError("sl_too_wide")
@@ -106,7 +106,7 @@ def coarse(key):
 def new_variants(signal, minutes, hours, higher, features, candle, condition):
     if signal.get("htf_ast_v2"):
         policy = signal.get("exit_policy")
-        if (not signal.get("shadow_only") or not signal["strategy"].startswith("hast3_")
+        if (not signal.get("shadow_only") or not signal["strategy"].startswith(("hast3_", "hast4_"))
                 or policy not in EXIT_TRAITS):
             raise ExnessError("invalid_htf_shadow_signal")
         return [{"status": "pending", "variant": DEFAULT_VARIANT,
@@ -146,64 +146,71 @@ def closed_h1_rows(rows, now):
                                        high=max(r.high for r in group), low=min(r.low for r in group)))
     return out
 
-def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=()):
+def initialize_variant(row, bid_open, ask_open, entry_time, slip, commission):
+    signal, condition = row["signal"], row["condition"]
+    direction = 1 if signal["side"] == "long" else -1
+    tick = Decimal(1).scaleb(-condition["point_digits"])
+    if session_closed_ahead(entry_time, 4, 900, signal.get("symbol", "XAUUSD")):
+        row.update(status="skipped", reason="session_close_near")
+        return
+    entry = Decimal(str((ask_open if direction == 1 else bid_open) * (1 + direction * slip)))
+    original = Decimal(str(signal["stop"]))
+    if direction * (entry - original) <= 0:
+        row.update(status="invalid", reason="next_open_outside_stop")
+        return
+    factor = variant_settings(row["variant"])["sl_buffer_k"]
+    pad = 0 if signal.get("generated") else max(row["atr"] * factor, ask_open - bid_open)
+    stop = (original - direction * Decimal(str(pad))).quantize(tick, rounding=ROUND_FLOOR if direction == 1 else ROUND_CEILING)
+    risk = direction * (entry - stop)
+    if stop <= 0 or (direction == 1 and stop >= Decimal(str(bid_open))) or (direction == -1 and stop <= Decimal(str(ask_open))):
+        row.update(status="invalid", reason="stop_inside_spread")
+        return
+    try:
+        target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
+                          if signal.get("htf_ast") or signal.get("htf_ast_v2")
+                          else exit_target(signal, entry, stop, tick))
+        volume = size_lot(risk, condition)
+    except ExnessError as exc:
+        row.update(status="skipped", reason=str(exc))
+        return
+    if volume * Decimal(str(condition["contract_size"])) * entry * Decimal(str(condition.get("quote_to_account_loss", "1"))) > 50000:
+        row.update(status="skipped", reason="notional_ceiling")
+        return
+    body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
+            "stop_loss_price": str(stop), "take_profit_price": str(target)}
+    if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
+        legs = plan_legs(signal, body, condition, entry)
+    else:
+        legs = split_bodies(body, condition, entry, partial_be=signal.get("split", signal.get("partial_be", True)))
+    for leg in legs:
+        leg["weight"] = float(Decimal(leg["volume"]) / volume)
+        leg["open"] = True
+    row.update(status="open", entry=float(entry), entry_time=entry_time, risk=float(risk),
+               initial_stop=str(stop), legs=legs, bars=0, net_r=0.0, tp_reason=reason)
+    if signal.get("htf_ast_v2"):
+        row.update(partial_split=len(legs) > 1, management_history=[])
+
+def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=(), duration=900):
     if row["status"] not in ("pending", "open"):
         return
-    if bid.time != ask.time or bid.time != row["last_candle"] + 900:
-        row.update(status="excluded", reason="session_gap" if regular_session_gap(row["last_candle"], bid.time, 900, row["signal"].get("symbol", "XAUUSD")) else "data_gap")
+    if bid.time != ask.time or bid.time != row["last_candle"] + duration:
+        row.update(status="excluded", reason="session_gap" if regular_session_gap(row["last_candle"], bid.time, duration, row["signal"].get("symbol", "XAUUSD")) else "data_gap")
         return
     row["last_candle"] = bid.time
     signal, condition = row["signal"], row["condition"]
     direction = 1 if signal["side"] == "long" else -1
-    tick = Decimal(1).scaleb(-condition["point_digits"])
     exit_bar = bid if direction == 1 else ask
     if row["status"] == "pending":
-        if session_closed_ahead(bid.time, 4, 900, signal.get("symbol", "XAUUSD")):
-            row.update(status="skipped", reason="session_close_near")
+        initialize_variant(row, bid.open, ask.open, bid.time, slip, commission)
+        if row["status"] != "open":
             return
-        entry = Decimal(str((ask.open if direction == 1 else bid.open) * (1 + direction * slip)))
-        original = Decimal(str(signal["stop"]))
-        if direction * (entry - original) <= 0:
-            row.update(status="invalid", reason="next_open_outside_stop")
-            return
-        factor = variant_settings(row["variant"])["sl_buffer_k"]
-        pad = 0 if signal.get("generated") else max(row["atr"] * factor, ask.open - bid.open)
-        stop = (original - direction * Decimal(str(pad))).quantize(tick, rounding=ROUND_FLOOR if direction == 1 else ROUND_CEILING)
-        risk = direction * (entry - stop)
-        if stop <= 0 or (direction == 1 and stop >= Decimal(str(bid.open))) or (direction == -1 and stop <= Decimal(str(ask.open))):
-            row.update(status="invalid", reason="stop_inside_spread")
-            return
-        try:
-            target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
-                              if signal.get("htf_ast") or signal.get("htf_ast_v2")
-                              else exit_target(signal, entry, stop, tick))
-            volume = size_lot(risk, condition)
-        except ExnessError as exc:
-            row.update(status="skipped", reason=str(exc))
-            return
-        if volume * Decimal(str(condition["contract_size"])) * entry * Decimal(str(condition.get("quote_to_account_loss", "1"))) > 50000:
-            row.update(status="skipped", reason="notional_ceiling")
-            return
-        body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
-                "stop_loss_price": str(stop), "take_profit_price": str(target)}
-        if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
-            legs = plan_legs(signal, body, condition, entry)
-        else:
-            legs = split_bodies(body, condition, entry, partial_be=signal.get("split", signal.get("partial_be", True)))
-        for leg in legs:
-            leg["weight"] = float(Decimal(leg["volume"]) / volume)
-            leg["open"] = True
-        row.update(status="open", entry=float(entry), entry_time=bid.time, risk=float(risk),
-                   initial_stop=str(stop), legs=legs, bars=0, net_r=0.0, tp_reason=reason)
-        if signal.get("htf_ast_v2"):
-            row.update(partial_split=len(legs) > 1, management_history=[])
     row["bars"] += 1
     management_rows = minutes if len(minutes) >= 21 and all(
         after.time - before.time == 900 for before, after in zip(minutes, minutes[1:])) else []
     if signal.get("htf_ast_v2") and signal.get("management_frame") == "H1":
-        management_rows = sorted((hour for hour in hours if hour.time + 3600 <= bid.time + 900),
+        management_rows = sorted((hour for hour in hours if hour.time + 3600 <= bid.time + duration),
                                  key=lambda hour: hour.time)[-60:]
-        if (len(management_rows) < 21 or management_rows[-1].time + 7200 <= bid.time + 900 or
+        if (len(management_rows) < 21 or management_rows[-1].time + 7200 <= bid.time + duration or
                 any(after.time - before.time != 3600 and not regular_session_gap(before.time, after.time, 3600, signal.get("symbol", "XAUUSD"))
                     for before, after in zip(management_rows, management_rows[1:]))):
             management_rows = []
@@ -220,8 +227,8 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
     if signal.get("htf_ast_v2"):
         if early:
             row["pending_exit"] = early
-            row["management_history"].append({"at": bid.time + 900, "action": early,
-                                              "effective_at": bid.time + 900, "frame": signal["management_frame"]})
+            row["management_history"].append({"at": bid.time + duration, "action": early,
+                                              "effective_at": bid.time + duration, "frame": signal["management_frame"]})
         early = None
     for leg in row["legs"]:
         if not leg["open"]:
@@ -253,16 +260,16 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             row["net_r"] += leg["weight"] * net / (row["risk"] * loss_rate)
             leg.update(open=False, outcome=outcome)
             if signal.get("htf_ast_v2"):
-                row["management_history"].append({"at": bid.time + 900, "action": outcome,
+                row["management_history"].append({"at": bid.time + duration, "action": outcome,
                                                   "role": leg["role"], "price": price})
     if not any(leg["open"] for leg in row["legs"]):
-        row.update(status="resolved", resolved_at=bid.time + 900)
+        row.update(status="resolved", resolved_at=bid.time + duration)
         return
     if row["bars"] >= horizon:
         row.update(status="excluded", reason="unresolved_horizon")
         return
     if adaptive:
-        ex_rows = exits_closed_rows(signal, minutes, hours, bid.time + 900)
+        ex_rows = exits_closed_rows(signal, minutes, hours, bid.time + duration)
         first_open = next((leg for leg in row["legs"] if leg["open"]), None)
         if first_open and ex_rows and ex_rows[-1].time > row.get("managed_candle", -1):
             act = exits_action(signal, ex_rows, row["entry"], row["risk"], row["entry_time"],
@@ -271,7 +278,7 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             if act:
                 row["managed_candle"] = ex_rows[-1].time
                 row["pending_management"] = act
-                row["management_history"].append({**act, "effective_at": bid.time + 900,
+                row["management_history"].append({**act, "effective_at": bid.time + duration,
                                                   "frame": signal["management_frame"]})
         return
     if signal.get("partial_be") is False:
@@ -285,7 +292,7 @@ def advance_variant(row, bid, ask, minutes, slip, commission, horizon=96, hours=
             if action:
                 leg["stop_loss_price"] = action["stop"]
                 if signal.get("htf_ast_v2"):
-                    row["management_history"].append({"at": bid.time + 900, "effective_at": bid.time + 900,
+                    row["management_history"].append({"at": bid.time + duration, "effective_at": bid.time + duration,
                                                       "action": action["stage"], "stop": action["stop"],
                                                       "role": leg["role"], "frame": signal["management_frame"]})
 

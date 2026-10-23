@@ -68,6 +68,186 @@ def test_disabled_by_default(monkeypatch):
     api = dummy_api()
     assert ee.execution_tick(api, now=NOW) == "disabled"
 
+def seed_virtual_entry(api, monkeypatch, tmp_path):
+    from backend.app.forex_entry_intents import create_intent
+    from backend.app.forex_entry_pilot import initialize, logic_version
+    from backend.app.forex_entry_policy import with_entry
+    from backend.app.forex_htf_v2 import g0_trees, tree_id
+    from backend.app.forex_migration import atomic_json
+    monkeypatch.setenv("FOREX_ENTRY_PILOT_ENABLED", "true")
+    monkeypatch.setenv("FOREX_HTF_V2_EXECUTION_ENABLED", "true")
+    monkeypatch.setattr(ee.time, "time", lambda: NOW)
+    path = tmp_path / "pilot.json"
+    monkeypatch.setattr("backend.app.forex_entry_pilot.ledger_path", lambda *_: path)
+    sources = g0_trees()
+    tree = with_entry(sources[0])
+    ledger = initialize(path, api.account_id, "XAUUSD", sources, NOW - 1)
+    proposal = {**signal(), "symbol": "XAUUSD", "strategy": tree_id(tree), "setup_id": "setup",
+                "htf_ast_v2": True, "shadow_only": True, "generated": True,
+                "target": 4015, "exit_policy": "partial_be_h1", "management_frame": "H1",
+                "htf_structure": {"atr": 2, "level": 3999, "setup_time": NOW - 3600,
+                                  "confirmed_h1": NOW - 3600, "invalidation": 3995.5, "target_reason": "H1 swing"},
+                "entry_policy": {"policy": "limit_or_stop", "limit_price": 3999.5, "stop_price": 4000.25,
+                                 "available_at": NOW, "expires_at": NOW + 3600}}
+    ledger["samples"] = [{"strategy": tree_id(tree), "strategy_version": logic_version(), "setup_id": "setup",
+                          "signal": proposal, "costs": {"verified": True}}]
+    atomic_json(path, ledger)
+    with Session.begin() as session:
+        session.add(ExnessExecutionState(account=api.account_id, enabled=True, started_at=NOW - 1,
+                                        snapshot={"history_until": NOW}))
+        row = create_intent(session, api.account_id, proposal, tree, NOW, 2)
+        row.status = "triggered"
+        row.snapshot = {**row.snapshot, "status": "triggered", "winner": "stop", "triggered_at": NOW,
+                        "last_quote": ee.live_quote(), "trigger_quote": ee.live_quote()}
+        return row.id
+
+def test_verified_virtual_entry_only_one_submit_plan(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 1
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "submitted"
+        assert row.snapshot["winner"] == "stop"
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 1
+
+def test_virtual_callback_refreshes_history_at_fractional_tick(monkeypatch, tmp_path):
+    from backend.app.forex_entry_intents import execute_trigger
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    monkeypatch.setattr(ee.time, "time", lambda: NOW + 0.5)
+    execute_trigger(api, identifier, "XAUUSD")
+    api.client.request.assert_called_once()
+    with Session() as session:
+        assert session.get(ExnessExecutionState, api.account_id).snapshot["history_until"] == NOW + 0.5
+@pytest.mark.parametrize("gate", ["FOREX_ENTRY_PILOT_ENABLED", "FOREX_HTF_V2_EXECUTION_ENABLED", "EXNESS_DEMO_EXECUTION_ENABLED"])
+def test_virtual_entry_gates_never_submit(monkeypatch, tmp_path, gate):
+    from backend.app.forex_entry_intents import execute_trigger
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setenv(gate, "false")
+    execute_trigger(api, identifier, "XAUUSD")
+    api.client.request.assert_not_called()
+
+def test_virtual_entry_rollback_and_restart_reservations(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import reconcile_intents
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    reconcile_intents(api.account_id, NOW + 1, restart=True)
+    with Session.begin() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "cancelled"
+        row.status = "submitting"
+    reconcile_intents(api.account_id, NOW + 2, restart=True)
+    with Session() as session:
+        assert session.get(ExnessEntryIntent, identifier).status == "uncertain"
+    api.client.request.assert_not_called()
+
+def test_virtual_entry_forged_payload_rejected_at_broker_boundary(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execution_signal
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session() as session:
+        proposal = execution_signal(session.get(ExnessEntryIntent, identifier))
+    proposal["target"] += 1
+    with pytest.raises(ExnessError, match="unverified_virtual_entry"):
+        ee.ExnessDemoClient(api).strategy_body(proposal, api.condition("XAUUSD"), ee.live_quote(), "forged")
+    api.client.request.assert_not_called()
+
+def test_virtual_quotes_race_only_one_winner(monkeypatch, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from backend.app.db import ExnessEntryIntent, WorkspaceCandle
+    from backend.app.forex_entry_intents import consume_quote
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session.begin() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        row.status = "waiting"
+        row.snapshot = {**row.snapshot, "status": "waiting", "last_quote": None}
+        session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="1h",
+                                   price_type="bid", time=NOW - 3600, open=4000, high=4002, low=3998, close=4000))
+    def consume(stamp, ask):
+        with Session.begin() as session:
+            return consume_quote(session, api.account_id, "XAUUSD",
+                                 {"bid": ask - 0.25, "ask": ask, "time": stamp, "received_at": stamp}, stamp)
+    assert consume(NOW, 4000.1) == []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda price: consume(NOW + 1, price), (4000.25, 3999.5)))
+    assert sum(len(result) for result in results) == 1
+    with Session() as session:
+        assert session.get(ExnessEntryIntent, identifier).snapshot["winner"] in ("limit", "stop")
+    api.client.request.assert_not_called()
+
+def test_virtual_capacity_reserves_whole_plan_and_no_double_count(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
+    positions = [{"position_id": str(index), "instrument": "EURUSD"} for index in range(64)]
+    broker = {"positions": positions, "orders": []}
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD")
+    assert not ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD", 2, entry_intent_id=identifier)
+    broker["positions"] = [{"position_id": str(index), "instrument": "XAUUSD"} for index in range(5)]
+    assert not ee.capacity_available(broker, api.account_id, "XAUUSD")
+    with Session.begin() as session:
+        session.get(ExnessEntryIntent, identifier).status = "cancelled"
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
+
+@pytest.mark.parametrize("second_fails", [False, True])
+def test_virtual_split_submit_and_uncertain_restart(monkeypatch, tmp_path, second_fails):
+    import httpx
+
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger, reconcile_intents
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+    if second_fails:
+        api.client.request.side_effect = [api.client.request.return_value, httpx.ReadTimeout("unknown result")]
+        with pytest.raises(ExnessError, match="Submission outcome unknown"):
+            execute_trigger(api, identifier, "XAUUSD")
+    else:
+        execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 2
+    keys = [call.kwargs["headers"]["EXN-IDEMPOTENCY-KEY"] for call in api.client.request.call_args_list]
+    assert len(set(keys)) == 2
+    reconcile_intents(api.account_id, NOW + 1, restart=True)
+    with Session() as session:
+        assert session.get(ExnessEntryIntent, identifier).status == ("uncertain" if second_fails else "submitted")
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 2
+
+def test_virtual_missing_h1_bucket_cancels(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent, WorkspaceCandle
+    from backend.app.forex_entry_intents import consume_quote
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session.begin() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        row.status = "waiting"
+        signal = {**row.snapshot["signal"], "htf_structure": {
+            **row.snapshot["signal"]["htf_structure"], "confirmed_h1": NOW - 3 * 3600}}
+        row.snapshot = {**row.snapshot, "status": "waiting", "signal": signal, "last_quote": None}
+        for stamp in (NOW - 3 * 3600, NOW - 3600):
+            session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="1h",
+                                       price_type="bid", time=stamp, open=4000, high=4002, low=3998, close=4000))
+    with Session.begin() as session:
+        assert consume_quote(session, api.account_id, "XAUUSD", ee.live_quote(), NOW) == []
+        assert session.get(ExnessEntryIntent, identifier).status == "cancelled"
+    api.client.request.assert_not_called()
+
 def test_refuses_real_account(monkeypatch):
     monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
     api = dummy_api(is_demo=False)

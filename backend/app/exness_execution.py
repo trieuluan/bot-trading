@@ -75,7 +75,7 @@ def max_positions_per_symbol():
     except ValueError:
         return 1
 
-def capacity_available(broker, account, symbol, additional=0):
+def capacity_available(broker, account, symbol, additional=0, *, entry_intent_id=None):
     positions = broker["positions"]
     live_ids = {position["position_id"] for position in positions}
     occupied = len(positions)
@@ -84,11 +84,22 @@ def capacity_available(broker, account, symbol, additional=0):
         return False
     with Session() as session:
         intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
+        from .db import ExnessEntryIntent
+        from .forex_entry_intents import RESERVED
+        pending_intents = session.scalars(select(ExnessEntryIntent).where(
+            ExnessEntryIntent.account == account, ExnessEntryIntent.status.in_(RESERVED))).all()
     for intent in intents:
         for _, leg in leg_records(intent.snapshot):
             if leg.get("status") in (*ACTIVE, "planned") and leg.get("position_id") not in live_ids:
                 occupied += 1
                 local += intent.symbol == symbol
+    for entry_intent in pending_intents:
+        if entry_intent.id == entry_intent_id or any(
+                intent.snapshot.get("signal", {}).get("entry_intent_id") == entry_intent.id for intent in intents):
+            continue
+        legs_count = entry_intent.snapshot.get("reserved_legs", 1)
+        occupied += legs_count
+        local += (entry_intent.symbol == symbol) * legs_count
     return occupied + additional <= max_positions() and local + additional <= max_positions_per_symbol()
 
 def busy(broker):
@@ -101,6 +112,16 @@ MAX_LATE_DRIFT_R = 0.25
 
 def late_drift_ok(signal, entry, now):
     """Late retry only while price stays within 0.25R of the closed signal candle."""
+    if signal.get("entry_intent_id"):
+        from .db import ExnessEntryIntent
+        with Session() as session:
+            intent = session.get(ExnessEntryIntent, signal["entry_intent_id"])
+        if not intent or not 0 <= now - intent.snapshot.get("last_quote", {}).get("received_at", 0) <= 2:
+            raise ExnessError("virtual_entry_expired")
+        risk = abs(float(signal["ref_price"]) - float(signal["stop"]))
+        if risk <= 0 or abs(float(entry) - float(signal["ref_price"])) > MAX_LATE_DRIFT_R * risk:
+            raise ExnessError("price_drift: virtual entry moved beyond 0.25R")
+        return
     age = now - signal["available_at"]
     if not 0 <= age <= SIGNAL_WINDOW:
         raise ExnessError("signal_expired: outside 300s entry window")
@@ -121,9 +142,9 @@ def utc(stamp):
 
 
 def live_quote(symbol="XAUUSD"):
-    base = os.getenv("EXNESS_QUOTE_BASE_URL", "http://api:8000")
+    from .app_auth import quote_request
     deadline = time.monotonic() + 5
-    with urlopen(base + "/api/workspaces/exness_forex/quotes/stream?symbol=" + symbol, timeout=5) as stream:
+    with urlopen(quote_request(symbol), timeout=5) as stream:
         while time.monotonic() < deadline:
             line = stream.readline()
             if not line:
@@ -398,7 +419,7 @@ def funnel(rows):
             "since": min((row["at"] for row in rows), default=None),
             "by_strategy": dict(Counter(item["strategy"] for row in evaluated for item in row["confirmed"]).most_common())}
 
-def execution_tick(api, now=None):
+def execution_tick(api, now=None, entry_request=None):
     if not enabled():
         return "disabled"
     fingerprint = hashlib.sha256(api.account_id.encode()).hexdigest()[:16]
@@ -415,6 +436,15 @@ def execution_tick(api, now=None):
             if not locked:
                 return "executor_active"
             try:
+                if entry_request:
+                    observed_at = time.time() if now is None else now
+                    client = ExnessDemoClient(api)
+                    client.verify_demo()
+                    broker = client.snapshot()
+                    sync_deals(api, observed_at)
+                    reconcile(api, broker, observed_at)
+                    return _symbol_execution_tick(api, broker, observed_at,
+                                                  entry_request[1], entry_intent_id=entry_request[0])
                 result = _execution_tick(api, now)
                 observed_at = int(time.time()) if now is None else now
                 with Session.begin() as session:
@@ -455,6 +485,11 @@ def _execution_tick(api, now=None):
                           "demo_verified": True, "stop_management_available": getattr(client, "can_modify", False)}
     sync_deals(api, now)
     reconcile(api, broker, now)
+    from .forex_entry_intents import cancel_waiting, pilot_enabled, reconcile_intents
+    if not pilot_enabled():
+        with Session.begin() as session:
+            cancel_waiting(session, api.account_id, "pilot_disabled", now)
+    reconcile_intents(api.account_id, now)
     with Session() as session:
         managed = session.scalars(select(ExnessExecutionTrade.symbol).where(
             ExnessExecutionTrade.account == api.account_id,
@@ -471,7 +506,7 @@ def _execution_tick(api, now=None):
     return next(iter(results.values())) if len(results) == 1 else results
 
 
-def _symbol_execution_tick(api, broker, now, symbol):
+def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
     client = ExnessDemoClient(api)
@@ -494,6 +529,11 @@ def _symbol_execution_tick(api, broker, now, symbol):
         frames = load_frames(session, now, symbol)
     minutes = closed_minutes(frames, now)
     for row in own:
+        if row.snapshot.get("signal", {}).get("entry_intent_id"):
+            for index, data in leg_records(row.snapshot):
+                if data["status"] == "planned":
+                    persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
+                                       {"status": "skipped", "error": "virtual_entry_no_late_retry"})
         legs = leg_records(row.snapshot)
         partial_done = any(leg.get("role") == "tp1" and leg.get("take_profit_filled") for _, leg in legs)
         for index, data in legs:
@@ -658,17 +698,49 @@ def _symbol_execution_tick(api, broker, now, symbol):
         unresolved = any(row.snapshot["status"] in PENDING or any(
             leg.get("management", {}).get("status") in ("submitting", "submitted")
             for _, leg in leg_records(row.snapshot)) for row in pending)
+        from .db import ExnessEntryIntent
+        unresolved = unresolved or session.scalar(select(ExnessEntryIntent.id).where(
+            ExnessEntryIntent.account == api.account_id, ExnessEntryIntent.status == "uncertain").limit(1)) is not None
         reason = "symbol_disabled" if symbol not in configured_symbols() else "costs_unverified" if not costs_ready else "paused" if not state.enabled else "reconciling" if unresolved else (
             "position_active" if busy(broker) else
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
-        signal = evaluate(session, now, symbol)
-        if signal and str(signal.get("strategy", "")).startswith("hast3_") and signal.get("shadow_only") is False:
+        from .forex_entry_intents import pilot_enabled
+        from .forex_htf_v2 import execution_enabled
+        if not reason and not entry_intent_id and pilot_enabled() and execution_enabled():
+            from .forex_entry_intents import create_intent
+            from .forex_entry_pilot import PROVENANCE as PILOT_PROVENANCE
+            from .forex_entry_pilot import candidates as pilot_candidates
+            from .forex_htf_v2 import virtual_candidates
+            waiting = pilot_candidates(api.account_id, symbol, now) + virtual_candidates(api.account_id, symbol, now)
+            for sample in sorted(waiting, key=lambda item: (item["provenance"] != PILOT_PROVENANCE, item["strategy"])):
+                proposal = sample["signal"]
+                from .db import ExnessEntryIntent
+                from .forex_entry_intents import identity
+                if session.get(ExnessEntryIntent, identity(api.account_id, symbol, proposal["setup_id"], proposal["side"])):
+                    continue
+                if any(row.snapshot.get("signal", {}).get("setup_id") == proposal["setup_id"] for row in pending if row.symbol == symbol):
+                    continue
+                max_legs = (3 if proposal["exit_policy"] == "ladder_h1" else
+                            1 if proposal["exit_policy"] in ("fixed_structural", "runner_h1", "trail_swing_h1") else 2)
+                if capacity_available(broker, api.account_id, symbol, max_legs):
+                    create_intent(session, api.account_id, proposal, sample["tree"], now, max_legs,
+                                  version=sample["strategy_version"], provenance=sample["provenance"])
+                    break
+        if entry_intent_id:
+            from .db import ExnessEntryIntent
+            from .forex_entry_intents import execution_signal
+            requested = session.get(ExnessEntryIntent, entry_intent_id)
+            signal = (execution_signal(requested) if requested and requested.account == api.account_id
+                      and requested.symbol == symbol and requested.status == "triggered" else None)
+        else:
+            signal = evaluate(session, now, symbol)
+        if signal and str(signal.get("strategy", "")).startswith(("hast3_", "hast4_")) and signal.get("shadow_only") is False:
             try:
                 signal = validate_execution_signal(signal, api.account_id, now)
             except ExnessError as exc:
                 reason, signal = str(exc), None
-        elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_", "hast3_"))):
+        elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_", "hast3_", "hast4_"))):
             reason, signal = "shadow_only_signal", None
         detail = session.info.get("execution_evaluation", {
             "symbol": symbol, "candle_time": now // 900 * 900 - 900, "evaluated": False})
@@ -694,6 +766,12 @@ def _symbol_execution_tick(api, broker, now, symbol):
             if duplicate:
                 record_journal(state, detail, "old_or_duplicate_signal", now)
                 return "old_or_duplicate_signal"
+        intent_row = None
+        if signal.get("entry_intent_id"):
+            from .db import ExnessEntryIntent
+            intent_row = session.get(ExnessEntryIntent, signal["entry_intent_id"])
+            if intent_row:
+                intent_row.status = "submitting"
         try:
             quote = live_quote(symbol)
             body = client.strategy_body(signal, condition, quote, key)
@@ -708,9 +786,15 @@ def _symbol_execution_tick(api, broker, now, symbol):
             detail["reason"] = str(exc)[:200]
             record_journal(state, detail, "blocked:preflight_failed", now)
             state.snapshot = {**state.snapshot, "decision": "preflight_failed: " + str(exc)[:160]}
+            if intent_row:
+                intent_row.status = "cancelled"
+                intent_row.snapshot = {**intent_row.snapshot, "status": "cancelled", "reason": "preflight_failed", "ended_at": now}
             return "preflight_failed"
-        if not capacity_available(broker, api.account_id, symbol, len(bodies)):
+        if not capacity_available(broker, api.account_id, symbol, len(bodies), entry_intent_id=signal.get("entry_intent_id")):
             record_journal(state, detail, "position_capacity_for_split", now)
+            if intent_row:
+                intent_row.status = "cancelled"
+                intent_row.snapshot = {**intent_row.snapshot, "status": "cancelled", "reason": "capacity_unavailable", "ended_at": now}
             return "position_capacity_for_split"
         legs = [{"key": key + f"-{index}", "body": {name: value for name, value in part.items() if name != "role"},
                  "role": part["role"], "status": "planned", "recorded_at": now,
@@ -731,6 +815,12 @@ def _symbol_execution_tick(api, broker, now, symbol):
                 st = s.get(ExnessExecutionState, api.account_id)
                 if st:
                     record_journal(st, {"candle_time": stamp}, "order_sent", now)
+        if signal.get("entry_intent_id"):
+            for index, data in enumerate(legs[1:], start=1):
+                if result != "submitted":
+                    persist_symbol_leg(api.account_id, symbol, stamp, index, {"status": "skipped", "error": "previous_leg_not_confirmed"})
+                    continue
+                result = submit_leg(client, row, index, data, condition, int(time.time()))
         return result
     except Exception as exc:
         with Session.begin() as s:
@@ -754,6 +844,11 @@ def submit_leg(client, row, index, data, condition, now):
         persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
         return "position_active"
     signal = row.snapshot["signal"]
+    latest_snapshot = row.snapshot
+    if signal.get("entry_intent_id"):
+        with Session() as session:
+            latest = session.get(ExnessExecutionTrade, (api.account_id, symbol, row.signal_time))
+            latest_snapshot = latest.snapshot
     key = data["key"]
     def build(quote):
         submitted_at = max(now, int(time.time()))
@@ -769,8 +864,8 @@ def submit_leg(client, row, index, data, condition, now):
         entry = Decimal(str(quote["ask" if full["side"] == "buy" else "bid"]))
         contract = positive_decimal(condition["contract_size"])
         committed = Decimal(0)
-        for other_index, other in leg_records(row.snapshot):
-            if other_index == index or other["status"] not in ("open", "closed"):
+        for other_index, other in leg_records(latest_snapshot):
+            if other_index == index or other["status"] not in (*ACTIVE, "closed"):
                 continue
             opened = next((position for position in current["positions"]
                            if position["position_id"] == other.get("position_id")), None)
@@ -783,6 +878,11 @@ def submit_leg(client, row, index, data, condition, now):
         if data["role"] == "tp1":
             target = entry + entry - Decimal(full["stop_loss_price"])
             full["take_profit_price"] = format(target.quantize(Decimal(1).scaleb(-condition["point_digits"])), "f")
+        elif signal.get("entry_intent_id") and data["role"] in ("partial1", "partial2"):
+            target = positive_decimal(data["body"]["take_profit_price"])
+            if (target - entry) * (1 if signal["side"] == "long" else -1) <= 0:
+                raise ExnessError("virtual_partial_target_passed")
+            full["take_profit_price"] = str(target)
         return full
     def on_submit(submission):
         persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
