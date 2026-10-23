@@ -13,7 +13,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
-from .db import AutoPaperDecision, AutoPaperState, BotState, Event, MarketState, PaperTrade, Session
+from .db import (
+    AutoPaperDecision,
+    AutoPaperState,
+    BotState,
+    Event,
+    MarketState,
+    PaperTrade,
+    PaperWallet,
+    Session,
+)
 from .feed import load_candles, save_market_signal
 from .futures_learner import read_state, select_for_auto
 from .futures_symbols import current_symbol, state_id
@@ -343,9 +352,9 @@ def _auto_tick(now=None):
         )
 
 
-def state_response(session, wallet, state, now):
+def state_response(session, wallet, state, now, learning=None):
     account = session.get(AutoPaperState, 1)
-    learning = read_state(session, int(now))
+    learning = learning or read_state(session, int(now))
     count, loss, percent = daily_limits(session, wallet, state, now)
     # Journal covers the last 24h of closed 15m candles; quiet "no_setup" rows are only counted.
     last_closed = int(now) // 900 * 900 - 900
@@ -413,15 +422,21 @@ def state_response(session, wallet, state, now):
     )
 
 
-@router.get("")
-def get_auto_state():
+def auto_snapshot(learning=None):
     now = time.time()
+    today = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
+    with Session() as session:
+        wallet = session.get(PaperWallet, state_id())
+        state = session.get(AutoPaperState, state_id())
+        if wallet is None or state is None:
+            raise HTTPException(503, "Run migrations")
+        if session.get(AutoPaperState, 1).day == today and state.day == today:
+            # Đường đọc thường xuyên: không lock ví, không ghi.
+            return state_response(session, wallet, state, now, learning)
+    # Lần đầu của ngày UTC mới: lock một lần để chốt baseline equity (monitoring, không bật trade).
     with Session.begin() as session:
         wallet = lock_wallet(session)
         state = session.get(AutoPaperState, state_id())
-        if not state:
-            raise HTTPException(503, "Run migrations")
-        # Monitoring may initialize a new UTC day's baseline, but never enables trading.
         try:
             fresh_quote(wallet, now)
             portfolio(session, require_fresh=True, now=now)
@@ -429,8 +444,11 @@ def get_auto_state():
             pass
         else:
             roll_day(session, wallet, state, now)
-        return state_response(session, wallet, state, now)
+        return state_response(session, wallet, state, now, learning)
 
+@router.get("")
+def get_auto_state():
+    return auto_snapshot()
 
 @router.post("/config")
 def configure_auto(payload: AutoConfig):

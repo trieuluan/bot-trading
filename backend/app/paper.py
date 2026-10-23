@@ -632,6 +632,9 @@ def get_trade_candles(trade_id: int):
 
 @router.get("/wallet")
 def get_wallet():
+    return wallet_snapshot()
+
+def wallet_snapshot(include_candles=True):
     with Session() as session:
         if session.get_bind().dialect.name == "postgresql":
             session.connection(execution_options={
@@ -668,9 +671,11 @@ def get_wallet():
             stale = False
         except HTTPException:
             stale = True
-        candles = [asdict(candle) for candle in load_candles(session, limit=120)]
-        if quote and (not candles or quote["bar"]["time"] > candles[-1]["time"]):
-            candles.append(quote["bar"])
+        candles = []
+        if include_candles:
+            candles = [asdict(candle) for candle in load_candles(session, limit=120)]
+            if quote and (not candles or quote["bar"]["time"] > candles[-1]["time"]):
+                candles.append(quote["bar"])
         return dict(
             symbol=current_symbol(),
             initial_balance=master(session).initial_balance,

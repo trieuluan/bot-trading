@@ -18,6 +18,7 @@ import {
   closePaperPosition,
 } from '../lib/api';
 import type { AutoPaperState, PaperWallet } from '../types/paper';
+import { subscribeFuturesStream } from '../lib/futures-stream';
 import { useMexcLiveCandle } from '../hooks/useMexcLiveCandle';
 import { withLiveCandle } from '../lib/mexc-stream';
 import { getFuturesSymbol, type FuturesSymbol } from '../lib/futures-symbol';
@@ -110,32 +111,30 @@ export function PaperTradingPage({
     return pending.current!.id;
   }
   useEffect(() => {
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      try {
-        const [result, autoState] = await Promise.all([fetchPaperWallet(), fetchAutoPaper()]);
-        if (active) {
-          latest.current = result;
-          setWallet(result);
-          setAuto(autoState);
-          setOnline(true);
-        }
-      } catch {
-        if (active) setOnline(false);
-      } finally {
-        if (active) setConnecting(false);
-      }
-      if (active) timer = setTimeout(() => void poll(), 2000);
-    }
-    void poll();
+    // Ví + Auto của cặp đang xem qua SSE (server tính một lần cho mọi tab), thay poll 2s.
+    const stop = subscribeFuturesStream(
+      `parts=selected&symbol=${symbol}`,
+      {
+        selected: (data) => {
+          const next = (data as { wallet: PaperWallet | null }).wallet;
+          if (next) {
+            latest.current = next;
+            setWallet(next);
+          }
+        },
+        auto: (data) => data && setAuto(data as AutoPaperState),
+      },
+      (ok) => {
+        setOnline(ok);
+        setConnecting(false);
+      },
+    );
     const ticker = setInterval(() => setClock(Date.now()), 1000);
     return () => {
-      active = false;
-      clearTimeout(timer);
+      stop();
       clearInterval(ticker);
     };
-  }, []);
+  }, [symbol]);
   async function loadOlder(m15Bars = 1) {
     const before = Math.min(older[0]?.time ?? Infinity, wallet?.candles[0]?.time ?? Infinity);
     if (loadingOlder.current || !hasMore || !Number.isFinite(before)) return;

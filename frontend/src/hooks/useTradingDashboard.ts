@@ -2,8 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Snapshot } from '../types/trading';
 import { fetchDashboard, setBotEnabled } from '../lib/api';
 import { createPreviewSnapshot } from '../lib/demo';
-
-const POLL_INTERVAL_MS = 5000;
+import { subscribeFuturesStream } from '../lib/futures-stream';
 
 export function useTradingDashboard() {
   const [snapshot, setSnapshot] = useState<Snapshot>(createPreviewSnapshot);
@@ -24,10 +23,15 @@ export function useTradingDashboard() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const interval = setInterval(() => void refresh(), POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [refresh]);
+    return subscribeFuturesStream(
+      'parts=dashboard',
+      { dashboard: (data) => setSnapshot(data as Snapshot) },
+      (ok) => {
+        setConnected(ok);
+        setConnecting(false);
+      },
+    );
+  }, []);
 
   async function toggle() {
     const enabled = !snapshot.bot.enabled;

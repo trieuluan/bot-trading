@@ -104,7 +104,7 @@ def test_futures_pairs_have_isolated_wallets_and_reject_unknown_symbol():
 
 
 def test_futures_board_returns_every_pair_in_one_request_without_chart_payload():
-    from backend.app.main import _slim_board
+    from backend.app.futures_stream import slim_board as _slim_board
 
     with TestClient(app) as client:
         board = client.get("/api/workspaces/mexc_futures/board").json()["symbols"]
@@ -147,3 +147,11 @@ def test_mexc_candles_backfill_older_page_into_db(monkeypatch):
         assert all(bar["time"] >= oldest - 49 * 900 for bar in page["candles"])
         client.get(f"/api/workspaces/mexc_futures/candles?limit=50&before={oldest + 900}")
         assert len(calls) == 1  # enough stored history: no second MEXC call
+
+def test_stream_events_split_fast_and_slow_tiers():
+    from backend.app import futures_stream as fs
+
+    fs.invalidate()
+    names = [name for name, *_ in fs.events_for("BTC_USDT", "board,selected")]
+    assert names == ["board", "learning", "selected"]
+    assert [name for name, *_ in fs.events_for("BTC_USDT", "selected")] == ["selected"]

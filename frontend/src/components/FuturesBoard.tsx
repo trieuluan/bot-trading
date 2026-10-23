@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { ChevronRight, ReceiptText, Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice, formatQuote } from '../lib/format';
+import { subscribeFuturesStream } from '../lib/futures-stream';
 import {
   estimatedPaperPnl,
   summarizePaperTrades,
@@ -132,38 +133,26 @@ export function useFuturesBoard(active: boolean): Board {
   const [board, setBoard] = useState<Board>(empty);
   useEffect(() => {
     if (!active) return;
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
-    // Một request /board cho cả 10 cặp (trước đây 3 x 10 request song song làm nghẽn API
-    // khiến dashboard chính báo "mất kết nối" vài giây khi mở trang).
-    async function poll() {
-      try {
-        const response = await fetch('/api/workspaces/mexc_futures/board', {
-          signal: AbortSignal.timeout(10000),
-        });
-        if (response.ok) {
-          const data = (await response.json()) as { symbols: Partial<Board> };
-          if (alive)
-            setBoard(
-              Object.fromEntries(
-                FUTURES_SYMBOLS.map((s) => [
-                  s,
-                  data.symbols[s] ?? { wallet: null, auto: null, learning: null },
-                ]),
-              ) as Board,
-            );
+    const merge = (part: 'board' | 'learning') => (data: unknown) => {
+      const symbols = (data as { symbols: Record<string, unknown> }).symbols;
+      setBoard((current) => {
+        const next = { ...current };
+        for (const s of FUTURES_SYMBOLS) {
+          const row = symbols[s];
+          if (!row) continue;
+          next[s] =
+            part === 'board'
+              ? { ...next[s], ...(row as Omit<PairInfo, 'learning'>) }
+              : { ...next[s], learning: row as PairInfo['learning'] };
         }
-      } catch {
-        // Giữ bảng cũ; lần poll sau thử lại.
-      }
-      if (alive) timer = setTimeout(() => void poll(), 6000);
-    }
-    // Nhường request dashboard/chart chạy trước khi tải bảng tổng hợp.
-    timer = setTimeout(() => void poll(), 400);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
+        return next;
+      });
     };
+    return subscribeFuturesStream(
+      'parts=board',
+      { board: merge('board'), learning: merge('learning') },
+      () => undefined,
+    );
   }, [active]);
   return board;
 }
