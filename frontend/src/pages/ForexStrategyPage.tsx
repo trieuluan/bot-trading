@@ -1186,6 +1186,11 @@ export function ForexEntryPilotPanel({
   );
 }
 
+// Phân tích chỉ đổi theo nến M15 đóng và server cache 60s; poll thưa hơn và nhớ theo cặp
+// để đổi qua lại giữa các cặp không gọi lại một request nặng (~0.5MB).
+const ANALYSIS_REFRESH_MS = 60000;
+const analysisCache = new Map<string, { at: number; body: unknown }>();
+
 export function ForexStrategyPage({
   dashboard,
   disconnected,
@@ -1217,32 +1222,38 @@ export function ForexStrategyPage({
   const [entryPilot, setEntryPilot] = useState<ForexEntryPilot>();
   useEffect(() => {
     const controller = new AbortController();
-    setAnalysis(null);
-    setHtf2Shadow(undefined);
-    setEntryPilot(undefined);
+    let inflight = false;
+    type AnalysisBody = (LearnerAnalysis | { status: string }) & {
+      htf_ast3_shadow?: typeof htf2Shadow;
+      entry_pilot?: ForexEntryPilot;
+    };
+    const apply = (body: AnalysisBody | null) => {
+      setHtf2Shadow(body?.htf_ast3_shadow);
+      setEntryPilot(body?.entry_pilot);
+      setAnalysis(body && 'levels' in body ? body : null);
+    };
+    // Hiện ngay kết quả đã có của cặp này; chỉ gọi lại API khi cache đã cũ.
+    const cached = analysisCache.get(symbol);
+    apply((cached?.body as AnalysisBody | undefined) ?? null);
     const load = async () => {
+      if (inflight) return;
+      inflight = true;
       try {
         const res = await fetch(`/api/workspaces/exness_forex/learning/analysis?symbol=${symbol}`, {
-          signal: controller.signal,
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
         });
-        const body = (await res.json()) as (LearnerAnalysis | { status: string }) & {
-          htf_ast3_shadow?: typeof htf2Shadow;
-          entry_pilot?: ForexEntryPilot;
-        };
+        const body = (await res.json()) as AnalysisBody;
         if (controller.signal.aborted) return;
-        setHtf2Shadow(res.ok ? body.htf_ast3_shadow : undefined);
-        setEntryPilot(res.ok ? body.entry_pilot : undefined);
-        setAnalysis(res.ok && 'levels' in body ? body : null);
+        if (res.ok) analysisCache.set(symbol, { at: Date.now(), body });
+        apply(res.ok ? body : null);
       } catch {
-        if (!controller.signal.aborted) {
-          setAnalysis(null);
-          setHtf2Shadow(undefined);
-          setEntryPilot(undefined);
-        }
+        if (!controller.signal.aborted && !analysisCache.has(symbol)) apply(null);
+      } finally {
+        inflight = false;
       }
     };
-    void load();
-    const timer = window.setInterval(() => void load(), 15000);
+    if (!cached || Date.now() - cached.at >= ANALYSIS_REFRESH_MS) void load();
+    const timer = window.setInterval(() => void load(), ANALYSIS_REFRESH_MS);
     return () => {
       controller.abort();
       window.clearInterval(timer);

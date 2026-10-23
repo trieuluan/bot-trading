@@ -31,10 +31,15 @@ const isBot = (source: string) =>
 export function ForexExecutionPage({
   dashboard,
   pendingSymbol,
+  pendingFailed = false,
+  onRetry,
 }: {
   dashboard: ForexDashboard;
   /** Cặp vừa chọn nhưng dashboard của nó chưa về; trang đang hiển thị dữ liệu cặp cũ. */
   pendingSymbol?: string;
+  /** Tải cặp `pendingSymbol` lỗi/timeout; vẫn giữ khoá thao tác, cho thử lại. */
+  pendingFailed?: boolean;
+  onRetry?: () => void;
 }) {
   const symbol = dashboard.workspace.symbol;
   const stale = !!pendingSymbol;
@@ -202,10 +207,20 @@ export function ForexExecutionPage({
         </p>
       )}
       {stale ? (
-        <div className="terminal-decision is-switching" role="status">
-          <span className="switching-spinner" aria-hidden="true" />
-          <strong>Đang tải {pendingSymbol}…</strong>
+        <div
+          className={`terminal-decision is-switching${pendingFailed ? ' is-failed' : ''}`}
+          role={pendingFailed ? 'alert' : 'status'}
+        >
+          {!pendingFailed && <span className="switching-spinner" aria-hidden="true" />}
+          <strong>
+            {pendingFailed ? `Chưa tải được ${pendingSymbol}` : `Đang tải ${pendingSymbol}…`}
+          </strong>
           <span>Số liệu bên dưới vẫn là {symbol}; bật/tắt bot và đóng lệnh tạm khoá.</span>
+          {pendingFailed && onRetry && (
+            <button type="button" className="switching-retry" onClick={onRetry}>
+              Thử lại
+            </button>
+          )}
         </div>
       ) : (
         data && (

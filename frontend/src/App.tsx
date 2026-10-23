@@ -287,7 +287,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               </button>
             </div>
           )}
-          {page === 'Bot' && <ForexMarkets symbol={symbol} loading={switching} />}
+          {page === 'Bot' && <ForexMarkets symbol={symbol} loading={switching && !error} />}
           {error && (
             <div className="feedback" role="alert">
               {error}
@@ -301,6 +301,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <ForexExecutionPage
               dashboard={dashboard}
               pendingSymbol={switching ? symbol : undefined}
+              pendingFailed={switching && !!error}
+              onRetry={() => setRevision((value) => value + 1)}
             />
           )}
           {dashboard && page === 'Tổng quan' && (

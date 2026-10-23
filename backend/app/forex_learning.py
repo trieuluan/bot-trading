@@ -1,6 +1,7 @@
 """Read-only V2 research and chart API; never trains legacy policies."""
 
 import os
+import threading
 import time
 from decimal import Decimal
 
@@ -220,11 +221,35 @@ def _safe_overlays(candle, minutes, hours, higher, symbol):
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return None
 
+# current_analysis chạy diagnose cho cả quần thể (~15s CPU trên VPS) nhưng chỉ đổi theo nến M15
+# đóng và ledger; cache theo (cặp, nến M15) tối đa ANALYSIS_TTL giây, mỗi cặp chỉ một luồng tính.
+ANALYSIS_TTL = 60
+_analysis_cache = {}
+_analysis_locks = {}
+_analysis_locks_guard = threading.Lock()
+
+
+def cached_analysis(symbol, now=None):
+    now = int(time.time()) if now is None else now
+    key = now // 900
+    with _analysis_locks_guard:
+        lock = _analysis_locks.setdefault(symbol, threading.Lock())
+    with lock:
+        hit = _analysis_cache.get(symbol)
+        if not hit or hit[0] != key or now - hit[1] >= ANALYSIS_TTL:
+            hit = (key, now, current_analysis(now=now, symbol=symbol))
+            _analysis_cache[symbol] = hit
+        result = hit[2]
+    if "candle_time" in result:
+        result = {**result, "status": "ready" if now - result["candle_time"] - 900 <= 120 else "stale"}
+    return result
+
+
 @router.get("/analysis")
 def analysis_endpoint(symbol: str = "XAUUSD"):
     request_symbol(symbol)
     try:
-        result = current_analysis(symbol=symbol)
+        result = cached_analysis(symbol)
     except Exception:
         result = {"status": "error", "reason": "Phân tích V2 chưa sẵn sàng"}
     return {**result, **summary(symbol)}

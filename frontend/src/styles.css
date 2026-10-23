@@ -9146,9 +9146,19 @@ button.ap-cell:focus-visible {
    dữ liệu cặp cũ mờ đi và không bấm được cho tới khi dashboard cặp mới về. */
 .forex-markets.is-compact .route-progress {
   bottom: 0;
-  left: 16px;
-  width: 25%;
-  max-width: 240px;
+  width: 30%;
+  animation-name: strip-progress;
+}
+@keyframes strip-progress {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.forex-markets.is-compact.is-loading {
+  overflow: hidden;
 }
 .forex-markets.is-compact .forex-market-strip button[aria-busy='true'] {
   padding-right: 24px;
@@ -9208,8 +9218,22 @@ button.ap-cell:focus-visible {
 .trade-terminal.is-stale .terminal-bottom {
   opacity: 0.45;
 }
-.trade-terminal.is-stale .execution-chart-panel,
-.trade-terminal.is-stale .terminal-bottom {
-  pointer-events: none;
-  user-select: none;
+.terminal-decision.is-failed {
+  color: #9a3b2f;
+}
+.terminal-decision.is-failed strong {
+  color: #9a3b2f;
+}
+.switching-retry {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid #e4c3bd;
+  border-radius: 6px;
+  background: #fff;
+  color: #9a3b2f;
+  font-size: 12px;
+  font-weight: 650;
+}
+.switching-retry:hover {
+  background: #fbf1ef;
 }

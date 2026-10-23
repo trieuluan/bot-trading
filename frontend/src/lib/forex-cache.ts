@@ -33,7 +33,7 @@ export function fetchDashboard(symbol: string, signal?: AbortSignal): Promise<Fo
     const controller = new AbortController();
     const promise = fetch(
       `/api/workspaces/exness_forex/dashboard?symbol=${encodeURIComponent(symbol)}`,
-      { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) },
+      { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]) },
     )
       .then(async (response) => {
         if (!response.ok) throw new Error('Không tải được workspace Exness.');
