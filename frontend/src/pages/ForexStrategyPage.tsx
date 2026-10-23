@@ -1888,10 +1888,10 @@ export function ForexStrategyPage({
         levelLabel="Mức breakout"
         livePrice={
           quoteLive && !(executionOnly && selectedPosition?.status === 'closed')
-            ? {
-                price: side === 'bid' ? quoteState.quote!.bid : quoteState.quote!.ask,
-                label: `${side.toUpperCase()} LIVE`,
-              }
+            ? [
+                { price: quoteState.quote!.bid, label: 'BID', color: '#bd7164' },
+                { price: quoteState.quote!.ask, label: 'ASK', color: '#2c856c' },
+              ]
             : null
         }
         title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}

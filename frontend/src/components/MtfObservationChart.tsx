@@ -59,7 +59,7 @@ export function MtfObservationChart({
   entryIntents?: ForexEntryIntent[];
   shown?: string[];
   title?: string;
-  livePrice?: { price: number; label: string } | null;
+  livePrice?: { price: number; label: string; color?: string }[] | null;
   liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
   executions?: BrokerPosition[];
   selectedPositionId?: string;
@@ -251,17 +251,23 @@ export function MtfObservationChart({
 
   useEffect(() => {
     const priceSeries = series.current;
-    if (!priceSeries || !livePrice) return;
-    const line = priceSeries.createPriceLine({
-      price: livePrice.price,
-      color: '#287fa3',
-      lineWidth: 2,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: true,
-      title: livePrice.label,
-    });
+    if (!priceSeries) return;
+    const hasLive = Boolean(livePrice?.length);
+    priceSeries.applyOptions({ lastValueVisible: !hasLive, priceLineVisible: !hasLive });
+    if (!livePrice?.length) return;
+    const created = livePrice.map((row) =>
+      priceSeries.createPriceLine({
+        price: row.price,
+        color: row.color ?? '#287fa3',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: row.label,
+      }),
+    );
     return () => {
-      if (series.current === priceSeries) priceSeries.removePriceLine(line);
+      if (series.current === priceSeries)
+        created.forEach((line) => priceSeries.removePriceLine(line));
     };
   }, [livePrice]);
 
