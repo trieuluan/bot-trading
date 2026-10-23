@@ -6930,6 +6930,186 @@ main.forex-terminal-main {
     gap: 12px;
   }
 }
+/* Exness Bot: dải cặp + thanh tài khoản dính mép trên khi cuộn.
+   --forex-strip-h do useStickyBar đo, để thanh tài khoản dừng ngay dưới dải cặp. */
+.forex-markets.is-compact {
+  position: sticky;
+  top: 0;
+  z-index: 16;
+  margin: -8px -16px 6px;
+  padding: 6px 16px;
+  background: rgba(245, 246, 241, 0.92);
+  backdrop-filter: saturate(1.4) blur(8px);
+  -webkit-backdrop-filter: saturate(1.4) blur(8px);
+  border-bottom: 1px solid transparent;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.forex-markets.is-compact.is-stuck {
+  border-bottom-color: var(--border);
+}
+.forex-markets.is-compact .forex-market-strip {
+  scroll-behavior: smooth;
+  scroll-padding-inline: 32px;
+}
+.forex-markets.is-compact .forex-market-strip::-webkit-scrollbar {
+  display: none;
+}
+.forex-market-strip.fade-left {
+  mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+.forex-market-strip.fade-right {
+  mask-image: linear-gradient(to left, transparent, #000 32px);
+}
+.forex-market-strip.fade-left.fade-right {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 32px,
+    #000 calc(100% - 32px),
+    transparent
+  );
+}
+.forex-markets.is-compact .forex-market-strip button {
+  position: relative;
+  align-items: center;
+  color: #4d5f55;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+/* Mỗi cặp 2 dòng: tên trên, giá dưới; cột phải dành cho badge tín hiệu và số lệnh mở. */
+.forex-markets.is-compact .forex-market-strip button {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 1px 8px;
+  padding: 4px 10px;
+  line-height: 1.2;
+}
+.forex-markets.is-compact .forex-market-strip button strong {
+  grid-area: 1 / 1;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.forex-markets.is-compact .forex-market-strip button > span:not([class]) {
+  grid-area: 2 / 1;
+}
+.forex-markets.is-compact .forex-market-strip .pair-signal,
+.forex-markets.is-compact .forex-market-strip .forex-strip-positions {
+  justify-self: end;
+  font-size: 10px;
+  line-height: 14px;
+}
+.forex-markets.is-compact .forex-market-strip .pair-signal {
+  grid-area: 1 / 2;
+}
+.forex-markets.is-compact .forex-market-strip .forex-strip-positions {
+  grid-area: 2 / 2;
+}
+.forex-markets.is-compact .forex-market-strip button > span:not([class]) {
+  color: #6c7a70;
+  font-variant-numeric: tabular-nums;
+}
+.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] {
+  color: var(--green);
+  border-color: #b9cdbf;
+}
+.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] > span:not([class]) {
+  color: #263d35;
+}
+.forex-markets.is-compact .forex-market-strip button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--green);
+}
+.forex-markets.is-compact .forex-market-strip button:focus-visible,
+.terminal-toggle:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+.terminal-account-bar {
+  position: sticky;
+  top: var(--forex-strip-h, 44px);
+  z-index: 15;
+  gap: 6px 0;
+  transition:
+    box-shadow 0.15s,
+    border-radius 0.15s;
+}
+.terminal-account-bar.is-stuck {
+  border-top-color: transparent;
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 6px 16px -8px rgba(30, 50, 40, 0.28);
+}
+.terminal-account-bar > .badge-status {
+  margin-right: 18px;
+}
+.terminal-account-bar > .terminal-stat {
+  padding: 0 18px;
+  border-left: 1px solid var(--border);
+}
+.terminal-stat strong {
+  font-variant-numeric: tabular-nums;
+}
+.terminal-toggle {
+  transition:
+    background 0.12s,
+    filter 0.12s;
+}
+.terminal-toggle:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+.terminal-toggle.is-on:not(:disabled):hover {
+  background: #fbf1ef;
+  filter: none;
+}
+.trade-terminal .execution-chart-panel {
+  scroll-margin-top: calc(var(--forex-strip-h, 44px) + var(--forex-account-h, 52px) + 8px);
+}
+@media (max-width: 700px) {
+  .forex-markets.is-compact {
+    margin: -6px -8px 6px;
+    padding: 4px 8px;
+  }
+  /* Mobile: một hàng cuộn ngang thay vì lưới 3 cột, để thanh dính không chiếm nửa màn hình. */
+  .terminal-account-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 6px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .terminal-account-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .terminal-account-bar > * {
+    flex-shrink: 0;
+  }
+  .terminal-account-bar > .badge-status {
+    order: -2;
+    margin-right: 8px;
+  }
+  .terminal-account-bar > .terminal-toggle {
+    order: -1;
+    width: auto;
+    margin: 0 4px 0 0;
+    padding: 6px 10px;
+  }
+  .terminal-account-bar > .terminal-stat {
+    padding: 0 12px;
+  }
+}
+
 .topbar {
   position: relative;
 }
@@ -8612,4 +8792,277 @@ button.ap-cell:focus-visible {
   font-size: 12px;
   color: #a06a1c;
   white-space: nowrap;
+}
+
+/* AST V4 Pilot: thẻ KPI, chip trạng thái, bảng cây gọn. */
+.entry-pilot .card-header {
+  align-items: flex-start;
+}
+.entry-pilot .card-header h4 {
+  line-height: 1.35;
+}
+.entry-pilot .card-header .muted-desc {
+  margin: 3px 0 0;
+}
+.entry-pilot-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.entry-pilot-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.entry-pilot-state.is-on {
+  background: #e3efe6;
+  color: #1e6b47;
+}
+.entry-pilot-state.is-off {
+  background: #f1eee6;
+  color: #8a6d2c;
+}
+.entry-pilot-error {
+  margin: 0;
+  padding: 10px 16px;
+  color: #9a3b2f;
+  font-size: 12px;
+}
+.entry-pilot-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+.entry-pilot-kpis > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 16px;
+  border-left: 1px solid var(--border);
+}
+.entry-pilot-kpis > div:first-child {
+  border-left: 0;
+}
+.entry-pilot-kpis small {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.entry-pilot-kpis strong {
+  font:
+    700 18px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  color: #263d35;
+  overflow-wrap: anywhere;
+}
+.entry-pilot-kpis strong.is-live {
+  color: #1e8f68;
+}
+.entry-pilot-kpis strong em {
+  display: inline-block;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
+}
+.entry-pilot-kpis > div > span {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.entry-pilot .positive {
+  color: #137333;
+}
+.entry-pilot .negative {
+  color: #c5221f;
+}
+.entry-pilot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #fafbf8;
+}
+.entry-pilot-meta p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.entry-pilot-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+.entry-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #ebeee6;
+  color: #55635b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.entry-state-chip b {
+  font-variant-numeric: tabular-nums;
+}
+.entry-state-chip.state-waiting,
+.entry-state-chip.state-pending,
+.entry-state-chip.state-triggered {
+  background: #e6edf6;
+  color: #47617f;
+}
+.entry-state-chip.state-open,
+.entry-state-chip.state-submitting,
+.entry-state-chip.state-submitted {
+  background: #e3efe6;
+  color: #1e6b47;
+}
+.entry-state-chip.state-uncertain {
+  background: #f6efd4;
+  color: #8a6d0a;
+}
+.entry-state-chip.state-cancelled,
+.entry-state-chip.state-expired {
+  background: #f3f1ee;
+  color: #8a8178;
+}
+.entry-pilot-intents {
+  border-bottom: 1px solid var(--border);
+}
+.entry-pilot-intents > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 650;
+  color: #263d35;
+}
+.entry-pilot-intents > summary::-webkit-details-marker {
+  display: none;
+}
+.entry-pilot-intents > summary::before {
+  content: '▸';
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.entry-pilot-intents[open] > summary::before {
+  transform: rotate(90deg);
+}
+.entry-pilot-intents > summary:hover {
+  background: #fafbf8;
+}
+.entry-pilot-intents > summary:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+.entry-pilot-intents .table-wrap {
+  max-height: 320px;
+  border-top: 1px solid var(--border);
+}
+.entry-pilot-empty {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.side-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+.side-chip.long {
+  background: #e3efe6;
+  color: #137333;
+}
+.side-chip.short {
+  background: #f8e6e3;
+  color: #c5221f;
+}
+.entry-pilot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+}
+.entry-pilot-toolbar input {
+  flex: 1;
+  min-width: 0;
+  max-width: 420px;
+  min-height: 34px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid #d9dfd2;
+  border-radius: 6px;
+  background: #fff;
+  color: #263d35;
+}
+.entry-pilot-toolbar input:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+.entry-pilot-toolbar .muted {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.entry-pilot > .table-wrap {
+  border-top: 1px solid var(--border);
+}
+.entry-pilot-trees td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.entry-tree-id {
+  display: block;
+  font-size: 12px;
+  color: #263d35;
+}
+.entry-tree-parent {
+  display: block;
+  font:
+    10.5px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: var(--muted);
+}
+.entry-pilot-trees td.muted {
+  color: #b4bcb4;
+}
+@media (max-width: 700px) {
+  .entry-pilot .card-header {
+    flex-direction: row;
+  }
+  .entry-pilot-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .entry-pilot-kpis > div:nth-child(odd) {
+    border-left: 0;
+  }
+  .entry-pilot-kpis > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
 }

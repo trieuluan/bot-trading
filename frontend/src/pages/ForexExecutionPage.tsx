@@ -7,6 +7,7 @@ import { formatForexPrice } from '../lib/format';
 import { blockLabel } from '../lib/forex-labels';
 import { formatTime } from '../lib/time-format';
 import { DecisionJournal } from '../components/DecisionJournal';
+import { useStickyBar } from '../hooks/useStickyBar';
 
 const url = '/api/workspaces/exness_forex/execution';
 // Trang đầu của mỗi cặp, để đổi cặp hiển thị ngay số liệu đã có.
@@ -36,6 +37,7 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [route] = useRoute();
+  const [accountRef, accountStuck] = useStickyBar<HTMLDivElement>('--forex-account-h');
   // Chart luôn hiển thị; tab cũ `chart` rơi về `orders` để link cũ vẫn chạy.
   const panel: Panel = route.tab === 'learning' ? 'learning' : 'orders';
   const setPanel = (next: Panel) => setRoute({ tab: next });
@@ -126,7 +128,11 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
   const floating = equity != null && balance != null ? Number(equity) - Number(balance) : null;
   return (
     <div className="execution-desk trade-terminal">
-      <div className="terminal-account-bar" aria-label="Tài khoản Exness Demo">
+      <div
+        ref={accountRef}
+        className={`terminal-account-bar${accountStuck ? ' is-stuck' : ''}`}
+        aria-label="Tài khoản Exness Demo"
+      >
         <span
           className={`badge-status badge-${state}`}
           title={`Đồng bộ sàn: ${date(data?.synced_at ?? null)}`}
@@ -570,7 +576,11 @@ export function ForexExecutionPage({ dashboard }: { dashboard: ForexDashboard })
               </div>
               <DecisionJournal journal={data.journal} funnel={data.funnel} />
             </div>
-            <ForexEntryPilotPanel key={symbol} entryPilot={data.learning?.entry_pilot} />
+            <ForexEntryPilotPanel
+              key={symbol}
+              symbol={symbol}
+              entryPilot={data.learning?.entry_pilot}
+            />
             {data.learning?.htf_ast3_shadow && (
               <div className="learning-section-card">
                 <div className="card-header">

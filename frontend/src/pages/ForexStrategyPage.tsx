@@ -10,7 +10,7 @@ import { StrategyOverlayMenu } from '../components/StrategyOverlayMenu';
 import { treeLabel, shortTreeId } from '../lib/forex-tree-label';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
-import { feedErrorText } from '../lib/forex-labels';
+import { feedErrorText, priceDigits } from '../lib/forex-labels';
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
@@ -775,202 +775,277 @@ export function HtfLineage({
     </div>
   );
 }
-export function ForexEntryPilotPanel({ entryPilot }: { entryPilot?: ForexEntryPilot }) {
+const signedR = (value: number | null | undefined) =>
+  value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}R`;
+const rTone = (value: number | null | undefined) =>
+  value == null ? '' : value >= 0 ? 'positive' : 'negative';
+const winnerLabels: Record<string, string> = {
+  limit: 'Limit giữa',
+  stop: 'Stop phá nến',
+  market: 'Market',
+};
+
+export function ForexEntryPilotPanel({
+  entryPilot,
+  symbol,
+}: {
+  entryPilot?: ForexEntryPilot;
+  symbol: string;
+}) {
   const [entrySearch, setEntrySearch] = useState('');
+  const digits = priceDigits(symbol);
+  const price = (value: number | null) => (value == null ? '—' : value.toFixed(digits));
+  const pilot = entryPilot?.pilot;
+  const trees = pilot?.trees ?? [];
+  const intents = entryPilot?.intents ?? [];
+  const waiting = intents.filter((intent) => intent.status === 'waiting').length;
+  const samples = trees.reduce((total, tree) => total + tree.samples_count, 0);
+  const resolved = trees.reduce((total, tree) => total + tree.resolved_count, 0);
+  const comparison = pilot?.comparison;
+  // Mọi cây cùng một kiểu vào lệnh thì đưa lên tiêu đề, không lặp lại từng dòng.
+  const policies = new Set(trees.map((tree) => tree.entry_policy));
+  const policyLabel = (policy: string) => (policy === 'limit_or_stop' ? 'Limit/Stop ảo' : policy);
+  const needle = entrySearch.trim().toLowerCase();
+  const shownTrees = needle
+    ? trees.filter((tree) =>
+        [
+          tree.id,
+          tree.control_tree_id,
+          tree.h1_setup,
+          tree.m15_trigger,
+          tree.exit_policy,
+          label(tree.h1_setup),
+          label(tree.m15_trigger),
+          label(tree.exit_policy),
+        ].some((value) => value.toLowerCase().includes(needle)),
+      )
+    : trees;
+  const states = Object.entries(pilot?.counts ?? {});
   return (
     <>
-      {entryPilot && entryPilot.pilot.status !== 'ready' && (
-        <div className="learning-section-card" role="status">
-          <h4>Limit/Stop ảo — bot canh giá</h4>
-          <p className="muted-desc">
-            {entryPilot.pilot.status === 'not_initialized'
-              ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
-              : 'Nhóm đối chiếu chưa sẵn sàng. Entry thử nghiệm bị chặn.'}
-          </p>
-          {(entryPilot.error || entryPilot.pilot.error) && (
-            <p>{entryPilot.error || entryPilot.pilot.error}</p>
+      {entryPilot && pilot && pilot.status !== 'ready' && (
+        <div className="learning-section-card entry-pilot is-blocked" role="status">
+          <div className="card-header">
+            <div>
+              <h4>AST V4 Pilot · Limit/Stop ảo</h4>
+              <p className="muted-desc">
+                {pilot.status === 'not_initialized'
+                  ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
+                  : 'Nhóm đối chiếu chưa sẵn sàng. Entry thử nghiệm bị chặn.'}
+              </p>
+            </div>
+            <span className="entry-pilot-state is-off">Chưa sẵn sàng</span>
+          </div>
+          {(entryPilot.error || pilot.error) && (
+            <p className="entry-pilot-error">{entryPilot.error || pilot.error}</p>
           )}
         </div>
       )}
-      {entryPilot?.pilot?.trees && (
-        <div className="learning-section-card">
+      {entryPilot && pilot?.trees && (
+        <div className="learning-section-card entry-pilot">
           <div className="card-header">
             <div>
-              <h4>AST V4 Pilot · 56 Cây Limit/Stop Ảo Đối Chiếu</h4>
+              <h4>
+                AST V4 Pilot · {pilot.tree_count} cây{' '}
+                {policies.size === 1 ? policyLabel([...policies][0]) : 'Limit/Stop ảo'} đối chiếu
+              </h4>
               <p className="muted-desc">
-                {entryPilot.pilot.note ||
+                {pilot.note ||
                   'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
-                .
               </p>
             </div>
+            <span
+              className={`entry-pilot-state ${entryPilot.enabled ? 'is-on' : 'is-off'}`}
+              title={
+                entryPilot.enabled
+                  ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có'
+                  : 'Execution nhóm thử đang tắt'
+              }
+            >
+              {entryPilot.enabled ? 'Đang bật' : 'Đang tắt'}
+            </span>
+          </div>
+
+          <div className="entry-pilot-kpis">
             <div>
-              <input
-                type="search"
-                value={entrySearch}
-                onChange={(e) => setEntrySearch(e.target.value)}
-                placeholder="Lọc cây đối chiếu..."
-                aria-label="Lọc cây đối chiếu"
-              />
-              <span className="badge-count">
-                {entryPilot.intents?.filter((i) => i.status === 'waiting').length || 0} đang canh ·{' '}
-                {entryPilot.pilot.tree_count} cây
+              <small>Đang canh giá</small>
+              <strong className={waiting ? 'is-live' : ''}>{waiting}</strong>
+              <span>{intents.length} setup gần nhất</span>
+            </div>
+            <div>
+              <small>Mẫu shadow</small>
+              <strong>{samples}</strong>
+              <span>{resolved} đã đóng</span>
+            </div>
+            <div>
+              <small>Mean R</small>
+              <strong>
+                <span className={rTone(comparison?.hybrid_mean_r)}>
+                  {signedR(comparison?.hybrid_mean_r)}
+                </span>
+                <em> vs {signedR(comparison?.market_mean_r)} Market</em>
+              </strong>
+              <span>
+                {comparison?.matched_signals
+                  ? `Limit/Stop · ${comparison.matched_signals} tín hiệu, ${comparison.resolved_pairs} cặp đã đóng`
+                  : 'Chưa có tín hiệu trùng setup'}
               </span>
             </div>
-          </div>
-          {entryPilot.pilot.comparison && entryPilot.pilot.comparison.matched_signals > 0 && (
-            <div className="bot-footer-note">
-              <div>
-                <strong>Đối chiếu cùng setup:</strong> {entryPilot.pilot.comparison.matched_signals}{' '}
-                tín hiệu
-              </div>
-              <div>
-                Cặp đã đóng cả hai: {entryPilot.pilot.comparison.resolved_pairs}. R Market shadow:{' '}
-                {entryPilot.pilot.comparison.market_mean_r !== null
-                  ? `${entryPilot.pilot.comparison.market_mean_r.toFixed(2)}R`
-                  : '—'}
-              </div>
-              <div>
-                R Limit/Stop shadow cùng cặp:{' '}
-                {entryPilot.pilot.comparison.hybrid_mean_r !== null
-                  ? `${entryPilot.pilot.comparison.hybrid_mean_r.toFixed(2)}R`
-                  : '—'}
-              </div>
-              <div>
-                Chênh lệch:{' '}
-                <strong>
-                  {entryPilot.pilot.comparison.delta_r !== null
-                    ? `${entryPilot.pilot.comparison.delta_r > 0 ? '+' : ''}${entryPilot.pilot.comparison.delta_r.toFixed(2)}R`
-                    : '—'}
-                </strong>
-              </div>
+            <div>
+              <small>Chênh lệch</small>
+              <strong className={rTone(comparison?.delta_r)}>{signedR(comparison?.delta_r)}</strong>
+              <span>Limit/Stop − Market</span>
             </div>
-          )}
-          <p className="bot-footer-note">
-            {entryPilot.enabled
-              ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có.'
-              : 'Execution nhóm thử đang tắt.'}{' '}
-            Kết quả shadow không phải giao dịch broker. R sau chi phí, chưa swap.
-          </p>
-          {entryPilot.pilot.since && (
-            <p className="bot-footer-note">
-              Cutoff nhóm đối chiếu: {formatTime(entryPilot.pilot.since, true)}. Không nhận fitness
-              từ cây nguồn.
+          </div>
+
+          <div className="entry-pilot-meta">
+            <div className="entry-pilot-states" aria-label="Trạng thái mẫu shadow">
+              {states.length ? (
+                states.map(([state, count]) => (
+                  <span key={state} className={`entry-state-chip state-${state}`}>
+                    {entryStateLabels[state] ?? state} <b>{count}</b>
+                  </span>
+                ))
+              ) : (
+                <span className="muted">Chưa có mẫu shadow</span>
+              )}
+            </div>
+            <p>
+              Shadow, không phải giao dịch broker · R sau chi phí, chưa swap
+              {pilot.since
+                ? ` · cutoff ${formatTime(pilot.since, true)}, không nhận fitness từ cây nguồn`
+                : ''}
             </p>
-          )}
-          <p className="bot-footer-note">
-            {Object.entries(entryPilot.pilot.counts ?? {})
-              .map(([state, count]) => `${entryStateLabels[state] ?? state}: ${count}`)
-              .join(' · ') || 'Chưa có mẫu shadow'}
-          </p>
-          <details>
+          </div>
+
+          <details className="entry-pilot-intents">
             <summary>
-              Canh giá & kết quả broker · {entryPilot.intents.length} setup gần nhất
+              <span>Canh giá & kết quả broker</span>
+              <span className="badge-count">{intents.length} setup</span>
             </summary>
-            <div className="table-wrap">
-              <table className="learner-clean-table">
-                <thead>
-                  <tr>
-                    <th>Cây / hướng</th>
-                    <th>Trạng thái</th>
-                    <th>Limit / Stop ảo</th>
-                    <th>Hết hạn</th>
-                    <th>Nhánh thắng</th>
-                    <th>Khớp broker / lệch mức</th>
-                    <th>Lý do hủy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entryPilot.intents.map((intent) => (
-                    <tr key={intent.id}>
-                      <td>
-                        <code>{intent.strategy}</code> · {intent.side === 'long' ? 'Mua' : 'Bán'}
-                      </td>
-                      <td>
-                        {intent.broker_fills?.length
-                          ? 'Broker đã xác nhận khớp'
-                          : (entryStateLabels[intent.status] ?? intent.status)}
-                      </td>
-                      <td>
-                        {intent.limit_price ?? '—'} / {intent.stop_price ?? '—'}
-                      </td>
-                      <td>{formatTime(intent.expires_at, true)}</td>
-                      <td>
-                        {intent.winner === 'limit'
-                          ? 'Limit giữa'
-                          : intent.winner === 'stop'
-                            ? 'Stop phá nến'
-                            : intent.winner === 'market'
-                              ? 'Market'
-                              : '—'}
-                      </td>
-                      <td>
-                        {intent.broker_fills?.length
-                          ? intent.broker_fills.map((fill) => (
+            {intents.length ? (
+              <div className="table-wrap">
+                <table className="learner-clean-table">
+                  <thead>
+                    <tr>
+                      <th>Cây / hướng</th>
+                      <th>Trạng thái</th>
+                      <th className="num">Limit / Stop ảo</th>
+                      <th>Hết hạn</th>
+                      <th>Nhánh thắng</th>
+                      <th>Khớp broker / lệch mức</th>
+                      <th>Lý do hủy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {intents.map((intent) => (
+                      <tr key={intent.id}>
+                        <td>
+                          <code>{intent.strategy}</code>{' '}
+                          <span className={`side-chip ${intent.side}`}>
+                            {intent.side === 'long' ? 'Mua' : 'Bán'}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`entry-state-chip state-${intent.broker_fills?.length ? 'completed' : intent.status}`}
+                          >
+                            {intent.broker_fills?.length
+                              ? 'Broker đã xác nhận khớp'
+                              : (entryStateLabels[intent.status] ?? intent.status)}
+                          </span>
+                        </td>
+                        <td className="num font-mono">
+                          {price(intent.limit_price)} / {price(intent.stop_price)}
+                        </td>
+                        <td>{formatTime(intent.expires_at, true)}</td>
+                        <td>{winnerLabels[intent.winner ?? ''] ?? '—'}</td>
+                        <td className="font-mono">
+                          {intent.broker_fills?.length ? (
+                            intent.broker_fills.map((fill) => (
                               <div key={fill.position_id}>
-                                {fill.price} · lệch{' '}
+                                {price(fill.price)} · lệch{' '}
                                 {fill.deviation === null
                                   ? '—'
                                   : `${fill.deviation > 0 ? '+' : ''}${Number(fill.deviation.toPrecision(6))}`}
                               </div>
                             ))
-                          : 'Chưa xác nhận'}
-                      </td>
-                      <td title={intent.reason}>
-                        {rejectLabels[intent.reason ?? '']?.[0] ?? intent.reason ?? '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          ) : (
+                            <span className="muted">Chưa xác nhận</span>
+                          )}
+                        </td>
+                        <td title={intent.reason}>
+                          {rejectLabels[intent.reason ?? '']?.[0] ?? intent.reason ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="entry-pilot-empty">
+                Chưa có setup nào được canh giá. Bot sẽ ghi lại ở đây khi một cây V4 bắt được tín
+                hiệu M15.
+              </p>
+            )}
           </details>
+
+          <div className="entry-pilot-toolbar">
+            <input
+              type="search"
+              value={entrySearch}
+              onChange={(e) => setEntrySearch(e.target.value)}
+              placeholder="Lọc theo ID, setup H1, trigger M15, quản lý…"
+              aria-label="Lọc cây đối chiếu"
+            />
+            <span className="muted">
+              {needle ? `${shownTrees.length}/${trees.length} cây` : `${trees.length} cây`}
+            </span>
+          </div>
           <div className="table-wrap">
-            <table className="learner-clean-table">
+            <table className="learner-clean-table entry-pilot-trees">
               <thead>
                 <tr>
-                  <th>ID Cây V4</th>
-                  <th>Cây Gốc V3</th>
-                  <th>Vào Lệnh</th>
-                  <th>H1 Setup</th>
-                  <th>M15 Trigger</th>
-                  <th>Quản Lý</th>
-                  <th>Mẫu</th>
-                  <th>Đã Đóng</th>
-                  <th>Mean R</th>
+                  <th>Cây V4 · gốc V3</th>
+                  {policies.size > 1 && <th>Vào lệnh</th>}
+                  <th>Setup H1 → Trigger M15</th>
+                  <th>Quản lý</th>
+                  <th className="num">Mẫu</th>
+                  <th className="num">Đã đóng</th>
+                  <th className="num">Mean R</th>
                 </tr>
               </thead>
               <tbody>
-                {entryPilot.pilot.trees
-                  .filter(
-                    (t) =>
-                      !entrySearch ||
-                      t.id.includes(entrySearch) ||
-                      t.control_tree_id.includes(entrySearch) ||
-                      t.h1_setup.includes(entrySearch),
-                  )
-                  .map((t) => (
-                    <tr key={t.id}>
-                      <td>
-                        <code>{t.id}</code>
-                      </td>
-                      <td>
-                        <code>{t.control_tree_id}</code>
-                      </td>
-                      <td>
-                        {t.entry_policy === 'limit_or_stop' ? 'Limit/Stop ảo' : t.entry_policy}
-                      </td>
-                      <td>{label(t.h1_setup)}</td>
-                      <td>{label(t.m15_trigger)}</td>
-                      <td>{label(t.exit_policy)}</td>
-                      <td>{t.samples_count}</td>
-                      <td>{t.resolved_count}</td>
-                      <td>
-                        {t.mean_r !== null
-                          ? `${t.mean_r > 0 ? '+' : ''}${t.mean_r.toFixed(2)}R`
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
+                {shownTrees.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <code className="entry-tree-id">{t.id}</code>
+                      <small className="entry-tree-parent">từ {t.control_tree_id}</small>
+                    </td>
+                    {policies.size > 1 && <td>{policyLabel(t.entry_policy)}</td>}
+                    <td>
+                      <span className="lineage-tags-inline">
+                        <span className="lineage-tag tag-h1">{label(t.h1_setup)}</span>
+                        <span className="lineage-tag tag-m15">{label(t.m15_trigger)}</span>
+                      </span>
+                    </td>
+                    <td>
+                      <span className="lineage-tag tag-exit">{label(t.exit_policy)}</span>
+                    </td>
+                    <td className={`num ${t.samples_count ? '' : 'muted'}`}>{t.samples_count}</td>
+                    <td className={`num ${t.resolved_count ? '' : 'muted'}`}>{t.resolved_count}</td>
+                    <td className={`num font-mono ${rTone(t.mean_r) || 'muted'}`}>
+                      {signedR(t.mean_r)}
+                    </td>
+                  </tr>
+                ))}
+                {!shownTrees.length && (
+                  <tr>
+                    <td colSpan={policies.size > 1 ? 7 : 6} className="entry-pilot-empty">
+                      Không có cây nào khớp “{entrySearch.trim()}”.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1734,7 +1809,9 @@ export function ForexStrategyPage({
           </p>
         </div>
       )}
-      {!executionOnly && <ForexEntryPilotPanel key={symbol} entryPilot={entryPilot} />}
+      {!executionOnly && (
+        <ForexEntryPilotPanel key={symbol} symbol={symbol} entryPilot={entryPilot} />
+      )}
       {!executionOnly && htf2Shadow && (
         <div className="learning-section-card">
           <div className="card-header">

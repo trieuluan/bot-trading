@@ -1,7 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Zap } from 'lucide-react';
 import { setRoute } from '../lib/router';
 import { prefetchSymbol } from '../lib/forex-cache';
+import { useStickyBar } from '../hooks/useStickyBar';
 import {
   blockLabel,
   feedErrorText,
@@ -140,11 +141,42 @@ export function ForexMarkets({
 }) {
   const { data, error } = useForexMarkets();
   const now = useNow(1000);
+  const [barRef, stuck] = useStickyBar<HTMLElement>('--forex-strip-h');
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = () => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const left = strip.scrollLeft > 2;
+    const right = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  };
+  const marketCount = data?.markets.length ?? 0;
+  // Cặp đang chọn luôn nằm trong vùng nhìn thấy của dải (kể cả khi mở bằng link).
+  useEffect(() => {
+    const strip = stripRef.current;
+    strip
+      ?.querySelector<HTMLElement>('button[aria-pressed="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    updateEdges();
+  }, [symbol, marketCount]);
+  useEffect(() => {
+    window.addEventListener('resize', updateEdges);
+    return () => window.removeEventListener('resize', updateEdges);
+  }, []);
 
   if (variant === 'strip')
     return (
-      <section className="forex-markets is-compact" aria-label="Các cặp Forex">
-        <div className="forex-market-strip">
+      <section
+        ref={barRef}
+        className={`forex-markets is-compact${stuck ? ' is-stuck' : ''}`}
+        aria-label="Các cặp Forex"
+      >
+        <div
+          ref={stripRef}
+          className={`forex-market-strip${edges.left ? ' fade-left' : ''}${edges.right ? ' fade-right' : ''}`}
+          onScroll={updateEdges}
+        >
           {data?.markets.map((market) => {
             const signals =
               !error && market.feed.some((feed) => feed.worker_online)
