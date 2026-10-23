@@ -7,11 +7,10 @@ import { formatForexPrice } from '../lib/format';
 import { blockLabel } from '../lib/forex-labels';
 import { formatTime } from '../lib/time-format';
 import { DecisionJournal } from '../components/DecisionJournal';
+import { subscribeForexStream } from '../lib/forex-stream';
 import { useStickyBar } from '../hooks/useStickyBar';
 
 const url = '/api/workspaces/exness_forex/execution';
-// Trang đầu của mỗi cặp, để đổi cặp hiển thị ngay số liệu đã có.
-const firstPageCache = new Map<string, ExnessExecution>();
 const amount = (value: number | string | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
 const quotePrice = (value: number | string | null | undefined) =>
@@ -46,7 +45,8 @@ export function ForexExecutionPage({
   // Đọc trong action() để chặn cả thao tác bắt đầu trước khi đổi cặp (vd. sau hộp confirm).
   const staleRef = useRef(stale);
   staleRef.current = stale;
-  const [data, setData] = useState<ExnessExecution | null>(null);
+  const [snapshot, setData] = useState<ExnessExecution | null>(null);
+  const data = snapshot?.symbol === symbol ? snapshot : null;
   const [selectedId, setSelectedId] = useState<string>();
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -66,41 +66,19 @@ export function ForexExecutionPage({
     setSelectedId(undefined);
   }
   useEffect(() => {
-    const controller = new AbortController();
-    let inflight = false;
-    const cached = offset === 0 ? firstPageCache.get(symbol) : undefined;
-    if (cached) setData(cached);
-    async function refresh() {
-      if (inflight) return;
-      inflight = true;
-      try {
-        const response = await fetch(`${url}?symbol=${symbol}&offset=${offset}&limit=50`, {
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-        });
-        if (!response.ok) throw new Error();
-        const next: ExnessExecution = await response.json();
-        if (offset === 0) firstPageCache.set(symbol, next);
-        if (!controller.signal.aborted) {
-          setData(next);
-          setError('');
-        }
-      } catch {
-        if (!controller.signal.aborted)
-          setError('Mất kết nối dữ liệu lệnh sàn. Dữ liệu đang hiển thị có thể đã cũ.');
-      } finally {
-        inflight = false;
-      }
-    }
-    void refresh();
-    const timer = setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 5000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
+    setData(null);
+    return subscribeForexStream(
+      symbol,
+      'execution',
+      (value) => {
+        const next = value as ExnessExecution;
+        if (next.symbol !== symbol) return;
+        setData(next);
+      },
+      (online) => setError(online ? '' : 'Stream lệnh sàn đang kết nối lại; dữ liệu có thể đã cũ.'),
+      offset,
+    );
   }, [offset, revision, symbol]);
-
   async function action(path: string, method: string, body?: object) {
     if (staleRef.current) return;
     setBusy(true);

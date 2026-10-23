@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { Bell, Menu, RefreshCw, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { ForexMarkets } from './components/ForexMarkets';
-import { cachedDashboard, fetchDashboard } from './lib/forex-cache';
+import { subscribeForexStream } from './lib/forex-stream';
 import { useTimeZone } from './lib/time-zone';
 import { TimeZoneToggle } from './components/TimeZoneToggle';
 import { formatTime } from './lib/time-format';
@@ -184,42 +184,21 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   const [dashboard, setDashboard] = useState<ForexDashboard | null>(null);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    let inflight = false;
-    // Giữ dashboard cũ khi đổi cặp (không gỡ trang); dùng cache nếu cặp đã xem.
-    const cached = cachedDashboard(symbol);
-    if (cached) setDashboard(cached);
-    setError('');
-    function refreshForex() {
-      if (inflight) return;
-      inflight = true;
-      fetchDashboard(symbol, controller.signal)
-        .then((data) => {
-          if (!controller.signal.aborted) {
-            setDashboard(data);
-            setError('');
-          }
-        })
-        .catch(() => {
-          if (!controller.signal.aborted)
-            setError('Mất kết nối API; giữ dữ liệu Exness cuối. Không dùng dữ liệu MEXC thay thế.');
-        })
-        .finally(() => {
-          inflight = false;
-        });
-    }
-    // Đổi cặp liên tục (bấm lướt, phím mũi tên) chỉ tải cặp dừng lại cuối cùng.
-    const first = setTimeout(refreshForex, cached ? 0 : 150);
-    const interval = setInterval(() => {
-      if (!document.hidden) refreshForex();
-    }, 15000);
-    return () => {
-      controller.abort();
-      clearTimeout(first);
-      clearInterval(interval);
-    };
-  }, [revision, symbol]);
+  useEffect(
+    () =>
+      subscribeForexStream(
+        symbol,
+        'dashboard',
+        (value) => {
+          const next = value as ForexDashboard;
+          if (next.workspace?.id !== 'exness_forex' || next.workspace.symbol !== symbol) return;
+          setDashboard(next);
+          setError('');
+        },
+        (online) => setError(online ? '' : 'Stream Exness đang kết nối lại; giữ dữ liệu cuối.'),
+      ),
+    [revision, symbol],
+  );
   // Dữ liệu đang hiển thị là của cặp cũ: chờ dashboard cặp mới.
   const switching = !!dashboard && dashboard.workspace.symbol !== symbol;
   return (

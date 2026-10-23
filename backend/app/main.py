@@ -36,6 +36,7 @@ from .exness_quotes import router as quotes_router
 from .feed import load_candles, save_candles
 from .forex_learning import router as learning_router
 from .forex_reporting import journal_csv
+from .forex_stream import router as forex_stream_router
 from .forex_symbols import configured_symbols, request_symbol
 from .futures_history import router as futures_history_router
 from .futures_learner import router as futures_learning_router
@@ -82,6 +83,7 @@ app.include_router(auto_router)
 app.include_router(observation_router)
 app.include_router(quotes_router)
 app.include_router(stream_router)
+app.include_router(forex_stream_router)
 
 def authenticated(request):
     password = os.getenv("APP_PASSWORD", "")

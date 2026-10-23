@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Zap } from 'lucide-react';
-import { setRoute } from '../lib/router';
-import { prefetchSymbol } from '../lib/forex-cache';
+import { subscribeForexStream } from '../lib/forex-stream';
+import { useRoute, setRoute } from '../lib/router';
 import { useStickyBar } from '../hooks/useStickyBar';
 import {
   blockLabel,
@@ -48,43 +48,23 @@ interface MarketsData {
   max_positions_per_symbol: number;
 }
 
-// Một vòng poll /markets dùng chung cho mọi nơi đang hiển thị (API này chậm ~0.5s).
-let shared: { data?: MarketsData; error: boolean } = { error: false };
-const listeners = new Set<() => void>();
-let timer: number | undefined;
-let inflight = false;
-
-async function poll() {
-  if (inflight) return;
-  inflight = true;
-  try {
-    const response = await fetch('/api/workspaces/exness_forex/markets', {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) throw new Error();
-    shared = { data: await response.json(), error: false };
-  } catch {
-    shared = { ...shared, error: true };
-  } finally {
-    inflight = false;
-    listeners.forEach((listener) => listener());
-  }
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  if (listeners.size === 1) {
-    void poll();
-    timer = window.setInterval(() => void poll(), 10000);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (!listeners.size) window.clearInterval(timer);
-  };
-}
-
 export function useForexMarkets() {
-  return useSyncExternalStore(subscribe, () => shared);
+  const [route] = useRoute();
+  const symbol = route.symbol ?? 'XAUUSD';
+  const [shared, setShared] = useState<{ data?: MarketsData; error: boolean }>({ error: false });
+  useEffect(
+    () =>
+      subscribeForexStream(
+        symbol,
+        'markets',
+        (value) => {
+          setShared({ data: value as MarketsData, error: false });
+        },
+        (online) => setShared((previous) => ({ ...previous, error: !online })),
+      ),
+    [symbol],
+  );
+  return shared;
 }
 
 const formatPrice = (market: Market) =>
@@ -194,8 +174,6 @@ export function ForexMarkets({
                 type="button"
                 aria-pressed={market.symbol === symbol}
                 aria-busy={loading && market.symbol === symbol}
-                onPointerEnter={() => prefetchSymbol(market.symbol)}
-                onFocus={() => prefetchSymbol(market.symbol)}
                 onClick={() => select(market.symbol)}
                 title={`${market.symbol} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
               >
@@ -295,7 +273,6 @@ export function ForexMarkets({
                   key={market.symbol}
                   className={active ? 'is-active' : ''}
                   onClick={() => select(market.symbol)}
-                  onPointerEnter={() => prefetchSymbol(market.symbol)}
                 >
                   <th scope="row">
                     <button

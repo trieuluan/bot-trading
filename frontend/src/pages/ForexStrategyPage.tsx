@@ -1,5 +1,6 @@
 import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { subscribeForexStream } from '../lib/forex-stream';
 import { Eye } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import {
@@ -1186,11 +1187,6 @@ export function ForexEntryPilotPanel({
   );
 }
 
-// Phân tích chỉ đổi theo nến M15 đóng và server cache 60s; poll thưa hơn và nhớ theo cặp
-// để đổi qua lại giữa các cặp không gọi lại một request nặng (~0.5MB).
-const ANALYSIS_REFRESH_MS = 60000;
-const analysisCache = new Map<string, { at: number; body: unknown }>();
-
 export function ForexStrategyPage({
   dashboard,
   disconnected,
@@ -1221,43 +1217,23 @@ export function ForexStrategyPage({
     useState<NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']>();
   const [entryPilot, setEntryPilot] = useState<ForexEntryPilot>();
   useEffect(() => {
-    const controller = new AbortController();
-    let inflight = false;
-    type AnalysisBody = (LearnerAnalysis | { status: string }) & {
-      htf_ast3_shadow?: typeof htf2Shadow;
-      entry_pilot?: ForexEntryPilot;
-    };
-    const apply = (body: AnalysisBody | null) => {
-      setHtf2Shadow(body?.htf_ast3_shadow);
-      setEntryPilot(body?.entry_pilot);
-      setAnalysis(body && 'levels' in body ? body : null);
-    };
-    // Hiện ngay kết quả đã có của cặp này; chỉ gọi lại API khi cache đã cũ.
-    const cached = analysisCache.get(symbol);
-    apply((cached?.body as AnalysisBody | undefined) ?? null);
-    const load = async () => {
-      if (inflight) return;
-      inflight = true;
-      try {
-        const res = await fetch(`/api/workspaces/exness_forex/learning/analysis?symbol=${symbol}`, {
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
-        });
-        const body = (await res.json()) as AnalysisBody;
-        if (controller.signal.aborted) return;
-        if (res.ok) analysisCache.set(symbol, { at: Date.now(), body });
-        apply(res.ok ? body : null);
-      } catch {
-        if (!controller.signal.aborted && !analysisCache.has(symbol)) apply(null);
-      } finally {
-        inflight = false;
-      }
-    };
-    if (!cached || Date.now() - cached.at >= ANALYSIS_REFRESH_MS) void load();
-    const timer = window.setInterval(() => void load(), ANALYSIS_REFRESH_MS);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    setAnalysis(null);
+    setHtf2Shadow(undefined);
+    setEntryPilot(undefined);
+    return subscribeForexStream(
+      symbol,
+      'analysis',
+      (value) => {
+        const body = value as (LearnerAnalysis | { status: string }) & {
+          htf_ast3_shadow?: typeof htf2Shadow;
+          entry_pilot?: ForexEntryPilot;
+        };
+        setHtf2Shadow(body.htf_ast3_shadow);
+        setEntryPilot(body.entry_pilot);
+        setAnalysis('levels' in body ? body : null);
+      },
+      () => {},
+    );
   }, [symbol]);
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');

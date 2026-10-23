@@ -41,6 +41,7 @@ export interface BrokerPosition {
 }
 
 export interface ExnessExecution {
+  symbol: string;
   learning?: {
     engine?: string;
     execution_v2?: {
