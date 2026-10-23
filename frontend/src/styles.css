@@ -5153,6 +5153,25 @@ main:has(.futures-desk) .page-heading {
   :root[data-sidebar='collapsed'] .sidebar .profile > div:not(.avatar) {
     display: none;
   }
+  :root[data-sidebar='collapsed'] .sidebar .workspace-collapse-switch {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 14px;
+    padding: 7px 0;
+    border: 1px solid #345847;
+    background: #20483b;
+    color: #d9e5b7;
+  }
+  :root[data-sidebar='collapsed'] .sidebar .workspace-collapse-switch:hover {
+    border-color: #6f9580;
+  }
+  :root[data-sidebar='collapsed'] .sidebar .workspace-collapse-badge {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1;
+  }
   :root[data-sidebar='collapsed'] .sidebar .nav {
     justify-content: center;
     padding: 13px 0;
@@ -5162,7 +5181,7 @@ main:has(.futures-desk) .page-heading {
     justify-content: center;
   }
   :root[data-sidebar='collapsed'] .sidebar nav {
-    margin-top: 28px;
+    margin-top: 12px;
   }
 }
 @media (max-width: 700px) {
@@ -9264,4 +9283,7 @@ button.ap-cell:focus-visible {
 }
 .switching-retry:hover {
   background: #fbf1ef;
+}
+.workspace-collapse-switch {
+  display: none;
 }

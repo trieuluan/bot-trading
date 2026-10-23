@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeftRight,
   Bot,
   ChevronDown,
   CircleHelp,
@@ -10,6 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { setRoute } from '../lib/router';
 
 const exnessNavigation = [
   { label: 'Tổng quan', icon: LayoutDashboard },
@@ -93,6 +95,26 @@ export function Sidebar({
           <ChevronDown size={14} />
         </div>
       )}
+      <button
+        type="button"
+        className="nav workspace-collapse-switch"
+        aria-label={exness ? 'Đổi sang MEXC Crypto Futures' : 'Đổi sang Exness Forex'}
+        title={
+          exness
+            ? 'Đang ở Exness Forex · bấm để đổi sang MEXC Crypto Futures'
+            : 'Đang ở MEXC Crypto Futures · bấm để đổi sang Exness Forex'
+        }
+        onClick={() =>
+          setRoute({
+            workspace: exness ? 'mexc_futures' : 'exness_forex',
+            page: undefined,
+            tab: undefined,
+          })
+        }
+      >
+        <ArrowLeftRight size={15} />
+        <span className="workspace-collapse-badge">{exness ? 'FX' : 'MX'}</span>
+      </button>
       <p className="nav-label">WORKSPACE</p>
       <nav>
         {(exness ? exnessNavigation : navigation).map(({ label, icon: Icon }) => {
