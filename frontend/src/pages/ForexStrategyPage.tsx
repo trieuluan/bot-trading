@@ -182,7 +182,7 @@ const rejectLabels: Record<string, [string, string]> = {
   setup_reused: ['Setup đã dùng', 'Mỗi setup chỉ vào một lần'],
   no_h1_invalidation: ['Thiếu mức vô hiệu H1', 'Không xác định được SL cấu trúc'],
   sl_too_wide: ['SL quá xa', 'Vượt 3 ATR H1'],
-  sl_too_tight: ['SL quá sát', 'Dưới 0.3 ATR H1'],
+  sl_too_tight: ['SL quá sát', 'Dưới 1.0 ATR H1'],
   no_target: ['Không có mục tiêu', 'Không có cản H1/H4 phía trước'],
   poor_rr: ['R/R kém', 'Dưới 1.5R sau chi phí'],
   h1_not_closed: ['H1 chưa đóng', 'Chờ nến H1 đóng'],

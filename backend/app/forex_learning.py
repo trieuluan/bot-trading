@@ -11,6 +11,8 @@ from .exness import ExnessError
 from .exness_observation import load_frames
 from .exness_targets import target_context
 from .forex_htf_v2 import (
+    MAX_RISK_ATR,
+    MIN_RISK_ATR,
     PROVENANCE,
     SCHEMA,
     _closed_rows,
@@ -48,7 +50,7 @@ def h1_setup_zone(tree, candle, hours, higher, symbol="XAUUSD"):
     atr = Decimal(str(setup["atr"]))
     stop = (Decimal(str(setup["invalidation"])) - direction * Decimal("0.25") * atr).quantize(Decimal("0.001"))
     risk = direction * (Decimal(str(candle.close)) - stop)
-    if not Decimal("0.3") * atr <= risk <= Decimal("3.0") * atr or risk <= 0:
+    if not MIN_RISK_ATR * atr <= risk <= MAX_RISK_ATR * atr or risk <= 0:
         return None
     return {"side": side, "family": children[1]["family"], "level": setup["level"],
             "invalidation": setup["invalidation"], "stop": float(stop), "setup_time": setup["setup_time"],

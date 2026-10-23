@@ -29,6 +29,10 @@ from .forex_features import FILTER_BOUNDS, FILTER_DEFAULTS, NEW_H1_DETECTORS, fi
 SCHEMA = "forex_htf_ast_v3"
 RUNTIME = "htf_v3_only_1"
 PROVENANCE = "live_forward_htf_ast3_shadow"
+SETUP_MAX_AGE = 14400  # 4h; replay studies override this
+SETUP_PERSIST_H1 = 3  # tìm lại setup tối đa 3 nến H1 trước, còn sống nếu chưa bị đóng xuyên mức vô hiệu
+MIN_RISK_ATR = Decimal("1.0")  # replay B 3 tháng: SL < 1 ATR H1 bị quét nhiều; bỏ lệnh, không nới SL
+MAX_RISK_ATR = Decimal("3.0")
 LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast3-shadow.json"
 
 H4_FEATURES = ("trend_ema50",)
@@ -364,10 +368,27 @@ def _h4_context(candle, higher, symbol="XAUUSD"):
 
 
 def detect_setup(node, closed, side, symbol):
-    """Shared by evaluator and chart preview; PDH/PDL needs full-day history, others use 60 H1."""
-    if node["family"] == "pdh_pdl_sweep":
-        return NEW_H1_DETECTORS["pdh_pdl_sweep"](closed, side, symbol=symbol)
-    return {**H1_DETECTORS, **NEW_H1_DETECTORS}[node["family"]](closed[-60:], side, **node["params"])
+    """Shared by evaluator and chart preview; PDH/PDL needs full-day history, others use 60 H1.
+
+    Persist: nếu nến vừa đóng không phải setup, lùi tối đa SETUP_PERSIST_H1 nến; setup cũ chỉ sống khi
+    các nến H1 sau đó chưa đóng xuyên mức vô hiệu. Hết hạn vẫn do SETUP_MAX_AGE quyết định.
+    """
+    detectors = {**H1_DETECTORS, **NEW_H1_DETECTORS}
+    direction = 1 if side == "long" else -1
+    for back in range(SETUP_PERSIST_H1 + 1):
+        sub = closed[:len(closed) - back] if back else closed
+        if not sub:
+            return None
+        if node["family"] == "pdh_pdl_sweep":
+            setup = NEW_H1_DETECTORS["pdh_pdl_sweep"](sub, side, symbol=symbol)
+        else:
+            setup = detectors[node["family"]](sub[-60:], side, **node["params"])
+        if not setup:
+            continue
+        if any(direction * (row.close - setup["invalidation"]) < 0 for row in closed[len(sub):]):
+            return None
+        return setup
+    return None
 
 def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, commission=0, symbol="XAUUSD",
              market=None):
@@ -396,7 +417,7 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
         return None, "no_h1_setup"
 
     # Setup expiration check (4 hours = 14400s max age)
-    if candle.time - setup["setup_time"] > 14400:
+    if candle.time - setup["setup_time"] > SETUP_MAX_AGE:
         return None, "h1_setup_expired"
     if candle.time < setup["confirmed_h1"] + 3600:
         return None, "h1_not_closed"
@@ -410,9 +431,9 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     risk = direction * (entry - stop)
     if risk <= 0:
         return None, "no_h1_invalidation"
-    if risk < Decimal("0.3") * atr:
+    if risk < MIN_RISK_ATR * atr:
         return None, "sl_too_tight"
-    if risk > Decimal("3.0") * atr:
+    if risk > MAX_RISK_ATR * atr:
         return None, "sl_too_wide"
 
     # 3. M15 Trigger
@@ -433,7 +454,9 @@ def diagnose(tree, candle, hours, minutes, higher=(), ask=None, slippage_bps=0, 
     market = {"minutes": [*history, candle], "asks": {} if ask is None else {ask.time: ask}, **(market or {})}
     closed_higher = [row for row in higher if row.time + 14400 <= candle.time + 900]
     filters = []
-    for flt in c[4:]:
+    # Cổng ADX H4 mặc định cho mọi cây (replay: lọc thị trường đi ngang); cây đã có adx_regime dùng ngưỡng riêng.
+    gates = [] if any(f["name"] == "adx_regime" for f in c[4:]) else [_filter("adx_regime")]
+    for flt in [*gates, *c[4:]]:
         reason, audit = filter_result(flt, candle, closed_all, closed_higher, side, symbol, market)
         filters.append(audit)
         if reason:
