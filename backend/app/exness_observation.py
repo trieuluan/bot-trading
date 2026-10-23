@@ -151,7 +151,7 @@ def observation_tick(now=None, symbol="XAUUSD"):
 def observation_summary(now=None, symbol="XAUUSD"):
     now = int(time.time()) if now is None else now
     with Session() as session:
-        frames = load_frames(session, now, symbol)
+        frames = load_frames(session, now, symbol, window=TICK_WINDOW)
         quality = audit_frames(frames, symbol)
         latest = latest_observation(session, symbol)
         events = session.scalars(select(ForexObservation).where(

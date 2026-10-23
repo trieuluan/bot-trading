@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import os
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
@@ -278,8 +279,24 @@ def workspace_candles(
                     )} for row in reversed(rows)
                 ]}
 
+_dashboard_cache = {}
+_dashboard_lock = threading.Lock()
+
 @app.get("/api/workspaces/{workspace_id}/dashboard")
 def workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
+    """Forex: tính một lần mỗi 5s cho mọi client của cặp (đổi cặp liên tục không quét lại nến)."""
+    if workspace_id != "exness_forex":
+        return _workspace_dashboard(workspace_id, symbol)
+    request_symbol(symbol)
+    with _dashboard_lock:
+        hit = _dashboard_cache.get(symbol)
+        if hit and time.monotonic() - hit[0] < 5:
+            return hit[1]
+        value = _workspace_dashboard(workspace_id, symbol)
+        _dashboard_cache[symbol] = (time.monotonic(), value)
+        return value
+
+def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
     if workspace_id == "exness_forex":
         request_symbol(symbol)
     with Session() as session:
