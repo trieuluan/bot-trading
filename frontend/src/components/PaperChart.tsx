@@ -647,7 +647,7 @@ export function PaperChart({
             const countLabel = members.length > 1 ? `${members.length}× ` : `#${open.id} `;
             const fmt = (n: number | null, d = 2) =>
               n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(d)}`;
-            const left = 8 + tag.column * 200;
+            const left = 8 + tag.column * 240;
             const isSelected = members.some((p) => p.id === trade?.id);
             return (
               <div

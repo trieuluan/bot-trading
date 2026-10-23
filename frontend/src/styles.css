@@ -6059,11 +6059,11 @@ main:has(.futures-desk) {
   margin-right: 4px;
 }
 .position-tag {
-  font-size: 12px;
-  max-width: 190px;
+  font-size: 11px;
+  width: max-content;
 }
 .position-tag > * {
-  padding: 2px 7px;
+  padding: 2px 6px;
   white-space: nowrap;
 }
 
