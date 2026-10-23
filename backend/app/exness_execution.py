@@ -409,7 +409,7 @@ def execution_tick(api, now=None):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return "calibration_or_executor_active"
-        with engine.connect() as connection:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
             locked = connection.dialect.name != "postgresql" or connection.scalar(
                 text("SELECT pg_try_advisory_lock(hashtext(:name))"), {"name": "demo-" + api.account_id})
             if not locked:

@@ -68,7 +68,7 @@ def new_state(now):
     return state
 
 
-def read_state(session, now):
+def read_state(session, now, *, copy_payload=True):
     row = session.get(FuturesLearningState, state_id())
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
@@ -76,7 +76,7 @@ def read_state(session, now):
         state = new_state(now)
         row.payload = state
         return state
-    state = copy.deepcopy(row.payload) if row.payload else new_state(now)
+    state = (copy.deepcopy(row.payload) if copy_payload else row.payload) if row.payload else new_state(now)
     migrate_to_trees(state)
     return state
 
@@ -569,6 +569,9 @@ def lineage(state, candidate):
 def summary(state, now, paper=None):
     paper = paper or {}
     rows, results = [], performance(state, now)
+    by_strategy = defaultdict(list)
+    for sample in state["samples"]:
+        by_strategy[sample["strategy"]].append(sample)
     report = (state.get("historical") or {}).get("report")
     replay = defaultdict(int)
     if report and report["end_time"] <= now:
@@ -577,7 +580,7 @@ def summary(state, now, paper=None):
                 replay[row["strategy"]] += sum(
                     bucket["resolved"] for bucket in row[part]["contexts"].values())
     for name, candidate in state["candidates"].items():
-        samples = [sample for sample in state["samples"] if sample["strategy"] == name]
+        samples = by_strategy.get(name, [])
         values = [sample["net_r"] for sample in samples if sample["status"] == "resolved"
                   and sample["label_available_at"] <= now]
         count, average = results.get(name, (0, None))

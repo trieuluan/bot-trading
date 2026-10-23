@@ -22,7 +22,7 @@ from .futures_symbols import SYMBOLS, symbol_scope
 router = APIRouter()
 logger = logging.getLogger(__name__)
 # ponytail: cache trong RAM theo process; chạy nhiều worker uvicorn thì chuyển sang Postgres LISTEN/NOTIFY.
-BOARD_TTL, SELECTED_TTL, STATE_TTL, LEARNING_TTL = 3, 2, 10, 30
+BOARD_TTL, SELECTED_TTL, STATE_TTL, LEARNING_TTL = 5, 2, 30, 30
 TICK, PING = 2, 15
 _cache, _locks, _guard = {}, defaultdict(threading.Lock), threading.Lock()
 _generation = 0
@@ -60,7 +60,7 @@ def learner_state(symbol):
 
     def build():
         with symbol_scope(symbol), Session() as session:
-            return read_state(session, int(time.time()))
+            return read_state(session, int(time.time()), copy_payload=False)
     return cached(("state", symbol), STATE_TTL, build)
 
 def slim_decision(decision):
@@ -99,7 +99,8 @@ def build_learning():
     for symbol in SYMBOLS:
         state, now = learner_state(symbol), int(time.time())
         with symbol_scope(symbol), Session() as session:
-            learning[symbol] = slim_board(None, None, summary(state, now, paper_by_strategy(session)))["learning"]
+            paper = paper_by_strategy(session)
+        learning[symbol] = slim_board(None, None, summary(state, now, paper))["learning"]
     return learning
 
 def board_snapshot():
