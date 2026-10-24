@@ -3,9 +3,10 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from backend.app.auto_paper import auto_tick
-from backend.app.db import AutoPaperState, PaperFunding, PaperTrade, PaperWallet, Session
+from backend.app.db import AutoPaperState, Event, PaperFunding, PaperTrade, PaperWallet, Session
 from backend.app.feed import save_candles
 from backend.app.main import app
 from backend.app.market import Candle
@@ -128,6 +129,22 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
     sync_paper_quote(Market())
+    with Session() as session:
+        assert session.get(PaperTrade, 1).exit_reason == "recovered_stop_loss"
+
+def test_just_closed_bar_gets_feed_grace_before_history_pending(recovery):
+    clock, seed = recovery
+    cursor = seed()
+    for offset, status, noisy in ((5, "watching", False), (45, "history_pending", True)):
+        clock[0] = cursor + 900 + offset
+        sync_paper_stops(clock[0])
+        with Session() as session:
+            trade = session.get(PaperTrade, 1)
+            assert trade.monitoring["status"] == status and trade.monitoring["next_bar"] == cursor
+            assert any("thiếu nến" in event.message for event in session.scalars(select(Event))) is noisy
+    with Session.begin() as session:
+        save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
+    sync_paper_stops(clock[0])
     with Session() as session:
         assert session.get(PaperTrade, 1).exit_reason == "recovered_stop_loss"
 

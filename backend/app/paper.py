@@ -46,6 +46,7 @@ from .notifications import notify_close, notify_open, notify_partial, notify_sto
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
 QUOTE_TTL = 20
+FEED_GRACE_SECONDS = 30
 MAX_ORDER_MARGIN_PERCENT = 10
 
 def stop_risk_per_unit(side, entry, stop, fee_bps, slippage_bps):
@@ -401,7 +402,9 @@ def reconcile_stops(session, wallet, trade, now):
             if next_stop != old_stop or trade.target != old_target:
                 notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target, candle.close)
         cursor += 900
-    status = "history_pending" if cursor < end else "watching"
+    # The feed saves a just-closed bar a few seconds late (VPS: <=7s); only a longer gap is a real hole.
+    just_closed = cursor + 900 == end and now - end < FEED_GRACE_SECONDS
+    status = "history_pending" if cursor < end and not just_closed else "watching"
     if status == "history_pending" and monitoring.get("status") != status:
         session.add(Event(kind="paper", message=(
             f"PAPER #{trade.id}: thiếu nến từ {cursor}; chờ đối soát SL/TP, "
