@@ -229,6 +229,9 @@ export interface ExnessExecution {
   stop_management_available?: boolean;
   decision: string | null;
   error: string | null;
+  error_msg?: string | null;
+  error_at?: number | null;
+  error_symbol?: string | null;
   synced_at: number | null;
   history_from: number | null;
   account_state: {

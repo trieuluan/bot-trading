@@ -328,8 +328,13 @@ export function ForexMarkets({
                         </span>
                       </td>
                       <td>
-                        <span className={`status-chip tone-${blocked ? 'warn' : 'idle'}`}>
-                          {blocked ?? 'Chờ tín hiệu · qua kiểm tra execution'}
+                        <span
+                          className={`status-chip tone-${!closed && blocked ? 'warn' : 'idle'}`}
+                          title={blocked ?? undefined}
+                        >
+                          {closed
+                            ? 'Chờ mở phiên · không mở lệnh mới'
+                            : (blocked ?? 'Chờ tín hiệu · qua kiểm tra execution')}
                         </span>
                       </td>
                     </>

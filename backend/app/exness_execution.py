@@ -913,7 +913,8 @@ def record_error(account, exc, now=None, symbol=None):
         if state:
             msg = type(exc).__name__ + ": " + str(exc)[:200]
             label = "api_rate_limited" if getattr(exc, "rate_limited", False) else "worker_error"
-            state.snapshot = {**state.snapshot, "error": type(exc).__name__, "error_msg": msg, "error_at": now}
+            state.snapshot = {**state.snapshot, "error": type(exc).__name__, "error_msg": msg,
+                              "error_at": now, "error_symbol": symbol}
             for affected in (symbol,) if symbol else configured_symbols():
                 record_journal(state, {"symbol": affected, "candle_time": now // 900 * 900 - 900,
                                        "reason": msg}, label, now)
@@ -998,7 +999,11 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         "account": account, "strategy": "learning", "lot": f"0.01..{max_lot_size():.2f}",
         "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(), "planned_risk_ceiling_usd": planned_risk_usd(),
         "stop_management_available": meta.get("stop_management_available", False),
-        "error": meta.get("error"), "decision": meta.get("symbols", {}).get(symbol, {}).get("decision", meta.get("decision") if symbol == "XAUUSD" else None),
+        "error": meta.get("error"),
+        "error_msg": meta.get("error_msg") if meta.get("error") else None,
+        "error_at": meta.get("error_at") if meta.get("error") else None,
+        "error_symbol": meta.get("error_symbol") if meta.get("error") else None,
+        "decision": meta.get("symbols", {}).get(symbol, {}).get("decision", meta.get("decision") if symbol == "XAUUSD" else None),
         "account_state": broker.get("account_state"), "synced_at": meta.get("history_synced_at"),
         "history_from": meta.get("history_from", state.started_at - 86400) if state else None,
         "positions": rows[offset:offset + limit], "total": len(rows),

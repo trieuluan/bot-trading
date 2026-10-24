@@ -613,6 +613,25 @@ def test_instrument_error_does_not_pollute_gold_journal(monkeypatch):
     assert rows[0]["symbol"] == "EURUSD"
     assert rows[0]["outcome"] == "worker_error"
 
+def test_summary_exposes_active_error_scope_and_ignores_cleared_detail(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
+    monkeypatch.setattr(ee, "learning_summary", lambda **_: {})
+    ee.record_error(api.account_id, ExnessError("Market execution unavailable for EURUSD"), NOW, symbol="EURUSD")
+    summary = ee.execution_summary(offset=0, limit=50, symbol="XAUUSD")
+    assert summary["error"] == "ExnessError"
+    assert summary["error_msg"] == "ExnessError: Market execution unavailable for EURUSD"
+    assert summary["error_at"] == NOW
+    assert summary["error_symbol"] == "EURUSD"
+    ee.record_error(api.account_id, ExnessError("account unavailable"), NOW + 1)
+    assert ee.execution_summary(offset=0, limit=50, symbol="XAUUSD")["error_symbol"] is None
+    with Session.begin() as session:
+        state = session.get(ExnessExecutionState, api.account_id)
+        state.snapshot = {**state.snapshot, "error": None}
+    summary = ee.execution_summary(offset=0, limit=50, symbol="XAUUSD")
+    assert all(summary[key] is None for key in ("error", "error_msg", "error_at", "error_symbol"))
+
 def test_rate_limit_is_labeled_not_order_error(monkeypatch):
     api = dummy_api()
     seed_executor(api, monkeypatch)

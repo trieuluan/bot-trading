@@ -183,6 +183,9 @@ interface StatusInput {
   enabled: boolean;
   worker_online: boolean;
   error: string | null;
+  error_msg?: string | null;
+  error_at?: number | null;
+  error_symbol?: string | null;
   learning?: { execution_v2?: { blocked_reason: string | null } };
 }
 
@@ -226,12 +229,23 @@ export function botStatus(
       reason: 'Vị thế đang mở vẫn được quản lý; không mở lệnh mới.',
       hint: blockHint.paused,
     };
+  if (data.error) {
+    const detail = data.error_msg || data.error;
+    const scope = data.error_symbol || 'toàn tài khoản · chưa xác định cặp';
+    const unavailable = /^ExnessError: Market execution unavailable for [A-Z]+$/.test(detail);
+    return {
+      tone: 'warn',
+      title: 'Worker đang chạy · có cảnh báo thực thi',
+      reason: unavailable
+        ? 'Điều kiện broker chưa cho phép gửi lệnh market. Không phải lỗi feed nến.'
+        : `Lỗi thực thi gần nhất: ${detail}`,
+      hint: `${scope}${data.error_at != null ? ` · ${formatTime(data.error_at)}` : ''} · ${detail}. Kiểm tra kết nối và trạng thái phiên; không tự bật giao dịch khi broker chưa cho phép.`,
+    };
+  }
   return {
-    tone: data.error ? 'warn' : 'ok',
+    tone: 'ok',
     title: 'Bot đang chạy',
-    reason: data.error
-      ? `Lỗi gần nhất: ${data.error}`
-      : 'Tự mở lệnh khi có cây cho tín hiệu hợp lệ.',
+    reason: 'Tự mở lệnh khi có cây cho tín hiệu hợp lệ.',
   };
 }
 
