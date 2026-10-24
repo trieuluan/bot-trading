@@ -7,14 +7,32 @@ import math
 from dataclasses import replace
 from statistics import fmean, pstdev
 
-from .futures_rules import atr14, ema50, funding_filter, mean_reversion
-from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 from .futures_chart import rule_overlays
-from .futures_exits import (EXIT_POLICIES, EVOLVABLE_EXITS, EXIT_BOUNDS, EXIT_DEFAULTS,
-                           exit_parameters, adaptive_levels, structural_target)
-from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
-                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule,
-                                consensus_slot, h4_consensus)
+from .futures_entries import ENTRY_POLICIES
+from .futures_exits import (
+    EVOLVABLE_EXITS,
+    EXIT_BOUNDS,
+    EXIT_DEFAULTS,
+    EXIT_POLICIES,
+    adaptive_levels,
+    exit_parameters,
+    structural_target,
+)
+from .futures_rule_tree import (
+    FAMILY_RULES,
+    RULES,
+    consensus_slot,
+    describe_rule,
+    h4_consensus,
+    is_htf_rule,
+    matches,
+    mutate_htf_rule,
+    mutate_rule,
+    validate_htf_rule,
+    validate_rule,
+)
+from .futures_rules import atr14, funding_filter, mean_reversion
+from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 
 RULE_FAMILY = "rule_tree"
 FAMILIES = ()
@@ -33,10 +51,12 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "exit_params", "rule", "exit_profile"} if rule_tree else {"exit_policy", "exit_params"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
+    if genome.get("entry_policy", "market") not in ENTRY_POLICIES:
+        raise ValueError("Invalid futures entry policy")
     if rule_tree:
         validate_rule(genome["rule"])
         if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
@@ -91,6 +111,8 @@ def _exit_seeds():
     return out
 
 EXIT_SEEDS = _exit_seeds()
+# Same G0 tree as RULE_SEEDS[0], limit at 50% of the signal body; other policies arrive via mutation.
+ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": "body50"}]
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -135,6 +157,7 @@ def canonical_rule(rule):
 
 def genome_fingerprint(genome):
     normalized = {**genome, "exit_policy": genome.get("exit_policy", "fixed"),
+                  "entry_policy": genome.get("entry_policy", "market"),
                   "exit_profile": genome.get("exit_profile", "default")}
     if is_rule_tree(genome):
         normalized["rule"] = canonical_rule(genome["rule"])
@@ -164,6 +187,8 @@ def crossover(parent, mate):
             child["rule"] = joined
         except ValueError:
             pass
+    if mate.get("entry_policy", "market") != "market":
+        child["entry_policy"] = mate["entry_policy"]
     child.pop("exit_policy", None)
     child.pop("exit_params", None)
     if mate.get("exit_policy") in MUTABLE_EXITS and mate.get("exit_policy") != "fixed":
@@ -182,6 +207,8 @@ def mutate(genome, rng):
     if is_rule_tree(genome):
         relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" or genome.get("exit_policy") == "adaptive" else [])
     relevant.append("exit_policy")
+    if is_rule_tree(genome):
+        relevant.append("entry_policy")
     if genome.get("exit_policy") in EXIT_DEFAULTS:
         relevant.append("exit_params")
     if profile in ("breakout", "retest", "mtf_retest", "liquidity_sweep", "squeeze", "volume_spike", "donchian_trend", "ema_cross"):
@@ -200,6 +227,14 @@ def mutate(genome, rng):
             child["exit_policy"] = mode
         if profile == "default" and mode != "adaptive":
             child.update(target_r=2.0, stop_buffer=0.0)
+        validate_genome(child)
+        return child
+    if key == "entry_policy":
+        mode = rng.choice([policy for policy in ENTRY_POLICIES
+                           if policy != genome.get("entry_policy", "market")])
+        child.pop("entry_policy", None)
+        if mode != "market":
+            child["entry_policy"] = mode
         validate_genome(child)
         return child
     if key == "exit_params":

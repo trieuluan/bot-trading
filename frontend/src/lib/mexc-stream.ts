@@ -13,7 +13,8 @@ export function parseMexcCandle(raw: string, now = Date.now(), symbol = 'BTC_USD
       data.interval !== 'Min15' ||
       typeof message.ts !== 'number' ||
       !Number.isFinite(message.ts) ||
-      Math.abs(now - message.ts) > 30_000
+      now - message.ts > 5_000 ||
+      message.ts - now > 1_000
     )
       return null;
     const candle: Candle = {

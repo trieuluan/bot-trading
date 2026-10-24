@@ -34,6 +34,9 @@ assert.equal(parseMexcCandle(msg({ interval: 'Min60' }), now), null);
 assert.equal(parseMexcCandle(msg({ h: 100.5 }), now), null);
 assert.equal(parseMexcCandle(msg({ t: t - 900 }), now), null);
 assert.equal(parseMexcCandle(msg({}, { ts: now - 60_000 }), now), null);
+assert.equal(parseMexcCandle(msg({}, { ts: now - 5_001 }), now), null);
+assert.equal(parseMexcCandle(msg({}, { ts: now + 1_001 }), now), null);
+assert.notEqual(parseMexcCandle(msg({}, { ts: now - 4_999 }), now), null);
 assert.equal(parseMexcCandle('not json', now), null);
 
 const closed = [{ time: t - 900, open: 1, high: 2, low: 1, close: 2, volume: 1 }];

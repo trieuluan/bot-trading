@@ -19,17 +19,21 @@ from .db import (
     BotState,
     Event,
     MarketState,
+    PaperPendingOrder,
     PaperTrade,
     PaperWallet,
     Session,
 )
 from .feed import load_candles, save_market_signal
+from .futures_entries import WAIT_BARS, wait
+from .futures_exits import has_target
 from .futures_learner import read_state, select_for_auto
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .notifications import notify_blocked, notify_open
 from .paper import (
     MAX_ORDER_MARGIN_PERCENT,
+    close_position,
     create_position,
     execution_price,
     fresh_quote,
@@ -42,6 +46,7 @@ from .paper import (
     stop_risk_per_unit,
     validate_leverage,
 )
+from .strategy import Setup
 
 router = APIRouter(prefix="/api/paper/auto", tags=["Auto Paper"])
 MAX_SIGNAL_AGE = 60
@@ -171,6 +176,200 @@ def record_decision(
                     (audit or {}).get("reason"))
 
 
+def size_order(session, wallet, state, now, side, entry, stop):
+    """Return notional, risk budget and optional blocking reason for either entry type."""
+    _, daily_loss, _ = daily_limits(session, wallet, state, now)
+    remaining_budget = max(
+        0, state.day_start_equity * session.get(AutoPaperState, 1).daily_loss_percent / 100 - daily_loss
+    )
+    capital, used_risk = portfolio_risk_limits(session)
+    cap = session.get(AutoPaperState, 1).max_portfolio_risk_percent
+    headroom = float("inf") if cap is None else max(0.0, capital * cap / 100 - used_risk)
+    risk_cash = min(max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget, headroom)
+    if risk_cash <= 0:
+        if headroom <= 0:
+            return None, None, ("risk_cap", f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {cap:g}% ví chung")
+        if remaining_budget <= 0:
+            return None, None, ("daily_loss", "Hết ngân sách lỗ ngày của ví chung")
+        return None, None, (None, "Equity ví chung không còn để tính rủi ro")
+    cash, _, margin = portfolio(session)
+    free = cash - margin
+    fee_rate = wallet.fee_bps / 10000
+    max_order_notional = capital * (MAX_ORDER_MARGIN_PERCENT / 100) * state.leverage
+    unit_risk = stop_risk_per_unit(side, entry, stop, wallet.fee_bps, wallet.slippage_bps)
+    return min(risk_cash / unit_risk * entry, free / (1 / state.leverage + fee_rate), max_order_notional), risk_cash, None
+
+def place_pending(session, state, wallet, candle_time, now, setup, strat_name, learning, decision):
+    """Queue a limit/retest entry for the closed bar; fills happen in sync_pending_orders."""
+    level = decision.get("level")
+    long = setup.side == "long"
+    if level is None or not (setup.stop < level < setup.target if long else setup.target < level < setup.stop):
+        record_decision(session, state, candle_time, "skipped", "Không có mức chờ hợp lệ", setup)
+        return
+    if session.scalar(select(PaperPendingOrder.id).where(
+            PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")):
+        record_decision(session, state, candle_time, "skipped", "Đang có lệnh chờ của cặp này", setup)
+        return
+    genome = learning["candidates"][strat_name]["genome"]
+    policy = genome.get("entry_policy", "market")
+    first = candle_time + 900
+    snapshot = {
+        "strategy": strat_name, "reason": setup.reason, "exit_policy": genome.get("exit_policy", "fixed"),
+        "exit_params": genome.get("exit_params"), "exit_rule": genome.get("rule"),
+        "audit": {
+            "strategy": strat_name, "reason": setup.reason, "signal_time": candle_time,
+            "signal_close": setup.entry, "selector": "futures_learner", "paper_only": True,
+            "auto_mode": learning["auto_mode"], "selection_reason": decision.get("selection_reason"),
+            "regime": decision.get("regime"), "risk_percent": state.risk_percent,
+            "leverage": state.leverage, "margin_mode": "cross",
+            "strategy_source": "entry_snapshot", "initial_stop": setup.stop, "initial_target": setup.target,
+            "exit_policy": genome.get("exit_policy", "fixed"), "entry_policy": policy,
+            "limit_level": level, "genome": genome,
+            "generation": learning["candidates"][strat_name].get("generation", 0),
+            "parents": learning["candidates"][strat_name].get("parents", []),
+        },
+    }
+    session.add(PaperPendingOrder(
+        symbol=current_symbol(), signal_time=candle_time, created_at=int(now), next_bar=first,
+        expires_at=first + WAIT_BARS * 900, side=setup.side, entry_policy=policy, level=level,
+        stop=setup.stop, target=setup.target, status="pending", snapshot=snapshot))
+    record_decision(
+        session, state, candle_time, "pending",
+        f"LỆNH CHỜ {setup.side.upper()} · {strat_name} · {policy} @ {level:g}", setup,
+        audit=snapshot["audit"])
+
+def close_pending(session, order, status, reason):
+    order.status, order.reason = status, reason
+    decision = session.get(AutoPaperDecision, (order.symbol, order.signal_time))
+    if decision and decision.action == "pending":
+        decision.action, decision.reason = "skipped", f"Lệnh chờ {status}: {reason}"[:500]
+    session.add(Event(kind="paper", message=f"LỆNH CHỜ #{order.id} {order.symbol} {order.side.upper()}: {reason}"))
+
+def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
+    snap = order.snapshot
+    setup = Setup(order.side, order.level, order.stop, order.target, snap["reason"])
+    entry = order.level if limit else execution_price(wallet, order.side, opening=True)
+    notional, risk_cash, blocked_by = size_order(session, wallet, state, now, order.side, entry, order.stop)
+    if blocked_by:
+        close_pending(session, order, "cancelled", blocked_by[1])
+        if blocked_by[0]:
+            notify_blocked(session, order.symbol, order.signal_time, setup, blocked_by[0], blocked_by[1],
+                           snap["strategy"])
+        return
+    try:
+        # ponytail: limit fills at the level with taker fee, like the replay; no maker rebate/queue model.
+        trade = create_position(
+            session, wallet, order.side, notional, order.stop, order.target, origin="auto",
+            signal_time=order.signal_time, exit_policy=snap["exit_policy"], leverage=state.leverage,
+            exit_params=snap["exit_params"], exit_rule=snap["exit_rule"],
+            fill_price=order.level if limit else None)
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            raise
+        close_pending(session, order, "cancelled", exc.detail)
+        return
+    if limit:
+        trade.entry_time = bar.time
+        trade.monitoring = {**trade.monitoring, "next_bar": bar.time + 900}
+    trade.monitoring = {**trade.monitoring, "entry_mode": order.entry_policy, "pending_id": order.id}
+    order.status, order.trade_id = "filled", trade.id
+    decision = session.get(AutoPaperDecision, (order.symbol, order.signal_time))
+    audit = {**snap["audit"], "entry_fill": trade.entry,
+             "risk_budget": risk_cash}
+    if decision:
+        decision.action, decision.trade_id = "opened", trade.id
+        decision.reason = f"AUTO PAPER #{trade.id}: {order.side.upper()} · {snap['strategy']} · {order.entry_policy} @ {trade.entry:g}"
+        decision.parameters = {**decision.parameters, "audit": audit}
+    notify_open(session, trade, audit, master(session).balance, snap["reason"])
+    if limit:
+        direction = 1 if order.side == "long" else -1
+        stopped = bar.low <= order.stop if direction == 1 else bar.high >= order.stop
+        targeted = has_target(trade.monitoring) and (
+            fill_bar.high >= order.target if direction == 1 else fill_bar.low <= order.target)
+        if stopped or targeted:
+            gap = stopped and direction * (bar.open - order.stop) <= 0
+            base = bar.open if gap else order.stop if stopped else order.target
+            price = base * (1 - direction * wallet.slippage_bps / 10000)
+            close_position(session, wallet, trade, "recovered_stop_loss" if stopped else "recovered_take_profit",
+                           now, price=price, exit_time=bar.time if gap else bar.time + 899)
+
+def sync_pending_orders(now=None):
+    """Closed-bar fills for queued orders; same trade-through/stop-first rules as the entry replay."""
+    now = time.time() if now is None else now
+    end = int(now) // 900 * 900
+    with Session.begin() as session:
+        wallet = lock_wallet(session)
+        orders = session.scalars(select(PaperPendingOrder).where(
+            PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")).all()
+        if not orders:
+            return
+        state = session.get(AutoPaperState, state_id())
+        for order in orders:
+            if not state or not state.enabled:
+                close_pending(session, order, "cancelled", "Auto Paper đã tắt")
+                continue
+            try:
+                if session.get(MarketState, state_id()).source != SOURCE:
+                    close_pending(session, order, "cancelled", "Nguồn nến không còn là MEXC")
+                    continue
+                fresh_quote(wallet, now)
+                portfolio(session, require_fresh=True, now=now)
+                if wallet.funding_error:
+                    raise HTTPException(409, "Funding chưa đồng bộ")
+            except HTTPException:
+                if end >= order.expires_at:
+                    close_pending(session, order, "expired", "hết hạn khi dữ liệu chậm")
+                continue
+            roll_day(session, wallet, state, now)
+            reason = limit_reason(session, wallet, state, now)
+            if any((trade.monitoring or {}).get("status") == "history_pending" for trade in open_positions(session)):
+                reason = "Thiếu dữ liệu đối soát SL/TP"
+            if reason:
+                close_pending(session, order, "cancelled", reason)
+                continue
+            first = order.expires_at - WAIT_BARS * 900
+            sample = {"side": order.side, "level": order.level, "stop": order.stop, "target": order.target,
+                      "entry_policy": order.entry_policy, "entry_time": first, "first_entry_time": first}
+            cursor = order.next_bar
+            try:
+                for bar in load_candles(session, since=order.next_bar, until=end):
+                    if bar.time != order.next_bar:
+                        break
+                    filled = wait(sample, bar, [])
+                    order.next_bar = bar.time + 900
+                    if sample.get("status") == "cancelled":
+                        close_pending(session, order, "expired" if sample["exit_reason"] == "expired" else "cancelled",
+                                      sample["exit_reason"])
+                        break
+                    if sample.get("confirmed"):
+                        if now - (bar.time + 900) > MAX_SIGNAL_AGE:
+                            close_pending(session, order, "cancelled", "retest xác nhận quá 60 giây")
+                        else:
+                            fill_pending(session, wallet, state, order, bar, bar, now, limit=False)
+                        break
+                    if filled:
+                        if now - (bar.time + 900) > MAX_SIGNAL_AGE:
+                            close_pending(session, order, "cancelled", "bỏ khớp nến cũ quá 60 giây")
+                        else:
+                            fill_pending(session, wallet, state, order, bar, filled[0], now, limit=True)
+                        break
+            except HTTPException:
+                order.next_bar = cursor
+                continue
+            if order.status == "pending" and end >= order.expires_at:
+                close_pending(session, order, "expired", "hết 4 nến chờ")
+
+@router.post("/pending/{order_id}/cancel")
+def cancel_pending(order_id: int):
+    with Session.begin() as session:
+        lock_wallet(session)
+        order = session.get(PaperPendingOrder, order_id)
+        if order is None or order.symbol != current_symbol():
+            raise HTTPException(404, "Không tìm thấy lệnh chờ")
+        if order.status == "pending":
+            close_pending(session, order, "cancelled", "Hủy thủ công")
+        return {"order_id": order.id, "status": order.status}
+
 def baseline_auto_on_startup():
     """Run once per worker start, before any automatic entries are evaluated."""
     with Session.begin() as session:
@@ -183,6 +382,7 @@ def baseline_auto_on_startup():
 
 def auto_tick(now=None):
     try:
+        sync_pending_orders(now)
         _auto_tick(now)
     except HTTPException as exc:
         if exc.status_code != 409:
@@ -257,7 +457,11 @@ def _auto_tick(now=None):
         learning = read_state(session, int(now))
         learning_decision = learning["last_decision"] or {}
         save_market_signal(session, candle_time, setup)
-# ponytail: no position cap; bounded only by available cash, risk budget and daily limits.
+        market_entry = learning["candidates"][strat_name]["genome"].get("entry_policy", "market") == "market"
+        if not market_entry:
+            place_pending(session, state, wallet, candle_time, now, setup, strat_name,
+                          learning, learning_decision)
+            return
         entry = execution_price(wallet, setup.side, opening=True)
         distance = abs(entry - setup.stop)
         if distance <= 0:
@@ -265,37 +469,14 @@ def _auto_tick(now=None):
                 session, state, candle_time, "skipped", "Khoảng cách SL không hợp lệ", setup
             )
             return
-        _, daily_loss, _ = daily_limits(session, wallet, state, now)
-        remaining_budget = max(
-            0, state.day_start_equity * session.get(AutoPaperState, 1).daily_loss_percent / 100 - daily_loss
-        )
-        capital, used_risk = portfolio_risk_limits(session)
-        cap = session.get(AutoPaperState, 1).max_portfolio_risk_percent
-        headroom = float("inf") if cap is None else max(0.0, capital * cap / 100 - used_risk)
-        risk_cash = min(
-            max(0, equity(session, wallet)) * state.risk_percent / 100, remaining_budget, headroom
-        )
-        if risk_cash <= 0:
-            if headroom <= 0:
-                kind, reason = "risk_cap", f"Tổng rủi ro SL ({used_risk:.2f} USDT) chạm trần {cap:g}% ví chung"
-            elif remaining_budget <= 0:
-                kind, reason = "daily_loss", "Hết ngân sách lỗ ngày của ví chung"
-            else:
-                kind, reason = None, "Equity ví chung không còn để tính rủi ro"
+        # ponytail: no position cap; bounded only by available cash, risk budget and daily limits.
+        requested_notional, risk_cash, blocked_by = size_order(session, wallet, state, now, setup.side, entry, setup.stop)
+        if blocked_by:
+            kind, reason = blocked_by
             record_decision(session, state, candle_time, "skipped", reason, setup)
             if kind:
                 notify_blocked(session, current_symbol(), candle_time, setup, kind, reason, strat_name)
             return
-        cash, _, margin = portfolio(session)
-        free = cash - margin
-        fee_rate = wallet.fee_bps / 10000
-        max_order_notional = capital * (MAX_ORDER_MARGIN_PERCENT / 100) * state.leverage
-        unit_risk = stop_risk_per_unit(setup.side, entry, setup.stop, wallet.fee_bps, wallet.slippage_bps)
-        requested_notional = min(
-            risk_cash / unit_risk * entry,
-            free / (1 / state.leverage + fee_rate),
-            max_order_notional,
-        )
         try:
             trade = create_position(
                 session,
@@ -365,7 +546,7 @@ def state_response(session, wallet, state, now, learning=None):
         .order_by(AutoPaperDecision.candle_time.desc())
     ).all()
     counts = {action: sum(d.action == action for d in decisions)
-              for action in ("opened", "skipped", "no_setup", "missed")}
+              for action in ("opened", "skipped", "no_setup", "missed", "pending")}
     # Only count candles since this pair's first record, so a new pair or DB isn't shown as missed.
     first = session.scalar(select(func.min(AutoPaperDecision.candle_time))
                            .where(AutoPaperDecision.symbol == current_symbol()))
@@ -406,7 +587,7 @@ def state_response(session, wallet, state, now, learning=None):
         next_close_time=(int(now) // 900 + 1) * 900,
         coverage=dict(window_candles=JOURNAL_CANDLES, end_time=last_closed,
                       start_time=start, tracked_candles=tracked,
-                      evaluated=counts["opened"] + counts["skipped"] + counts["no_setup"],
+                      evaluated=counts["opened"] + counts["skipped"] + counts["no_setup"] + counts["pending"],
                       unrecorded=tracked - len(decisions), **counts),
         # Every recorded candle of the window; gaps mean the worker never ticked that candle.
         timeline=[
@@ -500,6 +681,9 @@ def control_auto(payload: AutoControl):
             set_status(session, state, "Auto Paper đã bật; chờ nến 15m mới đóng")
         elif not payload.enabled:
             state.enabled = False
+            for order in session.scalars(select(PaperPendingOrder).where(
+                PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")):
+                close_pending(session, order, "cancelled", "Auto Paper đã tắt")
             set_status(
                 session, state, "Auto Paper đã dừng vào lệnh mới; vị thế hiện có vẫn giữ SL/TP"
             )

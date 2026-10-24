@@ -77,6 +77,7 @@ export function PaperChart({
   trade,
   observations = [],
   positions = [],
+  pendingOrders = [],
   onSelectPosition,
   markPrice = null,
   feeBps = 0,
@@ -86,6 +87,7 @@ export function PaperChart({
   candles: Candle[];
   trade: PaperTrade | null;
   positions?: PaperTrade[];
+  pendingOrders?: import('../types/paper').PaperPendingOrder[];
   onSelectPosition?: (id: number) => void;
   observations?: (FuturesStrategyObservation & { time: number })[];
   markPrice?: number | null;
@@ -322,6 +324,24 @@ export function PaperChart({
     ranges.current = [];
     const points: SeriesMarker<Time>[] = [];
     const allLevels: { title: string; price: number; color: string; lineStyle?: LineStyle }[] = [];
+    for (const order of pendingOrders.filter((order) => order.status === 'pending')) {
+      const label = `CHỜ #${order.id} ${order.side.toUpperCase()} ${order.entry_policy}`;
+      allLevels.push(
+        { title: label, price: order.level, color: '#b17b23', lineStyle: LineStyle.Dashed },
+        {
+          title: `CHỜ #${order.id} SL`,
+          price: order.stop,
+          color: '#bd7164',
+          lineStyle: LineStyle.Dotted,
+        },
+        {
+          title: `CHỜ #${order.id} TP`,
+          price: order.target,
+          color: '#2c856c',
+          lineStyle: LineStyle.Dotted,
+        },
+      );
+    }
     for (const position of positions) {
       if (position.id !== trade?.id) {
         const label = `#${position.id} ${position.side.toUpperCase()}`;
@@ -580,7 +600,7 @@ export function PaperChart({
     }
     labels.current?.set(texts);
     markers.current?.setMarkers(sorted);
-  }, [trade, observations, candles, positions, step]);
+  }, [trade, observations, candles, positions, pendingOrders, step]);
   return (
     <div className="trade-chart-wrap">
       <div className="chart-ohlc">
@@ -623,7 +643,7 @@ export function PaperChart({
           ref={container}
           className="trade-candlestick-chart"
           role="img"
-          aria-label="Chart MEXC realtime và mức entry SL TP của lệnh mô phỏng"
+          aria-label="Chart MEXC realtime, lệnh chờ và mức entry SL TP của lệnh mô phỏng"
         />
         <div className="position-tag-layer">
           {tags.map((tag) => {
@@ -857,6 +877,9 @@ export function PaperChart({
             #{trade.id} {trade.side.toUpperCase()} · Đã đóng
             {trade.audit?.strategy ? ` · ${tradeStrategy(trade.audit)?.title}` : ''}
           </strong>
+        )}
+        {pendingOrders.some((order) => order.status === 'pending') && (
+          <span>CHỜ: nét đứt vàng · SL/TP: nét chấm</span>
         )}
         {(trade || openTrades.length > 0) && (
           <>

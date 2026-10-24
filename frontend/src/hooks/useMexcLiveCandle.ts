@@ -4,7 +4,11 @@ import type { Candle } from '../types/trading';
 import { MEXC_STREAM_URL, parseMexcCandle } from '../lib/mexc-stream';
 
 export function useMexcLiveCandle(symbol = getFuturesSymbol()) {
-  const [tick, setTick] = useState<{ candle: Candle; receivedAt: number } | null>(null);
+  const [tick, setTick] = useState<{
+    candle: Candle;
+    receivedAt: number;
+    exchangeAt: number;
+  } | null>(null);
   const [connected, setConnected] = useState(false);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => {
@@ -31,11 +35,12 @@ export function useMexcLiveCandle(symbol = getFuturesSymbol()) {
       };
       socket.onmessage = (event) => {
         if (!active || typeof event.data !== 'string') return;
-        const candle = parseMexcCandle(event.data, Date.now(), symbol);
+        const receivedAt = Date.now();
+        const candle = parseMexcCandle(event.data, receivedAt, symbol);
         if (!candle) return;
-        lastMessage = Date.now();
+        lastMessage = receivedAt;
         delay = 1000;
-        setTick({ candle, receivedAt: lastMessage });
+        setTick({ candle, receivedAt, exchangeAt: JSON.parse(event.data).ts });
         setConnected(true);
       };
       socket.onerror = () => socket?.close();
@@ -48,10 +53,10 @@ export function useMexcLiveCandle(symbol = getFuturesSymbol()) {
         }
       };
       heartbeat = setInterval(() => {
-        if (Date.now() - lastMessage > 30_000) socket?.close();
+        if (Date.now() - lastMessage > 10_000) socket?.close();
         else if (socket?.readyState === WebSocket.OPEN)
           socket.send(JSON.stringify({ method: 'ping' }));
-      }, 10_000);
+      }, 5_000);
     };
     connect();
     const timer = setInterval(() => setClock(Date.now()), 1000);
@@ -69,7 +74,14 @@ export function useMexcLiveCandle(symbol = getFuturesSymbol()) {
   const live =
     connected &&
     tick !== null &&
-    clock - tick.receivedAt < 30_000 &&
+    clock - tick.receivedAt < 5_000 &&
+    clock - tick.exchangeAt < 5_000 &&
     tick.candle.time === Math.floor(clock / 900_000) * 900;
-  return { candle: live ? tick.candle : null, live, receivedAt: tick?.receivedAt ?? null };
+  return {
+    candle: live ? tick.candle : null,
+    live,
+    receivedAt: tick?.receivedAt ?? null,
+    ageMs: tick ? Math.max(0, clock - tick.exchangeAt) : null,
+    latencyMs: tick ? tick.receivedAt - tick.exchangeAt : null,
+  };
 }

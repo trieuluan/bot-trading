@@ -13,11 +13,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .db import Session
 from .futures_context import load_signal_context
-from .futures_learner import (FEE, SLIP, WARMUP, advance, evolve, performance, read_state, save_state,
-                              stats, sync_seeds)
+from .futures_entries import entry_fields
+from .futures_learner import (
+    FEE,
+    SLIP,
+    WARMUP,
+    advance,
+    evolve,
+    read_state,
+    save_state,
+    stats,
+    sync_seeds,
+)
+from .futures_rule_tree import nodes
 from .futures_strategies import exit_policy_enabled, regime, strategy_setup, validate_genome
 from .futures_symbols import SYMBOLS, current_symbol, symbol_scope
-from .futures_rule_tree import nodes
 from .macro_calendar import MACRO_TIMESTAMPS
 from .mexc import MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_wallet
@@ -100,7 +110,8 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                       "label_available_at": None,
                       "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
                       "exit_params": candidate["genome"].get("exit_params"),
-                      "exit_rule": candidate["genome"].get("rule")}
+                      "exit_rule": candidate["genome"].get("rule"),
+                      **entry_fields(candidate["genome"], history, setup, bar.time)}
             rows[name][partition].append(sample)
             active[name] = sample
         completed = index - WARMUP + 1

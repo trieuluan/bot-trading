@@ -8619,6 +8619,9 @@ button.ap-cell:focus-visible {
 .ap-portal-tooltip.below {
   transform: translateX(-50%);
 }
+.ap-cell.pending {
+  background: #b17b23;
+}
 .ap-cell.no_setup {
   background: #c9d8cb;
 }

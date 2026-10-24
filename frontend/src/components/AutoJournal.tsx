@@ -9,6 +9,7 @@ type Entry = NonNullable<AutoPaperState['timeline']>[number];
 const LABELS = {
   no_setup: 'Không có tín hiệu',
   opened: 'Đã mở lệnh',
+  pending: 'Đặt lệnh chờ',
   skipped: 'Bỏ qua',
   missed: 'Lỡ',
   none: 'Lỡ · không có bản ghi (worker không chạy)',
@@ -83,7 +84,7 @@ export function AutoJournal({
         onKeyDown={(event) => {
           if (event.key === 'Escape') hideTip();
         }}
-        aria-label={`${coverage.evaluated}/${coverage.tracked_candles} nến đã xét, ${coverage.opened} mở lệnh, ${coverage.skipped} bỏ qua, ${missedTotal} lỡ trong ${coverage.window_candles} nến gần nhất`}
+        aria-label={`${coverage.evaluated}/${coverage.tracked_candles} nến đã xét, ${coverage.opened} mở lệnh, ${coverage.pending ?? 0} lệnh chờ, ${coverage.skipped} bỏ qua, ${missedTotal} lỡ trong ${coverage.window_candles} nến gần nhất`}
       >
         {cells.map(({ candle, entry, tracked }) => {
           const action = entry?.action ?? (tracked ? 'none' : 'untracked');
@@ -129,12 +130,16 @@ export function AutoJournal({
         <span>{time(cells[0].candle)}</span>
         <span>{time(coverage.end_time)}</span>
       </div>
+      {!!coverage.pending && <p>{coverage.pending} tín hiệu đang có lệnh chờ.</p>}
       <div className="ap-legend" aria-hidden="true">
         <span>
           <i className="ap-cell no_setup" /> không tín hiệu
         </span>
         <span>
           <i className="ap-cell opened" /> mở lệnh
+        </span>
+        <span>
+          <i className="ap-cell pending" /> lệnh chờ
         </span>
         <span>
           <i className="ap-cell skipped" /> bỏ qua

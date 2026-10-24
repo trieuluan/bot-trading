@@ -15,6 +15,7 @@ from backend.app.futures_learner import learning_tick
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
+from backend.app.mexc_stream import stream_paper_quotes
 from backend.app.observation import observation_tick
 from backend.app.paper import sync_paper_funding, sync_paper_quote, sync_paper_stops
 from backend.app.settings import validate_mode
@@ -128,6 +129,8 @@ def main():
         ("mtf-observation", observation_tick, 15),
     ]
     threads = [threading.Thread(target=run_loop, args=job, name=job[0]) for job in jobs]
+    threads.extend(threading.Thread(target=stream_paper_quotes, args=(symbol, stop),
+                                    name=f"{symbol}-websocket") for symbol in SYMBOLS)
     pair_jobs = [
         ("historical-stops", sync_paper_stops, 5),
         ("quotes-and-stops", sync_paper_quote, 5),

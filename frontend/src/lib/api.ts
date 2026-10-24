@@ -56,10 +56,14 @@ export function fetchPaperWallet(): Promise<import('../types/paper').PaperWallet
 export function fetchFuturesHistory(): Promise<import('../types/paper').FuturesHistoryJob | null> {
   return paperRequest('/api/workspaces/mexc_futures/learning/history');
 }
-async function paperRequest(path: string, body?: object) {
+async function paperRequest(path: string, body?: object, symbol?: string) {
   const response = await fetch(path, {
     method: body ? 'POST' : 'GET',
-    headers: { ...futuresHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: {
+      ...futuresHeaders(),
+      ...(symbol ? { 'X-Futures-Symbol': symbol } : {}),
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10000),
   });
@@ -84,6 +88,10 @@ export function closePaperPosition(id: number, requestId: string): Promise<{ tra
   return paperRequest(`/api/paper/positions/${id}/close`, {
     request_id: requestId,
   });
+}
+
+export function cancelPaperPending(id: number, symbol: string): Promise<{ status: string }> {
+  return paperRequest(`/api/paper/auto/pending/${id}/cancel`, {}, symbol);
 }
 
 export function fetchAutoPaper(): Promise<import('../types/paper').AutoPaperState> {

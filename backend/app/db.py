@@ -257,6 +257,26 @@ class PaperTrade(Base):
     net_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class PaperPendingOrder(Base):
+    __tablename__ = "paper_pending_orders"
+    __table_args__ = (UniqueConstraint("symbol", "signal_time", name="uq_paper_pending_signal"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    signal_time: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[int] = mapped_column(Integer)
+    next_bar: Mapped[int] = mapped_column(Integer)
+    side: Mapped[str] = mapped_column(String(10))
+    entry_policy: Mapped[str] = mapped_column(String(30))
+    level: Mapped[float] = mapped_column(Float)
+    stop: Mapped[float] = mapped_column(Float)
+    target: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    trade_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+
+
 class PaperCommand(Base):
     __tablename__ = "paper_commands"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

@@ -47,6 +47,7 @@ def database(monkeypatch):
         PaperCommand,
         PaperFunding,
         PaperNotification,
+        PaperPendingOrder,
         PaperTrade,
         PaperWallet,
         Session,
@@ -75,6 +76,7 @@ def database(monkeypatch):
             PaperFunding,
             PaperCommand,
             PaperNotification,
+            PaperPendingOrder,
             PaperTrade,
             Signal,
             Event,
@@ -117,6 +119,7 @@ def database(monkeypatch):
         auto.risk_percent = 1
         auto.max_daily_trades = 5
         auto.daily_loss_percent = 3
+        auto.max_portfolio_risk_percent = None
         auto.last_candle = None
         auto.day = ""
         auto.day_start_equity = 10000

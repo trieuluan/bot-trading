@@ -6,6 +6,7 @@ import { FuturesLearningPage } from './FuturesLearningPage';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart } from '../components/PaperChart';
+import { PaperPendingOrders } from '../components/PaperPendingOrders';
 import { formatPrice, formatQuote, mexcErrorText } from '../lib/format';
 import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
 import {
@@ -228,6 +229,7 @@ export function PaperTradingPage({
     }
   }
   const positions = wallet?.positions ?? [];
+  const pendingOrders = wallet?.pending_orders ?? [];
   const quote = wallet?.quote;
   const stale =
     !online ||
@@ -397,8 +399,36 @@ export function PaperTradingPage({
                 {wallet?.stale && <small> · cũ</small>}
               </strong>
             </span>
-            <span className={`pill ${stream.live ? 'green' : 'amber'}`}>
+            <span
+              className={`pill ${stream.live ? 'green' : 'amber'}`}
+              title="Độ trễ ước tính từ timestamp MEXC đến trình duyệt; phụ thuộc đồng hồ máy. Tuổi dữ liệu tính từ timestamp MEXC."
+            >
               {stream.live ? 'LIVE 15m' : 'REST'}
+              {stream.latencyMs !== null &&
+                stream.live &&
+                (stream.latencyMs < 0
+                  ? ' · lệch đồng hồ'
+                  : ` · ~${Math.round(stream.latencyMs)} ms`)}
+              {stream.ageMs !== null && ` · tuổi ${(stream.ageMs / 1000).toFixed(1)}s`}
+            </span>
+            <span
+              className={`pill ${
+                !wallet?.stale &&
+                wallet?.quote?.source === 'websocket' &&
+                clock - wallet.quote.time * 1000 < 5000
+                  ? 'green'
+                  : 'amber'
+              }`}
+              title="Nguồn giá backend dùng kiểm tra SL/TP Paper. WebSocket ticker khoảng 1 giây/lần; REST dự phòng khoảng 5 giây/lần."
+            >
+              SL/TP:{' '}
+              {wallet?.stale || !wallet?.quote
+                ? 'giá cũ'
+                : wallet.quote.source === 'websocket'
+                  ? 'WS'
+                  : 'REST'}
+              {wallet?.quote &&
+                ` · giá ${Math.max(0, clock / 1000 - wallet.quote.time).toFixed(1)}s`}
             </span>
             <button
               type="button"
@@ -548,6 +578,7 @@ export function PaperTradingPage({
                 candles={chartCandles}
                 trade={selected ?? (historicalId === null ? (wallet?.position ?? null) : null)}
                 positions={historicalId === null ? positions : []}
+                pendingOrders={historicalId === null ? pendingOrders : []}
                 onSelectPosition={setSelectedId}
                 observations={observations}
                 markPrice={wallet?.quote?.fairPrice ?? null}
@@ -801,6 +832,20 @@ export function PaperTradingPage({
       >
         {[
           ['position', 'Vị thế đang mở', positions.length],
+          [
+            'pending',
+            'Lệnh chờ',
+            allPairs
+              ? Object.values(board).reduce(
+                  (count, pair) =>
+                    count +
+                    (pair.wallet?.pending_orders ?? []).filter(
+                      (order) => order.status === 'pending',
+                    ).length,
+                  0,
+                )
+              : pendingOrders.filter((order) => order.status === 'pending').length,
+          ],
           ['history', 'Lịch sử lệnh', wallet?.trades.length ?? 0],
           ['evolution', 'Tiến hóa', ''],
         ].map(([key, label, count]) => (
@@ -825,6 +870,18 @@ export function PaperTradingPage({
       </div>
       {allPairs && <AllPairsPanel board={board} tab={activityTab} onSelect={onSelect} />}
       <div hidden={allPairs}>
+        {activityTab === 'pending' && (
+          <section className="panel prose desk-activity-panel">
+            <PaperPendingOrders
+              orders={pendingOrders}
+              onView={(order) => {
+                if (order.trade_id) viewTrade(order.trade_id);
+                else setSelectedId(-1);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </section>
+        )}
         <section hidden={activityTab !== 'position'} className="panel prose desk-activity-panel">
           <div className="section-head">
             <h2>Vị thế đang mở ({positions.length})</h2>
@@ -894,11 +951,12 @@ export function PaperTradingPage({
               Market fill tại bid/ask quan sát được cộng trượt giá cố định; toàn bộ khối lượng khớp
               ngay. SL/TP kích hoạt theo bid/ask lấy mẫu khoảng 5 giây và khớp tại giá quan sát kế
               tiếp, có thể vượt mức đặt. Không tái dựng tick bị bỏ lỡ khi mất kết nối. Chưa mô phỏng
-              lệnh Limit hoặc khớp một phần tại sàn, liquidation, margin tiers hay ADL. Nhiều vị thế
-              dùng chung một ví Cross; ký quỹ và phí bị giới hạn theo cấu hình ví. Chốt từng phần
-              theo chính sách quản lý lệnh của cây. Funding dùng rate lịch sử và fair-price open 15m
-              xấp xỉ, cập nhật cả lệnh đã đóng khi dữ liệu tới trễ. Không có API key hoặc lệnh gửi
-              tới MEXC.
+              khớp một phần tại sàn, margin tiers hay ADL. Limit Paper xét nến M15 đóng, khớp khi
+              giá xuyên mức chờ, phí taker bảo thủ, tối đa 4 nến; không mô phỏng hàng đợi sàn.
+              Retest xác nhận rồi vào market. Nhiều vị thế dùng chung một ví Cross; ký quỹ và phí bị
+              giới hạn theo cấu hình ví. Chốt từng phần theo chính sách quản lý lệnh của cây.
+              Funding dùng rate lịch sử và fair-price open 15m xấp xỉ, cập nhật cả lệnh đã đóng khi
+              dữ liệu tới trễ. Không có API key hoặc lệnh gửi tới MEXC.
             </p>
           </details>
         </section>

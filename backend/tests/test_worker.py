@@ -32,11 +32,16 @@ def test_main_staggers_pairs_without_delaying_heartbeat(monkeypatch):
 
     monkeypatch.setattr(worker.threading, "Thread", thread)
     worker.main()
-    assert len(threads) == 2 + 6 * len(worker.SYMBOLS)
+    assert len(threads) == 2 + 7 * len(worker.SYMBOLS)
     assert threads[0]["target"] is worker.run_loop
     assert threads[0]["args"][0] == "heartbeat"
     for index, symbol in enumerate(worker.SYMBOLS):
-        jobs = [item for item in threads if item["args"][0] == symbol]
+        streams = [item for item in threads if item["target"] is worker.stream_paper_quotes
+                   and item["args"][0] == symbol]
+        assert len(streams) == 1
+        assert streams[0]["args"][1] is worker.stop
+        jobs = [item for item in threads if item["args"][0] == symbol
+                and item["target"] is worker.run_symbol_loop]
         assert len(jobs) == 6
         assert all(item["args"][-1] == index * 0.4 for item in jobs)
         assert {item["args"][1]: item["args"][3] for item in jobs} == {

@@ -65,6 +65,23 @@ export type PaperTrade = {
   margin_mode?: 'cross';
   initial_margin?: number;
 };
+export type PaperPendingOrder = {
+  id: number;
+  symbol: string;
+  signal_time: number;
+  created_at: number;
+  expires_at: number;
+  next_bar: number;
+  side: 'long' | 'short';
+  entry_policy: string;
+  strategy: string;
+  level: number;
+  stop: number;
+  target: number;
+  status: 'pending' | 'filled' | 'cancelled' | 'expired';
+  reason: string | null;
+  trade_id: number | null;
+};
 export type PaperWallet = {
   initial_balance: number;
   balance: number;
@@ -93,6 +110,7 @@ export type PaperWallet = {
     nextFundingTime?: number;
     time: number;
     received_at: number;
+    source?: 'websocket' | 'rest';
   } | null;
   stale: boolean;
   error: string | null;
@@ -100,6 +118,7 @@ export type PaperWallet = {
   funding_cursor: number;
   position: PaperTrade | null;
   positions: PaperTrade[];
+  pending_orders?: PaperPendingOrder[];
   trades: PaperTrade[];
   candles: Candle[];
 };
@@ -114,7 +133,7 @@ export type AutoPaperConfig = {
 export type AutoDecision = {
   candle_time: number;
   evaluated_at: string;
-  action: 'opened' | 'skipped' | 'no_setup';
+  action: 'opened' | 'skipped' | 'no_setup' | 'pending';
   reason: string;
   setup: {
     side: string;
@@ -186,10 +205,11 @@ export type AutoPaperState = AutoPaperConfig & {
     skipped: number;
     no_setup: number;
     missed: number;
+    pending?: number;
   };
   timeline?: {
     candle_time: number;
-    action: 'opened' | 'skipped' | 'no_setup' | 'missed';
+    action: 'opened' | 'skipped' | 'no_setup' | 'missed' | 'pending';
     reason: string;
     trade_id: number | null;
     side: 'long' | 'short' | null;

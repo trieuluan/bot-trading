@@ -5,8 +5,8 @@ matching engine: live fills use bid/ask; recovery simulates historical levels an
 stop gaps with adverse slippage. Exact intrabar execution times are unavailable.
 """
 
-import time
 import math
+import time
 from dataclasses import asdict
 from datetime import timedelta
 from decimal import ROUND_DOWN, Decimal
@@ -18,11 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
 from .db import (
-    FuturesLearningState,
-    FuturesOpenInterest,
     AutoPaperDecision,
     AutoPaperState,
     Event,
+    FuturesLearningState,
+    FuturesOpenInterest,
     PaperCommand,
     PaperFunding,
     PaperTrade,
@@ -30,12 +30,19 @@ from .db import (
     Session,
     utcnow,
 )
-from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
-from .futures_exits import (EXIT_POLICIES, adaptive_target, partial_size, protective_stop,
-                           discretionary_exit, has_target, exit_parameters)
 from .feed import load_candles
-from .notifications import notify_close, notify_open, notify_partial, notify_stop_update
+from .futures_exits import (
+    EXIT_POLICIES,
+    adaptive_target,
+    discretionary_exit,
+    exit_parameters,
+    has_target,
+    partial_size,
+    protective_stop,
+)
+from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
 from .mexc import MarketDataError, MexcFuturesAdapter
+from .notifications import notify_close, notify_open, notify_partial, notify_stop_update
 
 router = APIRouter(prefix="/api/paper", tags=["Paper trading"])
 QUOTE_TTL = 20
@@ -229,13 +236,14 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
     notify_close(session, trade)
 
 
-def apply_stops(session, wallet, now):
+def apply_stops(session, wallet, now, reconcile=True):
     positions = open_positions(session)
     if not positions:
         return
     quote = fresh_quote(wallet, now)
     for trade in positions:
-        reconcile_stops(session, wallet, trade, now)
+        if reconcile:
+            reconcile_stops(session, wallet, trade, now)
         if trade.exit_time is not None:
             continue
         # Executable side of the sampled book, not a candle high/low.
@@ -409,7 +417,53 @@ def sync_paper_stops(now=None):
         for trade in open_positions(session):
             reconcile_stops(session, wallet, trade, now)
 
+def persist_paper_quote(quote, contract=None, realtime=False):
+    with Session.begin() as session:
+        wallet = lock_wallet(session)
+        if realtime and (not -1 <= time.time() - quote["time"] <= 5
+                         or not 0 <= time.time() - quote["received_at"] <= 5):
+            return
+        previous_quote = wallet.quote or {}
+        if contract:
+            wallet.contract = contract
+        settle = quote.get("nextFundingTime") or previous_quote.get("nextFundingTime")
+        if settle and settle > max(quote["time"], previous_quote.get("time", 0)):
+            wallet.quote = {**previous_quote, "nextFundingTime": settle}
+        if quote["time"] < previous_quote.get("time", 0) or (
+            quote["time"] == previous_quote.get("time")
+            and previous_quote.get("source") == "websocket"
+        ):
+            wallet.error = None
+            wallet.retry_at = None
+            return
+        bucket = int(quote["time"]) // 900 * 900
+        previous = previous_quote.get("bar")
+        last = quote["lastPrice"]
+        if previous and previous["time"] == bucket:
+            bar = {**previous, "high": max(previous["high"], last),
+                   "low": min(previous["low"], last), "close": last}
+        else:
+            bar = dict(time=bucket, open=last, high=last, low=last, close=last, volume=0)
+        wallet.quote = {**quote, "source": "websocket" if realtime else "rest", "bar": bar}
+        if settle and settle > quote["time"]:
+            wallet.quote = {**wallet.quote, "nextFundingTime": settle}
+        if quote.get("holdVol"):
+            observed_at = math.ceil(max(quote["time"], quote["received_at"]))
+            latest = session.scalar(select(FuturesOpenInterest)
+                .where(FuturesOpenInterest.symbol == current_symbol())
+                .order_by(FuturesOpenInterest.time.desc()).limit(1))
+            if latest is None or observed_at // 300 > latest.time // 300:
+                session.add(FuturesOpenInterest(symbol=current_symbol(), time=observed_at,
+                                                hold_vol=quote["holdVol"]))
+        wallet.error = None
+        wallet.retry_at = None
+        liquidate_cross(session, time.time())
+        apply_stops(session, wallet, time.time(), reconcile=not realtime)
+    return True
+
 def sync_paper_quote(adapter=None):
+    from .mexc_stream import stream_ready
+
     owns_adapter = adapter is None
     adapter = adapter or MexcFuturesAdapter()
     try:
@@ -421,52 +475,35 @@ def sync_paper_quote(adapter=None):
                 return
             needs_contract = wallet.contract is None
             settle = (wallet.quote or {}).get("nextFundingTime")
+        healthy_stream = stream_ready(current_symbol())
+        if healthy_stream and not needs_contract and settle and settle > time.time():
+            return
         contract = adapter.contract_info() if needs_contract else None
-        quote = adapter.ticker()
-        if (not settle or settle <= quote["time"]) and hasattr(adapter, "funding_next"):
+        quote = None if healthy_stream else adapter.ticker()
+        reference_time = quote["time"] if quote else time.time()
+        if (not settle or settle <= reference_time) and hasattr(adapter, "funding_next"):
             try:
                 settle = adapter.funding_next()
             except MarketDataError:
                 pass  # countdown is display-only; never block the quote
+        if quote is None:
+            with Session.begin() as session:
+                wallet = lock_wallet(session)
+                if contract:
+                    wallet.contract = contract
+                if wallet.quote and settle and settle > max(reference_time, wallet.quote["time"]):
+                    wallet.quote = {**wallet.quote, "nextFundingTime": settle}
+            return
         if settle and settle > quote["time"]:
             quote["nextFundingTime"] = settle
-        with Session.begin() as session:
-            wallet = lock_wallet(session)
-            if wallet.quote and quote["time"] < wallet.quote["time"]:
-                wallet.error = None
-                wallet.retry_at = None
-                return
-            # The live bar contains observed ticks only; cached closed bars stay authoritative.
-            bucket = int(quote["time"]) // 900 * 900
-            previous = (wallet.quote or {}).get("bar")
-            last = quote["lastPrice"]
-            if previous and previous["time"] == bucket:
-                bar = {
-                    **previous,
-                    "high": max(previous["high"], last),
-                    "low": min(previous["low"], last),
-                    "close": last,
-                }
-            else:
-                bar = dict(time=bucket, open=last, high=last, low=last, close=last, volume=0)
-            wallet.quote = {**quote, "bar": bar}
-            if quote.get("holdVol"):
-                observed_at = math.ceil(max(quote["time"], quote["received_at"]))
-                latest = session.scalar(select(FuturesOpenInterest)
-                    .where(FuturesOpenInterest.symbol == current_symbol())
-                    .order_by(FuturesOpenInterest.time.desc()).limit(1))
-                if latest is None or observed_at // 300 > latest.time // 300:
-                    session.add(FuturesOpenInterest(symbol=current_symbol(), time=observed_at,
-                                                    hold_vol=quote["holdVol"]))
-            if contract:
-                wallet.contract = contract
-            wallet.error = None
-            wallet.retry_at = None
-            liquidate_cross(session, time.time())
-            apply_stops(session, wallet, time.time())
+        persist_paper_quote(quote, contract)
     except MarketDataError as exc:
         with Session.begin() as session:
             wallet = lock_wallet(session)
+            quote = wallet.quote or {}
+            if (quote.get("source") == "websocket"
+                    and 0 <= time.time() - quote.get("received_at", 0) < 5):
+                return
             wallet.error = str(exc)
             wallet.retry_at = utcnow() + timedelta(seconds=exc.retry_after)
     finally:
@@ -635,6 +672,7 @@ def get_wallet():
     return wallet_snapshot()
 
 def wallet_snapshot(include_candles=True):
+    from .db import PaperPendingOrder
     with Session() as session:
         if session.get_bind().dialect.name == "postgresql":
             session.connection(execution_options={
@@ -702,6 +740,13 @@ def wallet_snapshot(include_candles=True):
                 serialize_trade(positions[-1], decisions.get(positions[-1].id), candidates) if positions else None
             ),
             positions=[serialize_trade(t, decisions.get(t.id), candidates) for t in positions],
+            pending_orders=[{
+                **{key: getattr(order, key) for key in (
+                    "id", "symbol", "signal_time", "created_at", "expires_at", "next_bar", "side",
+                    "entry_policy", "level", "stop", "target", "status", "reason", "trade_id")},
+                "strategy": order.snapshot["strategy"],
+            } for order in session.scalars(select(PaperPendingOrder).where(
+                PaperPendingOrder.symbol == current_symbol()).order_by(PaperPendingOrder.id.desc()).limit(100))],
             trades=[serialize_trade(trade, decisions.get(trade.id), candidates) for trade in trades],
             candles=candles,
         )
@@ -733,6 +778,7 @@ def replay_command(session, request_id, payload):
 def create_position(
     session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None,
     exit_policy="fixed", leverage=1, exit_params=None, exit_rule=None,
+    fill_price=None,
 ):
     """Shared sizing/fill/accounting for manual and automatic paper entries.
 
@@ -749,7 +795,9 @@ def create_position(
     cash, _, margin = portfolio(session, require_fresh=True)
     if not wallet.contract:
         raise HTTPException(409, "Đang chờ thông số hợp đồng MEXC")
-    price = execution_price(wallet, side, opening=True)
+    price = execution_price(wallet, side, opening=True) if fill_price is None else fill_price
+    if not math.isfinite(price) or price <= 0:
+        raise HTTPException(422, "Invalid paper fill price")
     valid = stop < price < target if side == "long" else target < price < stop
     if not valid:
         raise HTTPException(422, "SL/TP phải nằm hai phía entry theo chiều Long/Short")

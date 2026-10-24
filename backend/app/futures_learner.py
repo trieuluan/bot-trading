@@ -14,23 +14,50 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from .backtest import BacktestConfig, simulate
-from .db import (AutoPaperDecision, AutoPaperState, FuturesLearningState, MarketState, PaperTrade,
-                 Session)
-from .futures_symbols import current_symbol, market_symbol, state_id
-from .futures_context import load_signal_context
+from .db import (
+    AutoPaperDecision,
+    AutoPaperState,
+    FuturesLearningState,
+    MarketState,
+    PaperTrade,
+    Session,
+)
 from .feed import load_candles
-from .futures_exits import adaptive_target, partial_size, protective_stop, discretionary_exit, has_target
+from .futures_context import load_signal_context
+from .futures_entries import entry_fields, wait
+from .futures_exits import (
+    adaptive_target,
+    discretionary_exit,
+    has_target,
+    partial_size,
+    protective_stop,
+)
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
-from .futures_strategies import (EXIT_SEEDS, RULE_SEEDS, SEEDS, crossover, exit_policy_enabled, genome_name, genome_fingerprint,
-                                 is_rule_tree, mutate, regime, shadow_only, strategy_chart,
-                                 strategy_setup, to_rule_tree)
+from .futures_strategies import (
+    ENTRY_SEEDS,
+    EXIT_SEEDS,
+    RULE_SEEDS,
+    SEEDS,
+    crossover,
+    exit_policy_enabled,
+    genome_fingerprint,
+    genome_name,
+    is_rule_tree,
+    mutate,
+    regime,
+    shadow_only,
+    strategy_chart,
+    strategy_setup,
+    to_rule_tree,
+)
+from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_wallet
 from .strategy import Setup
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 8 / 10000, 2 / 10000
-WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS)
+WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS) + len(ENTRY_SEEDS)
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
 VERSION = "futures_htf_h4_consensus_v2"
@@ -58,7 +85,7 @@ def new_state(now):
     born = (now // 900 + 1) * 900
     for seed in [*SEEDS, *RULE_SEEDS]:
         add_candidate(state, seed, born)
-    for seed in EXIT_SEEDS:
+    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS]:
         add_candidate(state, seed, born)
     rng = random.Random(now)
     for seed in [*SEEDS, *RULE_SEEDS]:
@@ -114,6 +141,7 @@ def qualification(candidate):
     checks = {
         "exit_policy_enabled": exit_policy_enabled(candidate["genome"]),
         "not_shadow_only": not shadow_only(candidate["genome"]),
+        "entry_windows_supported": candidate["genome"].get("entry_policy", "market") == "market",
         "forward_windows": bool(windows) and aligned,
         "trades_gte_100": count >= 100,
         "pf_gt_1_3": gains > 1.3 * losses and gains > 0,
@@ -131,6 +159,13 @@ def advance(sample, bar, fair, funding, candles=None):
     if sample["status"] != "open" or bar.time < sample["entry_time"]:
         return
     direction = 1 if sample["side"] == "long" else -1
+    if sample["entry"] is None and sample.get("entry_policy") and not sample.get("confirmed"):
+        filled = wait(sample, bar, funding)
+        if sample["status"] == "cancelled":  # unfilled signal scores 0R, never hidden
+            sample.update(status="resolved", net_r=0.0, label_available_at=bar.time + 900)
+        if filled is None:
+            return
+        bar, funding = filled
     if sample["entry"] is None:
         if bar.time != sample["entry_time"]:
             sample.update(status="excluded", reason="missing_entry_bar")
@@ -225,7 +260,7 @@ def sync_seeds(state, now):
     migrate_to_trees(state)
     born, rng = (now // 900 + 1) * 900, random.Random(now)
     existing = {genome_name(candidate["genome"]) for candidate in state["candidates"].values()}
-    for seed in EXIT_SEEDS:
+    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS]:
         if genome_name(seed) not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
     for seed in [*SEEDS, *RULE_SEEDS]:
@@ -347,6 +382,7 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
                 "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
                 "exit_params": candidate["genome"].get("exit_params"),
                 "exit_rule": candidate["genome"].get("rule"),
+                **entry_fields(candidate["genome"], candles, setup, bar.time),
             })
     eligible = [candidate for candidate in found if candidate["promoted"]]
     pool = found if state["auto_mode"] == "paper_learning" else eligible or found
@@ -364,6 +400,9 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         "selection_reason": selection_reason,
         "selected": pick["name"] if pick else None,
         "setup": asdict(pick["setup"]) if pick else None,
+        **({"entry_policy": state["candidates"][pick["name"]]["genome"].get("entry_policy", "market"),
+            "level": entry_fields(state["candidates"][pick["name"]]["genome"], candles,
+                                  pick["setup"], bar.time).get("level")} if pick else {}),
         "strategies": observations,
     }
     state["cursor"], state["updated_at"] = bar.time, now

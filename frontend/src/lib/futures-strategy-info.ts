@@ -26,6 +26,7 @@ export type Genome = {
   funding_threshold?: number;
   rule?: Rule;
   exit_profile?: string;
+  entry_policy?: string;
 };
 
 export const HTF_LABELS: Record<string, string> = {
@@ -167,7 +168,8 @@ export function strategyShortTitle(g: Genome, id?: string): string {
   const label =
     HTF_LABELS[profile] ?? (profile === 'default' ? 'Cây tự sinh' : profile.replace(/_/g, ' '));
   const hex = id ? id.split(':')[1]?.slice(0, 6) : '';
-  return hex ? `${label} #${hex}` : label;
+  const entry = g.entry_policy && g.entry_policy !== 'market' ? ` · ${g.entry_policy}` : '';
+  return (hex ? `${label} #${hex}` : label) + entry;
 }
 
 export function strategyName(g: Genome): string {

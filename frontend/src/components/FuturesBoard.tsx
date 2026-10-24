@@ -10,6 +10,7 @@ import {
 } from '../lib/paper-position';
 import { liveSignals } from '../lib/futures-signals';
 import { exitLabels } from './PaperTradeDetails';
+import { PaperPendingOrders } from './PaperPendingOrders';
 import {
   exitLabel,
   tradeStrategy,
@@ -877,6 +878,17 @@ export function AllPairsPanel({
         </div>
       )}
       {tab === 'evolution' && <FamilySummary board={board} />}
+      {tab === 'pending' && (
+        <PaperPendingOrders
+          orders={FUTURES_SYMBOLS.flatMap(
+            (symbol) => board[symbol].wallet?.pending_orders ?? [],
+          ).sort((left, right) => right.id - left.id)}
+          onView={(order) => {
+            onSelect(order.symbol as FuturesSymbol, order.trade_id ?? -1);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
+      )}
       {tab === 'position' && (
         <>
           <h3>Vị thế đang mở ({positions.length})</h3>
