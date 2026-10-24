@@ -92,7 +92,7 @@ type Info = {
   stop: string;
 };
 
-export function ruleName(rule: Rule): string {
+export function ruleName(rule: Rule, withFrame = true): string {
   if ('feature' in rule) {
     const names: Record<string, string> = {
       trend: 'Xu hướng',
@@ -153,10 +153,10 @@ export function ruleName(rule: Rule): string {
       trend_optional: 'M15 cùng EMA50 nếu đủ dữ liệu',
       candle_direction: 'Thân nến cùng chiều',
     };
-    return `${names[rule.feature] ?? rule.feature} ${rule.frame}`;
+    return `${names[rule.feature] ?? rule.feature}${withFrame ? ` ${rule.frame}` : ''}`;
   }
   const children = rule.children.map((child) =>
-    'feature' in child ? ruleName(child) : `(${ruleName(child)})`,
+    'feature' in child ? ruleName(child, withFrame) : `(${ruleName(child, withFrame)})`,
   );
   return children.join(
     rule.op === 'then' ? ` rồi ≤${rule.within} nến ` : rule.op === 'all' ? ' + ' : ' / ',
@@ -312,10 +312,18 @@ export function strategyInfo(g: Genome): Info {
   );
 }
 
+export function riskParts(g: Genome) {
+  const sl = `Swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. Thiếu H1 thì chờ, không dùng SL M15 thay thế.`;
+  const tp = `Trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R.`;
+  return { sl, tp, manage: manageText(g, `${sl} ${tp} `).slice(`${sl} ${tp} `.length) };
+}
+
 export function riskText(g: Genome, _stop: string) {
-  const initial =
-    `SL theo swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. ` +
-    `TP trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R. Thiếu H1 thì chờ, không dùng SL M15 thay thế. `;
+  const { sl, tp } = riskParts(g);
+  return manageText(g, `SL: ${sl} TP: ${tp} `);
+}
+
+function manageText(g: Genome, initial: string) {
   if (g.exit_policy === 'adaptive') {
     return (
       initial +
@@ -346,6 +354,72 @@ export function riskText(g: Genome, _stop: string) {
             ? 'TP giới hạn trước cản H1/H4, không vượt mục tiêu R; bỏ tín hiệu nếu dưới 1.5R.'
             : 'Không trailing.');
   return initial + management;
+}
+
+const ENTRY_TEXT: Record<string, string> = {
+  market: 'Market tại giá mở nến M15 kế tiếp sau khi tín hiệu đóng nến.',
+  body38:
+    'Lệnh chờ tại 38% thân nến tín hiệu tính từ giá đóng. Khớp khi giá xuyên mức; chờ tối đa 4 nến M15.',
+  body50:
+    'Lệnh chờ tại 50% thân nến tín hiệu tính từ giá đóng. Khớp khi giá xuyên mức; chờ tối đa 4 nến M15.',
+  ema20_m15: 'Lệnh chờ tại EMA20 M15. Khớp khi giá xuyên mức; chờ tối đa 4 nến M15.',
+  breakout_h1:
+    'Lệnh chờ tại đỉnh/đáy 20 nến H1 trước đó (vùng breakout). Khớp khi giá quay lại xuyên mức; chờ tối đa 4 nến M15.',
+  retest_h1:
+    'Chờ giá quay lại chạm vùng breakout H1, rồi nến M15 đóng cùng chiều trên vùng mới vào market; tối đa 4 nến M15.',
+};
+
+function frames(rule: Rule): string[] {
+  return 'feature' in rule ? [rule.frame] : [...new Set(rule.children.flatMap(frames))];
+}
+
+export type PlayStep = { label: string; text?: string; items?: string[] };
+
+// Mô tả từ genome thật; mỗi bước một khối để card dễ quét.
+export function howToPlay(g: Genome, _stop: string): PlayStep[] {
+  const rule = g.rule;
+  const leaves = (node: Rule): string[] =>
+    'feature' in node ? [ruleName(node, false)] : node.children.flatMap(leaves);
+  const signal: PlayStep[] =
+    rule && 'op' in rule && rule.op === 'all'
+      ? rule.children.map((child) => {
+          const frame = frames(child).join('/');
+          const all = 'op' in child && child.op === 'all' ? 'Cần đủ' : '';
+          const any = 'op' in child && child.op === 'any' ? 'Một trong' : '';
+          const seq =
+            'op' in child && child.op === 'then' ? `Theo thứ tự, trong ≤${child.within} nến` : '';
+          const mode = all || any || seq;
+          return {
+            label: `Tín hiệu ${frame}`,
+            ...(mode
+              ? {
+                  text: mode,
+                  items: 'op' in child ? child.children.map((c) => ruleName(c, false)) : [],
+                }
+              : { text: leaves(child)[0] }),
+          };
+        })
+      : [{ label: 'Tín hiệu', text: rule ? ruleName(rule) : strategyInfo(g).entry }];
+  const policy = g.entry_policy ?? 'market';
+  const entry: PlayStep[] = [
+    { label: 'Điểm vào', text: ENTRY_TEXT[policy] ?? policy },
+    ...(policy === 'market'
+      ? []
+      : [
+          {
+            label: 'Huỷ lệnh chờ',
+            text: 'Hết 4 nến chưa khớp, hoặc TP chạm trước khi khớp, hoặc mức vào không nằm giữa SL và giá tín hiệu.',
+          },
+        ]),
+  ];
+  const risk = riskParts(g);
+  return [
+    ...signal,
+    ...entry,
+    { label: 'Cắt lỗ SL', text: risk.sl },
+    { label: 'Chốt lời TP', text: risk.tp },
+    { label: 'Quản lý lệnh', text: risk.manage },
+  ];
 }
 
 export function exitLabel(policy?: string) {
@@ -405,4 +479,14 @@ export function tradeStrategy(
         ? 'Tra cứu danh mục cây · không phải snapshot lúc vào'
         : 'Bản lưu chiến thuật lúc vào lệnh',
   };
+}
+
+export function stepKind(label: string) {
+  return label.startsWith('Cắt lỗ')
+    ? 'sl'
+    : label.startsWith('Chốt lời')
+      ? 'tp'
+      : label.startsWith('Điểm vào') || label.startsWith('Huỷ')
+        ? 'entry'
+        : '';
 }

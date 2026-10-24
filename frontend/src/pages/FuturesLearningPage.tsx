@@ -2,14 +2,15 @@ import { futuresHeaders } from '../lib/futures-symbol';
 import { fetchFuturesHistory } from '../lib/api';
 import type { FuturesHistoryJob } from '../types/paper';
 import { formatTime } from '../lib/time-format';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, Brain, Dna, Power } from 'lucide-react';
 import { FuturesDraftsPanel, type Draft, type DraftWorker } from './FuturesDraftsPanel';
 import {
   exitLabel,
   HTF_LABELS,
   profileOf,
-  riskText,
+  howToPlay,
+  stepKind,
   strategyInfo,
   strategyName,
   strategyShortTitle,
@@ -198,6 +199,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
   const [tab, setTab] = useState<'forward' | 'drafts'>('forward');
+  const [detail, setDetail] = useState<string | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  // Native modal: focus trap, Escape and backdrop come from the browser.
+  useEffect(() => {
+    if (detail && !dialog.current?.open) dialog.current?.showModal();
+  }, [detail]);
 
   useEffect(() => {
     let active = true;
@@ -526,6 +533,61 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
                 </p>
               )}
+              <dialog
+                ref={dialog}
+                className="evo-drawer"
+                aria-label="Cách đánh"
+                onClose={() => setDetail(null)}
+                onClick={(event) => event.target === event.currentTarget && dialog.current?.close()}
+              >
+                {(() => {
+                  const row = detail ? all.find((r) => r.strategy === detail) : undefined;
+                  if (!row) return null;
+                  const info = strategyInfo(row.genome);
+                  return (
+                    <div className="evo-drawer-body">
+                      <header>
+                        <div>
+                          <strong>{strategyShortTitle(row.genome, row.strategy)}</strong>
+                          <code>
+                            G{row.generation} · {row.strategy.split(':')[1]}
+                          </code>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => dialog.current?.close()}
+                          aria-label="Đóng"
+                        >
+                          ✕
+                        </button>
+                      </header>
+                      <ol className="evo-steps">
+                        {howToPlay(row.genome, info.stop).map((step, index) => (
+                          <li key={index}>
+                            <b data-k={stepKind(step.label)}>{step.label}</b>
+                            <span>
+                              {step.text}
+                              {step.items && step.items.length > 0 && (
+                                <ul>
+                                  {step.items.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="evo-drawer-src">
+                        <b>Nguồn:</b>{' '}
+                        {row.generation === 0
+                          ? 'Chiến thuật gốc, tham số mặc định.'
+                          : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
+                      </p>
+                    </div>
+                  );
+                })()}
+              </dialog>
               <div className="evo-grid">
                 {sorted.map((row) => {
                   const learned = row.learned_mean_r;
@@ -722,26 +784,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </div>
                         )}
                       </dl>
-                      <details className="evo-more">
-                        <summary>Cách đánh</summary>
-                        {/* Capped and scrolled so one open card doesn't stretch its whole grid row. */}
-                        <div className="evo-more-body" tabIndex={0}>
-                          {!row.rule_text && (
-                            <p>
-                              <b>Vào lệnh:</b> {info.entry}
-                            </p>
-                          )}
-                          <p>
-                            <b>Thoát:</b> {riskText(row.genome, info.stop)}
-                          </p>
-                          <p>
-                            <b>Nguồn:</b>{' '}
-                            {row.generation === 0
-                              ? 'Chiến thuật gốc, tham số mặc định.'
-                              : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
-                          </p>
-                        </div>
-                      </details>
+                      <button
+                        type="button"
+                        className="evo-more-btn"
+                        onClick={() => setDetail(row.strategy)}
+                      >
+                        Cách đánh chi tiết →
+                      </button>
                       {row.promoted ? (
                         <button
                           disabled={busy}
