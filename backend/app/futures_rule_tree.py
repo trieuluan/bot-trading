@@ -8,6 +8,31 @@ from .macro_calendar import is_macro_safe
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion, rsi14
 from .strategy import aggregate, mtf_retest
 from .strategy import retest as legacy_retest
+from .futures_symbols import SYMBOLS
+
+H4_FEATURES = ("ema_distance", "ema_slope", "swing_structure", "market_alignment", "support_proximity")
+H4_CONFIRMATIONS = (
+    *H4_FEATURES, "adx_regime", "breakout", "bos", "relative_strength",
+    "ema_cross", "ema_cross_n", "ema_bounce", "ema_touch", "swing_zone",
+    "fib_retrace", "rsi_divergence", "fvg", "session_vwap", "pdh_pdl",
+    "pdh_pdl_sweep", "sweep", "wick_sweep", "bb_pierce", "rsi",
+    "wedge", "volume_dryup", "engulfing", "pin_bar", "star", "soldiers", *PATTERNS,
+)
+
+def h4_consensus(confirmations=("swing_structure", "market_alignment")):
+    return {"op": "all", "children": [
+        {"feature": feature, "frame": "H4"} for feature in ("trend", *confirmations)
+    ]}
+
+def consensus_slot(rule):
+    children = rule.get("children", [])
+    return (set(rule) == {"op", "children"} and rule.get("op") == "all"
+            and isinstance(children, list) and len(children) == 3
+            and children[0] == {"feature": "trend", "frame": "H4"}
+            and all(isinstance(node, dict) and set(node) == {"feature", "frame"}
+                    and node["frame"] == "H4" and node["feature"] in H4_CONFIRMATIONS
+                    for node in children[1:])
+            and children[1]["feature"] != children[2]["feature"])
 
 FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retest",
             "engulfing", "pin_bar", "star", "soldiers", "ema_cross", "swing_zone",
@@ -16,13 +41,13 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             "compression_current", "ema_cross_n", "trend_optional", "candle_direction",
             "bb_pierce", "volume_dryup", "session_active", "basis_aligned", "macro_safe", "relative_strength", "funding_aligned", "oi_surge",
             "fib_retrace", "rsi_divergence", "fvg", "bos", "session_vwap",
-            "pdh_pdl", "adx_regime", "pdh_pdl_sweep")
+            "pdh_pdl", "adx_regime", "pdh_pdl_sweep", *H4_FEATURES)
 DAILY_FEATURES = ("pdh_pdl", "adx_regime", "pdh_pdl_sweep")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
 FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
 MAX_DEPTH, MAX_NODES = 3, 11
 HTF_CONTEXT_FEATURES = tuple(feature for feature in LEAF_FEATURES if feature not in (
-    "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional"))
+    "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional", *H4_FEATURES))
 HTF_ENTRY_FEATURES = (
     "volume", "breakout", "candle_direction", "engulfing", "pin_bar", "star", "soldiers", *PATTERNS)
 
@@ -34,6 +59,7 @@ def validate_rule(rule, depth=1, retest_allowed=False):
         if (set(rule) != {"feature", "frame"} or rule["feature"] not in FEATURES
                 or not isinstance(rule["frame"], str) or rule["frame"] not in FRAMES
                 or rule["feature"] in DAILY_FEATURES and rule["frame"] == "M15"
+                or rule["feature"] in H4_FEATURES and rule["frame"] != "H4"
                 or rule["feature"] == "retest" and not retest_allowed):
             raise ValueError("Invalid rule predicate")
         return 1
@@ -49,7 +75,8 @@ def validate_rule(rule, depth=1, retest_allowed=False):
     count = 1 + sum(validate_rule(child, depth + 1,
                                 retest_allowed or operation == "then" and index == 1)
                     for index, child in enumerate(children))
-    if count > MAX_NODES:
+    limit = MAX_NODES + (3 if depth == 1 and consensus_slot(children[0]) else 0)
+    if count > limit:
         raise ValueError("Rule tree too complex")
     return count
 
@@ -105,11 +132,12 @@ def mutate_rule(rule, rng, mate=None, features=LEAF_FEATURES, frames=tuple(FRAME
             return result
     return leaf(rng, features, frames)
 
-def validate_htf_rule(rule):
+def validate_htf_rule(rule, *, consensus=False):
     validate_rule(rule)
     if (rule.get("op") != "all" or len(rule["children"]) != 3
-            or rule["children"][0] != {"feature": "trend", "frame": "H4"}):
-        raise ValueError("HTF rule requires H4 trend, H1 setup and M15 trigger")
+            or not (consensus_slot(rule["children"][0]) or not consensus
+                    and rule["children"][0] == {"feature": "trend", "frame": "H4"})):
+        raise ValueError("HTF rule requires H4 EMA50 consensus, H1 setup and M15 trigger")
     for index, features, frame in ((1, (*HTF_CONTEXT_FEATURES, "retest"), "H1"),
                                     (2, HTF_ENTRY_FEATURES, "M15")):
         if any(node.get("feature") not in features or node.get("frame") != frame
@@ -117,20 +145,35 @@ def validate_htf_rule(rule):
             raise ValueError("Invalid HTF setup/entry timeframe or feature")
 
 def mutate_htf_rule(rule, rng):
+    validate_htf_rule(rule)
+    base = copy.deepcopy(rule)
+    if not consensus_slot(base["children"][0]):
+        base["children"][0] = h4_consensus()
     for _ in range(24):
-        result = copy.deepcopy(rule)
-        index = rng.choice((1, 2))
+        result = copy.deepcopy(base)
+        index = rng.choice((0, 1, 2))
+        if index == 0:
+            slot = result["children"][0]["children"]
+            position = rng.choice((1, 2))
+            choices = [feature for feature in H4_CONFIRMATIONS
+                       if feature not in (slot[1]["feature"], slot[2]["feature"])]
+            slot[position] = {"feature": rng.choice(choices), "frame": "H4"}
+            try:
+                validate_htf_rule(result, consensus=True)
+            except ValueError:
+                continue
+            return result
         features, frames = ((HTF_CONTEXT_FEATURES, ("H1",)) if index == 1
                             else (HTF_ENTRY_FEATURES, ("M15",)))
         result["children"][index] = mutate_rule(result["children"][index], rng,
                                                features=features, frames=frames)
         try:
-            validate_htf_rule(result)
+            validate_htf_rule(result, consensus=True)
         except ValueError:
             continue
         if result != rule:
             return result
-    return copy.deepcopy(rule)
+    return base
 
 def is_htf_rule(rule):
     try:
@@ -381,6 +424,38 @@ def classic_matches(feature, rows, direction, lookback, seconds):
             and direction * (last.close - points[-1]["value"]) > 0
             and direction * (last.close - last.open) > 0)
 
+def h4_matches(feature, rows, candles, direction, context):
+    if len(rows) < 50:
+        return False
+    if feature == "ema_distance":
+        return direction * (rows[-1].close - ema50(rows)) >= 0.5 * atr14(rows)
+    if feature == "ema_slope":
+        return direction * (ema50(rows) - ema50(rows[:-3])) > 0
+    if feature == "market_alignment":
+        peers = context.get("benchmarks") or {}
+        missing = set(SYMBOLS) - set(peers)
+        if len(missing) != 1 or set(peers) - set(SYMBOLS):
+            return False
+        market = {next(iter(missing)): rows}
+        for symbol, bars in peers.items():
+            closed = aggregate([bar for bar in bars if bar.time <= candles[-1].time], FRAMES["H4"])
+            if [bar.time for bar in closed[-50:]] != [bar.time for bar in rows[-50:]]:
+                return False
+            market[symbol] = closed
+        agrees = {symbol: direction * (bars[-1].close - ema50(bars)) > 0
+                  for symbol, bars in market.items()}
+        return agrees["BTC_USDT"] and sum(agrees.values()) >= len(SYMBOLS) / 2
+    highs, lows = confirmed_pivots(rows, 1, 20), confirmed_pivots(rows, -1, 20)
+    if feature == "swing_structure":
+        return (len(highs) >= 2 and len(lows) >= 2
+                and direction * (rows[highs[-1]].high - rows[highs[-2]].high) > 0
+                and direction * (rows[lows[-1]].low - rows[lows[-2]].low) > 0)
+    pivots = lows if direction == 1 else highs
+    if not pivots:
+        return False
+    level = rows[pivots[-1]].low if direction == 1 else rows[pivots[-1]].high
+    return 0 <= direction * (rows[-1].close - level) <= atr14(rows)
+
 def matches(rule, candles, direction, lookback, anchor=None, context=None):
     if not candles:
         return False
@@ -405,6 +480,8 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         return False
     rows = frame_rows(candles, rule["frame"])
     feature = rule["feature"]
+    if feature in H4_FEATURES:
+        return h4_matches(feature, rows, candles, direction, context or {})
     if feature in CLASSIC_FEATURES:
         return classic_matches(feature, rows, direction, lookback, FRAMES[rule["frame"]])
     if feature == "retest":
@@ -497,6 +574,8 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         reference = rows[-lookback - 1:]
         returns = []
         benchmarks = context.get("benchmarks") or {"BTC_USDT": context.get("btc_candles") or []}
+        if "BTC_USDT" in benchmarks:
+            benchmarks = {"BTC_USDT": benchmarks["BTC_USDT"]}
         for benchmark in benchmarks.values():
             closed = [bar for bar in benchmark if bar.time <= candles[-1].time]
             peer = frame_rows(closed, rule["frame"])[-lookback - 1:]
@@ -587,6 +666,11 @@ def describe_rule(rule):
                   "pdh_pdl": "Đóng phá đỉnh/đáy ngày UTC trước (cần đủ nến cả ngày), nến cùng chiều",
                   "pdh_pdl_sweep": "Mở trong biên quét, râu quét PDL/PDH rồi đóng trong vùng ngày UTC trước, thân cùng chiều (chỉ H1/H4)",
                   "adx_regime": "ADX14 > 25 và +DI/-DI cùng chiều (chỉ H1/H4)",
+                  "ema_distance": "Cách EMA50 cùng chiều tối thiểu 0.5 ATR14",
+                  "ema_slope": "Độ dốc EMA50 qua 3 nến đã đóng cùng chiều",
+                  "swing_structure": "Hai đỉnh và hai đáy cùng hướng, pivot xác nhận 2 nến trong 20 nến",
+                  "market_alignment": "BTC cùng EMA50 và ít nhất 5/10 coin cùng hướng H4; cần đủ dữ liệu 10 coin",
+                  "support_proximity": "Đóng phía hợp lệ và cách pivot hỗ trợ/kháng cự đã xác nhận tối đa 1 ATR14",
                   "session_vwap": "Đóng cắt lại VWAP theo volume nến từ 00:00 UTC (xấp xỉ, không phải từng giao dịch)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
                   **LABELS}
@@ -759,6 +843,9 @@ HTF_RULES.extend([
         {"feature": "pin_bar", "frame": "M15"},
     ]},
 ])
+
+for rule in HTF_RULES:
+    rule["children"][0] = h4_consensus()
 
 RULES = HTF_RULES
 FAMILY_RULES = {}

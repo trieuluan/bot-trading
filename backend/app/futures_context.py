@@ -9,12 +9,12 @@ from .futures_symbols import SYMBOLS, current_symbol, symbol_scope
 
 def load_signal_context(session, since, until):
     symbol = current_symbol()
-    peers = SYMBOLS[1:] if symbol == "BTC_USDT" else ("BTC_USDT",)
+    peers = tuple(peer for peer in SYMBOLS if peer != symbol)
     benchmarks = {}
     for peer in peers:
         with symbol_scope(peer):
             benchmarks[peer] = load_candles(session, since=since, until=until)
-    context = {"benchmarks": benchmarks} if all(benchmarks.values()) else {}
+    context = {"benchmarks": benchmarks}
     history = [(row.time, row.hold_vol) for row in session.scalars(
         select(FuturesOpenInterest).where(
             FuturesOpenInterest.symbol == symbol,

@@ -4,7 +4,7 @@ from statistics import fmean, pstdev
 
 from .futures_candles import fit
 from .futures_rules import atr14, rsi14
-from .futures_rule_tree import (CANDLE_PATTERNS, FRAMES, breakout_level, confirmed_pivots,
+from .futures_rule_tree import (CANDLE_PATTERNS, FRAMES, H4_FEATURES, breakout_level, confirmed_pivots,
                                 describe_rule, ema, fib_zone, frame_rows, fresh_fvg, is_htf_rule,
                                 matches, nodes, session_vwap_points, structure_level)
 
@@ -175,6 +175,10 @@ def rule_overlays(rule, candles, lookback, context=None):
                        + ("cạn ≤ 0.7×." if feat == "volume_dryup" else "bùng nổ ≥ 2×.")) if average > 0 else "Thiếu lịch sử volume hợp lệ."
         elif feat in CANDLE_PATTERNS or feat == "candle_direction":
             message = "Dấu điều kiện trên nến đã đóng, không phải tín hiệu vào lệnh của toàn cây."
+        elif feat in H4_FEATURES:
+            message = ("Đồng thuận BTC và 10 coin trên H4 đã đóng; thiếu dữ liệu thì không đạt."
+                       if feat == "market_alignment" else
+                       "Xác nhận từ giá H4 đã đóng; EMA50 và hai xác nhận phải cùng đạt.")
         else:
             message = "Bộ lọc dữ liệu ngoài giá/phiên; trạng thái tính theo dữ liệu bot, không vẽ đường giá giả."
         if matched and bars and feat in (*CANDLE_PATTERNS, "candle_direction", "breakout", "sweep", "wick_sweep",

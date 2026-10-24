@@ -1,4 +1,4 @@
-from backend.app.futures_rule_tree import FEATURES, matches, validate_rule
+from backend.app.futures_rule_tree import FEATURES, H4_FEATURES, matches, validate_rule
 from backend.app.strategy import Candle
 
 def rows(*ohlc):
@@ -6,7 +6,7 @@ def rows(*ohlc):
 
 def test_new_features_validate_and_match():
     for f in FEATURES[7:]:
-        frame = "H1" if f in ("pdh_pdl", "adx_regime", "pdh_pdl_sweep") else "M15"
+        frame = "H4" if f in H4_FEATURES else "H1" if f in ("pdh_pdl", "adx_regime", "pdh_pdl_sweep") else "M15"
         assert validate_rule({"feature": f, "frame": frame}) == 1
     base = [(100, 101, 99, 100)] * 40
     eng = rows(*base, (101, 101.2, 99.8, 100), (99.8, 102, 99.7, 101.5))

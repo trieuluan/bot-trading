@@ -33,7 +33,7 @@ FEE, SLIP = 8 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS)
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
-VERSION = "futures_htf_v1"
+VERSION = "futures_htf_h4_consensus_v2"
 
 
 def add_candidate(state, genome, born, parents=()):
@@ -72,12 +72,17 @@ def read_state(session, now, *, copy_payload=True):
     row = session.get(FuturesLearningState, state_id())
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
-    if row.payload and row.payload.get("version") != VERSION:
+    if row.payload and row.payload.get("version") not in (VERSION, "futures_htf_v1"):
         state = new_state(now)
         row.payload = state
         return state
     state = (copy.deepcopy(row.payload) if copy_payload else row.payload) if row.payload else new_state(now)
     migrate_to_trees(state)
+    if state.get("version") == "futures_htf_v1":
+        replacement = new_state(now)
+        state.setdefault("rule_archive", {}).update(state["candidates"])
+        state.update(version=VERSION, candidates=replacement["candidates"],
+                     evolved_at=now, last_decision=None, h4_consensus_started_at=now)
     return state
 
 

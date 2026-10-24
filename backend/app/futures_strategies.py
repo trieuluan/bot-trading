@@ -13,7 +13,8 @@ from .futures_chart import rule_overlays
 from .futures_exits import (EXIT_POLICIES, EVOLVABLE_EXITS, EXIT_BOUNDS, EXIT_DEFAULTS,
                            exit_parameters, adaptive_levels, structural_target)
 from .futures_rule_tree import (FAMILY_RULES, RULES, breakout_level, describe_rule, matches, mutate_rule,
-                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule)
+                                validate_rule, is_htf_rule, mutate_htf_rule, validate_htf_rule,
+                                consensus_slot, h4_consensus)
 
 RULE_FAMILY = "rule_tree"
 FAMILIES = ()
@@ -153,6 +154,8 @@ def crossover(parent, mate):
             child["target_r"], child["stop_buffer"] = 2.0, 0.0
         if is_htf_rule(parent["rule"]) and is_htf_rule(mate["rule"]):
             joined = copy.deepcopy(parent["rule"])
+            slot = mate["rule"]["children"][0]
+            joined["children"][0] = copy.deepcopy(slot) if consensus_slot(slot) else h4_consensus()
             joined["children"][1] = copy.deepcopy(mate["rule"]["children"][1])
         else:
             joined = {"op": "all", "children": [parent["rule"], mate["rule"]]}

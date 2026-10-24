@@ -203,12 +203,13 @@ def test_sweep_oi_seed_requires_known_fresh_oi_and_can_breed():
     candles += [c(index * 900, 95, 102, 85, 100) for index in range(9 * 96, 9 * 96 + 4)]
     now = candles[-1].time + 900
     context = {"htf": True, "oi_history": [(now - 3600, 1000), (now, 1020)]}
-    assert matches(seed["rule"], candles, 1, 20, context=context)
-    assert not matches(seed["rule"], candles, -1, 20, context=context)
+    setup_and_trigger = {"op": "all", "children": seed["rule"]["children"][1:]}
+    assert matches(setup_and_trigger, candles, 1, 20, context=context)
+    assert not matches(setup_and_trigger, candles, -1, 20, context=context)
     for oi in ([], [(now - 3600, 1000), (now, 1000)],
                [(now - 3600, 1000), (now + 1, 1020)],
                [(now - 3600, 1000), (now - 901, 1020)]):
-        assert not matches(seed["rule"], candles, 1, 20,
+        assert not matches(setup_and_trigger, candles, 1, 20,
                            context={"htf": True, "oi_history": oi})
     child = crossover(RULE_SEEDS[0], seed)
     assert child["rule"]["children"][1] == seed["rule"]["children"][1]

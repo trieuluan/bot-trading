@@ -74,7 +74,7 @@ def run_pair(symbol, signal_seeds=False):
     start, end = max(start, first + futures_history.WARMUP * 900), last + 900
     candles, fair = clip(candles), clip(fair)
     btc = clip(data["BTC_USDT"][2]) if symbol != "BTC_USDT" else None
-    benchmarks = {sym: clip(data[sym][2]) for sym in SYMBOLS if sym != "BTC_USDT"} if symbol == "BTC_USDT" else None
+    benchmarks = {sym: clip(data[sym][2]) for sym in SYMBOLS if sym != symbol}
     t0 = time.time()
     report = replay(candidates, candles, fair, funding, start, end, btc_candles=btc, benchmarks=benchmarks)
     duration = time.time() - t0
