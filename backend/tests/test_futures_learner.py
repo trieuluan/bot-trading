@@ -339,7 +339,9 @@ def test_evolution_uses_history_replaces_weakest_and_keeps_parents():
             break
         learner.add_candidate(state, mutate(SEEDS[index % len(SEEDS)], random.Random(index)), 0, (seeds[1],))
     weak = next(n for n, c in state["candidates"].items() if c["generation"] and n not in seeds)
-    state["samples"] += [sample(strategy=weak, status="resolved", net_r=-1, label_available_at=2000)] * 10
+    state["samples"] += [sample(strategy=weak, status="resolved", entry=100, risk=5, net_r=-1,
+                               candle_time=index * 900, entry_time=index * 900 + 900,
+                               label_available_at=index * 900 + 1800) for index in range(50)]
     parents = {n: c["genome"] for n, c in state["candidates"].items() if not c["generation"]}
     made = learner.evolve(state, 99999, force=True)
     assert made == 1 and len(state["candidates"]) <= learner.CAP and weak not in state["candidates"]

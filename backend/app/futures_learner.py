@@ -19,6 +19,7 @@ from .db import (
     AutoPaperState,
     FuturesLearningState,
     MarketState,
+    PaperPendingOrder,
     PaperTrade,
     Session,
 )
@@ -32,6 +33,7 @@ from .futures_exits import (
     partial_size,
     protective_stop,
 )
+from .futures_retirement import failure, forward_evidence, metrics, retirement_candidates
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
 from .futures_strategies import (
     ENTRY_SEEDS,
@@ -49,6 +51,7 @@ from .futures_strategies import (
     strategy_chart,
     strategy_setup,
     to_rule_tree,
+    validate_genome,
 )
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
@@ -259,14 +262,17 @@ def sync_seeds(state, now):
     """Add seed families introduced after this state was created, each with one mutated child."""
     migrate_to_trees(state)
     born, rng = (now // 900 + 1) * 900, random.Random(now)
-    existing = {genome_name(candidate["genome"]) for candidate in state["candidates"].values()}
+    existing = {genome_fingerprint(candidate["genome"]) for candidate in
+                [*state["candidates"].values(), *state.get("rule_archive", {}).values()]}
     for seed in [*EXIT_SEEDS, *ENTRY_SEEDS]:
-        if genome_name(seed) not in existing and len(state["candidates"]) < CAP:
+        if genome_fingerprint(seed) not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
+            existing.add(genome_fingerprint(seed))
     for seed in [*SEEDS, *RULE_SEEDS]:
         name = genome_name(seed)
-        if name not in existing and len(state["candidates"]) < CAP:
+        if genome_fingerprint(seed) not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
+            existing.add(genome_fingerprint(seed))
             if len(state["candidates"]) < CAP:
                 add_candidate(state, mutate(seed, rng), born, (name,))
 
@@ -289,15 +295,17 @@ def performance(state, now):
 def complexity(genome):
     return validate_rule(genome["rule"]) if is_rule_tree(genome) else 0
 
-def evolve(state, now, max_children=1, force=False):
-    """Frozen children from the best parents; at the cap the weakest unpromoted child is retired."""
+def evolve(state, now, max_children=1, force=False, protected=()):
+    """Replace only proven weak/redundant forward strategies, after finding a valid child."""
     if not force and now - state["evolved_at"] < EVOLVE_SECONDS:
         return 0
     state["evolved_at"] = now
     results = performance(state, now)
+    evidence = forward_evidence(state, now)
     archive = state.get("rule_archive", {})
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
+                     and not failure(metrics(evidence.get(name, [])))
                      and exit_policy_enabled(state["candidates"][name]["genome"])),
                     key=lambda name: results[name][1] - 0.01 * complexity(
                         state["candidates"][name]["genome"]), reverse=True)
@@ -306,31 +314,38 @@ def evolve(state, now, max_children=1, force=False):
         return 0
     rng, made = random.Random(now // EVOLVE_SECONDS), 0
     for _ in range(max_children):
+        retired, retirement = None, None
         if sum(exit_policy_enabled(candidate["genome"])
                for candidate in state["candidates"].values()) >= CAP:
-            weak = [name for name, candidate in state["candidates"].items()
-                    if candidate["generation"] > 0 and not candidate["promoted"]
-                    and exit_policy_enabled(candidate["genome"])
-                    and not any(sample["strategy"] == name and sample["status"] == "open"
-                                for sample in state["samples"])
-                    and name in results and name not in parents
-                    and results[name][1] < results[parents[0]][1]]
+            weak = [(name, metadata) for name, metadata in retirement_candidates(state, evidence, protected)
+                    if any(parent != name for parent in ranked)]
             if not weak:
                 break
-            retired = min(weak, key=lambda name: results[name][1])
-            archive = state.setdefault("rule_archive", {})
-            archive[retired] = state["candidates"].pop(retired)
+            retired, retirement = weak[0]
+        parents = [name for name in ranked if name != retired][:4]
         for _ in range(40):
             lineage = tuple(rng.sample(parents, 2)) if len(parents) > 1 else (parents[0],)
             base = state["candidates"][lineage[0]]["genome"]
-            if len(lineage) == 2:
-                base = crossover(base, state["candidates"][lineage[1]]["genome"])
-            genome = mutate(base, rng)
+            try:
+                if len(lineage) == 2:
+                    base = crossover(base, state["candidates"][lineage[1]]["genome"])
+                genome = mutate(base, rng)
+                validate_genome(genome)
+            except ValueError:
+                continue
+            if not exit_policy_enabled(genome):
+                continue
             known = {genome_fingerprint(candidate["genome"])
                      for candidate in [*state["candidates"].values(), *archive.values()]}
-            if genome_fingerprint(genome) not in known and genome_name(genome) not in results:
+            if (genome_fingerprint(genome) not in known and genome_name(genome) not in results
+                    and genome_name(genome) not in state["candidates"] and genome_name(genome) not in archive):
                 add_candidate(state, genome, (now // 900 + 1) * 900,
                               lineage)
+                if retired:
+                    archive = state.setdefault("rule_archive", {})
+                    archive[retired] = {**state["candidates"].pop(retired),
+                                        "retirement": {"at": now, **retirement}}
+                    ranked = [name for name in ranked if name != retired]
                 made += 1
                 break
     return made
@@ -503,7 +518,7 @@ def learning_tick(now=None, adapter=None):
                 validate_window(current["candidates"][name], validation[2], validation_fair,
                                 validation_funding, contract, validation_context)
             sync_seeds(current, now)
-            evolve(current, now)
+            evolve(current, now, protected=active_strategies(session, current))
             current["error"] = None
             save_state(session, current)
     except (MarketDataError, ValueError) as exc:
@@ -538,6 +553,37 @@ def select_for_auto(session, candle_time, now):
     if not candidate or not candidate["promoted"] or not qualification(candidate)["eligible"]:
         raise HTTPException(409, "Chiến thuật shadow chưa đủ điều kiện Auto Paper")
     return True, Setup(**decision["setup"]), decision["selected"]
+
+
+def active_strategies(session, state):
+    known = state["candidates"]
+    protected, owners = set(), {}
+    positions = session.execute(
+        select(PaperTrade.id, AutoPaperDecision.parameters)
+        .select_from(PaperTrade)
+        .outerjoin(AutoPaperDecision, (AutoPaperDecision.trade_id == PaperTrade.id)
+                   & (AutoPaperDecision.symbol == PaperTrade.symbol))
+        .where(PaperTrade.symbol == current_symbol(), PaperTrade.exit_time.is_(None))
+    ).all()
+    for trade_id, parameters in positions:
+        audit = parameters.get("audit") if isinstance(parameters, dict) else None
+        name = audit.get("strategy") if isinstance(audit, dict) else None
+        if (not isinstance(name, str) or name not in known
+                or trade_id in owners and owners[trade_id] != name):
+            return None
+        owners[trade_id] = name
+        protected.add(name)
+    pending = session.scalars(select(PaperPendingOrder).where(
+        PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")).all()
+    for order in pending:
+        snapshot = order.snapshot if isinstance(order.snapshot, dict) else {}
+        name = snapshot.get("strategy")
+        audit = snapshot.get("audit")
+        if (not isinstance(name, str) or name not in known or not isinstance(audit, dict)
+                or audit.get("strategy") != name):
+            return None
+        protected.add(name)
+    return protected
 
 
 def paper_by_strategy(session):
@@ -660,7 +706,11 @@ def summary(state, now, paper=None):
                             and not shadow_only(candidate["genome"])
                             for candidate in state["candidates"].values()),
             "last_decision": state["last_decision"], "strategies": rows,
-            "retired_paper": retired}
+            "retired_paper": retired,
+            "retired_strategies": [{"strategy": name, "genome": candidate["genome"],
+                                    "generation": candidate["generation"],
+                                    "retirement": candidate.get("retirement")}
+                                   for name, candidate in sorted(archive.items())]}
 
 
 @router.get("")

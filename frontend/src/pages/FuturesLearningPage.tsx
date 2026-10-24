@@ -96,6 +96,20 @@ type Learning = {
   } | null;
   strategies: Row[];
   retired_paper?: Retired[];
+  retired_strategies?: {
+    strategy: string;
+    genome: Row['genome'];
+    generation: number;
+    retirement: {
+      at: number;
+      reason: string;
+      samples: number;
+      mean_r: number;
+      max_drawdown_r: number;
+      retained_strategy: string | null;
+      overlap: { shared: number; ratio: number } | null;
+    } | null;
+  }[];
 };
 
 async function call(path: string, body?: object): Promise<Learning> {
@@ -715,6 +729,66 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               );
             })}
           </div>
+          {(data.retired_strategies?.length ?? 0) > 0 && (
+            <details className="evo-retired">
+              <summary>Cây đã loại ({data.retired_strategies!.length})</summary>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cây · thế hệ</th>
+                      <th>Lý do · thời điểm</th>
+                      <th>Mẫu forward đóng</th>
+                      <th>R trung bình</th>
+                      <th>Drawdown R</th>
+                      <th>Cây giữ lại</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.retired_strategies!.map((row) => (
+                      <tr key={row.strategy}>
+                        <td title={row.strategy}>
+                          {strategyShortTitle(row.genome, row.strategy)} · G{row.generation}
+                        </td>
+                        <td>
+                          {row.retirement ? (
+                            <>
+                              {(
+                                {
+                                  negative_forward_r: 'R forward âm',
+                                  forward_drawdown: 'Drawdown ≥10R',
+                                  redundant_forward: 'Trùng mẫu forward với cây tốt hơn',
+                                } as Record<string, string>
+                              )[row.retirement.reason] ?? row.retirement.reason}
+                              <small>{formatTime(row.retirement.at)}</small>
+                            </>
+                          ) : (
+                            'Lịch sử cũ · chưa ghi lý do'
+                          )}
+                        </td>
+                        <td>{row.retirement?.samples ?? '—'}</td>
+                        <td>{row.retirement ? `${row.retirement.mean_r.toFixed(2)}R` : '—'}</td>
+                        <td>
+                          {row.retirement ? `${row.retirement.max_drawdown_r.toFixed(2)}R` : '—'}
+                        </td>
+                        <td>
+                          <span title={row.retirement?.retained_strategy ?? undefined}>
+                            {row.retirement?.retained_strategy ?? '—'}
+                          </span>
+                          {row.retirement?.overlap && (
+                            <small>
+                              {row.retirement.overlap.shared} mẫu khớp ·{' '}
+                              {(100 * row.retirement.overlap.ratio).toFixed(1)}% trùng
+                            </small>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
           {(data.retired_paper?.length ?? 0) > 0 && (
             <details className="evo-retired">
               <summary>
@@ -765,6 +839,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               </div>
             </details>
           )}
+          <p className="evo-note">
+            Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay thế:
+            ≥50 mẫu forward đã khớp và đóng, R ròng âm, drawdown ≥10R hoặc trùng mẫu forward với cây
+            tốt hơn đã đủ bằng chứng. 10R không phải 10% tài khoản. Replay không dùng để quyết định
+            loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ được bảo vệ.
+          </p>
           <p className="evo-note">
             Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không
             vào). Kết quả Auto Paper chỉ để đối chiếu, chưa được tính vào điểm học. Họ gốc đổi tham
