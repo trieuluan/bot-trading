@@ -124,7 +124,7 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
     with Session() as session:
         trade = session.get(PaperTrade, 1)
         assert trade.exit_time is None
-        assert {k: v for k, v in trade.monitoring.items() if k != "maintenance_margin_rate"} == dict(next_bar=cursor, status="history_pending")
+        assert {k: v for k, v in trade.monitoring.items() if k != "maintenance_margin_rate"} == dict(next_bar=cursor, status="history_pending", gap_logged=True)
         assert "đối soát" in session.get(AutoPaperState, 1).status
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
@@ -135,13 +135,13 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
 def test_just_closed_bar_gets_feed_grace_before_history_pending(recovery):
     clock, seed = recovery
     cursor = seed()
-    for offset, status, noisy in ((5, "watching", False), (45, "history_pending", True)):
+    for offset, logged in ((5, 0), (45, 1), (50, 1)):
         clock[0] = cursor + 900 + offset
         sync_paper_stops(clock[0])
         with Session() as session:
             trade = session.get(PaperTrade, 1)
-            assert trade.monitoring["status"] == status and trade.monitoring["next_bar"] == cursor
-            assert any("thiếu nến" in event.message for event in session.scalars(select(Event))) is noisy
+            assert trade.monitoring["status"] == "history_pending" and trade.monitoring["next_bar"] == cursor
+            assert sum("thiếu nến" in event.message for event in session.scalars(select(Event))) == logged
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
     sync_paper_stops(clock[0])

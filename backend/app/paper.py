@@ -402,15 +402,18 @@ def reconcile_stops(session, wallet, trade, now):
             if next_stop != old_stop or trade.target != old_target:
                 notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target, candle.close)
         cursor += 900
-    # The feed saves a just-closed bar a few seconds late (VPS: <=7s); only a longer gap is a real hole.
-    just_closed = cursor + 900 == end and now - end < FEED_GRACE_SECONDS
-    status = "history_pending" if cursor < end and not just_closed else "watching"
-    if status == "history_pending" and monitoring.get("status") != status:
+    status = "history_pending" if cursor < end else "watching"
+    # Keep Auto blocked while a bar is unreconciled, but a just-closed bar is saved a few seconds late
+    # (VPS: <=7s), so log only gaps older than the grace period, once per gap.
+    gap = status == "history_pending" and not (cursor + 900 == end and now - end < FEED_GRACE_SECONDS)
+    if gap and not monitoring.get("gap_logged"):
         session.add(Event(kind="paper", message=(
             f"PAPER #{trade.id}: thiếu nến từ {cursor}; chờ đối soát SL/TP, "
             "SL/TP theo quote hiện tại vẫn chạy"
         )))
-    trade.monitoring = {**monitoring, "next_bar": cursor, "status": status}
+    monitoring = {key: value for key, value in monitoring.items() if key != "gap_logged"}
+    trade.monitoring = {**monitoring, "next_bar": cursor, "status": status,
+                        **({"gap_logged": True} if gap else {})}
 
 
 def sync_paper_stops(now=None):
