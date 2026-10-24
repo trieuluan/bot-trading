@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
-from backend.app.macro_calendar import is_macro_safe
-from backend.app.futures_rule_tree import matches, validate_rule
-from backend.app.market import Candle
-from backend.app.futures_context import load_signal_context
-from backend.app.futures_symbols import SYMBOLS, symbol_scope
+
 from backend.app.db import FuturesOpenInterest, Session
 from backend.app.feed import save_candles
+from backend.app.futures_context import load_signal_context
+from backend.app.futures_rule_tree import matches, validate_rule
+from backend.app.futures_symbols import SYMBOLS, symbol_scope
+from backend.app.macro_calendar import is_macro_safe
+from backend.app.market import Candle
 
-def candle(t, o, h, l, c, v=1.0):
-    return Candle(t, o, h, l, c, v)
+
+def candle(t, o, h, low, c, v=1.0):
+    return Candle(t, o, h, low, c, v)
 
 def test_macro_calendar_blocks_release_window():
     # 2026-10-14 08:30 EDT = 12:30 UTC = 1791981000

@@ -20,8 +20,8 @@ from .db import (
     Session,
     utcnow,
 )
-from .futures_symbols import current_symbol, market_symbol, state_id
 from .feed import save_candles
+from .futures_symbols import market_symbol, state_id
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter
 
 router = APIRouter(prefix="/api")

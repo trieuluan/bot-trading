@@ -58,6 +58,7 @@ def test_early_exit_requires_new_adverse_close_after_entry():
 def _client_and_inputs():
     import time
     from unittest.mock import MagicMock
+
     from backend.app.exness_demo_client import ExnessDemoClient
     cond = {**COND, "instrument": "XAUUSD", "trade_mode": "enabled", "exec_mode": "market", "quote_currency": "USD"}
     now = time.time()

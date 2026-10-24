@@ -1,12 +1,12 @@
-import math
 import io
 import json
+import math
 import time
 
 import pytest
 
-from scripts.exness_cost_audit import spread_sample, summarize
 from scripts import exness_cost_audit
+from scripts.exness_cost_audit import spread_sample, summarize
 
 
 def test_spread_uses_midpoint_not_slippage():

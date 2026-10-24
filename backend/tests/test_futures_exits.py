@@ -6,11 +6,17 @@ from backend.app.backtest import BacktestConfig, simulate
 from backend.app.futures_exits import protective_stop, structural_target
 from backend.app.futures_learner import FEE, SLIP, advance
 from backend.app.futures_rules import atr14
-from backend.app.futures_strategies import SEEDS, crossover, exit_policy_enabled, genome_name, mutate
+from backend.app.futures_strategies import (
+    SEEDS,
+    crossover,
+    exit_policy_enabled,
+    genome_name,
+    mutate,
+)
 from backend.app.market import Candle
 from backend.app.strategy import Setup
-from backend.tests.test_paper_recovery import recovery as recovery_fixture
 from backend.tests.test_futures_adaptive_exits import hourly_history
+from backend.tests.test_paper_recovery import recovery as recovery_fixture
 
 
 @pytest.fixture

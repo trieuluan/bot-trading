@@ -1,5 +1,6 @@
 from scripts.futures_entry_filters import allowed
 
+
 def test_cost_and_trend_filters():
     # FEE=8 bps, SLIP=2 bps -> 2 * (0.0008 + 0.0002) = 0.0020 (20 bps round-trip)
     # entry 100, stop 99 -> risk 1.0 -> cost = 100 * 0.0020 / 1.0 = 0.20R <= 0.25R -> True

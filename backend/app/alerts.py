@@ -4,9 +4,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from datetime import timezone
-import re
 from html import unescape
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen

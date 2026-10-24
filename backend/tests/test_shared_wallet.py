@@ -1,6 +1,8 @@
 import time
 from uuid import uuid4
+
 from fastapi.testclient import TestClient
+
 from backend.app.db import Session
 from backend.app.futures_symbols import symbol_scope
 from backend.app.main import app
@@ -79,8 +81,8 @@ def test_leverage_cannot_exceed_contract_maximum():
 
 
 def test_portfolio_stop_risk_cap_is_disabled_for_paper():
-    from backend.app.db import AutoPaperState, Session
-    from backend.app.paper import portfolio_risk_limits, stop_risk_per_unit
+    from backend.app.db import AutoPaperState
+    from backend.app.paper import stop_risk_per_unit
 
     with Session.begin() as session:
         session.get(AutoPaperState, 1).max_portfolio_risk_percent = None

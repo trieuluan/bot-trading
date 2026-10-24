@@ -350,3 +350,84 @@ def test_pilot_control_never_falls_back_to_market_when_hybrid_rejected(monkeypat
     assert len(main.execution_candidates("123", 1800, "XAUUSD")) == 1
     monkeypatch.setenv("FOREX_ENTRY_PILOT_ENABLED", "true")
     assert main.execution_candidates("123", 1800, "XAUUSD") == []
+
+
+@pytest.fixture
+def pilot_tick_state(monkeypatch, tmp_path):
+    from backend.app import forex_entry_pilot as pilot
+    from backend.app.db import ForexInstrumentState
+    from backend.app.exness_feed import WORKSPACE
+    from backend.app.forex_costs import account_tag
+
+    path = tmp_path / "pilot.json"
+    path.write_text("{}")
+    ledger = {"population": [], "samples": [{"status": "open", "strategy": "existing",
+                                            "setup_id": "existing"}], "since": 2700,
+              "last_capture": None}
+    frames = {"15m": [SimpleNamespace(time=1800, price_type=side)
+                       for side in ("bid", "ask")], "1h": [], "4h": []}
+    with Session.begin() as session:
+        session.add(ForexInstrumentState(
+            workspace_id=WORKSPACE, symbol="USDJPY", checked_at=2700, retry_at=0,
+            snapshot={"instrument": "USDJPY", "account_tag": account_tag("123"),
+                      "observed_at": 2700, "account_currency": "USD",
+                      "quote_currency": "JPY", "commission_per_unit": 0}))
+    monkeypatch.setattr(pilot, "ledger_path", lambda *_: path)
+    monkeypatch.setattr(pilot, "read_ledger", lambda *_: ledger)
+    monkeypatch.setattr("backend.app.exness_observation.load_frames", lambda *_args, **_kwargs: frames)
+    monkeypatch.setattr("backend.app.exness_observation.audit_frames", lambda *_: {"status": "checked"})
+    monkeypatch.setattr("backend.app.forex_htf_v2.reference_market", lambda *_: {})
+    monkeypatch.setattr("backend.app.forex_entry_replay.advance_forward",
+                        lambda samples, *_: samples[0].update(status="resolved"))
+    return pilot, ledger, frames, path
+
+
+def conversion_candle(stamp, side):
+    from backend.app.db import WorkspaceCandle
+    from backend.app.exness_feed import WORKSPACE
+
+    price = 150 if side == "bid" else 150.02
+    return WorkspaceCandle(workspace_id=WORKSPACE, symbol="USDJPY", timeframe="15m",
+                           price_type=side, time=stamp, open=price, high=price,
+                           low=price, close=price)
+
+
+@pytest.mark.parametrize("conversion_state", ["missing", "stale", "missing_ask"])
+def test_pilot_blocks_bad_conversion_and_retries_same_bar(pilot_tick_state, conversion_state):
+    pilot, ledger, _, path = pilot_tick_state
+    with Session.begin() as session:
+        if conversion_state == "stale":
+            session.add_all([conversion_candle(-3600, side) for side in ("bid", "ask")])
+        elif conversion_state == "missing_ask":
+            session.add(conversion_candle(1800, "bid"))
+
+    pilot.tick("123", "USDJPY", now=2710)
+    saved = json.loads(path.read_text())
+    assert saved["last_capture"]["status"] == "blocked_costs"
+    assert "conversion" in saved["last_capture"]["reason"].lower()
+    assert len(saved["samples"]) == 1
+    assert saved["samples"][0]["status"] == "resolved"
+
+    with Session.begin() as session:
+        for side in ("bid", "ask"):
+            session.merge(conversion_candle(1800, side))
+    pilot.tick("123", "USDJPY", now=2720)
+    assert ledger["last_capture"]["status"] == "captured"
+    assert json.loads(path.read_text())["last_capture"]["time"] == 1800
+
+
+@pytest.mark.parametrize("capture_status", [None, "captured"])
+def test_pilot_does_not_require_new_costs_without_new_signal(pilot_tick_state, monkeypatch, capture_status):
+    pilot, ledger, frames, _ = pilot_tick_state
+    if capture_status is None:
+        frames["15m"] = []
+    else:
+        ledger["last_capture"] = {"time": 1800, "status": capture_status}
+
+    def unexpected_cost_check(*_args, **_kwargs):
+        pytest.fail("No fresh signal should need conversion costs")
+
+    monkeypatch.setattr("backend.app.forex_conversion.cost_context", unexpected_cost_check)
+    pilot.tick("123", "USDJPY", now=2710)
+    assert ledger["last_capture"] == (None if capture_status is None else
+                                      {"time": 1800, "status": "captured"})

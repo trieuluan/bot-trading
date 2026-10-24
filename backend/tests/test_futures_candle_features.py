@@ -1,6 +1,7 @@
 from backend.app.futures_rule_tree import FEATURES, H4_FEATURES, matches, validate_rule
 from backend.app.strategy import Candle
 
+
 def rows(*ohlc):
     return [Candle(i * 900, *o, 1.0) for i, o in enumerate(ohlc)]
 

@@ -4,11 +4,11 @@ import copy
 from statistics import fmean
 
 from .futures_candles import LABELS, PATTERNS, wedge
-from .macro_calendar import is_macro_safe
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion, rsi14
+from .futures_symbols import SYMBOLS
+from .macro_calendar import is_macro_safe
 from .strategy import aggregate, mtf_retest
 from .strategy import retest as legacy_retest
-from .futures_symbols import SYMBOLS
 
 H4_FEATURES = ("ema_distance", "ema_slope", "swing_structure", "market_alignment", "support_proximity")
 H4_CONFIRMATIONS = (

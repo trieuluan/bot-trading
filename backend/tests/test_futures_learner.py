@@ -11,7 +11,14 @@ from backend.app import futures_learner as learner
 from backend.app.auto_paper import auto_tick
 from backend.app.db import AutoPaperDecision, FuturesLearningState, MarketState, PaperTrade, Session
 from backend.app.feed import save_candles
-from backend.app.futures_strategies import RULE_SEEDS, SEEDS, genome_name, mutate, strategy_levels, strategy_setup, validate_genome
+from backend.app.futures_strategies import (
+    RULE_SEEDS,
+    SEEDS,
+    genome_name,
+    mutate,
+    strategy_levels,
+    validate_genome,
+)
 from backend.app.main import app
 from backend.app.market import Candle
 from backend.app.strategy import Setup
@@ -379,7 +386,12 @@ def test_evolution_rejects_unchanged_child(monkeypatch):
     assert state["candidates"] == before
 
 def test_htf_mutations_allow_h1_trend_without_duplicates():
-    from backend.app.futures_rule_tree import HTF_CONTEXT_FEATURES, mutate_htf_rule, nodes, validate_htf_rule
+    from backend.app.futures_rule_tree import (
+        HTF_CONTEXT_FEATURES,
+        mutate_htf_rule,
+        nodes,
+        validate_htf_rule,
+    )
     from backend.app.futures_strategies import genome_fingerprint
     assert "trend" in HTF_CONTEXT_FEATURES
     found_h1_trend = False

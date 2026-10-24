@@ -1,18 +1,21 @@
 from decimal import Decimal
 from types import SimpleNamespace
+
 import pytest
-from backend.app.forex_exits import (
-    DEFAULTS, BOUNDS, parameters, closed_rows, barrier_levels,
-    barrier_runner, plan_legs, action,
-)
+
 from backend.app.exness import ExnessError
+from backend.app.forex_exits import (
+    action,
+    parameters,
+    plan_legs,
+)
 
 COND = {"instrument": "XAUUSD", "trade_mode": "enabled", "exec_mode": "market",
         "quote_currency": "USD", "volume_min": "0.01", "volume_max": "10.0",
         "volume_step": "0.01", "contract_size": "100", "point_digits": 3}
 
-def bar(t, o, h, l, c):
-    return SimpleNamespace(time=t, open=o, high=h, low=l, close=c, price_type="bid")
+def bar(t, o, h, low, c):
+    return SimpleNamespace(time=t, open=o, high=h, low=low, close=c, price_type="bid")
 
 def test_parameters_validates_defaults_and_bounds():
     assert parameters("evidence_h1")["fraction"] == 0.3
@@ -38,7 +41,7 @@ def test_plan_legs_runner_only_and_splits():
     sig_ladder = {"exit_policy": "ladder_h1", "side": "long"}
     legs_lad = plan_legs(sig_ladder, body, COND, Decimal("100"))
     assert len(legs_lad) == 3
-    assert [l["volume"] for l in legs_lad] == ["0.03", "0.03", "0.04"]
+    assert [leg["volume"] for leg in legs_lad] == ["0.03", "0.03", "0.04"]
 
 def test_plan_legs_falls_back_when_insufficient_volume():
     body = {"side": "buy", "volume": "0.01", "stop_loss_price": "99.000", "take_profit_price": "105.000"}

@@ -1,12 +1,19 @@
 import pytest
 
-from backend.app.market import Candle
-from backend.app.futures_rule_tree import adx_state, prior_day_range
-from backend.app.futures_rule_tree import matches, validate_rule, validate_htf_rule, nodes
+from backend.app.futures_rule_tree import (
+    adx_state,
+    matches,
+    nodes,
+    prior_day_range,
+    validate_htf_rule,
+    validate_rule,
+)
 from backend.app.futures_strategies import RULE_SEEDS, validate_genome
+from backend.app.market import Candle
 
-def c(t, o, h, l, cl, v=100.0):
-    return Candle(t, o, h, l, cl, v)
+
+def c(t, o, h, low, cl, v=100.0):
+    return Candle(t, o, h, low, cl, v)
 
 def test_fib_retrace_predicate():
     rule = {"feature": "fib_retrace", "frame": "H1"}
@@ -61,7 +68,6 @@ def test_rsi_divergence_predicate():
     # Confirm pivot with 2 bars up and last bar bullish
     bars.append(c(30 * 3600, 67, 72, 66, 71))
     bars.append(c(31 * 3600, 71, 75, 70, 74))
-    m15 = [c(b.time + s * 900, b.open, b.high, b.low, b.close, b.volume / 4) for b in bars for s in range(4)]
     closes = [100 - i for i in range(19)] + [84, 86, 88, 90, 92] + [91, 89, 87, 85, 83, 81] + [83, 85]
     synthetic = [c(i * 3600, close - 0.5, close + 1, close - 1, close, 100)
                  for i, close in enumerate(closes)]

@@ -7,9 +7,9 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import BotState, Event, MarketCandle, MarketState, Session, Signal, utcnow
-from .market import Candle
 from .futures_symbols import market_symbol, state_id
-from .mexc import INTERVAL_SECONDS, SOURCE, SYMBOL, TIMEFRAME, MarketDataError, MexcFuturesAdapter
+from .market import Candle
+from .mexc import INTERVAL_SECONDS, SOURCE, TIMEFRAME, MarketDataError, MexcFuturesAdapter
 from .strategy import breakout
 
 

@@ -2,10 +2,19 @@ import random
 
 import pytest
 
-from backend.app.futures_exits import (EVOLVABLE_EXITS, discretionary_exit, exit_parameters,
-                                       has_target, partial_size, protective_stop, adaptive_levels, h1_view)
-from backend.app.futures_strategies import RULE_SEEDS, mutate, validate_genome, strategy_setup
+from backend.app.futures_exits import (
+    EVOLVABLE_EXITS,
+    adaptive_levels,
+    discretionary_exit,
+    exit_parameters,
+    h1_view,
+    has_target,
+    partial_size,
+    protective_stop,
+)
+from backend.app.futures_strategies import RULE_SEEDS, mutate, strategy_setup, validate_genome
 from backend.app.market import Candle
+
 
 def bars(count=40, close=100.0, start=0):
     return [Candle(start + i * 900, 100, max(close, 101), min(close, 99), close, 1) for i in range(count)]

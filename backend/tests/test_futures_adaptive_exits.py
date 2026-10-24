@@ -6,15 +6,27 @@ import pytest
 from backend.app.backtest import BacktestConfig, simulate
 from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session
 from backend.app.feed import save_candles
-from backend.app.futures_exits import adaptive_levels, adaptive_target, partial_size, protective_stop
-from backend.app.futures_exits import h1_view, resistance_ahead
-from backend.app.futures_rules import atr14
+from backend.app.futures_exits import (
+    adaptive_levels,
+    adaptive_target,
+    h1_view,
+    partial_size,
+    protective_stop,
+    resistance_ahead,
+)
 from backend.app.futures_learner import FEE, SLIP, advance
-from backend.app.futures_strategies import RULE_SEEDS, crossover, mutate, strategy_setup, validate_genome
+from backend.app.futures_strategies import (
+    RULE_SEEDS,
+    crossover,
+    mutate,
+    strategy_setup,
+    validate_genome,
+)
 from backend.app.market import Candle
 from backend.app.paper import close_position, reconcile_stops
 from backend.app.strategy import Setup
-from backend.tests.test_paper_recovery import recovery
+from backend.tests.test_paper_recovery import recovery as recovery
+
 
 def hourly_history(rows):
     return [Candle(index * 3600 + quarter * 900, row.open, row.high, row.low,

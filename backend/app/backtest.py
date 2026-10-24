@@ -3,11 +3,18 @@
 import math
 from dataclasses import asdict, dataclass
 
+from .futures_exits import (
+    EXIT_POLICIES,
+    adaptive_target,
+    discretionary_exit,
+    exit_parameters,
+    has_target,
+    partial_size,
+    protective_stop,
+)
 from .market import Candle
 from .mexc import validate_candles
 from .strategy import breakout, retest
-from .futures_exits import (EXIT_POLICIES, adaptive_target, partial_size, protective_stop,
-                           discretionary_exit, has_target, exit_parameters)
 
 
 @dataclass(frozen=True)

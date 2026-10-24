@@ -1,5 +1,4 @@
 """Update default PaperWallet fee_bps to 8 (MEXC API taker rate)."""
-import sqlalchemy as sa
 from alembic import op
 
 revision = "0021"

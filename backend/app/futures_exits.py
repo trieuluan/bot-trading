@@ -1,7 +1,7 @@
 """Paper exit policies shared by teaching labels, validation and execution."""
 
 import math
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 
 from .futures_rules import atr14
 from .strategy import aggregate

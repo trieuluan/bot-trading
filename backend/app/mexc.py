@@ -6,8 +6,8 @@ from collections.abc import Callable
 
 import httpx
 
-from .market import Candle
 from .futures_symbols import SYMBOLS, current_symbol
+from .market import Candle
 
 INTERVAL_SECONDS = 900
 SOURCE = "mexc_futures"

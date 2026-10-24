@@ -1,5 +1,6 @@
 from scripts.futures_eth_wedge_eval import meets_cost_filter
 
+
 def test_meets_cost_filter():
     # FEE=8 bps, SLIP=2 bps -> round-trip is 2 * (0.0008 + 0.0002) = 0.0020 (20 bps)
     # entry 100, stop 98 -> risk = 2.0 -> cost = 100 * 0.0020 / 2.0 = 0.10R <= 0.15R -> True

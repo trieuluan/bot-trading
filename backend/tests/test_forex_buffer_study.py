@@ -4,9 +4,15 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.exness import ExnessError
-from backend.app.forex_buffer_study import (DEFAULT_VARIANT, VARIANTS, advance_variant,
-                                            build_buffer_model, exit_target, new_variants,
-                                            select_buffer)
+from backend.app.forex_buffer_study import (
+    DEFAULT_VARIANT,
+    VARIANTS,
+    advance_variant,
+    build_buffer_model,
+    exit_target,
+    new_variants,
+    select_buffer,
+)
 
 COND = {"instrument": "XAUUSD", "trade_mode": "enabled", "exec_mode": "market",
         "quote_currency": "USD", "volume_min": "0.01", "volume_max": "10.0",
@@ -127,6 +133,7 @@ def test_short_stop_first_and_costs(monkeypatch):
 def test_live_body_uses_selected_variant_and_checks_new_risk(monkeypatch):
     import time
     from unittest.mock import MagicMock
+
     from backend.app.exness_demo_client import ExnessDemoClient
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
     monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")

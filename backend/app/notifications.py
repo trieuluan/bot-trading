@@ -1,9 +1,9 @@
 """Transactional paper alerts. Delivery is at least once after DB commit."""
 
-import html
-import os
 import asyncio
+import html
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 

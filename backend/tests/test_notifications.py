@@ -1,11 +1,20 @@
-from sqlalchemy import select
-from types import SimpleNamespace
 import json
+from types import SimpleNamespace
+
 import pytest
+from sqlalchemy import select
 
 from backend.app.db import PaperNotification, PaperTrade, PaperWallet, Session
-from backend.app.notifications import deliver, notify_open, notify_partial, notify_close, notify_stop_update, queue
+from backend.app.notifications import (
+    deliver,
+    notify_close,
+    notify_open,
+    notify_partial,
+    notify_stop_update,
+    queue,
+)
 from backend.app.paper import close_position
+
 
 def test_notifications_queue_and_deliver(monkeypatch):
     sent = []
@@ -246,7 +255,8 @@ def test_reconcile_target_update_queues(monkeypatch, side, target, new_target):
             entry=100, quantity=1, contracts=1, leverage=1, stop=90 if side == "long" else 110,
             target=target, entry_fee=0, exit_fee=0, funding_cost=0,
             monitoring={"exit_policy": "adaptive", "risk": 10, "next_bar": t})
-        session.add(trade); session.flush()
+        session.add(trade)
+        session.flush()
         reconcile_stops(session, session.get(PaperWallet, 1), trade, t + 900)
         assert trade.target == new_target
         reconcile_stops(session, session.get(PaperWallet, 1), trade, t + 900)

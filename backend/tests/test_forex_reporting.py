@@ -9,6 +9,7 @@ from backend.app.exness_feed import WORKSPACE
 from backend.app.forex_reporting import trade_report
 from backend.app.main import app
 
+
 def test_empty_report_does_not_invent_performance():
     report = trade_report([], 10000)
     assert report["expectancy_r"] is None

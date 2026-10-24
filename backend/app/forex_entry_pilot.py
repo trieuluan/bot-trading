@@ -91,12 +91,6 @@ def tick(account, symbol, now=None):
             condition = dict(specs.snapshot) if specs and specs.snapshot else None
         if audit_frames(frames, symbol)["status"] == "blocked":
             return
-        if not condition or condition.get("account_tag") != account_tag(account) or not 0 <= now - condition["observed_at"] < SPEC_TTL:
-            return
-        condition = cost_context(condition, stamp + 900, account=account, symbol=symbol)
-        commission = condition.get("commission_per_unit")
-        if commission is None:
-            return
         bids = {frame: [row for row in rows if row.price_type == "bid"] for frame, rows in frames.items()}
         asks = {row.time: row for row in frames["15m"] if row.price_type == "ask"}
         candle = next((row for row in bids["15m"] if row.time == stamp), None)
@@ -104,11 +98,25 @@ def tick(account, symbol, now=None):
             return
         from .forex_entry_replay import advance_forward
         advance_forward(ledger["samples"], bids, asks, now)
-        if (ledger.get("last_capture") or {}).get("time") == stamp:
+        previous = ledger.get("last_capture") or {}
+        if previous.get("time") == stamp and previous.get("status") in ("captured", "missed_window"):
             atomic_json(path, ledger)
             return
         if stamp + 900 < ledger["since"] or not 0 <= now - stamp - 900 <= 120:
             ledger["last_capture"] = {"time": stamp, "status": "missed_window"}
+            atomic_json(path, ledger)
+            return
+        try:
+            if (not condition or condition.get("account_tag") != account_tag(account)
+                    or not 0 <= now - condition.get("observed_at", 0) < SPEC_TTL):
+                raise ValueError("Unverified instrument specs")
+            condition = cost_context(condition, stamp + 900, account=account, symbol=symbol)
+            commission = condition.get("commission_per_unit")
+            if commission is None:
+                raise ValueError("Unverified commission")
+        except ValueError as exc:
+            ledger["last_capture"] = {"time": stamp, "at": now, "status": "blocked_costs",
+                                      "reason": str(exc)}
             atomic_json(path, ledger)
             return
         history = [row for row in bids["15m"] if row.time < stamp][-96:]
