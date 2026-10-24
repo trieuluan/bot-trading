@@ -135,18 +135,32 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
 def test_just_closed_bar_gets_feed_grace_before_history_pending(recovery):
     clock, seed = recovery
     cursor = seed()
-    for offset, logged in ((5, 0), (45, 1), (50, 1)):
+    for offset, logged in ((5, 0), (29, 0), (30, 1), (45, 1), (50, 1)):
         clock[0] = cursor + 900 + offset
         sync_paper_stops(clock[0])
+        sync_paper_quote(Market())
+        auto_tick()
         with Session() as session:
             trade = session.get(PaperTrade, 1)
             assert trade.monitoring["status"] == "history_pending" and trade.monitoring["next_bar"] == cursor
+            assert "đối soát" in session.get(AutoPaperState, 1).status
             assert sum("thiếu nến" in event.message for event in session.scalars(select(Event))) == logged
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
     sync_paper_stops(clock[0])
     with Session() as session:
         assert session.get(PaperTrade, 1).exit_reason == "recovered_stop_loss"
+
+def test_just_closed_bar_reconciles_without_waiting_for_log_grace(recovery):
+    clock, seed = recovery
+    cursor = seed()
+    sync_paper_stops(clock[0])
+    with Session.begin() as session:
+        save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
+    sync_paper_stops(clock[0])
+    with Session() as session:
+        assert session.get(PaperTrade, 1).exit_reason == "recovered_stop_loss"
+        assert not any("thiếu nến" in event.message for event in session.scalars(select(Event)))
 
 def test_live_stop_still_runs_when_history_missing(recovery):
     _, seed = recovery

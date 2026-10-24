@@ -403,8 +403,6 @@ def reconcile_stops(session, wallet, trade, now):
                 notify_stop_update(session, trade, old_stop, next_stop, candle.time, old_target, candle.close)
         cursor += 900
     status = "history_pending" if cursor < end else "watching"
-    # Keep Auto blocked while a bar is unreconciled, but a just-closed bar is saved a few seconds late
-    # (VPS: <=7s), so log only gaps older than the grace period, once per gap.
     gap = status == "history_pending" and not (cursor + 900 == end and now - end < FEED_GRACE_SECONDS)
     if gap and not monitoring.get("gap_logged"):
         session.add(Event(kind="paper", message=(
