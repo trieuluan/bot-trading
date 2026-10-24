@@ -80,19 +80,8 @@ def admit_waiting(now):
 
 
 def update_progress(symbol, draft_id, token, **changes):
-    """Cosmetic progress: guarded jsonb_set, no wallet lock, so SL/TP loops never wait on it."""
+    """Short updates reload state under the same wallet lock as all learner writers."""
     now = int(time.time())
-    if Session().bind.dialect.name == "postgresql":
-        with Session.begin() as session:
-            session.execute(text(
-                "UPDATE futures_learning_state SET payload = jsonb_set(payload::jsonb, "
-                "ARRAY['drafts', :id], (payload::jsonb #> ARRAY['drafts', :id]) || CAST(:changes AS jsonb))::json "
-                "WHERE id = :row AND payload::jsonb #>> ARRAY['drafts', :id, 'run_token'] = :token "
-                "AND payload::jsonb #>> ARRAY['drafts', :id, 'status'] = 'running'"),
-                {"id": draft_id, "row": SYMBOLS.index(symbol) + 1, "token": token,
-                 "changes": json.dumps({**changes, "updated_at": now})})
-            touch(session, now, symbol, draft_id, phase=changes.get("phase"))
-        return
     with symbol_scope(symbol), Session.begin() as session:
         lock_wallet(session)
         state = read_state(session, now)
@@ -207,6 +196,7 @@ def main():
                 worker_conn.check()
             if now - last_touch >= 30:
                 with Session.begin() as session:
+                    lock_wallet(session)
                     touch(session, now, consumer_enabled=enabled, phase="idle" if enabled else "disabled")
                 last_touch = now
             if enabled:
