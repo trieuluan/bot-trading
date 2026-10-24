@@ -5002,7 +5002,7 @@ main:has(.futures-desk) .page-heading {
   display: flex;
   flex-direction: column;
   font-variant-numeric: tabular-nums;
-  min-width: 128px;
+  min-width: 0;
 }
 .mexc-stat .muted {
   font-size: 10px;
@@ -5780,8 +5780,14 @@ main:has(.futures-desk) {
   padding: 5px 12px;
   min-height: 40px;
 }
+/* Ticker wraps internally so the wallet strip keeps the first row; whole dock wraps only below ~760px. */
 .mexc-ticker-left {
   gap: 6px 14px;
+  flex: 1 1 480px;
+  min-width: 0;
+}
+.mexc-wallet-strip {
+  flex: 0 0 auto;
 }
 .mexc-pair-title {
   font-size: 14px;

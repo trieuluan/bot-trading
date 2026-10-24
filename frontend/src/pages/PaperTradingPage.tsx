@@ -401,14 +401,12 @@ export function PaperTradingPage({
             </span>
             <span
               className={`pill ${stream.live ? 'green' : 'amber'}`}
-              title="Độ trễ ước tính từ timestamp MEXC đến trình duyệt; phụ thuộc đồng hồ máy. Tuổi dữ liệu tính từ timestamp MEXC."
+              title="Độ trễ ước tính từ timestamp MEXC đến trình duyệt; phụ thuộc đồng hồ máy (đồng hồ lệch thì ẩn ms). Tuổi dữ liệu tính từ timestamp MEXC."
             >
               {stream.live ? 'LIVE 15m' : 'REST'}
               {stream.latencyMs !== null &&
                 stream.live &&
-                (stream.latencyMs < 0
-                  ? ' · lệch đồng hồ'
-                  : ` · ~${Math.round(stream.latencyMs)} ms`)}
+                (stream.latencyMs < 0 ? '' : ` · ~${Math.round(stream.latencyMs)} ms`)}
               {stream.ageMs !== null && ` · tuổi ${(stream.ageMs / 1000).toFixed(1)}s`}
             </span>
             <span
@@ -427,8 +425,7 @@ export function PaperTradingPage({
                 : wallet.quote.source === 'websocket'
                   ? 'WS'
                   : 'REST'}
-              {wallet?.quote &&
-                ` · giá ${Math.max(0, clock / 1000 - wallet.quote.time).toFixed(1)}s`}
+              {wallet?.quote && ` · ${Math.max(0, clock / 1000 - wallet.quote.time).toFixed(1)}s`}
             </span>
             <button
               type="button"
