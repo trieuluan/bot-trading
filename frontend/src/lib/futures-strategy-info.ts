@@ -312,9 +312,20 @@ export function strategyInfo(g: Genome): Info {
   );
 }
 
+export function hasHardTarget(g: Genome): boolean {
+  return g.exit_policy !== 'runner' && g.exit_policy !== 'scale_out_ladder';
+}
+
+export function targetCapText(g: Genome): string {
+  if (!hasHardTarget(g)) return 'Không dùng TP cứng';
+  return g.target_r < 2 ? `Gene ${g.target_r}R · trần hiệu lực 2R` : `Trần TP: ${g.target_r}R`;
+}
+
 export function riskParts(g: Genome) {
   const sl = `Swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. Thiếu H1 thì chờ, không dùng SL M15 thay thế.`;
-  const tp = `Trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R.`;
+  const tp = !hasHardTarget(g)
+    ? `${targetCapText(g)}. Target tham chiếu ${g.target_r}R (hiệu lực tối thiểu 2R, kéo gần theo cản H1/H4) chỉ dùng xét setup/huỷ lệnh chờ, không kích hoạt đóng lệnh. Bỏ tín hiệu nếu cản gần hơn 1.5R; cách chốt lời theo tham số quản lý lệnh.`
+    : `${targetCapText(g)}. Trước cản H1/H4 gần nhất (đệm 0.1 ATR14 H1), tối đa ${Math.max(2, g.target_r)}R; bỏ tín hiệu nếu cản gần hơn 1.5R.`;
   return { sl, tp, manage: manageText(g, `${sl} ${tp} `).slice(`${sl} ${tp} `.length) };
 }
 
@@ -339,8 +350,8 @@ function manageText(g: Genome, initial: string) {
     volatility_stop: `Từ 1R: SL theo giá đóng nến và ${params.atr_multiple ?? 2} ATR14 H1.`,
     time_stop: `Thoát nếu sau ${params.max_bars ?? 32} giờ chưa đạt ${params.min_progress_r ?? 0.5}R.`,
     signal_invalidation: 'Thoát khi bộ lọc xu hướng H1/H4 đảo ngược đủ số lần xác nhận.',
-    runner: `TP chỉ tham chiếu, không kích hoạt đóng lệnh. Chốt ${(params.partial_fraction ?? 0.5) * 100}% tại ${params.partial_r ?? 1}R; phần còn lại trail theo H1.`,
-    scale_out_ladder: `Không đóng theo TP cố định. Chốt từng phần tại ${params.step_r ?? 1}R và ${(params.step_r ?? 1) * 2}R; trail H1 rồi đóng hết tại ${(params.step_r ?? 1) * 3}R.`,
+    runner: `M15 đóng đạt ${params.partial_r ?? 1}R: chốt ${(params.partial_fraction ?? 0.5) * 100}% khối lượng ban đầu; phần còn lại trail Chandelier theo đỉnh/đáy 20 nến H1 và ${params.atr_multiple ?? 3} ATR14 H1.`,
+    scale_out_ladder: `M15 đóng đạt ${params.step_r ?? 1}R và ${(params.step_r ?? 1) * 2}R: mỗi bậc chốt ${(params.partial_fraction ?? 0.3) * 100}% khối lượng ban đầu; trail H1 rồi đóng hết tại ${(params.step_r ?? 1) * 3}R.`,
     funding_exit: `Thoát khi funding đã trả vượt ${params.funding_r ?? 0.1}R.`,
   };
   if (extra[policy]) return initial + extra[policy] + ' SL không nới.';
@@ -408,7 +419,7 @@ export function howToPlay(g: Genome, _stop: string): PlayStep[] {
       : [
           {
             label: 'Huỷ lệnh chờ',
-            text: 'Hết 4 nến chưa khớp, hoặc TP chạm trước khi khớp, hoặc mức vào không nằm giữa SL và giá tín hiệu.',
+            text: `Hết 4 nến chưa khớp, hoặc ${hasHardTarget(g) ? 'TP' : 'target tham chiếu'} chạm trước khi khớp, hoặc mức vào không nằm giữa SL và giá tín hiệu.`,
           },
         ]),
   ];

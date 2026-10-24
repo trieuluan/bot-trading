@@ -9,6 +9,7 @@ import {
   exitLabel,
   HTF_LABELS,
   profileOf,
+  targetCapText,
   howToPlay,
   stepKind,
   strategyInfo,
@@ -765,7 +766,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         <div>
                           <dt>Tham số</dt>
                           <dd>
-                            N{row.genome.lookback} · TP {row.genome.target_r}R · SL +
+                            N{row.genome.lookback} · {targetCapText(row.genome)} · SL +
                             {row.genome.stop_buffer}
                           </dd>
                         </div>

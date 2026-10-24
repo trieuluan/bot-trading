@@ -16,6 +16,7 @@ from .futures_exits import (
     EXIT_POLICIES,
     adaptive_levels,
     exit_parameters,
+    has_target,
     structural_target,
 )
 from .futures_rule_tree import (
@@ -38,7 +39,7 @@ RULE_FAMILY = "rule_tree"
 FAMILIES = ()
 MUTABLE_EXITS = EVOLVABLE_EXITS
 BOUNDS = {
-    "lookback": (10, 40, 5), "target_r": (1.5, 3.0, 0.5),
+    "lookback": (10, 40, 5), "target_r": (1.5, 5.0, 0.5),
     "stop_buffer": (0.0, 0.5, 0.1), "max_er": (0.2, 0.4, 0.05),
     "funding_threshold": (0.0001, 0.0005, 0.0001),
 }
@@ -61,9 +62,11 @@ def validate_genome(genome):
         validate_rule(genome["rule"])
         if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
             raise ValueError("Invalid rule-tree exit profile")
-        if (genome.get("exit_profile", "default") == "default" and genome.get("exit_policy") != "adaptive"
-                and (genome["target_r"] != 2.0 or genome["stop_buffer"] != 0.0)):
-            raise ValueError("Default rule-tree exits must keep the control R/buffer")
+        if genome.get("exit_profile", "default") == "default":
+            if genome.get("exit_policy") != "adaptive" and genome["stop_buffer"] != 0.0:
+                raise ValueError("Default rule-tree non-adaptive exits must keep stop_buffer=0.0")
+            if not has_target(genome) and genome["target_r"] != 2.0:
+                raise ValueError("Default rule-tree non-target exits must keep target_r=2.0")
     if genome.get("exit_policy", "fixed") not in EXIT_POLICIES:
         raise ValueError("Invalid futures genome: exit_policy")
     exit_parameters(genome.get("exit_policy", "fixed"), genome.get("exit_params"))
@@ -168,13 +171,19 @@ def genome_fingerprint(genome):
 def exit_policy_enabled(genome):
     return genome.get("exit_policy", "fixed") in MUTABLE_EXITS
 
+def _newborn(child):
+    child["target_r"] = max(2.0, round(child["target_r"] * 2) / 2) if has_target(child) else 2.0
+    if (is_rule_tree(child) and child.get("exit_profile", "default") == "default"
+            and child.get("exit_policy") != "adaptive"):
+        child["stop_buffer"] = 0.0
+    validate_genome(child)
+    return child
+
 def crossover(parent, mate):
     validate_genome(parent)
     validate_genome(mate)
     child = {**parent, "target_r": mate["target_r"], "stop_buffer": mate["stop_buffer"]}
     if is_rule_tree(parent) and is_rule_tree(mate):
-        if parent.get("exit_profile", "default") == "default" and mate.get("exit_policy") != "adaptive":
-            child["target_r"], child["stop_buffer"] = 2.0, 0.0
         if is_htf_rule(parent["rule"]) and is_htf_rule(mate["rule"]):
             joined = copy.deepcopy(parent["rule"])
             slot = mate["rule"]["children"][0]
@@ -195,7 +204,7 @@ def crossover(parent, mate):
         child["exit_policy"] = mate["exit_policy"]
         if mate.get("exit_params"):
             child["exit_params"] = copy.deepcopy(mate["exit_params"])
-    return child
+    return _newborn(child)
 
 def mutate(genome, rng):
     validate_genome(genome)
@@ -203,9 +212,13 @@ def mutate(genome, rng):
     if not exit_policy_enabled(child):
         child.pop("exit_policy", None)
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else genome["family"]
-    relevant = ["target_r", "stop_buffer"]
+    relevant = ["target_r", "stop_buffer"] if has_target(genome) else ["stop_buffer"]
     if is_rule_tree(genome):
-        relevant = ["rule", "rule", "lookback"] + (["target_r", "stop_buffer"] if profile != "default" or genome.get("exit_policy") == "adaptive" else [])
+        relevant = ["rule", "rule", "lookback"]
+        if profile != "default" or genome.get("exit_policy") == "adaptive":
+            relevant.append("stop_buffer")
+        if has_target(genome):
+            relevant.append("target_r")
     relevant.append("exit_policy")
     if is_rule_tree(genome):
         relevant.append("entry_policy")
@@ -225,19 +238,13 @@ def mutate(genome, rng):
         child.pop("exit_params", None)
         if mode != "fixed":
             child["exit_policy"] = mode
-        if profile == "default" and mode != "adaptive":
-            child.update(target_r=2.0, stop_buffer=0.0)
-        validate_genome(child)
-        return child
-    if key == "entry_policy":
+    elif key == "entry_policy":
         mode = rng.choice([policy for policy in ENTRY_POLICIES
                            if policy != genome.get("entry_policy", "market")])
         child.pop("entry_policy", None)
         if mode != "market":
             child["entry_policy"] = mode
-        validate_genome(child)
-        return child
-    if key == "exit_params":
+    elif key == "exit_params":
         params = exit_parameters(genome["exit_policy"], genome.get("exit_params"))
         param = rng.choice(list(params))
         low, high, step = EXIT_BOUNDS[param]
@@ -245,18 +252,18 @@ def mutate(genome, rng):
                             if low - 1e-9 <= value <= high + 1e-9])
         params[param] = int(value) if param in ("max_bars", "confirm_bars") else round(value, 6)
         child["exit_params"] = params
-        validate_genome(child)
-        return child
-    if key == "rule":
+    elif key == "target_r":
+        low, high, step = 2.0, 5.0, 0.5
+        choices = [v for v in (genome[key] - step, genome[key] + step) if low - 1e-9 <= v <= high + 1e-9]
+        child[key] = round(rng.choice(choices or [low]), 6)
+    elif key == "rule":
         mutation = mutate_htf_rule if is_htf_rule(genome["rule"]) else mutate_rule
         child["rule"] = mutation(genome["rule"], rng)
-        validate_genome(child)
-        return child
-    low, high, step = BOUNDS[key]
-    value = rng.choice([v for v in (genome[key] - step, genome[key] + step) if low - 1e-9 <= v <= high + 1e-9])
-    child[key] = int(value) if key == "lookback" else round(value, 6)
-    validate_genome(child)
-    return child
+    else:
+        low, high, step = BOUNDS[key]
+        value = rng.choice([v for v in (genome[key] - step, genome[key] + step) if low - 1e-9 <= v <= high + 1e-9])
+        child[key] = int(value) if key == "lookback" else round(value, 6)
+    return _newborn(child)
 
 def regime(candles):
     if len(candles) < 21:

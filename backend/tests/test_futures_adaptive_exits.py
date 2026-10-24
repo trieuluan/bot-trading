@@ -3,13 +3,17 @@ import random
 
 import pytest
 
+from backend.app import futures_drafts as drafts
+from backend.app import futures_learner as learner
 from backend.app.backtest import BacktestConfig, simulate
 from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session
 from backend.app.feed import save_candles
 from backend.app.futures_exits import (
+    EXIT_POLICIES,
     adaptive_levels,
     adaptive_target,
     h1_view,
+    has_target,
     partial_size,
     protective_stop,
     resistance_ahead,
@@ -17,7 +21,10 @@ from backend.app.futures_exits import (
 from backend.app.futures_learner import FEE, SLIP, advance
 from backend.app.futures_strategies import (
     RULE_SEEDS,
+    SEEDS,
     crossover,
+    genome_fingerprint,
+    genome_name,
     mutate,
     strategy_setup,
     validate_genome,
@@ -257,3 +264,155 @@ def test_tree_setup_preserves_structural_target_and_checks_final_stop_buffer(mon
     assert (setup.stop, setup.target) == adaptive_levels(side, rows, genome["target_r"], genome["stop_buffer"])
     assert direction * (setup.target - setup.entry) < genome["target_r"] * abs(setup.entry - setup.stop)
     assert strategy_setup({**genome, "stop_buffer": 0.5}, rows, []) is None
+
+
+class MutationChoices(random.Random):
+    def __init__(self, *choices):
+        super().__init__(0)
+        self.choices = list(choices)
+        self.calls = []
+
+    def choice(self, options):
+        self.calls.append(list(options))
+        if not self.choices:
+            return super().choice(options)
+        value = self.choices.pop(0)
+        assert value in options
+        return value
+
+
+@pytest.mark.parametrize("policy", [policy for policy in EXIT_POLICIES
+                                   if has_target({"exit_policy": policy})])
+@pytest.mark.parametrize("target", [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+def test_hard_target_mutation_steps_and_bounds(policy, target):
+    parent = {**copy.deepcopy(RULE_SEEDS[0]), "exit_policy": policy, "target_r": target}
+    original = copy.deepcopy(parent)
+    for expected in (value for value in (target - 0.5, target + 0.5) if 2 <= value <= 5):
+        child = mutate(parent, MutationChoices("target_r", expected))
+        assert child["target_r"] == expected
+        validate_genome(child)
+    assert parent == original
+
+
+@pytest.mark.parametrize("policy", EXIT_POLICIES)
+def test_target_and_buffer_mutation_eligibility(policy):
+    parent = {**RULE_SEEDS[0], "exit_policy": policy}
+    rng = MutationChoices("lookback", 25)
+    child = mutate(parent, rng)
+    assert ("target_r" in rng.calls[0]) == has_target(parent)
+    assert ("stop_buffer" in rng.calls[0]) == (policy == "adaptive")
+    assert child["target_r"] == 2
+    if policy != "adaptive":
+        with pytest.raises(ValueError):
+            validate_genome({**parent, "stop_buffer": 0.1})
+    else:
+        assert mutate(parent, MutationChoices("stop_buffer", 0.1))["stop_buffer"] == 0.1
+
+
+@pytest.mark.parametrize("key", ["rule", "lookback", "entry_policy", "stop_buffer", "exit_params"])
+def test_other_mutations_normalize_legacy_target_without_changing_parent(key):
+    parent = {**copy.deepcopy(RULE_SEEDS[0]), "target_r": 1.5}
+    if key == "exit_params":
+        parent["exit_policy"] = "time_stop"
+    original = copy.deepcopy(parent)
+    child = mutate(parent, MutationChoices(key))
+    assert child["target_r"] == 2.0
+    validate_genome(child)
+    assert parent == original
+
+
+@pytest.mark.parametrize("policy", ["fixed", "adaptive", "trail", "runner", "scale_out_ladder"])
+@pytest.mark.parametrize("target", [1.5, 5.0])
+def test_exit_policy_changes_use_final_policy_and_keep_buffer_restricted(policy, target):
+    parent = {**copy.deepcopy(RULE_SEEDS[0]), "target_r": target, "stop_buffer": 0.3}
+    if policy == "adaptive":
+        parent.update(exit_policy="runner", target_r=2.0, stop_buffer=0.0)
+    original = copy.deepcopy(parent)
+    child = mutate(parent, MutationChoices("exit_policy", policy))
+    assert child.get("exit_policy", "fixed") == policy
+    assert child["target_r"] == (max(2, parent["target_r"]) if has_target(child) else 2)
+    assert child["stop_buffer"] == (parent["stop_buffer"] if policy == "adaptive" else 0)
+    assert parent == original
+
+
+@pytest.mark.parametrize("policy", ["fixed", "adaptive", "trail", "runner", "scale_out_ladder"])
+@pytest.mark.parametrize("target", [1.5, 4.5, 5.0])
+def test_crossover_inherits_mate_policy_then_normalizes_newborn(policy, target):
+    parent = {**copy.deepcopy(RULE_SEEDS[0]), "target_r": target, "stop_buffer": 0.3}
+    mate = {**copy.deepcopy(RULE_SEEDS[1]), "exit_policy": policy,
+            "target_r": 5.0 if has_target({"exit_policy": policy}) else 2.0}
+    original = copy.deepcopy((parent, mate))
+    for first, second in ((parent, mate), (mate, parent)):
+        child = crossover(first, second)
+        assert child.get("exit_policy", "fixed") == second.get("exit_policy", "fixed")
+        assert child["target_r"] == (max(2, second["target_r"]) if has_target(child) else 2)
+        assert child["stop_buffer"] == (second["stop_buffer"] if child.get("exit_policy") == "adaptive" else 0)
+        validate_genome(child)
+    assert (parent, mate) == original
+
+
+@pytest.mark.parametrize("target", [1, 5.5, float("nan"), float("inf"), True, "5"])
+def test_invalid_target_genes_rejected(target):
+    with pytest.raises(ValueError):
+        validate_genome({**RULE_SEEDS[0], "target_r": target})
+
+
+def test_default_fixed_policy_can_evolve_target():
+    parent = {key: value for key, value in RULE_SEEDS[0].items() if key != "exit_policy"}
+    assert mutate(parent, MutationChoices("target_r", 2.5))["target_r"] == 2.5
+
+
+def test_legacy_drafts_seeds_and_fingerprints_remain_unchanged():
+    original_seeds = copy.deepcopy(SEEDS)
+    parent = {**copy.deepcopy(RULE_SEEDS[0]), "target_r": 1.5}
+    original = copy.deepcopy(parent)
+    fingerprint, name = genome_fingerprint(parent), genome_name(parent)
+    state = learner.new_state(1000)
+    state["drafts"] = {}
+    draft_id = drafts.enqueue(state, parent, 1000, ())
+    draft = state["drafts"][draft_id]
+    draft.update(status="waiting_slot", replay={"total_samples": 40, "validation_mean_r": 0.4})
+    frozen = copy.deepcopy(draft)
+
+    child = mutate(parent, MutationChoices("lookback", 25))
+    new_id = drafts.enqueue(state, child, 2000, ())
+    assert state["drafts"][new_id]["genome"]["target_r"] == 2
+    assert state["drafts"][new_id]["strategy"] == genome_name(child)
+    assert state["drafts"][new_id]["fingerprint"] == genome_fingerprint(child)
+    equivalent = mutate({**parent, "target_r": 2.0}, MutationChoices("lookback", 25))
+    assert drafts.enqueue(state, equivalent, 3000, ()) is None
+    learner.sync_seeds(state, 3000)
+    assert draft == frozen
+    assert parent == original
+    assert genome_fingerprint(parent) == fingerprint and genome_name(parent) == name
+    assert SEEDS == original_seeds
+
+
+def test_legacy_crossover_lineage_uses_original_inherited_target():
+    first = copy.deepcopy(RULE_SEEDS[0])
+    mate = {**copy.deepcopy(RULE_SEEDS[1]), "target_r": 1.5}
+    state = learner.new_state(1000)
+    learner.add_candidate(state, mate, 1000)
+    old_child = {**crossover(first, mate), "target_r": 1.5, "lookback": 25}
+    parents = (genome_name(first), genome_name(mate))
+    learner.add_candidate(state, old_child, 2000, parents)
+    original = copy.deepcopy(state)
+    lineage = learner.lineage(state, state["candidates"][genome_name(old_child)])
+    assert {"gene": "target_r", "value": 1.5} in lineage["from_mate"]
+    assert lineage["mutated"] == [{"gene": "lookback", "before": 20, "after": 25}]
+    assert state == original
+
+
+@pytest.mark.parametrize("side,direction", [("long", 1), ("short", -1)])
+@pytest.mark.parametrize("cap", [1.5, 3.5, 5.0])
+def test_target_cap_and_nearby_barrier_do_not_change_engine(monkeypatch, side, direction, cap):
+    rows = [Candle(index * 900, 100, 101, 99, 100, 1) for index in range(84)]
+    monkeypatch.setattr("backend.app.futures_exits.resistance_ahead", lambda *args: None)
+    stop, target = adaptive_levels(side, rows, cap)
+    risk = abs(100 - stop)
+    assert direction * (target - 100) / risk == pytest.approx(max(2, cap))
+    barrier = 100 + direction * 1.7 * risk
+    monkeypatch.setattr("backend.app.futures_exits.resistance_ahead", lambda *args: barrier)
+    assert adaptive_levels(side, rows, cap) == (stop, barrier)
+    barrier = 100 + direction * 1.4 * risk
+    assert adaptive_levels(side, rows, cap) is None

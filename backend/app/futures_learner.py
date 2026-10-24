@@ -669,6 +669,7 @@ def lineage(state, candidate):
     if len(parents) == 2:
         try:
             base = crossover(first, parents[1]["genome"])
+            base["target_r"] = parents[1]["genome"]["target_r"]
         except ValueError:
             return None
     child, before = genes(candidate["genome"]), genes(base)
