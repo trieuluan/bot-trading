@@ -4,6 +4,7 @@ import type { FuturesHistoryJob } from '../types/paper';
 import { formatTime } from '../lib/time-format';
 import { useEffect, useState } from 'react';
 import { Activity, Brain, Dna, Power } from 'lucide-react';
+import { FuturesDraftsPanel, type Draft, type DraftWorker } from './FuturesDraftsPanel';
 import {
   exitLabel,
   HTF_LABELS,
@@ -95,6 +96,8 @@ type Learning = {
     strategies?: { strategy: string; status: string; side?: 'long' | 'short' }[];
   } | null;
   strategies: Row[];
+  drafts?: Draft[];
+  draft_worker?: DraftWorker;
   retired_paper?: Retired[];
   retired_strategies?: {
     strategy: string;
@@ -194,6 +197,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const [showPaused, setShowPaused] = useState(false);
   const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
+  const [tab, setTab] = useState<'forward' | 'drafts'>('forward');
 
   useEffect(() => {
     let active = true;
@@ -207,12 +211,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
     fetchFuturesHistory()
       .then((job) => active && setReplay(job))
       .catch(() => undefined);
-    const timer = setInterval(load, 15000);
+    const timer = setInterval(load, tab === 'drafts' ? 5000 : 15000);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [tab]);
 
   const act = (path: string, body: object) => {
     if (busy) return;
@@ -387,457 +391,497 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 : ''}{' '}
             Đổi chế độ khi Auto Paper đang dừng.
           </p>
-          <div className="evo-filters" role="group" aria-label="Lọc theo trạng thái">
-            {statuses.map(([key, label, match]) => {
-              const count = scoped.filter(match).length;
-              return (
-                <button
-                  key={key}
-                  aria-pressed={status === key}
-                  disabled={count === 0 && status !== key}
-                  onClick={() => setStatus(key)}
-                >
-                  {label} <span className="evo-count">{count}</span>
-                </button>
-              );
-            })}
-            {(pausedCount > 0 || showPaused) && (
-              <label className="evo-paused-toggle">
-                <input
-                  type="checkbox"
-                  checked={showPaused}
-                  onChange={(event) => setShowPaused(event.target.checked)}
-                />
-                Hiện ngừng thử ({pausedCount})
-              </label>
-            )}
+          <div className="evo-tabs" role="tablist" aria-label="Bảng tiến hóa">
+            <button role="tab" aria-selected={tab === 'forward'} onClick={() => setTab('forward')}>
+              Đang forward <span className="evo-count">{data.population}</span>
+            </button>
+            <button role="tab" aria-selected={tab === 'drafts'} onClick={() => setTab('drafts')}>
+              Con nháp{' '}
+              <span className="evo-count">
+                {(data.drafts ?? []).filter((d) => d.status !== 'admitted').length}
+              </span>
+            </button>
           </div>
-          <div className="evo-tools">
-            <label>
-              Họ chiến thuật
-              <select
-                aria-label="Lọc theo họ"
-                value={family}
-                onChange={(event) => setFamily(event.target.value)}
-              >
-                <option value="all">Tất cả họ ({all.length})</option>
-                {families.map((name) => (
-                  <option key={name} value={name}>
-                    {familyName(name)} ({all.filter((row) => profileOf(row.genome) === name).length}
-                    )
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="evo-search">
-              Tìm kiếm
-              <input
-                type="search"
-                aria-label="Tìm chiến thuật"
-                placeholder="Tìm tên, mã, luật…"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-            <label>
-              Thế hệ
-              <select
-                aria-label="Lọc theo thế hệ"
-                value={gen}
-                onChange={(event) => setGen(event.target.value)}
-              >
-                <option value="all">Tất cả thế hệ</option>
-                {generations.map((g) => (
-                  <option key={g} value={String(g)}>
-                    G{g}
-                    {g === 0 ? ' · gốc' : ''} ({all.filter((row) => row.generation === g).length})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Sắp xếp
-              <select value={sort} onChange={(event) => setSort(event.target.value)}>
-                <option value="score">R học cao nhất</option>
-                <option value="name">Tên A–Z</option>
-                <option value="samples">Nhiều mẫu nhất</option>
-                <option value="generation">Thế hệ mới nhất</option>
-              </select>
-            </label>
-          </div>
-          <div className="evo-result" role="status" aria-live="polite">
-            <span>
-              Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
-            </span>
-            {(family !== 'all' ||
-              query ||
-              status !== 'all' ||
-              showPaused ||
-              gen !== 'all' ||
-              sort !== 'score') && (
-              <button
-                onClick={() => {
-                  setFamily('all');
-                  setQuery('');
-                  setStatus('all');
-                  setShowPaused(false);
-                  setGen('all');
-                  setSort('score');
-                }}
-              >
-                Xóa bộ lọc
-              </button>
-            )}
-          </div>
-          {sorted.length === 0 && (
-            <p className="evo-empty">Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.</p>
+          {tab === 'drafts' && (
+            <FuturesDraftsPanel
+              drafts={data.drafts ?? []}
+              worker={data.draft_worker}
+              now={Math.floor(Date.now() / 1000)}
+              onViewTree={(strategy) => {
+                setTab('forward');
+                setFamily('all');
+                setStatus('all');
+                setGen('all');
+                setQuery(strategy);
+              }}
+            />
           )}
-          <div className="evo-grid">
-            {sorted.map((row) => {
-              const learned = row.learned_mean_r;
-              const tone = learned === null ? '' : learned > 0 ? 'good' : 'bad';
-              const info = strategyInfo(row.genome);
-              const openTrades = row.open_trades ?? [];
-              return (
-                <article
-                  key={row.strategy}
-                  className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''} ${signalSet.has(row.strategy) ? 'signaling' : ''}`}
-                >
-                  <div className="evo-card-top">
-                    <div>
-                      <strong title={strategyName(row.genome)}>
-                        {strategyShortTitle(row.genome, row.strategy)}
-                      </strong>
-                      <code title={row.strategy}>{row.strategy.split(':')[1]}</code>
-                    </div>
-                    <span className={`pill ${row.generation ? 'green' : ''}`}>
-                      <Dna size={11} /> G{row.generation}
-                    </span>
-                  </div>
-                  <p className="evo-basis">
-                    {openTrades.length > 0 && (
-                      <span
-                        className="pill evo-open-trades"
-                        title={openTrades
-                          .map((position) => `#${position.id} ${position.side.toUpperCase()}`)
-                          .join(' · ')}
-                      >
-                        <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length} lệnh
-                        Paper
-                      </span>
-                    )}
-                    {signalSet.has(row.strategy) && (
-                      <span
-                        className="pill evo-signal"
-                        title="Có tín hiệu ở nến 15m vừa đóng. Chưa chắc đã vào lệnh: cần được bộ chọn ưu tiên và qua kiểm tra rủi ro."
-                      >
-                        ⚡ Tín hiệu {signalSides.get(row.strategy)?.toUpperCase() ?? ''}
-                        {openTrades.length === 0 ? ' · chưa vào lệnh' : ''}
-                      </span>
-                    )}
-                    {row.strategy === selected && (
-                      <span
-                        className="pill green"
-                        title="Được bộ chọn ưu tiên ở nến gần nhất; không xác nhận đã mở lệnh."
-                      >
-                        Được chọn gần nhất
-                      </span>
-                    )}
-                    {row.paused && (
-                      <span
-                        className="pill"
-                        title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
-                      >
-                        Ngừng thử · thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
-                      </span>
-                    )}
-                    <span className="pill">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
-                    <span className="pill blue">{exitLabel(row.genome.exit_policy)}</span>
-                  </p>
-                  {row.rule_text && (
-                    <p className="evo-rule" title={row.rule_text}>
-                      {row.rule_text}
-                    </p>
-                  )}
-                  {row.parents.length > 0 && (
-                    <div className="evo-origin">
-                      <div className="evo-origin-head">
-                        <span>{row.parents.length === 1 ? 'Đột biến từ' : 'Lai'}</span>
-                        {row.parents.map((parent, idx) => {
-                          const pRow = all.find((r) => r.strategy === parent);
-                          return (
-                            <span key={`${parent}-${idx}`} className="evo-origin-parent">
-                              {idx > 0 && <span aria-hidden="true">×</span>}
-                              <ParentChip
-                                id={`parent-tooltip-${row.strategy}-${idx}`}
-                                tag={row.parents.length > 1 ? 'AB'[idx] : undefined}
-                                label={
-                                  pRow
-                                    ? strategyShortTitle(pRow.genome, parent)
-                                    : `#${parent.split(':')[1]?.slice(0, 6)} · đã loại`
-                                }
-                                title={titles.get(parent) ?? parent}
-                              />
-                            </span>
-                          );
-                        })}
-                      </div>
-                      {row.lineage?.from_mate.length ? (
-                        <p>
-                          <span className="evo-origin-tag">Lấy từ B</span>
-                          {row.lineage.from_mate
-                            .map(
-                              (item) =>
-                                `${GENE_LABELS[item.gene] ?? item.gene} ${geneText(item.gene, item.value)}`,
-                            )
-                            .join(' · ')}
-                        </p>
-                      ) : null}
-                      {row.lineage?.mutated.map((item) => (
-                        <p key={item.gene}>
-                          <span className="evo-origin-tag mutated">✦ Đột biến</span>
-                          {GENE_LABELS[item.gene] ?? item.gene}: {geneText(item.gene, item.before)}{' '}
-                          → <b>{geneText(item.gene, item.after)}</b>
-                        </p>
-                      ))}
-                      {row.lineage &&
-                        !row.lineage.mutated.length &&
-                        !row.lineage.from_mate.length && (
-                          <p>Gen trùng cha mẹ; khác ở cách ghép điều kiện.</p>
-                        )}
-                    </div>
-                  )}
-                  <div className="evo-score">
-                    {row.learned_samples > 0 ? (
-                      <b className={tone}>{`${learned! > 0 ? '+' : ''}${fmt(learned)}R`}</b>
-                    ) : (
-                      <em>Chưa có mẫu học</em>
-                    )}
-                    <span>
-                      {row.learned_samples > 0 && `${row.learned_samples} mẫu · `}Replay{' '}
-                      {row.replay_samples ?? 0} · Forward {row.forward_samples ?? row.resolved} đã
-                      đóng
-                      {row.forward_open ? ` · ${row.forward_open} đang chạy` : ''}
-                      {row.profit_factor !== null && ` · PF ${fmt(row.profit_factor)}`}
-                    </span>
-                  </div>
-                  <div
-                    className={`evo-paper ${openTrades.length || row.paper?.closed ? 'active' : ''}`}
+          {tab === 'forward' && (
+            <>
+              <div className="evo-filters" role="group" aria-label="Lọc theo trạng thái">
+                {statuses.map(([key, label, match]) => {
+                  const count = scoped.filter(match).length;
+                  return (
+                    <button
+                      key={key}
+                      aria-pressed={status === key}
+                      disabled={count === 0 && status !== key}
+                      onClick={() => setStatus(key)}
+                    >
+                      {label} <span className="evo-count">{count}</span>
+                    </button>
+                  );
+                })}
+                {(pausedCount > 0 || showPaused) && (
+                  <label className="evo-paused-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showPaused}
+                      onChange={(event) => setShowPaused(event.target.checked)}
+                    />
+                    Hiện ngừng thử ({pausedCount})
+                  </label>
+                )}
+              </div>
+              <div className="evo-tools">
+                <label>
+                  Họ chiến thuật
+                  <select
+                    aria-label="Lọc theo họ"
+                    value={family}
+                    onChange={(event) => setFamily(event.target.value)}
                   >
-                    <span>Auto Paper</span>
-                    {row.paper?.closed ? (
-                      <b className={row.paper.net_pnl >= 0 ? 'good' : 'bad'}>
-                        {usdt(row.paper.net_pnl)}
-                      </b>
-                    ) : null}
-                    {openTrades.length || row.paper?.closed ? (
-                      <span className="evo-paper-detail">
-                        {openTrades.length > 0 && (
-                          <>
-                            Đang mở{' '}
-                            {openTrades.map((trade) =>
-                              onViewTrade ? (
-                                <button
-                                  key={trade.id}
-                                  type="button"
-                                  className="text-button"
-                                  onClick={() => onViewTrade(trade.id)}
-                                >
-                                  #{trade.id}
-                                </button>
-                              ) : (
-                                <span key={trade.id}>#{trade.id} </span>
-                              ),
-                            )}
-                          </>
-                        )}
-                        {openTrades.length > 0 && row.paper?.closed ? ' · ' : ''}
-                        {row.paper?.closed ? (
-                          <>
-                            {row.paper.closed} đã đóng · thắng {row.paper.wins}
-                          </>
-                        ) : (
-                          ''
-                        )}
-                      </span>
-                    ) : (
-                      <span className="muted">Chưa vào lệnh</span>
-                    )}
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Tham số</dt>
-                      <dd>
-                        N{row.genome.lookback} · TP {row.genome.target_r}R · SL +
-                        {row.genome.stop_buffer}
-                      </dd>
-                    </div>
-                    {(row.qualification.windows > 0 || row.qualification.trades > 0) && (
-                      <div className="evo-gate">
-                        <dt>Cổng duyệt</dt>
-                        <dd>
-                          <progress
-                            value={Math.min(row.qualification.trades, 100)}
-                            max={100}
-                            aria-label={`${row.qualification.trades}/100 lệnh forward`}
-                          />
-                          {row.qualification.trades}/100 lệnh · {row.qualification.windows} cửa sổ
-                        </dd>
+                    <option value="all">Tất cả họ ({all.length})</option>
+                    {families.map((name) => (
+                      <option key={name} value={name}>
+                        {familyName(name)} (
+                        {all.filter((row) => profileOf(row.genome) === name).length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="evo-search">
+                  Tìm kiếm
+                  <input
+                    type="search"
+                    aria-label="Tìm chiến thuật"
+                    placeholder="Tìm tên, mã, luật…"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Thế hệ
+                  <select
+                    aria-label="Lọc theo thế hệ"
+                    value={gen}
+                    onChange={(event) => setGen(event.target.value)}
+                  >
+                    <option value="all">Tất cả thế hệ</option>
+                    {generations.map((g) => (
+                      <option key={g} value={String(g)}>
+                        G{g}
+                        {g === 0 ? ' · gốc' : ''} (
+                        {all.filter((row) => row.generation === g).length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Sắp xếp
+                  <select value={sort} onChange={(event) => setSort(event.target.value)}>
+                    <option value="score">R học cao nhất</option>
+                    <option value="name">Tên A–Z</option>
+                    <option value="samples">Nhiều mẫu nhất</option>
+                    <option value="generation">Thế hệ mới nhất</option>
+                  </select>
+                </label>
+              </div>
+              <div className="evo-result" role="status" aria-live="polite">
+                <span>
+                  Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
+                </span>
+                {(family !== 'all' ||
+                  query ||
+                  status !== 'all' ||
+                  showPaused ||
+                  gen !== 'all' ||
+                  sort !== 'score') && (
+                  <button
+                    onClick={() => {
+                      setFamily('all');
+                      setQuery('');
+                      setStatus('all');
+                      setShowPaused(false);
+                      setGen('all');
+                      setSort('score');
+                    }}
+                  >
+                    Xóa bộ lọc
+                  </button>
+                )}
+              </div>
+              {sorted.length === 0 && (
+                <p className="evo-empty">
+                  Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
+                </p>
+              )}
+              <div className="evo-grid">
+                {sorted.map((row) => {
+                  const learned = row.learned_mean_r;
+                  const tone = learned === null ? '' : learned > 0 ? 'good' : 'bad';
+                  const info = strategyInfo(row.genome);
+                  const openTrades = row.open_trades ?? [];
+                  return (
+                    <article
+                      key={row.strategy}
+                      className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''} ${signalSet.has(row.strategy) ? 'signaling' : ''}`}
+                    >
+                      <div className="evo-card-top">
+                        <div>
+                          <strong title={strategyName(row.genome)}>
+                            {strategyShortTitle(row.genome, row.strategy)}
+                          </strong>
+                          <code title={row.strategy}>{row.strategy.split(':')[1]}</code>
+                        </div>
+                        <span className={`pill ${row.generation ? 'green' : ''}`}>
+                          <Dna size={11} /> G{row.generation}
+                        </span>
                       </div>
-                    )}
-                  </dl>
-                  <details className="evo-more">
-                    <summary>Cách đánh</summary>
-                    {/* Capped and scrolled so one open card doesn't stretch its whole grid row. */}
-                    <div className="evo-more-body" tabIndex={0}>
-                      {!row.rule_text && (
-                        <p>
-                          <b>Vào lệnh:</b> {info.entry}
+                      <p className="evo-basis">
+                        {openTrades.length > 0 && (
+                          <span
+                            className="pill evo-open-trades"
+                            title={openTrades
+                              .map((position) => `#${position.id} ${position.side.toUpperCase()}`)
+                              .join(' · ')}
+                          >
+                            <Activity size={12} aria-hidden="true" /> Đang có {openTrades.length}{' '}
+                            lệnh Paper
+                          </span>
+                        )}
+                        {signalSet.has(row.strategy) && (
+                          <span
+                            className="pill evo-signal"
+                            title="Có tín hiệu ở nến 15m vừa đóng. Chưa chắc đã vào lệnh: cần được bộ chọn ưu tiên và qua kiểm tra rủi ro."
+                          >
+                            ⚡ Tín hiệu {signalSides.get(row.strategy)?.toUpperCase() ?? ''}
+                            {openTrades.length === 0 ? ' · chưa vào lệnh' : ''}
+                          </span>
+                        )}
+                        {row.strategy === selected && (
+                          <span
+                            className="pill green"
+                            title="Được bộ chọn ưu tiên ở nến gần nhất; không xác nhận đã mở lệnh."
+                          >
+                            Được chọn gần nhất
+                          </span>
+                        )}
+                        {row.paused && (
+                          <span
+                            className="pill"
+                            title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
+                          >
+                            Ngừng thử · thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
+                          </span>
+                        )}
+                        <span className="pill">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
+                        <span className="pill blue">{exitLabel(row.genome.exit_policy)}</span>
+                      </p>
+                      {row.rule_text && (
+                        <p className="evo-rule" title={row.rule_text}>
+                          {row.rule_text}
                         </p>
                       )}
-                      <p>
-                        <b>Thoát:</b> {riskText(row.genome, info.stop)}
-                      </p>
-                      <p>
-                        <b>Nguồn:</b>{' '}
-                        {row.generation === 0
-                          ? 'Chiến thuật gốc, tham số mặc định.'
-                          : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
-                      </p>
-                    </div>
-                  </details>
-                  {row.promoted ? (
-                    <button
-                      disabled={busy}
-                      onClick={() => act('/promotion', { strategy: row.strategy, promoted: false })}
-                    >
-                      Đã duyệt · gỡ
-                    </button>
-                  ) : (
-                    row.qualification.eligible && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          act('/promotion', { strategy: row.strategy, promoted: true })
-                        }
+                      {row.parents.length > 0 && (
+                        <div className="evo-origin">
+                          <div className="evo-origin-head">
+                            <span>{row.parents.length === 1 ? 'Đột biến từ' : 'Lai'}</span>
+                            {row.parents.map((parent, idx) => {
+                              const pRow = all.find((r) => r.strategy === parent);
+                              return (
+                                <span key={`${parent}-${idx}`} className="evo-origin-parent">
+                                  {idx > 0 && <span aria-hidden="true">×</span>}
+                                  <ParentChip
+                                    id={`parent-tooltip-${row.strategy}-${idx}`}
+                                    tag={row.parents.length > 1 ? 'AB'[idx] : undefined}
+                                    label={
+                                      pRow
+                                        ? strategyShortTitle(pRow.genome, parent)
+                                        : `#${parent.split(':')[1]?.slice(0, 6)} · đã loại`
+                                    }
+                                    title={titles.get(parent) ?? parent}
+                                  />
+                                </span>
+                              );
+                            })}
+                          </div>
+                          {row.lineage?.from_mate.length ? (
+                            <p>
+                              <span className="evo-origin-tag">Lấy từ B</span>
+                              {row.lineage.from_mate
+                                .map(
+                                  (item) =>
+                                    `${GENE_LABELS[item.gene] ?? item.gene} ${geneText(item.gene, item.value)}`,
+                                )
+                                .join(' · ')}
+                            </p>
+                          ) : null}
+                          {row.lineage?.mutated.map((item) => (
+                            <p key={item.gene}>
+                              <span className="evo-origin-tag mutated">✦ Đột biến</span>
+                              {GENE_LABELS[item.gene] ?? item.gene}:{' '}
+                              {geneText(item.gene, item.before)} →{' '}
+                              <b>{geneText(item.gene, item.after)}</b>
+                            </p>
+                          ))}
+                          {row.lineage &&
+                            !row.lineage.mutated.length &&
+                            !row.lineage.from_mate.length && (
+                              <p>Gen trùng cha mẹ; khác ở cách ghép điều kiện.</p>
+                            )}
+                        </div>
+                      )}
+                      <div className="evo-score">
+                        {row.learned_samples > 0 ? (
+                          <b className={tone}>{`${learned! > 0 ? '+' : ''}${fmt(learned)}R`}</b>
+                        ) : (
+                          <em>Chưa có mẫu học</em>
+                        )}
+                        <span>
+                          {row.learned_samples > 0 && `${row.learned_samples} mẫu · `}Replay{' '}
+                          {row.replay_samples ?? 0} · Forward {row.forward_samples ?? row.resolved}{' '}
+                          đã đóng
+                          {row.forward_open ? ` · ${row.forward_open} đang chạy` : ''}
+                          {row.profit_factor !== null && ` · PF ${fmt(row.profit_factor)}`}
+                        </span>
+                      </div>
+                      <div
+                        className={`evo-paper ${openTrades.length || row.paper?.closed ? 'active' : ''}`}
                       >
-                        Duyệt cho Auto
-                      </button>
-                    )
-                  )}
-                </article>
-              );
-            })}
-          </div>
-          {(data.retired_strategies?.length ?? 0) > 0 && (
-            <details className="evo-retired">
-              <summary>Cây đã loại ({data.retired_strategies!.length})</summary>
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Cây · thế hệ</th>
-                      <th>Lý do · thời điểm</th>
-                      <th>Mẫu forward đóng</th>
-                      <th>R trung bình</th>
-                      <th>Drawdown R</th>
-                      <th>Cây giữ lại</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.retired_strategies!.map((row) => (
-                      <tr key={row.strategy}>
-                        <td title={row.strategy}>
-                          {strategyShortTitle(row.genome, row.strategy)} · G{row.generation}
-                        </td>
-                        <td>
-                          {row.retirement ? (
-                            <>
-                              {(
-                                {
-                                  negative_forward_r: 'R forward âm',
-                                  forward_drawdown: 'Drawdown ≥10R',
-                                  redundant_forward: 'Trùng mẫu forward với cây tốt hơn',
-                                } as Record<string, string>
-                              )[row.retirement.reason] ?? row.retirement.reason}
-                              <small>{formatTime(row.retirement.at)}</small>
-                            </>
-                          ) : (
-                            'Lịch sử cũ · chưa ghi lý do'
-                          )}
-                        </td>
-                        <td>{row.retirement?.samples ?? '—'}</td>
-                        <td>{row.retirement ? `${row.retirement.mean_r.toFixed(2)}R` : '—'}</td>
-                        <td>
-                          {row.retirement ? `${row.retirement.max_drawdown_r.toFixed(2)}R` : '—'}
-                        </td>
-                        <td>
-                          <span title={row.retirement?.retained_strategy ?? undefined}>
-                            {row.retirement?.retained_strategy ?? '—'}
+                        <span>Auto Paper</span>
+                        {row.paper?.closed ? (
+                          <b className={row.paper.net_pnl >= 0 ? 'good' : 'bad'}>
+                            {usdt(row.paper.net_pnl)}
+                          </b>
+                        ) : null}
+                        {openTrades.length || row.paper?.closed ? (
+                          <span className="evo-paper-detail">
+                            {openTrades.length > 0 && (
+                              <>
+                                Đang mở{' '}
+                                {openTrades.map((trade) =>
+                                  onViewTrade ? (
+                                    <button
+                                      key={trade.id}
+                                      type="button"
+                                      className="text-button"
+                                      onClick={() => onViewTrade(trade.id)}
+                                    >
+                                      #{trade.id}
+                                    </button>
+                                  ) : (
+                                    <span key={trade.id}>#{trade.id} </span>
+                                  ),
+                                )}
+                              </>
+                            )}
+                            {openTrades.length > 0 && row.paper?.closed ? ' · ' : ''}
+                            {row.paper?.closed ? (
+                              <>
+                                {row.paper.closed} đã đóng · thắng {row.paper.wins}
+                              </>
+                            ) : (
+                              ''
+                            )}
                           </span>
-                          {row.retirement?.overlap && (
-                            <small>
-                              {row.retirement.overlap.shared} mẫu khớp ·{' '}
-                              {(100 * row.retirement.overlap.ratio).toFixed(1)}% trùng
-                            </small>
+                        ) : (
+                          <span className="muted">Chưa vào lệnh</span>
+                        )}
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>Tham số</dt>
+                          <dd>
+                            N{row.genome.lookback} · TP {row.genome.target_r}R · SL +
+                            {row.genome.stop_buffer}
+                          </dd>
+                        </div>
+                        {(row.qualification.windows > 0 || row.qualification.trades > 0) && (
+                          <div className="evo-gate">
+                            <dt>Cổng duyệt</dt>
+                            <dd>
+                              <progress
+                                value={Math.min(row.qualification.trades, 100)}
+                                max={100}
+                                aria-label={`${row.qualification.trades}/100 lệnh forward`}
+                              />
+                              {row.qualification.trades}/100 lệnh · {row.qualification.windows} cửa
+                              sổ
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                      <details className="evo-more">
+                        <summary>Cách đánh</summary>
+                        {/* Capped and scrolled so one open card doesn't stretch its whole grid row. */}
+                        <div className="evo-more-body" tabIndex={0}>
+                          {!row.rule_text && (
+                            <p>
+                              <b>Vào lệnh:</b> {info.entry}
+                            </p>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <p>
+                            <b>Thoát:</b> {riskText(row.genome, info.stop)}
+                          </p>
+                          <p>
+                            <b>Nguồn:</b>{' '}
+                            {row.generation === 0
+                              ? 'Chiến thuật gốc, tham số mặc định.'
+                              : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
+                          </p>
+                        </div>
+                      </details>
+                      {row.promoted ? (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            act('/promotion', { strategy: row.strategy, promoted: false })
+                          }
+                        >
+                          Đã duyệt · gỡ
+                        </button>
+                      ) : (
+                        row.qualification.eligible && (
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              act('/promotion', { strategy: row.strategy, promoted: true })
+                            }
+                          >
+                            Duyệt cho Auto
+                          </button>
+                        )
+                      )}
+                    </article>
+                  );
+                })}
               </div>
-            </details>
-          )}
-          {(data.retired_paper?.length ?? 0) > 0 && (
-            <details className="evo-retired">
-              <summary>
-                Chiến thuật đã loại nhưng từng chạy Auto Paper ({data.retired_paper!.length})
-              </summary>
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Chiến thuật</th>
-                      <th>Lệnh đã đóng</th>
-                      <th>Thắng</th>
-                      <th>PnL ròng</th>
-                      <th>Lệnh gần nhất</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.retired_paper!.map((row) => (
-                      <tr key={row.strategy}>
-                        <td title={row.strategy}>
-                          {row.genome ? strategyShortTitle(row.genome, row.strategy) : row.strategy}
-                          {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
-                        </td>
-                        <td>{row.closed}</td>
-                        <td>{row.wins}</td>
-                        <td className={row.net_pnl >= 0 ? 'positive' : 'negative'}>
-                          {usdt(row.net_pnl)}
-                        </td>
-                        <td>
-                          {row.last_trade_id === null ? (
-                            '—'
-                          ) : onViewTrade ? (
-                            <button
-                              type="button"
-                              className="text-button"
-                              onClick={() => onViewTrade(row.last_trade_id!)}
-                            >
-                              #{row.last_trade_id}
-                            </button>
-                          ) : (
-                            `#${row.last_trade_id}`
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
+              {(data.retired_strategies?.length ?? 0) > 0 && (
+                <details className="evo-retired">
+                  <summary>Cây đã loại ({data.retired_strategies!.length})</summary>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Cây · thế hệ</th>
+                          <th>Lý do · thời điểm</th>
+                          <th>Mẫu forward đóng</th>
+                          <th>R trung bình</th>
+                          <th>Drawdown R</th>
+                          <th>Cây giữ lại</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.retired_strategies!.map((row) => (
+                          <tr key={row.strategy}>
+                            <td title={row.strategy}>
+                              {strategyShortTitle(row.genome, row.strategy)} · G{row.generation}
+                            </td>
+                            <td>
+                              {row.retirement ? (
+                                <>
+                                  {(
+                                    {
+                                      negative_forward_r: 'R forward âm',
+                                      forward_drawdown: 'Drawdown ≥10R',
+                                      redundant_forward: 'Trùng mẫu forward với cây tốt hơn',
+                                    } as Record<string, string>
+                                  )[row.retirement.reason] ?? row.retirement.reason}
+                                  <small>{formatTime(row.retirement.at)}</small>
+                                </>
+                              ) : (
+                                'Lịch sử cũ · chưa ghi lý do'
+                              )}
+                            </td>
+                            <td>{row.retirement?.samples ?? '—'}</td>
+                            <td>{row.retirement ? `${row.retirement.mean_r.toFixed(2)}R` : '—'}</td>
+                            <td>
+                              {row.retirement
+                                ? `${row.retirement.max_drawdown_r.toFixed(2)}R`
+                                : '—'}
+                            </td>
+                            <td>
+                              <span title={row.retirement?.retained_strategy ?? undefined}>
+                                {row.retirement?.retained_strategy ?? '—'}
+                              </span>
+                              {row.retirement?.overlap && (
+                                <small>
+                                  {row.retirement.overlap.shared} mẫu khớp ·{' '}
+                                  {(100 * row.retirement.overlap.ratio).toFixed(1)}% trùng
+                                </small>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+              {(data.retired_paper?.length ?? 0) > 0 && (
+                <details className="evo-retired">
+                  <summary>
+                    Chiến thuật đã loại nhưng từng chạy Auto Paper ({data.retired_paper!.length})
+                  </summary>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Chiến thuật</th>
+                          <th>Lệnh đã đóng</th>
+                          <th>Thắng</th>
+                          <th>PnL ròng</th>
+                          <th>Lệnh gần nhất</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.retired_paper!.map((row) => (
+                          <tr key={row.strategy}>
+                            <td title={row.strategy}>
+                              {row.genome
+                                ? strategyShortTitle(row.genome, row.strategy)
+                                : row.strategy}
+                              {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
+                            </td>
+                            <td>{row.closed}</td>
+                            <td>{row.wins}</td>
+                            <td className={row.net_pnl >= 0 ? 'positive' : 'negative'}>
+                              {usdt(row.net_pnl)}
+                            </td>
+                            <td>
+                              {row.last_trade_id === null ? (
+                                '—'
+                              ) : onViewTrade ? (
+                                <button
+                                  type="button"
+                                  className="text-button"
+                                  onClick={() => onViewTrade(row.last_trade_id!)}
+                                >
+                                  #{row.last_trade_id}
+                                </button>
+                              ) : (
+                                `#${row.last_trade_id}`
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+            </>
           )}
           <p className="evo-note">
             Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay thế:

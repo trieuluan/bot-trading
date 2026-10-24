@@ -25,6 +25,7 @@ from .db import (
 )
 from .feed import load_candles
 from .futures_context import load_signal_context
+from .futures_drafts import MAX_PENDING, PENDING, enqueue
 from .futures_entries import entry_fields, wait
 from .futures_exits import (
     adaptive_target,
@@ -33,6 +34,7 @@ from .futures_exits import (
     partial_size,
     protective_stop,
 )
+from .futures_research_lock import worker_status
 from .futures_retirement import failure, forward_evidence, metrics, retirement_candidates
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
 from .futures_strategies import (
@@ -72,10 +74,11 @@ def add_candidate(state, genome, born, parents=()):
     fingerprint = genome_fingerprint(genome)
     if any(genome_fingerprint(candidate["genome"]) == fingerprint for candidate in known):
         return
-    generation = max((state["candidates"][parent]["generation"] for parent in parents), default=-1) + 1
     state["candidates"][name] = {
         "genome": copy.deepcopy(genome), "born_at": born, "parents": list(parents),
-        "generation": generation, "windows": [], "promoted": False,
+        "generation": max((state["candidates"][parent]["generation"] for parent in parents),
+                          default=-1) + 1,
+        "windows": [], "promoted": False,
     }
 
 
@@ -94,7 +97,7 @@ def new_state(now):
     for seed in [*SEEDS, *RULE_SEEDS]:
         if len(state["candidates"]) >= CAP - 1:
             break
-        add_candidate(state, mutate(seed, rng), born, (genome_name(seed),))
+        enqueue(state, mutate(seed, rng), now, (genome_name(seed),))
     return state
 
 
@@ -274,7 +277,7 @@ def sync_seeds(state, now):
             add_candidate(state, seed, born)
             existing.add(genome_fingerprint(seed))
             if len(state["candidates"]) < CAP:
-                add_candidate(state, mutate(seed, rng), born, (name,))
+                enqueue(state, mutate(seed, rng), now, (name,))
 
 def performance(state, now):
     """Resolved forward samples plus historical replay (train + validation) per strategy."""
@@ -295,14 +298,15 @@ def performance(state, now):
 def complexity(genome):
     return validate_rule(genome["rule"]) if is_rule_tree(genome) else 0
 
-def evolve(state, now, max_children=1, force=False, protected=()):
-    """Replace only proven weak/redundant forward strategies, after finding a valid child."""
+def evolve(state, now, max_children=1, force=False):
+    """Freeze unique children as drafts; population changes only at admission."""
+    if not state["enabled"]:
+        return 0
     if not force and now - state["evolved_at"] < EVOLVE_SECONDS:
         return 0
     state["evolved_at"] = now
     results = performance(state, now)
     evidence = forward_evidence(state, now)
-    archive = state.get("rule_archive", {})
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
                      and not failure(metrics(evidence.get(name, [])))
@@ -314,15 +318,8 @@ def evolve(state, now, max_children=1, force=False, protected=()):
         return 0
     rng, made = random.Random(now // EVOLVE_SECONDS), 0
     for _ in range(max_children):
-        retired, retirement = None, None
-        if sum(exit_policy_enabled(candidate["genome"])
-               for candidate in state["candidates"].values()) >= CAP:
-            weak = [(name, metadata) for name, metadata in retirement_candidates(state, evidence, protected)
-                    if any(parent != name for parent in ranked)]
-            if not weak:
-                break
-            retired, retirement = weak[0]
-        parents = [name for name in ranked if name != retired][:4]
+        if sum(row["status"] in PENDING for row in state.get("drafts", {}).values()) >= MAX_PENDING:
+            break
         for _ in range(40):
             lineage = tuple(rng.sample(parents, 2)) if len(parents) > 1 else (parents[0],)
             base = state["candidates"][lineage[0]]["genome"]
@@ -335,20 +332,51 @@ def evolve(state, now, max_children=1, force=False, protected=()):
                 continue
             if not exit_policy_enabled(genome):
                 continue
-            known = {genome_fingerprint(candidate["genome"])
-                     for candidate in [*state["candidates"].values(), *archive.values()]}
-            if (genome_fingerprint(genome) not in known and genome_name(genome) not in results
-                    and genome_name(genome) not in state["candidates"] and genome_name(genome) not in archive):
-                add_candidate(state, genome, (now // 900 + 1) * 900,
-                              lineage)
-                if retired:
-                    archive = state.setdefault("rule_archive", {})
-                    archive[retired] = {**state["candidates"].pop(retired),
-                                        "retirement": {"at": now, **retirement}}
-                    ranked = [name for name in ranked if name != retired]
+            if enqueue(state, genome, now, lineage):
                 made += 1
                 break
     return made
+
+
+def admit_drafts(state, now, protected):
+    """Caller holds wallet lock and saves admission plus retirement in one transaction."""
+    if not state["enabled"]:
+        return 0
+    admitted = 0
+    for draft in sorted(state.get("drafts", {}).values(), key=lambda row: (row["created_at"], row["id"])):
+        if draft["status"] != "waiting_slot":
+            continue
+        validate_genome(draft["genome"])
+        if (genome_fingerprint(draft["genome"]) != draft["fingerprint"]
+                or not exit_policy_enabled(draft["genome"])
+                or not draft.get("replay") or not all(draft["replay"]["checks"].values())):
+            draft.update(status="error", reason="invalid_screened_genome", updated_at=now)
+            continue
+        known = {**state.get("rule_archive", {}), **state["candidates"]}
+        if (draft["strategy"] in known or any(genome_fingerprint(row["genome"]) == draft["fingerprint"]
+                                             for row in known.values())):
+            draft.update(status="error", reason="duplicate_genome", updated_at=now)
+            continue
+        retired = None
+        if sum(exit_policy_enabled(row["genome"]) for row in state["candidates"].values()) >= CAP:
+            weak = retirement_candidates(state, forward_evidence(state, now), protected)
+            if not weak:
+                draft["reason"] = "ownership_unknown" if protected is None else "no_retirement_candidate"
+                break
+            retired, metadata = weak[0]
+        if retired:
+            state.setdefault("rule_archive", {})[retired] = {
+                **state["candidates"].pop(retired), "retirement": {"at": now, **metadata}}
+        name = draft["strategy"]
+        state["candidates"][name] = {
+            "genome": copy.deepcopy(draft["genome"]), "parents": list(draft["parents"]),
+            "generation": draft["generation"], "born_at": (now // 900 + 1) * 900,
+            "windows": [], "promoted": False, "draft_id": draft["id"],
+        }
+        draft.update(status="admitted", phase="done", admitted_at=now,
+                     admitted_strategy=name, updated_at=now, reason=None)
+        admitted += 1
+    return admitted
 
 def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None):
     bar = candles[-1]
@@ -518,7 +546,7 @@ def learning_tick(now=None, adapter=None):
                 validate_window(current["candidates"][name], validation[2], validation_fair,
                                 validation_funding, contract, validation_context)
             sync_seeds(current, now)
-            evolve(current, now, protected=active_strategies(session, current))
+            evolve(current, now)
             current["error"] = None
             save_state(session, current)
     except (MarketDataError, ValueError) as exc:
@@ -706,6 +734,8 @@ def summary(state, now, paper=None):
                             and not shadow_only(candidate["genome"])
                             for candidate in state["candidates"].values()),
             "last_decision": state["last_decision"], "strategies": rows,
+            "drafts": [{**copy.deepcopy(draft), "lineage": lineage(state, draft)}
+                       for draft in state.get("drafts", {}).values()],
             "retired_paper": retired,
             "retired_strategies": [{"strategy": name, "genome": candidate["genome"],
                                     "generation": candidate["generation"],
@@ -717,7 +747,9 @@ def summary(state, now, paper=None):
 def get_learning():
     now = int(time.time())
     with Session() as session:
-        return summary(read_state(session, now), now, paper_by_strategy(session))
+        result = summary(read_state(session, now), now, paper_by_strategy(session))
+        result["draft_worker"] = worker_status(session)
+        return result
 
 
 class LearningConfig(BaseModel):

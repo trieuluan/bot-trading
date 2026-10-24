@@ -21,6 +21,7 @@ def samples(name, values, start=0, regime="range"):
 
 def state_for(weak_values, good_values=None, generation=0, promoted=False):
     state = learner.new_state(0)
+    state["drafts"] = {}
     parent = genome_name(SEEDS[0])
     weak_genome = {**SEEDS[0], "lookback": 25}
     weak = genome_name(weak_genome)
@@ -34,6 +35,13 @@ def state_for(weak_values, good_values=None, generation=0, promoted=False):
 
 def options(state, protected=()):
     return dict(retirement.retirement_candidates(state, retirement.forward_evidence(state, NOW), protected))
+
+
+def evolve_and_admit(state, now, **kwargs):
+    learner.evolve(state, now, **kwargs)
+    for draft in state.get("drafts", {}).values():
+        draft.update(status="waiting_slot", replay={"checks": {"passed": True}})
+    return learner.admit_drafts(state, now, ())
 
 
 @pytest.mark.parametrize("generation", [0, 1, 5])
@@ -198,7 +206,7 @@ def test_failed_child_never_archives_existing_tree(monkeypatch, mutation):
         return copy.deepcopy(state["candidates"][parent]["genome"]) if mutation == "duplicate" else {}
     monkeypatch.setattr(learner, "mutate", mutate)
     before = copy.deepcopy(state["candidates"])
-    assert learner.evolve(state, NOW, force=True) == 0
+    assert evolve_and_admit(state, NOW, force=True) == 0
     assert state["candidates"] == before and not state.get("rule_archive")
 
 
@@ -206,14 +214,14 @@ def test_full_population_without_bad_candidate_stops(monkeypatch):
     state, _, _ = state_for([0.95] * 50)
     monkeypatch.setattr(learner, "CAP", 2)
     before = copy.deepcopy(state["candidates"])
-    assert learner.evolve(state, NOW, force=True) == 0
+    assert evolve_and_admit(state, NOW, force=True) == 0
     assert state["candidates"] == before
 
 
 def test_g0_archive_metadata_no_revival_and_legacy_summary(monkeypatch):
     state, _, weak = state_for([-1] * 50)
     monkeypatch.setattr(learner, "CAP", 2)
-    assert learner.evolve(state, NOW, force=True) == 1
+    assert evolve_and_admit(state, NOW, force=True) == 1
     archived = state["rule_archive"][weak]
     assert archived["generation"] == 0
     assert archived["retirement"]["reason"] == "negative_forward_r"
@@ -247,7 +255,7 @@ def test_archived_real_seeds_never_respawn_or_spawn_children(seed, monkeypatch):
 def test_failed_forward_parent_is_not_used_even_if_replay_profitable(monkeypatch):
     state, parent, weak = state_for([-1] * 50)
     monkeypatch.setattr(learner, "performance", lambda *_: {parent: (50, 1), weak: (1000, 5)})
-    assert learner.evolve(state, NOW, force=True) == 1
+    assert evolve_and_admit(state, NOW, force=True) == 1
     child = next(row for name, row in state["candidates"].items() if name not in (parent, weak))
     assert child["parents"] == [parent]
 
@@ -259,7 +267,7 @@ def test_retirement_metadata_ignores_replay_results(monkeypatch):
         state = copy.deepcopy(base)
         monkeypatch.setattr(learner, "performance", lambda *_, value=historical_r:
                             {parent: (50, 1), weak: (1000, value)})
-        assert learner.evolve(state, NOW, force=True) == 1
+        assert evolve_and_admit(state, NOW, force=True) == 1
         assert state["rule_archive"][weak]["retirement"]["mean_r"] == -0.1
 
 
@@ -270,7 +278,7 @@ def test_batch_replacement_does_not_reuse_removed_parent(monkeypatch):
     other = genome_name(other_genome)
     state["samples"] += samples(other, [-0.2] * 50)
     monkeypatch.setattr(learner, "CAP", 3)
-    assert learner.evolve(state, NOW, max_children=2, force=True) == 2
+    assert evolve_and_admit(state, NOW, max_children=2, force=True) == 2
     assert set(state["rule_archive"]) == {weak, other}
     assert all(row["parents"] == [parent] for name, row in state["candidates"].items() if name != parent)
 
@@ -279,7 +287,7 @@ def test_duplicate_parent_can_retire_without_changing_survivor_genome(monkeypatc
     state, parent, weak = state_for([0.2] * 50)
     survivor = copy.deepcopy(state["candidates"][parent])
     monkeypatch.setattr(learner, "CAP", 2)
-    assert learner.evolve(state, NOW, force=True) == 1
+    assert evolve_and_admit(state, NOW, force=True) == 1
     assert weak not in state["candidates"]
     assert state["candidates"][parent] == survivor
     assert state["rule_archive"][weak]["retirement"]["retained_strategy"] == parent

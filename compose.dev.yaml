@@ -52,6 +52,15 @@ services:
       - 'python -m bot.exness_worker'
       - /app/backend/app
       - /app/bot
+  futures-draft-replay:
+    <<: *python-dev
+    command:
+      - watchfiles
+      - --filter
+      - python
+      - 'python -m bot.draft_replay_worker'
+      - /app/backend/app
+      - /app/bot
   migrate:
     <<: *python-dev
   frontend:

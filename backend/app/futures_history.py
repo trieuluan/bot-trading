@@ -25,6 +25,8 @@ from .futures_learner import (
     stats,
     sync_seeds,
 )
+from .futures_research_lock import acquire
+from .futures_retirement import forward_evidence, metrics
 from .futures_rule_tree import nodes
 from .futures_strategies import exit_policy_enabled, regime, strategy_setup, validate_genome
 from .futures_symbols import SYMBOLS, current_symbol, symbol_scope
@@ -38,9 +40,11 @@ LEASE_SECONDS = 1800
 logger = logging.getLogger(__name__)
 
 
-def historical_stats(samples):
-    resolved = [sample for sample in samples if sample["status"] == "resolved"]
+def historical_stats(samples, cutoff=None):
+    resolved = ([sample for rows in forward_evidence({"samples": samples}, cutoff).values() for sample in rows]
+                if cutoff is not None else [sample for sample in samples if sample["status"] == "resolved"])
     result = stats([sample["net_r"] for sample in resolved])
+    result["max_drawdown_r"] = metrics(resolved)["max_drawdown_r"]
     result["signals"] = len(samples)
     result["excluded"] = len(samples) - len(resolved)
     contexts = {}
@@ -54,7 +58,7 @@ def historical_stats(samples):
 
 
 def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None,
-           btc_candles=None, benchmarks=None, oi_history=None):
+           btc_candles=None, benchmarks=None, oi_history=None, strict_samples=False):
     validate_candles(candles)
     validate_candles(fair)
     expected = list(range(start - WARMUP * 900, end, 900))
@@ -121,7 +125,7 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         sample.update(status="excluded", exit_reason="dataset_boundary")
     for row in rows.values():
         for partition in ("train", "validation"):
-            row[partition] = historical_stats(row[partition])
+            row[partition] = historical_stats(row[partition], end if strict_samples else None)
         row["prior_eligible"] = all(
             row[partition]["resolved"] >= 30 and row[partition]["mean_r"] > 0
             and (row[partition]["no_losses"] or (row[partition]["profit_factor"] or 0) > 1.3)
@@ -177,9 +181,25 @@ def load_history(adapter, start, end, now, fair=False):
         candles.extend(adapter.history(cursor, min(end, cursor + 10_000 * 900), now, fair=fair))
     return candles
 
-def run_history(job_id, days, candidates, symbol="BTC_USDT"):
-    with symbol_scope(symbol):
-        _run_history(job_id, days, candidates)
+def run_history(job_id, days, candidates, symbol="BTC_USDT", lease=None):
+    lease = lease or acquire()
+    if lease is None:
+        with symbol_scope(symbol):
+            update_job(job_id, status="failed", error="Futures replay consumer busy")
+        research_lock.release()
+        return
+    try:
+        with symbol_scope(symbol):
+            _run_history(job_id, days, candidates)
+    finally:
+        lease.release()
+
+
+def run_reserved_history(lease, *args):
+    try:
+        run_history(*args, lease)
+    finally:
+        lease.release()
 
 def _run_history(job_id, days, candidates):
     adapter = None
@@ -251,7 +271,11 @@ def get_history():
 def start_history(payload: HistoryRequest, background: BackgroundTasks):
     if not research_lock.acquire(blocking=False):
         raise HTTPException(409, "Đang tải hoặc nghiên cứu dữ liệu; thử lại sau.")
+    lease = None
     try:
+        lease = acquire()
+        if lease is None:
+            raise HTTPException(409, "Một replay Futures khác đang chạy; thử lại sau.")
         check_cooldown()
         now = int(time.time())
         with Session.begin() as session:
@@ -269,8 +293,10 @@ def start_history(payload: HistoryRequest, background: BackgroundTasks):
             candidates = copy.deepcopy({name: candidate for name, candidate in state["candidates"].items()
                                         if exit_policy_enabled(candidate["genome"])})
             save_state(session, state)
-        background.add_task(run_history, job["id"], payload.days, candidates, current_symbol())
+        background.add_task(run_reserved_history, lease, job["id"], payload.days, candidates, current_symbol())
         return job
     except Exception:
+        if lease:
+            lease.release()
         research_lock.release()
         raise

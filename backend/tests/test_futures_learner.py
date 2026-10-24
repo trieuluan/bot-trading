@@ -92,8 +92,9 @@ def test_gate_requires_all_forward_criteria(field, value):
 def test_bounded_unique_children_and_frozen_parents():
     state = learner.new_state(1000)
     before = copy.deepcopy(state["candidates"])
-    seeds = len(SEEDS) + len(RULE_SEEDS) + len(learner.EXIT_SEEDS)
-    assert seeds < len(before) <= 2 * seeds
+    assert len(before) == len({learner.genome_fingerprint(seed) for seed in
+                          [*SEEDS, *RULE_SEEDS, *learner.EXIT_SEEDS, *learner.ENTRY_SEEDS]})
+    assert len(state["drafts"]) == 3
     for name, rule in before.items():
         validate_genome(rule["genome"])
         assert genome_name(rule["genome"]) == name and rule["born_at"] > 1000
@@ -101,7 +102,8 @@ def test_bounded_unique_children_and_frozen_parents():
     state["samples"] = [sample(strategy=name, status="resolved", net_r=1, label_available_at=2000)] * 20
     learner.evolve(state, 30000)
     assert len(state["candidates"]) <= learner.CAP
-    assert len(state["candidates"]) > len(before)
+    assert state["candidates"] == before
+    assert len(state["drafts"]) <= 3
     assert all(state["candidates"][key] == value for key, value in before.items())
     assert mutate(SEEDS[0], random.Random(1)) != SEEDS[0]
 
@@ -329,8 +331,9 @@ def test_htf_seeds_emit_valid_setups_and_sync():
     learner.sync_seeds(state, 2000)
     assert genome_name(old) in state["candidates"]
 
-def test_evolution_uses_history_replaces_weakest_and_keeps_parents():
+def test_evolution_uses_history_queues_child_without_retiring_parent():
     state = learner.new_state(1000)
+    state["drafts"] = {}
     state["candidates"] = dict(list(state["candidates"].items())[:learner.CAP])
     seeds = [n for n, c in state["candidates"].items() if not c["parents"]]
     state["samples"] = [sample(strategy=seeds[0], status="resolved", net_r=2, label_available_at=2000)] * 10
@@ -344,13 +347,15 @@ def test_evolution_uses_history_replaces_weakest_and_keeps_parents():
                                label_available_at=index * 900 + 1800) for index in range(50)]
     parents = {n: c["genome"] for n, c in state["candidates"].items() if not c["generation"]}
     made = learner.evolve(state, 99999, force=True)
-    assert made == 1 and len(state["candidates"]) <= learner.CAP and weak not in state["candidates"]
+    assert made == 1 and len(state["candidates"]) <= learner.CAP and weak in state["candidates"]
+    assert len(state["drafts"]) == 1
     assert all(state["candidates"][n]["genome"] == g for n, g in parents.items())
     assert learner.evolve(state, 99999 + 10) == 0
 
 @pytest.mark.parametrize("parent_count", [1, 2, 4])
 def test_evolution_records_distinct_parents_or_single_mutation(monkeypatch, parent_count):
     state = learner.new_state(1000)
+    state["drafts"] = {}
     state["candidates"] = {name: row for name, row in state["candidates"].items()
                            if row["generation"] == 0}
     parents = list(state["candidates"])[:parent_count]
@@ -359,7 +364,8 @@ def test_evolution_records_distinct_parents_or_single_mutation(monkeypatch, pare
         monkeypatch.setattr(learner, "crossover", lambda *args: pytest.fail("Single parent must only mutate"))
     before = set(state["candidates"])
     assert learner.evolve(state, 99999, force=True) == 1
-    child = next(row for name, row in state["candidates"].items() if name not in before)
+    assert set(state["candidates"]) == before
+    child = next(iter(state["drafts"].values()))
     assert len(child["parents"]) == min(parent_count, 2)
     assert len(set(child["parents"])) == len(child["parents"])
 
@@ -497,6 +503,7 @@ def test_summary_splits_replay_forward_and_paper_counts():
 
 def test_evolution_not_blocked_by_archive_growth():
     state = learner.new_state(0)
+    state["drafts"] = {}
     now = 100000
     state["evolved_at"] = 0
     # Simulate an archive that exceeded previous trial cap of 256

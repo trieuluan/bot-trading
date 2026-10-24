@@ -3,6 +3,7 @@ WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 RUN useradd --create-home trader
+RUN mkdir -p /tmp/futures-replay-cache && chown trader:trader /tmp/futures-replay-cache
 COPY --chown=trader:trader backend /app/backend
 COPY --chown=trader:trader bot /app/bot
 COPY --chown=trader:trader scripts /app/scripts

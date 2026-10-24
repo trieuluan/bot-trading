@@ -110,6 +110,23 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+  futures-draft-replay:
+    <<: *python
+    command: [python, -m, bot.draft_replay_worker]
+    environment:
+      <<: *python-environment
+      FUTURES_DRAFT_REPLAY_ENABLED: ${FUTURES_DRAFT_REPLAY_ENABLED:-false}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1024M
+    volumes:
+      - ./research-output:/app/research-output
+      - futures_replay_cache:/tmp/futures-replay-cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
   frontend:
     build: ./frontend
     ports:
@@ -120,3 +137,4 @@ services:
     restart: unless-stopped
 volumes:
   postgres_data:
+  futures_replay_cache:
