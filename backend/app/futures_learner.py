@@ -56,6 +56,7 @@ from .futures_strategies import (
     validate_genome,
 )
 from .futures_symbols import current_symbol, state_id
+from .futures_wakeup import notify
 from .market import Candle
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_symbol_wallet, lock_wallet
@@ -553,6 +554,7 @@ def learning_tick(now=None, adapter=None):
             evolve(current, now)
             current["error"] = None
             save_state(session, current)
+            notify(session, "auto-paper")
     except (MarketDataError, ValueError) as exc:
         with Session.begin() as session:
             lock_symbol_wallet(session)

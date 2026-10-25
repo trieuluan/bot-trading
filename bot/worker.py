@@ -11,7 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app.auto_paper import auto_tick, baseline_auto_on_startup, report_auto_failure
 from backend.app.db import BotState, Event, MarketState, Session, Signal, utcnow
 from backend.app.feed import sync_market
-from backend.app.futures_symbols import SYMBOLS, symbol_scope
+from backend.app.futures_symbols import SYMBOLS, current_symbol, symbol_scope
+from backend.app.futures_wakeup import WAKEUPS, listen
 from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
 from backend.app.mexc_stream import stream_paper_quotes
@@ -83,9 +84,28 @@ def market_tick():
         logging.exception("Market sync paused; will retry after cooldown")
 
 
+def loop_delay(name, interval, elapsed, now):
+    delay = max(0.1, interval - elapsed)
+    if name == "market-history":
+        next_sync = now // 900 * 900 + 2 + SYMBOLS.index(current_symbol()) * 0.2
+        if next_sync <= now:
+            next_sync += 900
+        delay = min(delay, next_sync - now)
+    return delay
+
+def wait_for_wakeup(wakeup, delay):
+    deadline = time.monotonic() + delay
+    while not stop.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or wakeup.wait(min(0.5, remaining)):
+            return
+
 def run_loop(name, callback, interval):
     # Independent I/O loops: a slow history/funding request must not delay stops.
+    wakeup = WAKEUPS.get((name, current_symbol()))
     while not stop.is_set():
+        if wakeup is not None:
+            wakeup.clear()
         started = time.monotonic()
         try:
             callback()
@@ -99,7 +119,11 @@ def run_loop(name, callback, interval):
                     report_auto_failure()
                 except SQLAlchemyError:
                     logging.exception("Cannot persist auto failure while database is unavailable")
-        stop.wait(max(0.1, interval - (time.monotonic() - started)))
+        delay = loop_delay(name, interval, time.monotonic() - started, time.time())
+        if wakeup is None:
+            stop.wait(delay)
+        else:
+            wait_for_wakeup(wakeup, delay)
 
 def run_symbol_loop(symbol, name, callback, interval, start_delay=0):
     if stop.wait(start_delay):
@@ -128,6 +152,7 @@ def main():
         ("mtf-observation", observation_tick, 15),
     ]
     threads = [threading.Thread(target=run_loop, args=job, name=job[0]) for job in jobs]
+    threads.append(threading.Thread(target=listen, args=(stop,), name="futures-wakeup"))
     threads.extend(threading.Thread(target=stream_paper_quotes, args=(symbol, stop),
                                     name=f"{symbol}-websocket") for symbol in SYMBOLS)
     pair_jobs = [

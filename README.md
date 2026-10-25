@@ -119,6 +119,15 @@ SL/TP/thanh lý; transaction tiền vẫn khoá ví chung. Ghi quote và learner
 dòng theo symbol; riêng BTC vẫn dùng chung dòng 1 với số dư. Không đổi ngưỡng
 vào lệnh 60 giây, độ tươi quote, tín hiệu hoặc Forex.
 
+Nến đóng vẫn lấy qua REST, nhịp dự phòng 15 giây; worker canh thêm lượt đồng bộ
+ở giây 2–3,8 sau mốc M15, lệch nhẹ giữa các cặp. PostgreSQL `LISTEN/NOTIFY`
+đánh thức learner đúng symbol sau khi transaction nến mới commit; learner commit
+quyết định mới thì đánh thức Auto Paper. Listener chỉ báo việc, không tính tín hiệu
+hoặc đặt lệnh. Mỗi vòng xử lý vẫn tuần tự, đọc lại DB và giữ kiểm tra chống trùng.
+Mất listener, restart hoặc dùng SQLite thì tiếp tục polling learner 30 giây và Auto
+5 giây; không tăng tần suất REST liên tục, không đổi WebSocket giá hoặc SL/TP.
+Độ trễ còn phụ thuộc dữ liệu sàn, mạng và kiểm định lịch sử; không bảo đảm 10–15 giây.
+
 Terminal thứ ba:
 
 ```bash

@@ -208,6 +208,8 @@ def test_future_changes_cannot_change_earlier_trades():
 
 
 def test_real_worker_backfills_and_deduplicates(monkeypatch):
+    notifications = []
+    monkeypatch.setattr("backend.app.feed.notify", lambda session, job: notifications.append(job))
     bars = long_history() + [candle(21, 105, 108, 100, 106)]
     with Session.begin() as session:
         state = session.get(MarketState, 1)
@@ -224,13 +226,16 @@ def test_real_worker_backfills_and_deduplicates(monkeypatch):
 
     sync_market(Feed())
     sync_market(Feed())
+    assert notifications == ["futures-learning"]
     with Session() as session:
         signals = list(session.scalars(select(Signal).where(Signal.source == SOURCE)))
         assert len(signals) == 1 and signals[0].candle_time == bars[20].time
         assert session.get(MarketState, 1).last_processed == bars[-1].time
 
 
-def test_market_failure_persists_cursor_and_records_retry():
+def test_market_failure_persists_cursor_and_records_retry(monkeypatch):
+    notifications = []
+    monkeypatch.setattr("backend.app.feed.notify", lambda session, job: notifications.append(job))
     with Session.begin() as session:
         state = session.get(MarketState, 1)
         state.source = SOURCE
@@ -242,6 +247,7 @@ def test_market_failure_persists_cursor_and_records_retry():
 
     with pytest.raises(MarketDataError):
         sync_market(Offline())
+    assert notifications == []
     with Session() as session:
         state = session.get(MarketState, 1)
         assert state.last_processed == BASE and state.error == "offline" and state.retry_at

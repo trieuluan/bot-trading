@@ -145,7 +145,9 @@ def test_auto_executes_only_explicitly_promoted_qualified_rule(ready, promoted):
             assert "range_high" not in decision.parameters["audit"]
 
 
-def test_worker_forward_cursor_restart_dedup_and_fair_coverage():
+def test_worker_forward_cursor_restart_dedup_and_fair_coverage(monkeypatch):
+    notifications = []
+    monkeypatch.setattr(learner, "notify", lambda session, job: notifications.append(job))
     now = 18000005
     stamp = now // 900 * 900 - 900
     state = learner.new_state(now - 3600)
@@ -168,6 +170,7 @@ def test_worker_forward_cursor_restart_dedup_and_fair_coverage():
         first = copy.deepcopy(session.get(FuturesLearningState, 1).payload)
         assert first["cursor"] == stamp and first["error"] is None
     learner.learning_tick(now, Adapter())
+    assert notifications == ["auto-paper"]
     with Session() as session:
         assert session.get(FuturesLearningState, 1).payload == first
 

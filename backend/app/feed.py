@@ -8,6 +8,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import BotState, Event, MarketCandle, MarketState, Session, Signal, utcnow
 from .futures_symbols import market_symbol, state_id
+from .futures_wakeup import notify
 from .market import Candle
 from .mexc import INTERVAL_SECONDS, SOURCE, TIMEFRAME, MarketDataError, MexcFuturesAdapter
 from .strategy import breakout
@@ -93,6 +94,7 @@ def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
             )
             if market.source != SOURCE:
                 return
+            previous_cursor = market.last_processed
             save_candles(session, candles)
             session.flush()
             history = load_candles(
@@ -128,6 +130,8 @@ def sync_market(adapter: MexcFuturesAdapter | None = None) -> None:
             market.last_sync = utcnow()
             market.error = None
             market.retry_at = None
+            if market.last_processed != previous_cursor:
+                notify(session, "futures-learning")
     except MarketDataError as exc:
         with Session.begin() as session:
             market = session.scalar(
