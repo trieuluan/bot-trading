@@ -152,3 +152,10 @@ not silently weaken the gate; open-position risk management must continue.
 No package or checkpoint was downloaded, no inference was run, and no VPS
 latency or profitability claim has been established. Any historical evaluation
 must also audit checkpoint training overlap with the evaluation interval.
+
+## Update 2026-10-25: 2/3
+
+H4 gate relaxed from 3/3 to 2/3: EMA50 trend is mandatory plus at least one of
+the two confirmations. Genome schema, fingerprints and learner version are
+unchanged; only `matches()` evaluation changed. Forward samples collected
+before this change used 3/3. 2/3 is weaker evidence than 3/3.

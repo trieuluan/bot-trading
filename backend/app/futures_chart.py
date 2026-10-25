@@ -192,7 +192,7 @@ def rule_overlays(rule, candles, lookback, context=None):
         elif feat in H4_FEATURES:
             message = ("Đồng thuận BTC và 10 coin trên H4 đã đóng; thiếu dữ liệu thì không đạt."
                        if feat == "market_alignment" else
-                       "Xác nhận từ giá H4 đã đóng; EMA50 và hai xác nhận phải cùng đạt.")
+                       "Xác nhận từ giá H4 đã đóng; EMA50 bắt buộc, cần thêm ít nhất 1/2 xác nhận H4.")
         else:
             message = "Bộ lọc dữ liệu ngoài giá/phiên; trạng thái tính theo dữ liệu bot, không vẽ đường giá giả."
         if matched and bars and feat in (*CANDLE_PATTERNS, "candle_direction", "breakout", "sweep", "wick_sweep",

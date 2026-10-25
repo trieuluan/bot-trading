@@ -29,15 +29,18 @@ def bars(direction=1, count=960):
                    201 + direction * index * .1, 100) for index in range(count)]
 
 
-def test_h4_requires_ema_and_both_confirmations():
+def test_h4_requires_ema_and_one_of_two_confirmations():
     slot = h4_consensus(("ema_distance", "ema_slope"))
     assert matches(slot, bars(), 1, 20)
     assert not matches(slot, bars(), -1, 20)
-    slot["children"][2]["feature"] = "swing_structure"
-    assert not matches(slot, bars(), 1, 20)
-    slot["children"][1]["feature"] = "ema_slope"
-    assert not matches(slot, bars(), 1, 20)
-
+    slot["children"][2]["feature"] = "swing_structure"  # xác nhận 1 đạt, 2 không
+    assert matches(slot, bars(), 1, 20)
+    slot["children"][1]["feature"] = "market_alignment"
+    assert not matches(slot, bars(), 1, 20)  # 0 xác nhận
+    flat = bars(count=960)
+    for index, bar in enumerate(flat):
+        flat[index] = Candle(bar.time, 300, 301, 299, 300, 100)
+    assert not matches(h4_consensus(("ema_distance", "ema_slope")), flat, 1, 20)  # không EMA50
 
 def test_consensus_preserves_depth_and_node_budget_for_h1_m15():
     rule = copy.deepcopy(RULE_SEEDS[0]["rule"])

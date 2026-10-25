@@ -462,6 +462,10 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
     if "op" in rule:
         children = rule["children"]
         if rule["op"] == "all":
+            if consensus_slot(rule):  # ponytail: H4 = EMA50 + ít nhất 1/2 xác nhận; đổi schema khi cần ngưỡng khác
+                return (matches(children[0], candles, direction, lookback, anchor, context)
+                        and any(matches(child, candles, direction, lookback, anchor, context)
+                                for child in children[1:]))
             return all(matches(child, candles, direction, lookback, anchor, context) for child in children)
         if rule["op"] == "any":
             return any(matches(child, candles, direction, lookback, anchor, context) for child in children)
@@ -679,6 +683,8 @@ def describe_rule(rule):
     if rule["op"] == "then":
         frame = "H1" if all(node["frame"] == "H1" for _, node in nodes(rule) if "feature" in node) else "M15"
         return f'({descriptions[0]}) rồi trong {rule["within"]} nến {frame} ({descriptions[1]})'
+    if rule["op"] == "all" and consensus_slot(rule):
+        return f"({descriptions[0]} VÀ ít nhất 1 trong: {descriptions[1]}; {descriptions[2]})"
     return "(" + (" VÀ " if rule["op"] == "all" else " HOẶC ").join(descriptions) + ")"
 
 
