@@ -132,3 +132,37 @@ test('no-target policies separate reference target from their own exit threshold
   assert.match(riskParts(ladder).manage, /1.5R và 3R: mỗi bậc chốt 20%/);
   assert.match(riskParts(ladder).manage, /đóng hết tại 4.5R/);
 });
+
+test('howToPlay renders H4 consensus slot with EMA50 mandatory and 1-of-2 confirmations', () => {
+  const g = {
+    family: 'rule_tree',
+    lookback: 20,
+    target_r: 2,
+    stop_buffer: 0.2,
+    exit_policy: 'adaptive',
+    entry_policy: 'market',
+    rule: {
+      op: 'all',
+      children: [
+        {
+          op: 'all',
+          children: [
+            { feature: 'trend', frame: 'H4' },
+            { feature: 'swing_structure', frame: 'H4' },
+            { feature: 'market_alignment', frame: 'H4' },
+          ],
+        },
+        { feature: 'breakout', frame: 'H1' },
+        { feature: 'volume', frame: 'M15' },
+      ],
+    },
+  };
+  const steps = howToPlay(g, 'stop');
+  const h4 = steps.find((s) => s.label === 'Tín hiệu H4');
+  assert.ok(h4);
+  assert.equal(h4.text, 'Xu hướng EMA50 bắt buộc + ít nhất 1 trong 2 xác nhận (2/3):');
+  assert.deepEqual(h4.items, [
+    'Hai đỉnh và hai đáy cùng hướng, pivot xác nhận 2 nến',
+    'BTC cùng chiều và ít nhất 5/10 coin đồng thuận H4',
+  ]);
+});

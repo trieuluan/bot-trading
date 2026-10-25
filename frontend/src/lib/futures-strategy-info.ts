@@ -395,6 +395,20 @@ export function howToPlay(g: Genome, _stop: string): PlayStep[] {
     rule && 'op' in rule && rule.op === 'all'
       ? rule.children.map((child) => {
           const frame = frames(child).join('/');
+          if (
+            'op' in child &&
+            child.op === 'all' &&
+            child.children.length === 3 &&
+            frames(child).join() === 'H4' &&
+            'feature' in child.children[0] &&
+            child.children[0].feature === 'trend'
+          ) {
+            return {
+              label: `Tín hiệu ${frame}`,
+              text: 'Xu hướng EMA50 bắt buộc + ít nhất 1 trong 2 xác nhận (2/3):',
+              items: child.children.slice(1).map((c) => ruleName(c, false)),
+            };
+          }
           const all = 'op' in child && child.op === 'all' ? 'Cần đủ' : '';
           const any = 'op' in child && child.op === 'any' ? 'Một trong' : '';
           const seq =
