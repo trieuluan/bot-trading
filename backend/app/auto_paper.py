@@ -40,7 +40,6 @@ from .paper import (
     leverage_limits,
     lock_wallet,
     master,
-    open_positions,
     portfolio,
     portfolio_risk_limits,
     stop_risk_per_unit,
@@ -295,10 +294,10 @@ def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
 
 def sync_pending_orders(now=None):
     """Closed-bar fills for queued orders; same trade-through/stop-first rules as the entry replay."""
-    now = time.time() if now is None else now
-    end = int(now) // 900 * 900
     with Session.begin() as session:
         wallet = lock_wallet(session)
+        now = time.time() if now is None else now
+        end = int(now) // 900 * 900
         orders = session.scalars(select(PaperPendingOrder).where(
             PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")).all()
         if not orders:
@@ -322,8 +321,6 @@ def sync_pending_orders(now=None):
                 continue
             roll_day(session, wallet, state, now)
             reason = limit_reason(session, wallet, state, now)
-            if any((trade.monitoring or {}).get("status") == "history_pending" for trade in open_positions(session)):
-                reason = "Thiếu dữ liệu đối soát SL/TP"
             if reason:
                 close_pending(session, order, "cancelled", reason)
                 continue
@@ -394,9 +391,9 @@ def auto_tick(now=None):
                 set_status(session, state, exc.detail)
 
 def _auto_tick(now=None):
-    now = time.time() if now is None else now
     with Session.begin() as session:
         wallet = lock_wallet(session)
+        now = time.time() if now is None else now
         state = session.get(AutoPaperState, state_id())
         if state is None:
             return
@@ -410,10 +407,6 @@ def _auto_tick(now=None):
             blocked(session, state, now, exc.detail)
             return
         roll_day(session, wallet, state, now)
-        positions = open_positions(session)
-        if any((p.monitoring or {}).get("status") == "history_pending" for p in positions):
-            blocked(session, state, now, "Vị thế đang thiếu dữ liệu đối soát SL/TP; chờ đồng bộ nến")
-            return
         reason = limit_reason(session, wallet, state, now)
         if reason:
             state.enabled = False
@@ -618,6 +611,7 @@ def auto_snapshot(learning=None):
     with Session.begin() as session:
         wallet = lock_wallet(session)
         state = session.get(AutoPaperState, state_id())
+        now = time.time()
         try:
             fresh_quote(wallet, now)
             portfolio(session, require_fresh=True, now=now)
@@ -656,9 +650,9 @@ def configure_auto(payload: AutoConfig):
 
 @router.post("/control")
 def control_auto(payload: AutoControl):
-    now = time.time()
     with Session.begin() as session:
         wallet = lock_wallet(session)
+        now = time.time()
         state = session.get(AutoPaperState, state_id())
         if state is None:
             raise HTTPException(503, "Run migrations")

@@ -51,6 +51,29 @@ def test_reject_invalid_ticker(updates):
     assert mexc_stream.parse_ticker(ticker(**updates), "BTC_USDT") is None
 
 
+def test_rest_quote_is_saved_even_if_lock_wait_ages_it_before_stop_check(monkeypatch):
+    now = time.time()
+    contract = dict(contractSize=0.001, volUnit=1, minVol=1, maxVol=100000000, priceUnit=0.1)
+    paper.persist_paper_quote(mexc_stream.parse_ticker(ticker(now=now), "BTC_USDT"), contract)
+    assert TestClient(app).post("/api/paper/orders", json={
+        "request_id": str(uuid4()), "side": "long", "notional": 1000, "stop": 90, "target": 120,
+    }).status_code == 200
+    quote = mexc_stream.parse_ticker(ticker(101, now=now + 1), "BTC_USDT", now + 1)
+    clock = [now + 1]
+    real_lock = paper.lock_wallet
+    calls = [0]
+    def delayed_lock(session):
+        calls[0] += 1
+        if calls[0] == 2:
+            clock[0] += paper.QUOTE_TTL + 1
+        return real_lock(session)
+    monkeypatch.setattr(paper.time, "time", lambda: clock[0])
+    monkeypatch.setattr(paper, "lock_wallet", delayed_lock)
+    assert paper.persist_paper_quote(quote)
+    with Session() as session:
+        assert session.get(PaperWallet, 1).quote["lastPrice"] == 101
+        assert session.get(PaperTrade, 1).exit_time is None
+
 def test_validate_channel_symbol_and_timestamps():
     now = time.time()
     assert mexc_stream.parse_ticker(ticker(now=now), "BTC_USDT", now)["bid1"] == 99.9

@@ -885,7 +885,7 @@ export function PaperTradingPage({
           </div>
           {positions.some((position) => position.monitoring?.status === 'history_pending') && (
             <p className="negative" role="status">
-              Thiếu nến đối soát SL/TP; Auto Paper chờ. SL/TP theo quote hiện tại vẫn chạy.
+              Thiếu nến đối soát SL/TP; đang chờ đồng bộ. Auto Paper và SL/TP theo quote hiện tại vẫn chạy.
             </p>
           )}
           {positions.length ? (

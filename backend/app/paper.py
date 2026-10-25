@@ -322,14 +322,10 @@ def reconcile_stops(session, wallet, trade, now):
                 "reversed_funding": reversed_funding,
             }
             close_position(session, wallet, trade, reason, now, price=fill, exit_time=exit_time)
-            state = session.get(AutoPaperState, state_id())
-            if state:
-                state.enabled = False
-                state.status = "Đã dừng Auto Paper: đối soát SL/TP lịch sử; kiểm tra ví trước khi bật lại"
             session.add(Event(kind="paper", message=(
                 f"PAPER #{trade.id}: nến {resolution} {hit.time} chạm {'SL' if stopped else 'TP'}; "
                 f"khớp giả lập {fill:.2f} USDT; thời gian trong nến là ước lượng. "
-                "Nếu vẫn cùng chạm cả SL và TP thì ưu tiên SL. Auto Paper đã dừng."
+                "Nếu vẫn cùng chạm cả SL và TP thì ưu tiên SL."
             )))
             return
         policy = monitoring.get("exit_policy", "fixed")
@@ -415,9 +411,9 @@ def reconcile_stops(session, wallet, trade, now):
 
 
 def sync_paper_stops(now=None):
-    now = time.time() if now is None else now
     with Session.begin() as session:
         wallet = lock_wallet(session)
+        now = time.time() if now is None else now
         for trade in open_positions(session):
             reconcile_stops(session, wallet, trade, now)
 
@@ -461,8 +457,18 @@ def persist_paper_quote(quote, contract=None, realtime=False):
                                                 hold_vol=quote["holdVol"]))
         wallet.error = None
         wallet.retry_at = None
-        liquidate_cross(session, time.time())
-        apply_stops(session, wallet, time.time(), reconcile=not realtime)
+        if realtime:
+            liquidate_cross(session, time.time())
+            apply_stops(session, wallet, time.time(), reconcile=False)
+    if not realtime:
+        try:
+            with Session.begin() as session:
+                wallet = lock_wallet(session)
+                liquidate_cross(session, time.time())
+                apply_stops(session, wallet, time.time())
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
     return True
 
 def sync_paper_quote(adapter=None):

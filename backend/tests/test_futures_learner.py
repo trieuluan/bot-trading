@@ -171,6 +171,36 @@ def test_worker_forward_cursor_restart_dedup_and_fair_coverage():
     with Session() as session:
         assert session.get(FuturesLearningState, 1).payload == first
 
+def test_worker_forward_discards_stale_result_if_state_changed_during_calculation(monkeypatch):
+    now = 18000005
+    stamp = now // 900 * 900 - 900
+    state = learner.new_state(now - 3600)
+    bars = [Candle(stamp - offset * 900, 100, 101, 99, 100, 1) for offset in reversed(range(30))]
+    state["cursor"] = stamp - 900
+    with Session.begin() as session:
+        session.get(MarketState, 1).source = "mexc_futures"
+        learner.save_state(session, state)
+        save_candles(session, bars)
+
+    class Adapter:
+        def history(self, start, end, now, fair=False):
+            return [bar for bar in bars if start <= bar.time < end]
+
+        def funding_history(self, start, end):
+            return []
+
+    real_step = learner.step
+    def changing_step(*args, **kwargs):
+        with Session.begin() as session:
+            row = session.get(FuturesLearningState, 1)
+            row.payload = {**row.payload, "auto_mode": "paper_learning"}
+        return real_step(*args, **kwargs)
+    monkeypatch.setattr(learner, "step", changing_step)
+    learner.learning_tick(now, Adapter())
+    with Session() as session:
+        payload = session.get(FuturesLearningState, 1).payload
+        assert payload["auto_mode"] == "paper_learning" and payload["cursor"] == stamp - 900
+
 
 def test_step_idempotent_and_rejects_missing_bar():
     state = learner.new_state(1)
@@ -236,6 +266,8 @@ def test_paper_learning_uses_unqualified_signal_and_records_selection(ready, mon
     stamp = seed()
     state = learner.new_state(clock[0] - 3600)
     state["auto_mode"] = "paper_learning"
+    for cand in state["candidates"].values():
+        cand["genome"]["entry_policy"] = "market"
     monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=105, stop=90, target=135, reason="paper learning test"))
     bars = [Candle(stamp, 100, 106, 99, 105, 1)]

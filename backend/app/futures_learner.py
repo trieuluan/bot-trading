@@ -511,6 +511,8 @@ def learning_tick(now=None, adapter=None):
                                                      start + WINDOW_SECONDS)
     owns_adapter = adapter is None
     adapter = adapter or MexcFuturesAdapter()
+    input_keys = ("version", "enabled", "auto_mode", "cursor", "samples", "candidates",
+                  "historical", "last_decision", "error")
     try:
         validate_candles(candles)
         first = cursor + 900 if cursor is not None else end - 900
@@ -530,21 +532,25 @@ def learning_tick(now=None, adapter=None):
             validation_fair = adapter.history(history[0].time, start + WINDOW_SECONDS, now, fair=True)
             validation_funding = adapter.funding_history(history[0].time, start + WINDOW_SECONDS)
             contract = adapter.contract_info()
+        work = copy.deepcopy(state)
+        work["funding"] = funding
+        if work["cursor"] is None:
+            work["cursor"] = first - 900
+        for bar, mark in zip(bars, fair):
+            history = [past for past in candles if past.time <= bar.time][-WARMUP:]
+            bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
+            step(work, history, mark, now, oi_history=oi_history, benchmarks=bench_hist)
+        if validation:
+            validate_window(work["candidates"][name], validation[2], validation_fair,
+                            validation_funding, contract, validation_context)
         with Session.begin() as session:
             lock_wallet(session)
             current = read_state(session, now)
-            if not current["enabled"] or current["cursor"] != cursor:
+            if any(current.get(key) != state.get(key) for key in input_keys):
                 return
-            current["funding"] = funding
-            if current["cursor"] is None:
-                current["cursor"] = first - 900
-            for bar, mark in zip(bars, fair):
-                history = [past for past in candles if past.time <= bar.time][-WARMUP:]
-                bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
-                step(current, history, mark, now, oi_history=oi_history, benchmarks=bench_hist)
-            if validation and current["candidates"][name]["windows"] == state["candidates"][name]["windows"]:
-                validate_window(current["candidates"][name], validation[2], validation_fair,
-                                validation_funding, contract, validation_context)
+            current.update({key: work[key] for key in ("funding", "cursor", "samples", "updated_at", "last_decision")})
+            if validation:
+                current["candidates"] = work["candidates"]
             sync_seeds(current, now)
             evolve(current, now)
             current["error"] = None
@@ -553,6 +559,8 @@ def learning_tick(now=None, adapter=None):
         with Session.begin() as session:
             lock_wallet(session)
             current = read_state(session, now)
+            if any(current.get(key) != state.get(key) for key in input_keys):
+                return
             current["error"] = str(exc)
             save_state(session, current)
     finally:

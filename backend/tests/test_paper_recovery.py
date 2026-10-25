@@ -43,7 +43,7 @@ def recovery(monkeypatch):
     ("short", 101, 89, "recovered_take_profit"),
     ("long", 111, 94, "recovered_stop_loss"),
 ])
-def test_crossings_close_at_historical_level_once_and_pause_auto(recovery, side, high, low, reason):
+def test_crossings_close_at_historical_level_once_and_keep_auto(recovery, side, high, low, reason):
     clock, seed = recovery
     cursor = seed(side)
     with Session.begin() as session:
@@ -61,7 +61,7 @@ def test_crossings_close_at_historical_level_once_and_pause_auto(recovery, side,
         assert trade.exit_fee == pytest.approx(trade.exit * trade.quantity * 8 / 10000)
         assert trade.monitoring["trigger_bar"] == cursor
         assert trade.monitoring["ambiguous"] == (high == 111 and low == 94)
-        assert not session.get(AutoPaperState, 1).enabled
+        assert session.get(AutoPaperState, 1).enabled
         balance = session.get(PaperWallet, 1).balance
     sync_paper_quote(Market())
     with Session() as session:
@@ -125,7 +125,8 @@ def test_missing_history_waits_across_restart_then_reconciles(recovery):
         trade = session.get(PaperTrade, 1)
         assert trade.exit_time is None
         assert {k: v for k, v in trade.monitoring.items() if k != "maintenance_margin_rate"} == dict(next_bar=cursor, status="history_pending", gap_logged=True)
-        assert "đối soát" in session.get(AutoPaperState, 1).status
+        assert "đối soát" not in session.get(AutoPaperState, 1).status
+        assert session.get(AutoPaperState, 1).enabled
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
     sync_paper_quote(Market())
@@ -143,7 +144,7 @@ def test_just_closed_bar_gets_feed_grace_before_history_pending(recovery):
         with Session() as session:
             trade = session.get(PaperTrade, 1)
             assert trade.monitoring["status"] == "history_pending" and trade.monitoring["next_bar"] == cursor
-            assert "đối soát" in session.get(AutoPaperState, 1).status
+            assert "đối soát" not in session.get(AutoPaperState, 1).status
             assert sum("thiếu nến" in event.message for event in session.scalars(select(Event))) == logged
     with Session.begin() as session:
         save_candles(session, [Candle(cursor, 100, 101, 94, 100, 1)])
@@ -191,7 +192,7 @@ def test_historical_stops_run_without_fresh_quote_or_network(recovery, monkeypat
         trade = session.get(PaperTrade, 1)
         assert trade.exit_reason == reason
         assert trade.exit_time == cursor + 899
-        assert not session.get(AutoPaperState, 1).enabled
+        assert session.get(AutoPaperState, 1).enabled
         balance = session.get(PaperWallet, 1).balance
     sync_paper_stops(clock[0])
     with Session() as session:
