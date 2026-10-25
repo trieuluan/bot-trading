@@ -10,7 +10,7 @@ import random
 import sys
 import time
 
-from backend.app.db import FuturesLearningState, Session
+from backend.app.db import Session
 from backend.app.futures_learner import active_strategies, read_state, save_state
 from backend.app.futures_rule_tree import H4_CONFIRMATIONS, consensus_slot, h4_consensus
 from backend.app.futures_strategies import (
@@ -18,7 +18,7 @@ from backend.app.futures_strategies import (
     genome_name,
     validate_genome,
 )
-from backend.app.futures_symbols import SYMBOLS, state_id, symbol_scope
+from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.paper import lock_wallet
 
 DEFAULT = ("swing_structure", "market_alignment")
@@ -93,21 +93,25 @@ def run(apply):
     now = int(time.time())
     summary = {}
     for symbol in SYMBOLS:
-        with symbol_scope(symbol), Session.begin() as session:
-            lock_wallet(session)
-            state = read_state(session, now)
-            try:
-                result = diversify(state, active_strategies(session, state), now, f"{symbol}:{now // 900}")
-            except ValueError as error:  # owner of an open order not provable: skip symbol
-                summary[symbol] = {"skipped": str(error)}
-                session.rollback()
-                continue
-            if apply:
-                save_state(session, state)
-            else:
-                session.rollback()
-            summary[symbol] = {key: value for key, value in result.items() if key != "replaced"}
-            assert session.get(FuturesLearningState, state_id()) is not None
+        with symbol_scope(symbol):
+            with Session() as session:
+                lock_wallet(session)
+                state = read_state(session, now)
+                # Archived owners of open orders are known too; they are not candidates, so stay untouched.
+                known = {**state.get("rule_archive", {}), **state["candidates"]}
+                active = active_strategies(session, {**state, "candidates": known})
+                try:
+                    result = diversify(state, active, now, f"{symbol}:{now // 900}")
+                except ValueError as error:  # owner of an open order not provable: skip symbol
+                    summary[symbol] = {"skipped": str(error)}
+                    session.rollback()
+                    continue
+                if apply:
+                    save_state(session, state)
+                    session.commit()
+                else:
+                    session.rollback()
+                summary[symbol] = {key: value for key, value in result.items() if key != "replaced"}
     print(json.dumps({"applied": apply, "summary": summary}, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
