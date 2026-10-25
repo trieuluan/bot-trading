@@ -547,3 +547,118 @@ def test_evolution_not_blocked_by_archive_growth():
     ]
     made = learner.evolve(state, now, force=True)
     assert made == 1
+
+
+def test_aggregation_cache_reuses_result_and_cleans_up():
+    from backend.app.strategy import aggregate, aggregation_cache
+    bars = [candle(index) for index in range(20)]
+    with aggregation_cache():
+        first = aggregate(bars, 3600)
+        second = aggregate(bars, 3600)
+        assert first is second
+        assert aggregate(bars, 3600, until=bars[10].time) is not first
+    uncached_first = aggregate(bars, 3600)
+    uncached_second = aggregate(bars, 3600)
+    assert uncached_first is not uncached_second
+
+
+def test_aggregation_cache_preserves_cutoffs_gaps_symbols_and_threads():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from backend.app.strategy import aggregate, aggregation_cache
+
+    bars = [candle(index) for index in range(64)]
+    other_symbol = [candle(index, high=200) for index in range(64)]
+    expected = {cutoff: aggregate([bar for bar in bars if bar.time <= cutoff], 14400)
+                for cutoff in (bars[14].time, bars[15].time, bars[31].time)}
+    with aggregation_cache():
+        for cutoff, result in expected.items():
+            assert aggregate(bars, 14400, until=cutoff) == result
+        assert aggregate(bars, 14400) != aggregate(other_symbol, 14400)
+        assert aggregate(bars[:5] + bars[6:16], 14400) == []
+        main_result = aggregate(bars, 3600)
+
+        @aggregation_cache()
+        def in_thread():
+            return aggregate(bars, 3600)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            thread_result = pool.submit(in_thread).result()
+        assert thread_result == main_result and thread_result is not main_result
+    with pytest.raises(ValueError), aggregation_cache():
+        aggregate(bars, 3600)
+        raise ValueError("evaluation failed")
+    assert aggregate(bars, 3600) is not aggregate(bars, 3600)
+
+
+def test_step_skips_chart_and_preserves_decision_with_cache_disabled(monkeypatch):
+    from backend.app.strategy import aggregation_cache
+
+    state = learner.new_state(0)
+    bars = [Candle(index * 900, 100 + index % 7, 110 + index % 7, 90,
+                   102 + index % 6, 1) for index in range(1600)]
+    before = copy.deepcopy(state)
+    without_cache = copy.deepcopy(state)
+
+    def forbid_chart(*args, **kwargs):
+        raise AssertionError("Realtime learner must not compute chart overlays")
+
+    monkeypatch.setattr(learner, "strategy_chart", forbid_chart)
+    learner.step(state, bars, bars[-1], bars[-1].time + 900)
+    learner.step.__wrapped__(without_cache, bars, bars[-1], bars[-1].time + 900)
+    assert state == without_cache
+    assert before["candidates"] == state["candidates"]
+    assert all(not row.get("curves") and not row.get("overlay_details")
+               for row in state["last_decision"]["strategies"])
+    assert state["last_decision"]["chart_context"]["fair_candles"][0]["time"] == bars[-1].time
+    with aggregation_cache():
+        for candidate in state["candidates"].values():
+                assert learner.strategy_setup(candidate["genome"], bars, []) == learner.strategy_setup(
+                    candidate["genome"], list(bars), [])
+
+
+def test_get_strategy_chart_endpoint(ready):
+    clock, seed = ready
+    seed()
+    candles = [candle(offset) for offset in range(30)]
+    with Session.begin() as session:
+        save_candles(session, candles)
+        state = learner.read_state(session, clock[0])
+        name = next(iter(state["candidates"]))
+        state["funding"] = [{"time": 0, "rate": 0.0001}]
+        state["last_decision"] = {
+            "time": candles[-1].time, "regime": "trend", "candidates": 1,
+            "mode": "paper_learning", "auto_mode": "paper_learning",
+            "selection_reason": "test", "selected": name, "setup": None,
+            "strategies": [{"strategy": name, "status": "no_signal", "side": None, "setup": None}],
+            "chart_context": {"fair_candles": [candles[-1].__dict__]},
+        }
+        learner.save_state(session, state)
+
+    response = client.get(
+        f"/api/workspaces/mexc_futures/learning/chart?candle_time={candles[-1].time}&strategies={name}"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["time"] == candles[-1].time
+    assert len(data["strategies"]) == 1
+    assert data["strategies"][0]["strategy"] == name
+    genome = state["candidates"][name]["genome"]
+    expected = learner.strategy_chart(genome, candles, {
+        "funding": state["funding"], "fair_candles": [candles[-1]], "benchmarks": {},
+        "funding_threshold": genome["funding_threshold"], "max_er": genome["max_er"],
+    })
+    assert all(data["strategies"][0][key] == value for key, value in expected.items())
+    with Session() as session:
+        assert learner.read_state(session, clock[0]) == state
+    assert client.get(
+        f"/api/workspaces/mexc_futures/learning/chart?candle_time={candles[-1].time - 900}&strategies={name}"
+    ).status_code == 409
+    assert client.get(
+        f"/api/workspaces/mexc_futures/learning/chart?candle_time={candles[-1].time}&strategies=unknown"
+    ).status_code == 404
+    assert client.get(
+        f"/api/workspaces/mexc_futures/learning/chart?candle_time={candles[-1].time}&strategies={name}",
+        headers={"X-Futures-Symbol": "ETH_USDT"},
+    ).status_code == 409
+    assert client.get("/api/workspaces/mexc_futures/learning/chart?candle_time=0&strategies=").status_code == 422

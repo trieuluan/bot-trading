@@ -109,6 +109,10 @@ python -m bot.worker
 
 Futures learner chạy riêng: `python -m bot.learning_worker` (Compose tự chạy service
 `futures-learning`, giới hạn 1 CPU/1 GiB). Bot realtime không chạy `learning_tick`.
+Learner chỉ tính tín hiệu/mẫu; lớp vẽ được tải theo các cây đang xem qua
+`GET /api/workspaces/mexc_futures/learning/chart`, không ghi chart vào JSON mỗi nến.
+H1/H4 dùng chung kết quả gộp trong một lượt đánh giá, tách theo luồng và đầu vào;
+cache được xoá sau mỗi lượt, không dùng lại giữa symbol hoặc mốc replay.
 Khi nâng cấp cần thay cả container `bot` cũ và khởi động `futures-learning`, tránh
 chạy learner hai nơi hoặc thiếu learner. Quote được commit trước transaction
 SL/TP/thanh lý; transaction tiền vẫn khoá ví chung. Ghi quote và learner chỉ khoá

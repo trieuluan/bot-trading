@@ -9,7 +9,7 @@ from dataclasses import asdict
 from statistics import mean
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
@@ -56,9 +56,10 @@ from .futures_strategies import (
     validate_genome,
 )
 from .futures_symbols import current_symbol, state_id
+from .market import Candle
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_symbol_wallet, lock_wallet
-from .strategy import Setup
+from .strategy import Setup, aggregation_cache
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 8 / 10000, 2 / 10000
@@ -378,6 +379,7 @@ def admit_drafts(state, now, protected):
         admitted += 1
     return admitted
 
+@aggregation_cache()
 def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None):
     bar = candles[-1]
     if state["cursor"] is not None and bar.time <= state["cursor"]:
@@ -401,11 +403,6 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
             kwargs["fair_candles"] = [fair]
         setup = strategy_setup(candidate["genome"], candles, state["funding"], **kwargs)
-        observation.update(strategy_chart(candidate["genome"], candles, {
-            **kwargs, "funding": state["funding"],
-            "funding_threshold": candidate["genome"]["funding_threshold"],
-            "max_er": candidate["genome"]["max_er"],
-        }))
         observation["status"] = "no_signal"
         if setup is None:
             continue
@@ -443,6 +440,7 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         "selection_reason": selection_reason,
         "selected": pick["name"] if pick else None,
         "setup": asdict(pick["setup"]) if pick else None,
+        "chart_context": {"fair_candles": [asdict(fair)]},
         **({"entry_policy": state["candidates"][pick["name"]]["genome"].get("entry_policy", "market"),
             "level": entry_fields(state["candidates"][pick["name"]]["genome"], candles,
                                   pick["setup"], bar.time).get("level")} if pick else {}),
@@ -759,6 +757,44 @@ def get_learning():
         result = summary(read_state(session, now), now, paper_by_strategy(session))
         result["draft_worker"] = worker_status(session)
         return result
+
+@router.get("/chart")
+def get_strategy_chart(candle_time: int, strategies: str = Query(min_length=1, max_length=16384)):
+    now = int(time.time())
+    names = tuple(sorted(set(strategies.split(","))))
+    if len(names) > 128:
+        raise HTTPException(422, "Too many strategy overlays")
+    with Session() as session:
+        state = read_state(session, now, copy_payload=False)
+        decision = state.get("last_decision")
+        if not decision or decision["time"] != candle_time or candle_time + 900 > now:
+            raise HTTPException(409, "Strategy decision changed; refresh chart")
+        observations = {row["strategy"]: row for row in decision.get("strategies", [])}
+        if any(name not in observations or name not in state["candidates"] for name in names):
+            raise HTTPException(404, "Unknown strategy in this decision")
+        genomes = {name: state["candidates"][name]["genome"] for name in names}
+    @aggregation_cache()
+    def build():
+        with Session() as session:
+            candles = load_candles(session, limit=WARMUP, until=candle_time + 900)
+            if not candles or candles[-1].time != candle_time:
+                raise HTTPException(503, "Missing decision candles for chart")
+            context = load_signal_context(session, candles[0].time, candle_time + 900)
+        context.update(funding=state["funding"], fair_candles=[
+            Candle(**bar) for bar in decision.get("chart_context", {}).get("fair_candles", [])])
+        rows = []
+        for name, genome in genomes.items():
+            observation = observations[name]
+            chart = {}
+            if observation["status"] not in ("warming_up", "paused"):
+                chart = strategy_chart(genome, candles, {
+                    **context, "funding_threshold": genome["funding_threshold"],
+                    "max_er": genome["max_er"],
+                })
+            rows.append({**observation, **chart, "genome": genome})
+        return {"time": candle_time, "strategies": rows}
+
+    return build()
 
 
 class LearningConfig(BaseModel):

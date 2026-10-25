@@ -438,7 +438,7 @@ def h4_matches(feature, rows, candles, direction, context):
             return False
         market = {next(iter(missing)): rows}
         for symbol, bars in peers.items():
-            closed = aggregate([bar for bar in bars if bar.time <= candles[-1].time], FRAMES["H4"])
+            closed = aggregate(bars, FRAMES["H4"], until=candles[-1].time)
             if [bar.time for bar in closed[-50:]] != [bar.time for bar in rows[-50:]]:
                 return False
             market[symbol] = closed
@@ -581,8 +581,10 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         if "BTC_USDT" in benchmarks:
             benchmarks = {"BTC_USDT": benchmarks["BTC_USDT"]}
         for benchmark in benchmarks.values():
-            closed = [bar for bar in benchmark if bar.time <= candles[-1].time]
-            peer = frame_rows(closed, rule["frame"])[-lookback - 1:]
+            closed = ([bar for bar in benchmark if bar.time <= candles[-1].time]
+                      if rule["frame"] == "M15" else
+                      aggregate(benchmark, FRAMES[rule["frame"]], until=candles[-1].time))
+            peer = closed[-lookback - 1:]
             if [bar.time for bar in peer] != [bar.time for bar in reference]:
                 return False
             returns.append(peer[-1].close / peer[0].close - 1)

@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from .market import Candle
@@ -91,14 +93,31 @@ def retest(
     return None
 
 
-def aggregate(candles: list[Candle], seconds: int) -> list[Candle]:
+_aggregations = ContextVar("strategy_aggregations", default=None)
+
+@contextmanager
+def aggregation_cache():
+    """Share immutable candle aggregates only within this evaluation/thread."""
+    token = _aggregations.set({})
+    try:
+        yield
+    finally:
+        _aggregations.reset(token)
+
+def aggregate(candles: list[Candle], seconds: int, *, until: int | None = None) -> list[Candle]:
     """Closed higher-timeframe bars from contiguous 15m bars; partial buckets are dropped."""
     if seconds not in (3600, 14400):
         raise ValueError("Higher timeframe must be 1h or 4h")
+    cache = _aggregations.get()
+    key = (id(candles), seconds, until)
+    if cache is not None and key in cache:
+        return cache[key][1]
     groups: dict[int, list[Candle]] = {}
     for c in candles:
+        if until is not None and c.time > until:
+            continue
         groups.setdefault(c.time // seconds, []).append(c)
-    return [
+    result = [
         Candle(
             g[0].time,
             g[0].open,
@@ -112,6 +131,9 @@ def aggregate(candles: list[Candle], seconds: int) -> list[Candle]:
         and g[0].time % seconds == 0
         and all(current.time - previous.time == 900 for previous, current in zip(g, g[1:]))
     ]
+    if cache is not None:
+        cache[key] = (candles, result)
+    return result
 
 
 def mtf_scan(

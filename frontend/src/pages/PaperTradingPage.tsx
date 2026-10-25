@@ -18,7 +18,7 @@ import {
   openPaperOrder,
   closePaperPosition,
 } from '../lib/api';
-import type { AutoPaperState, PaperWallet } from '../types/paper';
+import type { AutoPaperState, FuturesStrategyObservation, PaperWallet } from '../types/paper';
 import { subscribeFuturesStream } from '../lib/futures-stream';
 import { useMexcLiveCandle } from '../hooks/useMexcLiveCandle';
 import { withLiveCandle } from '../lib/mexc-stream';
@@ -339,10 +339,52 @@ export function PaperTradingPage({
     ),
   ];
   const shownNames = chartAuto ? autoNames : chartStrategies;
+  const chartKey = botFresh && shownNames.length
+    ? JSON.stringify([symbol, learningDecision!.time, [...shownNames].sort()])
+    : '';
+  const [chartLayers, setChartLayers] = useState<{
+    key: string;
+    rows: FuturesStrategyObservation[];
+    error?: string;
+  }>({ key: '', rows: [] });
+  useEffect(() => {
+    if (!chartKey) return;
+    const [pair, time, names] = JSON.parse(chartKey) as [string, number, string[]];
+    const controller = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      try {
+        const query = new URLSearchParams({ candle_time: String(time), strategies: names.join(',') });
+        const response = await fetch(`/api/workspaces/mexc_futures/learning/chart?${query}`, {
+          headers: { 'X-Futures-Symbol': pair },
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json() as { time: number; strategies: FuturesStrategyObservation[] };
+        if (data.time !== time) throw new Error('Mốc nến đã thay đổi');
+        if (!controller.signal.aborted) setChartLayers({ key: chartKey, rows: data.strategies });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setChartLayers({ key: chartKey, rows: [], error: String(error) });
+        retry = setTimeout(load, 5000);
+      }
+    };
+    void load();
+    return () => {
+      controller.abort();
+      clearTimeout(retry);
+    };
+  }, [chartKey]);
   const observations = botFresh
     ? strategyRows
         .filter((row) => shownNames.includes(row.strategy))
-        .map((row) => ({ ...row, time: learningDecision!.time }))
+        .map((row) => ({
+          ...row,
+          ...(chartLayers.key === chartKey
+            ? chartLayers.rows.find((layer) => layer.strategy === row.strategy)
+            : undefined),
+          time: learningDecision!.time,
+        }))
     : [];
   const selectedRow = strategyRows.find((row) => row.strategy === learningDecision?.selected);
   const selectedTitle = selectedRow ? chartStrategyText(selectedRow).title : '';
@@ -589,6 +631,13 @@ export function PaperTradingPage({
                 markStale={stale}
                 onLoadOlder={historicalId === null ? (bars) => void loadOlder(bars) : undefined}
               />
+              {chartKey && (chartLayers.key !== chartKey || chartLayers.error) && (
+                <p className="muted" role="status">
+                  {chartLayers.key === chartKey && chartLayers.error
+                    ? `Chưa tải được lớp chiến thuật (${chartLayers.error}); đang thử lại. Không ảnh hưởng bot.`
+                    : 'Đang tải lớp chiến thuật đã chọn…'}
+                </p>
+              )}
               {olderError && (
                 <p className="negative" role="alert">
                   {olderError}
