@@ -243,6 +243,7 @@ const RETIRE_REASON: Record<string, [string, string]> = {
   negative_forward_r: ['R forward âm', 'bad'],
   forward_drawdown: ['Drawdown ≥10R', 'warn'],
   redundant_forward: ['Trùng cây tốt hơn', 'info'],
+  h4_diversified: ['Đa dạng H4', 'info'],
 };
 
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
