@@ -188,6 +188,63 @@ function ParentChip({
   );
 }
 
+const PAGE = { cards: 12, retired: 10 };
+const clampPage = (page: number, total: number, size: number) =>
+  Math.min(page, Math.max(1, Math.ceil(total / size)));
+
+function Pager({
+  total,
+  page,
+  size,
+  onPage,
+  unit,
+}: {
+  total: number;
+  page: number;
+  size: number;
+  onPage: (page: number) => void;
+  unit: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (total <= size) return null;
+  const from = (page - 1) * size + 1;
+  return (
+    <nav className="evo-pager" aria-label={`Phân trang ${unit}`}>
+      <span>
+        {from}–{Math.min(page * size, total)} / {total} {unit}
+      </span>
+      <div>
+        <button type="button" disabled={page <= 1} onClick={() => onPage(1)} aria-label="Trang đầu">
+          «
+        </button>
+        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          ‹ Trước
+        </button>
+        <b>
+          {page} / {pages}
+        </b>
+        <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          Tiếp ›
+        </button>
+        <button
+          type="button"
+          disabled={page >= pages}
+          onClick={() => onPage(pages)}
+          aria-label="Trang cuối"
+        >
+          »
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+const RETIRE_REASON: Record<string, [string, string]> = {
+  negative_forward_r: ['R forward âm', 'bad'],
+  forward_drawdown: ['Drawdown ≥10R', 'warn'],
+  redundant_forward: ['Trùng cây tốt hơn', 'info'],
+};
+
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
   const [data, setData] = useState<Learning | null>(null);
   const [replay, setReplay] = useState<FuturesHistoryJob | null>(null);
@@ -201,11 +258,18 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const [sort, setSort] = useState('score');
   const [tab, setTab] = useState<'forward' | 'drafts'>('forward');
   const [detail, setDetail] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [retiredPage, setRetiredPage] = useState(1);
+  const [paperPage, setPaperPage] = useState(1);
   const dialog = useRef<HTMLDialogElement>(null);
   // Native modal: focus trap, Escape and backdrop come from the browser.
   useEffect(() => {
     if (detail && !dialog.current?.open) dialog.current?.showModal();
   }, [detail]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [family, query, status, showPaused, gen, sort]);
 
   useEffect(() => {
     let active = true;
@@ -301,6 +365,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
       a.strategy.localeCompare(b.strategy)
     );
   });
+  const cardPage = clampPage(page, sorted.length, PAGE.cards);
+  const treePage = clampPage(retiredPage, data?.retired_strategies?.length ?? 0, PAGE.retired);
+  const paperPageNow = clampPage(paperPage, data?.retired_paper?.length ?? 0, PAGE.retired);
   const modes = [
     ['paper_learning', 'Học thử Paper', { enabled: true, auto_mode: 'paper_learning' }],
     ['learner', 'Chỉ đã duyệt', { enabled: true, auto_mode: 'learner' }],
@@ -590,7 +657,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 })()}
               </dialog>
               <div className="evo-grid">
-                {sorted.map((row) => {
+                {sorted.slice((cardPage - 1) * PAGE.cards, cardPage * PAGE.cards).map((row) => {
                   const learned = row.learned_mean_r;
                   const tone = learned === null ? '' : learned > 0 ? 'good' : 'bad';
                   const info = strategyInfo(row.genome);
@@ -817,117 +884,158 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   );
                 })}
               </div>
+              <Pager
+                total={sorted.length}
+                page={cardPage}
+                size={PAGE.cards}
+                onPage={setPage}
+                unit="chiến thuật"
+              />
               {(data.retired_strategies?.length ?? 0) > 0 && (
                 <details className="evo-retired">
-                  <summary>Cây đã loại ({data.retired_strategies!.length})</summary>
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Cây · thế hệ</th>
-                          <th>Lý do · thời điểm</th>
-                          <th>Mẫu forward đóng</th>
-                          <th>R trung bình</th>
-                          <th>Drawdown R</th>
-                          <th>Cây giữ lại</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.retired_strategies!.map((row) => (
-                          <tr key={row.strategy}>
-                            <td title={row.strategy}>
-                              {strategyShortTitle(row.genome, row.strategy)} · G{row.generation}
-                            </td>
-                            <td>
-                              {row.retirement ? (
-                                <>
-                                  {(
-                                    {
-                                      negative_forward_r: 'R forward âm',
-                                      forward_drawdown: 'Drawdown ≥10R',
-                                      redundant_forward: 'Trùng mẫu forward với cây tốt hơn',
-                                    } as Record<string, string>
-                                  )[row.retirement.reason] ?? row.retirement.reason}
-                                  <small>{formatTime(row.retirement.at)}</small>
-                                </>
-                              ) : (
-                                'Lịch sử cũ · chưa ghi lý do'
-                              )}
-                            </td>
-                            <td>{row.retirement?.samples ?? '—'}</td>
-                            <td>{row.retirement ? `${row.retirement.mean_r.toFixed(2)}R` : '—'}</td>
-                            <td>
-                              {row.retirement
-                                ? `${row.retirement.max_drawdown_r.toFixed(2)}R`
-                                : '—'}
-                            </td>
-                            <td>
-                              <span title={row.retirement?.retained_strategy ?? undefined}>
-                                {row.retirement?.retained_strategy ?? '—'}
-                              </span>
-                              {row.retirement?.overlap && (
-                                <small>
-                                  {row.retirement.overlap.shared} mẫu khớp ·{' '}
-                                  {(100 * row.retirement.overlap.ratio).toFixed(1)}% trùng
-                                </small>
-                              )}
-                            </td>
+                  <summary>
+                    Cây đã loại <span className="evo-count">{data.retired_strategies!.length}</span>
+                  </summary>
+                  <div className="evo-retired-body">
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Cây · thế hệ</th>
+                            <th>Lý do · thời điểm</th>
+                            <th className="num">Mẫu đóng</th>
+                            <th className="num">R TB</th>
+                            <th className="num">DD</th>
+                            <th>Cây giữ lại</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {data
+                            .retired_strategies!.slice(
+                              (treePage - 1) * PAGE.retired,
+                              treePage * PAGE.retired,
+                            )
+                            .map((row) => {
+                              const r = row.retirement;
+                              const [label, tone] = r
+                                ? (RETIRE_REASON[r.reason] ?? [r.reason, 'info'])
+                                : ['', ''];
+                              return (
+                                <tr key={row.strategy}>
+                                  <td title={row.strategy}>
+                                    {strategyShortTitle(row.genome, row.strategy)}
+                                    <small>G{row.generation}</small>
+                                  </td>
+                                  <td>
+                                    {r ? (
+                                      <>
+                                        <span className={`evo-pill ${tone}`}>{label}</span>
+                                        <small>{formatTime(r.at)}</small>
+                                      </>
+                                    ) : (
+                                      <span className="evo-pill">Lịch sử cũ · chưa ghi lý do</span>
+                                    )}
+                                  </td>
+                                  <td className="num">{r?.samples ?? '—'}</td>
+                                  <td
+                                    className={`num ${r ? (r.mean_r >= 0 ? 'positive' : 'negative') : ''}`}
+                                  >
+                                    {r ? `${r.mean_r.toFixed(2)}R` : '—'}
+                                  </td>
+                                  <td className="num">
+                                    {r ? `${r.max_drawdown_r.toFixed(2)}R` : '—'}
+                                  </td>
+                                  <td>
+                                    <span title={r?.retained_strategy ?? undefined}>
+                                      {r?.retained_strategy ?? '—'}
+                                    </span>
+                                    {r?.overlap && (
+                                      <small>
+                                        {r.overlap.shared} mẫu khớp ·{' '}
+                                        {(100 * r.overlap.ratio).toFixed(1)}% trùng
+                                      </small>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pager
+                      total={data.retired_strategies!.length}
+                      page={treePage}
+                      size={PAGE.retired}
+                      onPage={setRetiredPage}
+                      unit="cây"
+                    />
                   </div>
                 </details>
               )}
               {(data.retired_paper?.length ?? 0) > 0 && (
                 <details className="evo-retired">
                   <summary>
-                    Chiến thuật đã loại nhưng từng chạy Auto Paper ({data.retired_paper!.length})
+                    Đã loại nhưng từng chạy Auto Paper{' '}
+                    <span className="evo-count">{data.retired_paper!.length}</span>
                   </summary>
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Chiến thuật</th>
-                          <th>Lệnh đã đóng</th>
-                          <th>Thắng</th>
-                          <th>PnL ròng</th>
-                          <th>Lệnh gần nhất</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.retired_paper!.map((row) => (
-                          <tr key={row.strategy}>
-                            <td title={row.strategy}>
-                              {row.genome
-                                ? strategyShortTitle(row.genome, row.strategy)
-                                : row.strategy}
-                              {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
-                            </td>
-                            <td>{row.closed}</td>
-                            <td>{row.wins}</td>
-                            <td className={row.net_pnl >= 0 ? 'positive' : 'negative'}>
-                              {usdt(row.net_pnl)}
-                            </td>
-                            <td>
-                              {row.last_trade_id === null ? (
-                                '—'
-                              ) : onViewTrade ? (
-                                <button
-                                  type="button"
-                                  className="text-button"
-                                  onClick={() => onViewTrade(row.last_trade_id!)}
-                                >
-                                  #{row.last_trade_id}
-                                </button>
-                              ) : (
-                                `#${row.last_trade_id}`
-                              )}
-                            </td>
+                  <div className="evo-retired-body">
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Chiến thuật</th>
+                            <th className="num">Lệnh đóng</th>
+                            <th className="num">Thắng</th>
+                            <th className="num">PnL ròng</th>
+                            <th>Lệnh gần nhất</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {data
+                            .retired_paper!.slice(
+                              (paperPageNow - 1) * PAGE.retired,
+                              paperPageNow * PAGE.retired,
+                            )
+                            .map((row) => (
+                              <tr key={row.strategy}>
+                                <td title={row.strategy}>
+                                  {row.genome
+                                    ? strategyShortTitle(row.genome, row.strategy)
+                                    : row.strategy}
+                                  {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
+                                </td>
+                                <td className="num">{row.closed}</td>
+                                <td className="num">{row.wins}</td>
+                                <td className={`num ${row.net_pnl >= 0 ? 'positive' : 'negative'}`}>
+                                  {usdt(row.net_pnl)}
+                                </td>
+                                <td>
+                                  {row.last_trade_id === null ? (
+                                    '—'
+                                  ) : onViewTrade ? (
+                                    <button
+                                      type="button"
+                                      className="text-button"
+                                      onClick={() => onViewTrade(row.last_trade_id!)}
+                                    >
+                                      #{row.last_trade_id}
+                                    </button>
+                                  ) : (
+                                    `#${row.last_trade_id}`
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pager
+                      total={data.retired_paper!.length}
+                      page={paperPageNow}
+                      size={PAGE.retired}
+                      onPage={setPaperPage}
+                      unit="chiến thuật"
+                    />
                   </div>
                 </details>
               )}

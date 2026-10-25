@@ -4694,11 +4694,137 @@ footer {
 .evo-retired {
   margin: 12px 0;
   font-size: 12px;
+  background: #fff;
+  border: 1px solid #dce1d7;
+  border-radius: 10px;
+  overflow: hidden;
 }
 .evo-retired summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
   cursor: pointer;
-  color: #3f5446;
+  color: #23382b;
+  font-size: 13px;
   font-weight: 600;
+  background: #fafbf8;
+  list-style: none;
+}
+.evo-retired summary::-webkit-details-marker {
+  display: none;
+}
+.evo-retired summary::before {
+  content: '▸';
+  color: #7d8c80;
+  transition: transform 0.15s;
+}
+.evo-retired[open] summary::before {
+  transform: rotate(90deg);
+}
+.evo-retired[open] summary {
+  border-bottom: 1px solid #e7ece4;
+}
+.evo-retired .evo-count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #e9efe6;
+  color: #3f5446;
+  font-size: 11px;
+}
+.evo-retired .table-scroll {
+  max-height: 440px;
+}
+.evo-retired th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 14px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.evo-retired td {
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #33463a;
+  vertical-align: top;
+}
+.evo-retired td small {
+  display: block;
+  font-size: 10.5px;
+}
+.evo-retired .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.evo-retired td.positive {
+  color: #1f7a55;
+}
+.evo-retired td.negative {
+  color: #b2433a;
+}
+.evo-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef1ec;
+  color: #5e6d62;
+  font-size: 11px;
+  font-weight: 600;
+}
+.evo-pill.bad {
+  background: #fbeceb;
+  color: #a83b33;
+}
+.evo-pill.warn {
+  background: #fdf3e2;
+  color: #96600f;
+}
+.evo-pill.info {
+  background: #e8f0fb;
+  color: #2f5a8f;
+}
+.evo-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #5e6d62;
+  background: #fafbf8;
+  border: 1px solid #e3e8e0;
+  border-radius: 8px;
+}
+.evo-retired .evo-pager {
+  margin: 0;
+  border: 0;
+  border-top: 1px solid #e7ece4;
+  border-radius: 0;
+}
+.evo-pager > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.evo-pager b {
+  min-width: 52px;
+  text-align: center;
+  color: #23382b;
+}
+.evo-pager button {
+  padding: 4px 10px;
+  border: 1px solid #cfd8c8;
+  border-radius: 6px;
+  background: #fff;
+  color: #2c3f33;
+  font-size: 12px;
+}
+.evo-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .evo-card > button {
   margin-top: auto;
