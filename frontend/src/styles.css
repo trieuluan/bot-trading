@@ -5388,8 +5388,8 @@ main:has(.futures-desk) {
   height: var(--chart-height, calc(100svh - 240px));
 }
 .futures-desk .desk-controls {
-  top: 4px;
-  max-height: calc(100vh - 60px);
+  top: calc(var(--desk-header-h, 96px) + 8px);
+  max-height: calc(100vh - var(--desk-header-h, 96px) - 16px);
 }
 @media (max-width: 999px) {
   .futures-desk .paper-market .trade-candlestick-chart {

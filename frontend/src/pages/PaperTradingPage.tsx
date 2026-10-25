@@ -253,6 +253,12 @@ export function PaperTradingPage({
       const canvas = section!.querySelector<HTMLElement>('.trade-candlestick-chart');
       if (!canvas) return;
       const top = canvas.getBoundingClientRect().top + window.scrollY;
+      // Controls are sticky under the sticky header; keep their top below it.
+      const header = section!.closest('.futures-desk')?.querySelector('.desk-sticky-header');
+      (header?.parentElement ?? section!).style.setProperty(
+        '--desk-header-h',
+        `${Math.ceil(header?.getBoundingClientRect().height ?? 0)}px`,
+      );
       section!.style.setProperty(
         '--chart-height',
         `${Math.max(240, window.innerHeight - top - 72)}px`,
@@ -885,7 +891,8 @@ export function PaperTradingPage({
           </div>
           {positions.some((position) => position.monitoring?.status === 'history_pending') && (
             <p className="negative" role="status">
-              Thiếu nến đối soát SL/TP; đang chờ đồng bộ. Auto Paper và SL/TP theo quote hiện tại vẫn chạy.
+              Thiếu nến đối soát SL/TP; đang chờ đồng bộ. Auto Paper và SL/TP theo quote hiện tại
+              vẫn chạy.
             </p>
           )}
           {positions.length ? (
