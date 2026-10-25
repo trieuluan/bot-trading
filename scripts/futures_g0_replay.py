@@ -53,9 +53,9 @@ def run_pair(task):
             cache[key] = original_h4(feature, rows, candles, direction, context)
         return cache[key]
 
-    def capture(samples):
+    def capture(samples, cutoff=None):
         captured.append(samples)
-        return original_stats(samples)
+        return original_stats(samples, cutoff)
 
     started = time.monotonic()
     population = candidates()

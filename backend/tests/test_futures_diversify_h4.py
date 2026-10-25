@@ -1,6 +1,6 @@
 from backend.app import futures_learner as learner
 from backend.app.futures_rule_tree import consensus_slot
-from scripts.futures_diversify_h4 import diversify, default_slot
+from scripts.futures_diversify_h4 import default_slot, diversify
 
 NOW = 1000000
 

@@ -65,7 +65,7 @@ def test_replay_cache_matches_runtime_on_fixed_context_and_restores_hooks(monkey
                     assert futures_rule_tree.h4_matches(*args) == expected
                     assert futures_rule_tree.h4_matches(*args) == expected
         for _ in range(len(population) * 2):
-            futures_g0_replay.futures_history.historical_stats([])
+            futures_g0_replay.futures_history.historical_stats([], 1617 * 900)
         return {"strategies": []}
 
     monkeypatch.setattr(futures_rule_tree, "h4_matches", counted)
