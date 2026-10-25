@@ -79,6 +79,17 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+  futures-learning:
+    <<: *python
+    command: [python, -m, bot.learning_worker]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 1024M
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
   exness-feed:
     <<: *python
     command: [python, -m, bot.exness_worker]

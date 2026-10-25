@@ -44,6 +44,7 @@ Từ đó `docker compose up -d`, `exec`, `logs` tự dùng cấu hình dev. Das
 | `frontend` | Vite + React Fast Refresh khi sửa giao diện                                 |
 | `api`      | Uvicorn tự restart khi sửa `backend/app/`                                   |
 | `bot`      | Watchfiles gửi SIGINT rồi restart worker khi sửa `bot/` hoặc `backend/app/` |
+| `futures-learning` | Worker learner riêng; Watchfiles restart khi sửa Python |
 | `exness-feed` | Watchfiles restart feed khi sửa `bot/` hoặc `backend/app/`                |
 | `migrate`  | Đọc migration từ source mount, chạy theo lệnh; không tự theo dõi file       |
 | `postgres` | Giữ nguyên PostgreSQL và volume dữ liệu                                     |
@@ -105,6 +106,14 @@ Terminal thứ hai, tại thư mục gốc:
 source .venv/bin/activate
 python -m bot.worker
 ```
+
+Futures learner chạy riêng: `python -m bot.learning_worker` (Compose tự chạy service
+`futures-learning`, giới hạn 1 CPU/1 GiB). Bot realtime không chạy `learning_tick`.
+Khi nâng cấp cần thay cả container `bot` cũ và khởi động `futures-learning`, tránh
+chạy learner hai nơi hoặc thiếu learner. Quote được commit trước transaction
+SL/TP/thanh lý; transaction tiền vẫn khoá ví chung. Ghi quote và learner chỉ khoá
+dòng theo symbol; riêng BTC vẫn dùng chung dòng 1 với số dư. Không đổi ngưỡng
+vào lệnh 60 giây, độ tươi quote, tín hiệu hoặc Forex.
 
 Terminal thứ ba:
 

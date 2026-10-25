@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from backend.app.futures_symbols import current_symbol
-from bot import worker
+from bot import learning_worker, worker
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
@@ -32,7 +32,7 @@ def test_main_staggers_pairs_without_delaying_heartbeat(monkeypatch):
 
     monkeypatch.setattr(worker.threading, "Thread", thread)
     worker.main()
-    assert len(threads) == 2 + 7 * len(worker.SYMBOLS)
+    assert len(threads) == 2 + 6 * len(worker.SYMBOLS)
     assert threads[0]["target"] is worker.run_loop
     assert threads[0]["args"][0] == "heartbeat"
     for index, symbol in enumerate(worker.SYMBOLS):
@@ -42,9 +42,28 @@ def test_main_staggers_pairs_without_delaying_heartbeat(monkeypatch):
         assert streams[0]["args"][1] is worker.stop
         jobs = [item for item in threads if item["args"][0] == symbol
                 and item["target"] is worker.run_symbol_loop]
-        assert len(jobs) == 6
+        assert len(jobs) == 5
         assert all(item["args"][-1] == index * 0.4 for item in jobs)
         assert {item["args"][1]: item["args"][3] for item in jobs} == {
             "historical-stops": 5, "quotes-and-stops": 5, "market-history": 15,
-            "funding": 60, "auto-paper": 5, "futures-learning": 30,
+            "funding": 60, "auto-paper": 5,
         }
+
+def test_learning_service_only_starts_learning_for_each_symbol(monkeypatch):
+    threads = []
+    validated = Mock()
+    monkeypatch.setattr(learning_worker, "validate_mode", validated)
+    monkeypatch.setattr(learning_worker.signal, "signal", lambda *args: None)
+
+    def thread(**kwargs):
+        threads.append(kwargs)
+        return Mock()
+
+    monkeypatch.setattr(learning_worker.threading, "Thread", thread)
+    learning_worker.main()
+    validated.assert_called_once_with()
+    assert len(threads) == len(worker.SYMBOLS)
+    for index, item in enumerate(threads):
+        assert item["target"] is worker.run_symbol_loop
+        assert item["args"] == (worker.SYMBOLS[index], "futures-learning",
+                                learning_worker.learning_tick, 30, index * 0.4)

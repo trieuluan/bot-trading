@@ -130,9 +130,16 @@ def lock_wallet(session):
     return wallet
 
 
-def fresh_quote(wallet, now=None):
+def lock_symbol_wallet(session):
+    """Lock pair metadata only; BTC still shares row 1 with the account balance."""
+    wallet = session.scalar(select(PaperWallet).where(PaperWallet.id == state_id()).with_for_update())
+    if wallet is None:
+        raise HTTPException(503, "Chạy migration để khởi tạo ví mô phỏng")
+    return wallet
+
+def fresh_quote(wallet, now=None, *, quote=None):
     now = time.time() if now is None else now
-    quote = wallet.quote
+    quote = wallet.quote if quote is None else quote
     if (
         not quote
         or wallet.error
@@ -237,11 +244,11 @@ def close_position(session, wallet, trade, reason, now, price=None, exit_time=No
     notify_close(session, trade)
 
 
-def apply_stops(session, wallet, now, reconcile=True):
+def apply_stops(session, wallet, now, reconcile=True, *, quote=None):
     positions = open_positions(session)
     if not positions:
         return
-    quote = fresh_quote(wallet, now)
+    quote = fresh_quote(wallet, now, quote=quote)
     for trade in positions:
         if reconcile:
             reconcile_stops(session, wallet, trade, now)
@@ -253,7 +260,9 @@ def apply_stops(session, wallet, now, reconcile=True):
         targeted = has_target(trade.monitoring or {}) and (
             price >= trade.target if trade.side == "long" else price <= trade.target)
         if stopped or targeted:
-            close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now)
+            fill = price * (1 - direction(trade) * wallet.slippage_bps / 10000)
+            close_position(session, wallet, trade, "stop_loss" if stopped else "take_profit", now,
+                           price=fill)
 
 def resolve_with_m1(trade, candle):
     """Order a 15m candle that crossed both SL and TP using 1m bars; None keeps the SL-first rule.
@@ -419,7 +428,7 @@ def sync_paper_stops(now=None):
 
 def persist_paper_quote(quote, contract=None, realtime=False):
     with Session.begin() as session:
-        wallet = lock_wallet(session)
+        wallet = lock_symbol_wallet(session)
         if realtime and (not -1 <= time.time() - quote["time"] <= 5
                          or not 0 <= time.time() - quote["received_at"] <= 5):
             return
@@ -457,15 +466,15 @@ def persist_paper_quote(quote, contract=None, realtime=False):
                                                 hold_vol=quote["holdVol"]))
         wallet.error = None
         wallet.retry_at = None
-        if realtime:
-            liquidate_cross(session, time.time())
-            apply_stops(session, wallet, time.time(), reconcile=False)
-    if not realtime:
+        holding = session.scalar(select(PaperTrade.id).where(
+            PaperTrade.exit_time.is_(None)).limit(1))
+    if holding:
         try:
             with Session.begin() as session:
                 wallet = lock_wallet(session)
                 liquidate_cross(session, time.time())
-                apply_stops(session, wallet, time.time())
+                apply_stops(session, wallet, time.time(), reconcile=not realtime,
+                            quote=quote if realtime else None)
         except HTTPException as exc:
             if exc.status_code != 409:
                 raise
@@ -498,7 +507,7 @@ def sync_paper_quote(adapter=None):
                 pass  # countdown is display-only; never block the quote
         if quote is None:
             with Session.begin() as session:
-                wallet = lock_wallet(session)
+                wallet = lock_symbol_wallet(session)
                 if contract:
                     wallet.contract = contract
                 if wallet.quote and settle and settle > max(reference_time, wallet.quote["time"]):
@@ -509,7 +518,7 @@ def sync_paper_quote(adapter=None):
         persist_paper_quote(quote, contract)
     except MarketDataError as exc:
         with Session.begin() as session:
-            wallet = lock_wallet(session)
+            wallet = lock_symbol_wallet(session)
             quote = wallet.quote or {}
             if (quote.get("source") == "websocket"
                     and 0 <= time.time() - quote.get("received_at", 0) < 5):

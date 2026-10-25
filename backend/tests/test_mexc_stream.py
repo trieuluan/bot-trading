@@ -64,7 +64,7 @@ def test_rest_quote_is_saved_even_if_lock_wait_ages_it_before_stop_check(monkeyp
     calls = [0]
     def delayed_lock(session):
         calls[0] += 1
-        if calls[0] == 2:
+        if calls[0] == 1:
             clock[0] += paper.QUOTE_TTL + 1
         return real_lock(session)
     monkeypatch.setattr(paper.time, "time", lambda: clock[0])
@@ -287,3 +287,62 @@ def test_disconnection_clears_health_before_backoff(monkeypatch, stream_clock):
     assert mexc_stream.stream_ready("BTC_USDT")
     mexc_stream.stream_paper_quotes("BTC_USDT", stop)
     stop.wait.assert_called_once_with(1)
+
+def test_quote_without_position_does_not_take_shared_wallet_lock(monkeypatch):
+    monkeypatch.setattr(paper, "lock_wallet", Mock(side_effect=AssertionError("shared lock")))
+    assert paper.persist_paper_quote(mexc_stream.parse_ticker(ticker(), "BTC_USDT"), realtime=True)
+
+@pytest.mark.parametrize("realtime", [False, True])
+def test_quote_commits_before_stop_lock_and_survives_stop_rollback(monkeypatch, realtime):
+    now = time.time()
+    contract = dict(contractSize=0.001, volUnit=1, minVol=1, maxVol=100000000, priceUnit=0.1)
+    paper.persist_paper_quote(mexc_stream.parse_ticker(ticker(now=now - 1), "BTC_USDT"), contract)
+    client = TestClient(app)
+    assert client.post("/api/paper/orders", json={
+        "request_id": str(uuid4()), "side": "long", "notional": 1000, "stop": 90, "target": 120,
+    }).status_code == 200
+    balance = client.get("/api/paper/wallet").json()["balance"]
+    real_lock = paper.lock_wallet
+
+    def check_committed(session):
+        with Session() as reader:
+            assert reader.get(PaperWallet, 1).quote["lastPrice"] == 101
+        return real_lock(session)
+
+    def fail_stops(session, wallet, *args, **kwargs):
+        wallet.balance = 0
+        raise paper.HTTPException(409, "stale quote")
+
+    monkeypatch.setattr(paper, "lock_wallet", check_committed)
+    monkeypatch.setattr(paper, "apply_stops", fail_stops)
+    assert paper.persist_paper_quote(
+        mexc_stream.parse_ticker(ticker(101, now=now), "BTC_USDT"), realtime=realtime)
+    with Session() as session:
+        assert session.get(PaperWallet, 1).quote["lastPrice"] == 101
+        assert session.get(PaperWallet, 1).balance == balance
+        assert session.get(PaperTrade, 1).exit_time is None
+
+def test_stream_preserves_tp_tick_when_newer_quote_arrives_before_stop_lock(monkeypatch):
+    now = time.time()
+    paper.persist_paper_quote(mexc_stream.parse_ticker(ticker(now=now - 1), "BTC_USDT"),
+                             dict(contractSize=0.001, volUnit=1, minVol=1,
+                                  maxVol=100000000, priceUnit=0.1))
+    assert TestClient(app).post("/api/paper/orders", json={
+        "request_id": str(uuid4()), "side": "long", "notional": 1000, "stop": 90, "target": 120,
+    }).status_code == 200
+    real_lock = paper.lock_wallet
+
+    def newer_quote(session):
+        with Session.begin() as writer:
+            writer.get(PaperWallet, 1).quote = mexc_stream.parse_ticker(
+                ticker(100, now=now + 0.1), "BTC_USDT", now + 0.1)
+        return real_lock(session)
+
+    monkeypatch.setattr(paper, "lock_wallet", newer_quote)
+    assert paper.persist_paper_quote(mexc_stream.parse_ticker(ticker(121, now=now), "BTC_USDT"),
+                                    realtime=True)
+    with Session() as session:
+        assert session.get(PaperWallet, 1).quote["lastPrice"] == 100
+        trade = session.get(PaperTrade, 1)
+        assert trade.exit_reason == "take_profit"
+        assert trade.exit == pytest.approx(120.9 * 0.9998)

@@ -11,7 +11,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app.auto_paper import auto_tick, baseline_auto_on_startup, report_auto_failure
 from backend.app.db import BotState, Event, MarketState, Session, Signal, utcnow
 from backend.app.feed import sync_market
-from backend.app.futures_learner import learning_tick
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
@@ -137,7 +136,6 @@ def main():
         ("market-history", market_tick, 15),
         ("funding", sync_paper_funding, 60),
         ("auto-paper", auto_tick, 5),
-        ("futures-learning", learning_tick, 30),
     ]
     threads.extend(
         threading.Thread(target=run_symbol_loop, args=(symbol, *job, index * 0.4), name=f"{symbol}-{job[0]}")

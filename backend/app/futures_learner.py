@@ -57,7 +57,7 @@ from .futures_strategies import (
 )
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
-from .paper import lock_wallet
+from .paper import lock_symbol_wallet, lock_wallet
 from .strategy import Setup
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
@@ -544,7 +544,7 @@ def learning_tick(now=None, adapter=None):
             validate_window(work["candidates"][name], validation[2], validation_fair,
                             validation_funding, contract, validation_context)
         with Session.begin() as session:
-            lock_wallet(session)
+            lock_symbol_wallet(session)
             current = read_state(session, now)
             if any(current.get(key) != state.get(key) for key in input_keys):
                 return
@@ -557,7 +557,7 @@ def learning_tick(now=None, adapter=None):
             save_state(session, current)
     except (MarketDataError, ValueError) as exc:
         with Session.begin() as session:
-            lock_wallet(session)
+            lock_symbol_wallet(session)
             current = read_state(session, now)
             if any(current.get(key) != state.get(key) for key in input_keys):
                 return
