@@ -8,10 +8,11 @@ const number = (value: number | null | undefined) =>
 const price = (value: number | null | undefined) => value == null ? '—' : formatForexPrice(value);
 const profit = (value: number | null) => value == null || !Number.isFinite(value) ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 
-export function ForexPositionGroups({ groups, selectedId, onSelect, onCloseTicket, onCloseSetup, closeDisabled, pnlOf }: {
+export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, onCloseTicket, onCloseSetup, closeDisabled, pnlOf }: {
   groups: PositionGroup[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  onDeselect?: () => void;
   onCloseTicket: (position: BrokerPosition) => void;
   onCloseSetup: (group: PositionGroup) => void;
   closeDisabled: boolean;
@@ -38,7 +39,11 @@ export function ForexPositionGroups({ groups, selectedId, onSelect, onCloseTicke
           <div className="position-group-metric"><small>THẢ NỔI ƯỚC TÍNH (USD)</small><strong className={floating == null ? '' : floating >= 0 ? 'positive' : 'negative'}>{profit(floating)}</strong><small>{group.status === 'open' ? floating == null ? 'Chờ quote / dữ liệu hợp lệ' : 'Theo lot còn mở · chưa phí/swap' : 'Không còn ticket mở'}</small></div>
           <div className="position-group-state"><span className={`order-status-pill status-${group.status}`}>{group.close_requested ? 'Đang yêu cầu đóng' : state.label}</span>{state.sub && <small>{state.sub}</small>}</div>
           <div className="order-actions-group">
-            <button type="button" className="btn-action" onClick={() => onSelect(active.position_id)}>Xem chart</button>
+            {onDeselect ? (
+              <button type="button" className="btn-action" onClick={onDeselect}>Ẩn khỏi chart</button>
+            ) : (
+              <button type="button" className="btn-action" onClick={() => onSelect(active.position_id)}>Xem chart</button>
+            )}
             {closeSetupPath(group) && <button type="button" className="btn-action btn-danger" disabled={closeDisabled || group.close_requested} onClick={() => onCloseSetup(group)}>Đóng cả setup</button>}
           </div>
         </div>

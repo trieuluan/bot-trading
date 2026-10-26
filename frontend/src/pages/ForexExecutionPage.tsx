@@ -112,9 +112,7 @@ export function ForexExecutionPage({
   const openGroups = data?.open_groups ?? [];
   const chartGroups = [...openGroups, ...rows.filter((group) => !openGroups.some((opened) => opened.id === group.id))];
   const chartPositions = chartGroups.flatMap((group) => group.legs);
-  const chartPosition =
-    chartPositions.find((position) => position.position_id === selectedId) ??
-    chartPositions.find((position) => position.status === 'open') ?? chartPositions[0];
+  const chartPosition = chartPositions.find((position) => position.position_id === selectedId);
   const closedRows = rows.filter((group) => group.status === 'closed' && group.realized_pnl != null);
   const wins = closedRows.filter((group) => (group.realized_pnl ?? 0) > 0).length;
   const closeDisabled = busy || stale || !!error || !executionOnline || !data?.worker_online;

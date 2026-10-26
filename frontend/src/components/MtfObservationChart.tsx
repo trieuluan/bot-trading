@@ -118,7 +118,7 @@ export function MtfObservationChart({
   const openRows = executions.filter(
     (row) => row.status === 'open' && row.open_price != null && row.open_price > 0,
   );
-  const activeId = selectedPositionId ?? openRows[0]?.position_id;
+  const activeId = selectedPositionId;
   const activeGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === activeId));
   const selectedGroupId = activeGroup?.id;
   const openKey =
@@ -485,7 +485,7 @@ export function MtfObservationChart({
     const chosen = executions.find((trade) => trade.position_id === selectedPositionId);
     const chosenGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === chosen?.position_id));
     const openTrades = executions.filter((trade) => trade.status === 'open' || chosenGroup?.legs.some((leg) => leg.position_id === trade.position_id));
-    const activeId = selectedPositionId ?? openTrades[0]?.position_id;
+    const activeId = selectedPositionId;
     const marked = new Set<string>();
     for (const trade of openTrades) {
       const group = positionGroups.find((group) => group.id === positionGroupId(trade));

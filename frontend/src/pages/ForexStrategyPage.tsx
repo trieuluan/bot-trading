@@ -1221,7 +1221,7 @@ export function ForexStrategyPage({
   executionOnly?: boolean;
   includeReplay?: boolean;
   onClosePosition?: (position: BrokerPosition) => void;
-  onSelectPosition?: (id: string) => void;
+  onSelectPosition?: (id?: string) => void;
   onCloseSetup?: (group: PositionGroup) => void;
   closeDisabled?: boolean;
   onQuote?: (quote: { symbol: string; bid: number; ask: number; time: number } | null) => void;
@@ -1805,7 +1805,7 @@ export function ForexStrategyPage({
         {pickerGroups.map((group) => {
           const pnl = sumFloating(group, pnlOf);
           const active = group.legs.find((leg) => leg.status === 'open') ?? group.legs[0];
-          return <button key={group.id} type="button" className="broker-position-chip" aria-pressed={group.id === selectedGroup?.id} onClick={() => onSelectPosition?.(active.position_id)}>
+          return <button key={group.id} type="button" className="broker-position-chip" aria-pressed={group.id === selectedGroup?.id} onClick={() => onSelectPosition?.(group.id === selectedGroup?.id ? undefined : active.position_id)}>
             <span className={group.side === 'buy' ? 'positive' : 'negative'}>{group.side?.toUpperCase() ?? '—'}</span>
             <span>Setup #{group.legs[0].position_id}</span><span>{group.remaining_volume ?? '—'} lot · {group.open_count}/{group.ticket_count} ticket</span>
             <strong className={pnl == null ? '' : pnl >= 0 ? 'positive' : 'negative'}>{pnl == null ? '— USD' : pnl.toFixed(2) + ' USD'}</strong>
@@ -1813,7 +1813,7 @@ export function ForexStrategyPage({
         })}
       </div>}
       {executionOnly && selectedGroup && <ForexPositionGroups groups={[selectedGroup]} selectedId={selectedPosition?.position_id}
-        onSelect={(id) => onSelectPosition?.(id)} onCloseTicket={(leg) => onClosePosition?.(leg)}
+        onSelect={(id) => onSelectPosition?.(id)} onDeselect={() => onSelectPosition?.(undefined)} onCloseTicket={(leg) => onClosePosition?.(leg)}
         onCloseSetup={(group) => onCloseSetup?.(group)} closeDisabled={closeDisabled || !onClosePosition || disconnected}
         pnlOf={pnlOf} />}
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
