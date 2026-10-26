@@ -77,7 +77,11 @@ export function ForexSignalLifecycle({
           <X size={12} aria-hidden="true" /> Bỏ chọn setup
         </button>}
       </div>
-      <p className="signal-lifecycle-guide">Chọn để xem trên chart · bấm lại để bỏ chọn. Không gửi hay hủy lệnh.</p>
+      <details className="signal-lifecycle-help">
+        <summary>Hướng dẫn · trạng thái</summary>
+        <p className="signal-lifecycle-guide">Chọn để xem trên chart · bấm lại để bỏ chọn. Không gửi hay hủy lệnh.</p>
+        <p>Canh: chờ giá · Kích: đang gửi · Đã gửi: chờ xác nhận · Khớp: broker xác nhận · Đối soát: chưa rõ kết quả · Hủy / Hết hạn: dừng canh · Mô phỏng: V4 chạy ảo, không phải fill broker.</p>
+      </details>
       <div
         className="signal-lifecycle-list"
         role="region"
@@ -108,7 +112,8 @@ export function ForexSignalLifecycle({
               <button type="button" className="signal-lifecycle-select"
                 onClick={() => onSelect(isSelected ? null : setup.id)} aria-pressed={isSelected}>
               <div className="signal-lifecycle-heading">
-                <span className={`pair-intent is-${state.tone}`}>{state.short}</span>
+                <span className={`pair-intent is-${state.tone}`} title={state.label}>{state.short}</span>
+                {mainIntent && shadowPending(setup) && <span className="signal-setup-tags">V4 mô phỏng</span>}
                 <strong className={setup.side === 'long' ? 'positive' : 'negative'}>
                   {sideVn}
                 </strong>
@@ -124,7 +129,7 @@ export function ForexSignalLifecycle({
                   )}
                 </span>
               </div>
-              <div className="signal-lifecycle-meta">
+              {isSelected && <div className="signal-lifecycle-meta">
                 {mainIntent ? (
                   <>
                     <span>
@@ -150,7 +155,7 @@ export function ForexSignalLifecycle({
                   <span>{shadowPending(setup) ? 'V4 đang canh / chạy mô phỏng · chọn để xem H4/H1/M15 và mức giá ảo.'
                     : 'Chỉ ghi nhận tín hiệu · chưa có lệnh canh giá tương ứng; không phải fill broker.'}</span>
                 )}
-              </div>
+              </div>}
                 {isSelected && mainIntent && <ol className="signal-lifecycle-steps" aria-label="Vòng đời setup đã chọn">
                   {([
                     ['Tín hiệu', true], ['Canh giá', true], ['Kích hoạt', mainIntent.triggered_at != null],

@@ -7310,13 +7310,19 @@ main.forex-terminal-main {
 .signal-lifecycle-disclosure::after { content: ' +'; }
 .forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
 .forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
-.signal-lifecycle-list { max-height: 360px; overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
-.signal-lifecycle-row { border: 1px solid #2a3d32; border-radius: 6px; background: #121c17; overflow: hidden; padding: 0; }
+.signal-lifecycle-list { max-height: 240px; overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 4px; padding: 0 4px 8px 0; }
+.signal-lifecycle-row { flex-shrink: 0; border: 1px solid #2a3d32; border-radius: 6px; background: #121c17; overflow: hidden; padding: 0; }
 .signal-lifecycle-row.is-selected { border-color: #55876d; background: #16261e; box-shadow: inset 3px 0 #8ed4b3; }
-.signal-lifecycle-select { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 58px; box-sizing: border-box; padding: 10px 12px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.signal-lifecycle-select { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 40px; box-sizing: border-box; padding: 8px 10px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.signal-lifecycle-help { margin-bottom: 6px; }
+.signal-lifecycle-help summary { width: fit-content; padding: 4px 0; color: #88b8a3; }
+.signal-lifecycle-help summary::before { content: '+'; }
+.signal-lifecycle-help[open] summary::before { content: '−'; }
+.signal-lifecycle-meta { overflow-wrap: anywhere; }
 .signal-lifecycle-select:hover { background: rgba(255,255,255,0.03); }
-.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 8px 12px; background: #0e1612; font-size: 11px; }
-.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; margin-bottom: 6px; }
+.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 0 10px; background: #0e1612; font-size: 11px; }
+.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; padding: 8px 0; }
+.signal-lifecycle-details[open] { padding-bottom: 8px; }
 .forex-v4-chart-selection { margin: 6px 0; padding: 8px 12px; border: 1px solid #334d3f; border-radius: 6px; background: #121c17; }
 .forex-v4-snapshot-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .forex-v4-snapshot-heading label { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 320px; font-weight: 600; color: #d0ded6; }
@@ -7335,7 +7341,7 @@ main.forex-terminal-main {
 /* removed legacy conflicting .signal-lifecycle-row */
 .forex-signal-lifecycle { scroll-margin-top: 160px; }
 .signal-lifecycle-toolbar, .signal-lifecycle-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.signal-lifecycle-toolbar { margin-bottom: 10px; justify-content: space-between; }
+.signal-lifecycle-toolbar { margin-bottom: 4px; justify-content: space-between; }
 .signal-lifecycle-filters button, .signal-lifecycle-clear-btn {
   display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
   border: 1px solid #34483b; border-radius: 5px; color: #adbbb2; background: transparent; font: inherit; cursor: pointer;
@@ -7348,7 +7354,7 @@ main.forex-terminal-main {
 .signal-setup-tags { color: #adc5d4; }
 .signal-setup-strategies { flex-basis: 100%; overflow-wrap: anywhere; font-family: monospace; font-size: 10px; }
 .signal-setup-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 14px; color: #d6c59c; background: #29271c; font-size: 11px; }
-.signal-lifecycle-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.signal-lifecycle-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: 100%; }
 .signal-lifecycle-heading .font-mono { overflow-wrap: anywhere; }
 .signal-lifecycle-heading time { margin-left: auto; color: #9aaea1; }
 .signal-lifecycle-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0; padding: 0; list-style: none; }

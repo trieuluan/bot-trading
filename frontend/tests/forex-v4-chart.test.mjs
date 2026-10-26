@@ -33,9 +33,19 @@ test('ForexSignalLifecycle marks V4 shadow setups as simulation and renders guid
     );
     assert.ok(markup.includes('Mô phỏng'));
     assert.ok(markup.includes('1 mô phỏng'));
-    assert.ok(markup.includes('V4 đang canh / chạy mô phỏng'));
+    assert.ok(markup.includes('Hướng dẫn · trạng thái'));
     assert.ok(markup.includes('Xem trên chart'));
   } finally {
     await server.close();
   }
+});
+
+test('styles.css keeps .signal-lifecycle-row uncompressed in flex container', async () => {
+  const fs = await import('node:fs/promises');
+  const css = await fs.readFile(fileURLToPath(new URL('../src/styles.css', import.meta.url)), 'utf8');
+  assert.match(
+    css,
+    /\.signal-lifecycle-row\s*\{[^}]*flex-shrink:\s*0[^}]*\}/,
+    'Expected .signal-lifecycle-row to set flex-shrink: 0 to prevent row height crushing',
+  );
 });
