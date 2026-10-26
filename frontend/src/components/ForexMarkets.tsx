@@ -101,8 +101,8 @@ export function ForexStripLegend() {
     };
   }, []);
   return <details className="forex-strip-legend" ref={legendRef}>
-    <summary aria-label="Giải thích biểu tượng dải cặp tiền">
-      <HelpCircle size={14} aria-hidden="true" /><span>Chú giải</span>
+    <summary aria-label="Chú giải biểu tượng">
+      <HelpCircle size={15} aria-hidden="true" />
     </summary>
     <div className="forex-strip-legend-popover">
       <header><strong>Đọc nhanh dải cặp tiền</strong><span>Biểu tượng & trạng thái</span></header>
