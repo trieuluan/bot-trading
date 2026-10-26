@@ -9680,3 +9680,68 @@ button.ap-cell:focus-visible {
   margin: 14px 0 0;
   color: #55675d;
 }
+
+.forex-position-groups {
+  display: grid;
+  gap: 10px;
+  max-height: 720px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+.forex-position-group {
+  min-width: 0;
+  border: 1px solid #d4ded6;
+  border-radius: 10px;
+  background: #fbfcfa;
+}
+.forex-position-group.is-selected {
+  border-color: #678f7c;
+  box-shadow: inset 3px 0 #678f7c;
+}
+.position-group-head {
+  display: grid;
+  grid-template-columns: minmax(175px, 1.4fr) repeat(3, minmax(110px, 1fr)) minmax(135px, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 16px;
+}
+.position-group-identity,
+.position-group-metric,
+.position-group-state {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.position-group-identity .side-badge { justify-self: start; }
+.position-group-head small { font-size: 11px; color: #65746c; line-height: 1.5; }
+.position-group-metric strong { font-variant-numeric: tabular-nums; font-size: 16px; }
+.position-group-identity code { font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
+.position-group-head .order-actions-group { flex-direction: column; align-items: stretch; }
+.position-group-state .order-status-pill { white-space: normal; line-height: 1.5; }
+.position-group-details { border-top: 1px solid #e0e7e1; padding: 10px 16px; }
+.position-group-details > summary { cursor: pointer; font-size: 12px; color: #426352; }
+.position-group-details summary:focus-visible,
+.forex-position-group button:focus-visible { outline: 2px solid #31775d; outline-offset: 3px; }
+.position-leg-table { width: 100%; margin-top: 12px; font-size: 12px; }
+.position-leg-table th,
+.position-leg-table td { text-align: left; vertical-align: top; padding: 10px; }
+.position-leg-table td > small,
+.position-leg-table td > span { display: block; margin-bottom: 6px; }
+.position-leg-table td > details { margin-top: 8px; max-width: 300px; }
+.position-deal { display: grid; gap: 4px; padding: 8px 0; overflow-wrap: anywhere; border-bottom: 1px solid #e0e7e1; }
+.broker-chart-terminal > .forex-position-groups { max-height: none; overflow: visible; }
+.broker-position-picker { max-height: 150px; overflow-y: auto; }
+@media (max-width: 1200px) {
+  .position-group-head { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .position-group-head .order-actions-group { flex-direction: row; flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  .position-group-head { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+  .position-group-identity { grid-column: 1 / -1; }
+  .position-group-head .order-actions-group { grid-column: 1 / -1; }
+  .position-group-details { padding: 10px 12px; }
+  .forex-position-groups { max-height: 75vh; }
+  .position-leg-table { min-width: 650px; }
+}

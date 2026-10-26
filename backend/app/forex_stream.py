@@ -19,10 +19,10 @@ _snapshots = {}
 _slots = asyncio.Semaphore(2)
 
 
-def build(part, symbol, offset):
+def build(part, symbol, offset, view="tickets", status="all"):
     if part == "execution":
         from .exness_execution import execution_summary
-        return execution_summary(offset=offset, limit=50, symbol=symbol)
+        return execution_summary(offset=offset, limit=50, symbol=symbol, view=view, status=status)
     if part == "analysis":
         from .forex_learning import analysis_endpoint
         return analysis_endpoint(symbol)
@@ -30,19 +30,19 @@ def build(part, symbol, offset):
     return forex_markets() if part == "markets" else workspace_dashboard("exness_forex", symbol)
 
 
-def wire_snapshot(part, symbol, offset):
-    value = build(part, symbol, offset)
+def wire_snapshot(part, symbol, offset, view="tickets", status="all"):
+    value = build(part, symbol, offset, view, status)
     text = json.dumps(jsonable_encoder({"symbol": symbol, "data": value}), separators=(",", ":"))
     return (hashlib.blake2b(text.encode(), digest_size=8).digest(),
             f"event: {part}\ndata: {text}\n\n")
 
 
-async def refresh(entry, part, symbol, offset):
+async def refresh(entry, part, symbol, offset, view="tickets", status="all"):
     async with _slots:
         if not entry["viewers"]:
             return
         try:
-            entry["wire"] = await asyncio.to_thread(wire_snapshot, part, symbol, offset)
+            entry["wire"] = await asyncio.to_thread(wire_snapshot, part, symbol, offset, view, status)
             entry["error"] = False
         except Exception:
             entry["error"] = True
@@ -51,9 +51,10 @@ async def refresh(entry, part, symbol, offset):
             entry["at"] = time.monotonic()
 
 
-def subscribe(part, symbol, offset):
+def subscribe(part, symbol, offset, view="tickets", status="all"):
     key = (os.getenv("EXNESS_ACCOUNT_ID", ""), part,
-           None if part == "markets" else symbol, offset if part == "execution" else 0)
+           None if part == "markets" else symbol, offset if part == "execution" else 0,
+           view if part == "execution" else None, status if part == "execution" else None)
     entry = _snapshots.setdefault(key, {"at": 0, "task": None, "wire": None, "error": False, "viewers": 0})
     entry["viewers"] += 1
     # ponytail: one uvicorn process; use external pub/sub if the API gains multiple workers.
@@ -66,19 +67,19 @@ def subscribe(part, symbol, offset):
     return entry
 
 
-def update(entry, part, symbol, offset):
+def update(entry, part, symbol, offset, view="tickets", status="all"):
     task = entry["task"]
     if (task is None or task.done()) and (entry["wire"] is None or time.monotonic() - entry["at"] >= TTLS[part]):
         if not entry["error"] or time.monotonic() - entry["at"] >= 10:
-            entry["task"] = asyncio.create_task(refresh(entry, part, symbol, offset))
+            entry["task"] = asyncio.create_task(refresh(entry, part, symbol, offset, view, status))
 
 
 @router.get("/api/workspaces/exness_forex/stream")
 async def stream(request: Request, symbol: str = "XAUUSD", parts: str = "dashboard,execution,markets",
-                 offset: int = Query(0, ge=0, le=10000)):
+                 offset: int = Query(0, ge=0, le=10000), view: str = "tickets", status: str = "all"):
     request_symbol(symbol)
     selected = set(parts.split(","))
-    if not selected or selected - TTLS.keys():
+    if not selected or selected - TTLS.keys() or view not in ("tickets", "setups") or status not in ("all", "open", "closed", "bot"):
         raise HTTPException(422, "Unsupported Forex stream parts")
 
     async def events():
@@ -87,10 +88,10 @@ async def stream(request: Request, symbol: str = "XAUUSD", parts: str = "dashboa
         try:
             yield "retry: 3000\n\n"
             for part in sorted(selected):
-                entries[part] = subscribe(part, symbol, offset)
+                entries[part] = subscribe(part, symbol, offset, view, status)
             while not await request.is_disconnected():
                 for part, entry in entries.items():
-                    update(entry, part, symbol, offset)
+                    update(entry, part, symbol, offset, view, status)
                     if entry["error"]:
                         if part not in failed:
                             yield 'event: unavailable\ndata: ' + json.dumps({"part": part, "symbol": symbol}) + '\n\n'

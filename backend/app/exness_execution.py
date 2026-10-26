@@ -921,7 +921,11 @@ def record_error(account, exc, now=None, symbol=None):
 
 
 @router.get("")
-def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD"):
+def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD",
+                      view: str = "tickets", status: str = "all"):
+    from .forex_position_groups import group_page, position_groups, setup_key, ticket_owners
+    if view not in ("tickets", "setups") or status not in ("all", "open", "closed", "bot"):
+        raise HTTPException(422, "Unsupported execution view or status")
     request_symbol(symbol)
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     with Session() as session:
@@ -948,10 +952,16 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
             row.update(side=position["direction"], volume=float(position["volume"]),
                        open_price=float(position["open_price"]), status="open",
                        open_time=int(datetime.fromisoformat(position["create_time"].replace("Z", "+00:00")).timestamp()))
-    active_ids = {position["position_id"] for position in broker.get("positions", [])}
+    active = {str(position["position_id"]): position for position in broker.get("positions", [])}
+    active_ids = set(active)
+    owners = ticket_owners(intents)
     for pid, position in positions.items():
         opens = [deal for deal in position["deals"] if deal["type"] == "open"]
         closes = [deal for deal in position["deals"] if deal["type"] == "close"]
+        initial_volume = sum(float(deal["volume"]) for deal in opens) if opens else None
+        position.update(initial_volume=initial_volume, has_closes=bool(closes),
+                        remaining_volume=float(active[pid]["volume"]) if pid in active else None,
+                        ownership_verified=False, setup_id=None)
         if opens:
             volume = sum(float(deal["volume"]) for deal in opens)
             position.update(side=opens[0]["direction"], volume=volume,
@@ -964,15 +974,22 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
             position["status"] = "open"
         elif opens and closes and sum(positive_decimal(deal["volume"]) for deal in closes) >= sum(positive_decimal(deal["volume"]) for deal in opens):
             position["status"] = "closed"
-        for intent in intents:
+            position["remaining_volume"] = 0
+        if closes and any(deal.get("profit", {}).get("amount") is None for deal in closes):
+            position["pnl"] = None
+        owner = owners.get((account, symbol, str(pid)))
+        if owner and position.get("side") in ("buy", "sell") and owner[1].get("body", {}).get("side") == position.get("side"):
+            intent, owned_leg = owner
             data = intent.snapshot
-            matched_leg = next((leg for _, leg in leg_records(data) if leg.get("position_id") == pid), None)
+            matched_leg = owned_leg
             if matched_leg or data.get("position_id") == pid:
                 leg_info = matched_leg or data
                 body = leg_info.get("body", {})
                 mgmt = leg_info.get("management", {})
                 position.update(source="learning" if data.get("signal", {}).get("policy_mode") else "regime_router",
                     signal_time=intent.signal_time, reason=data.get("reason"),
+                    setup_id=setup_key(account, symbol, intent.signal_time), ownership_verified=True,
+                    take_profit_filled=bool(leg_info.get("take_profit_filled")),
                     strategy=data.get("signal", {}).get("strategy"),
                     role=leg_info.get("role", "runner"),
                     exit_variant=data.get("signal", {}).get("exit_variant"),
@@ -994,7 +1011,7 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                                 target=float(order.get("take_profit_price") or 0) or None)
     rows = sorted(positions.values(), key=lambda row: row.get("open_time") or 0, reverse=True)
     heartbeat = meta.get("heartbeat")
-    return {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
+    result = {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
         "account": account, "strategy": "learning", "lot": f"0.01..{max_lot_size():.2f}",
         "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(), "planned_risk_ceiling_usd": planned_risk_usd(),
@@ -1014,6 +1031,10 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2),
         "learning": learning_summary(symbol=symbol),
         "journal": list(reversed([row for row in meta.get("journal", []) if row.get("symbol", "XAUUSD") == symbol])), "funnel": funnel([row for row in meta.get("journal", []) if row.get("symbol", "XAUUSD") == symbol])}
+    if view == "setups":
+        result.update(group_page(position_groups(rows), offset, limit, status), view=view)
+        result["positions"] = [leg for group in result["groups"] for leg in group["legs"]]
+    return result
 
 
 @router.get("/trades.csv")

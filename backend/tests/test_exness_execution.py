@@ -794,3 +794,44 @@ def test_late_retry_window_bounds():
     ee.late_drift_ok(sig, 4002.5, NOW + 300)
     with pytest.raises(ExnessError, match="signal_expired"):
         ee.late_drift_ok(sig, 4000.0, NOW + 301)
+
+
+def test_execution_summary_setups_view(monkeypatch):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(
+            account=api.account_id, symbol="XAUUSD", signal_time=NOW - 1800,
+            snapshot={"signal": {"strategy": "hast4_split"}, "legs": [
+                {"role": "tp1", "position_id": "801", "body": {"side": "buy"}},
+                {"role": "runner", "position_id": "802", "body": {"side": "buy"}},
+            ]}
+        ))
+        session.add(ExnessDeal(account=api.account_id, deal_id="d1", position_id="801", event_time=NOW - 1790,
+                               snapshot={"type": "open", "instrument": "XAUUSD", "direction": "buy",
+                                         "price": "4000.0", "volume": "0.05", "event_time": NOW - 1790}))
+        session.add(ExnessDeal(account=api.account_id, deal_id="d2", position_id="802", event_time=NOW - 1790,
+                               snapshot={"type": "open", "instrument": "XAUUSD", "direction": "buy",
+                                         "price": "4000.0", "volume": "0.05", "event_time": NOW - 1790}))
+        session.add(ExnessDeal(account=api.account_id, deal_id="d3", position_id="801", event_time=NOW - 1000,
+                               snapshot={"type": "close", "instrument": "XAUUSD", "direction": "buy",
+                                         "price": "4005.0", "volume": "0.05", "event_time": NOW - 1000,
+                                         "profit": {"amount": "25.0"}}))
+    with Session.begin() as session:
+        state = session.get(ExnessExecutionState, api.account_id)
+        state.snapshot = {**state.snapshot, "broker": {"positions": [
+            {"instrument": "XAUUSD", "position_id": "802", "direction": "buy", "volume": "0.05",
+             "open_price": "4000.0", "create_time": "2026-10-26T14:00:00Z"}
+        ]}}
+    summary = ee.execution_summary(offset=0, limit=50, symbol="XAUUSD", view="setups")
+    assert summary["view"] == "setups"
+    assert len(summary["groups"]) == 1
+    group = summary["groups"][0]
+    assert group["id"] == f"setup:{api.account_id}:XAUUSD:{NOW - 1800}"
+    assert group["status"] == "open"
+    assert group["open_count"] == 1
+    assert group["ticket_count"] == 2
+    assert group["initial_volume"] == 0.10
+    assert group["remaining_volume"] == 0.05
+    assert group["realized_pnl"] == 25.0
+    assert len(summary["open_groups"]) == 1

@@ -26,6 +26,7 @@ import { placeChartTags } from '../lib/chart-tags';
 import { CHART_RIGHT_SPACE, projectOverlayPoints, recentChartRange } from '../lib/chart-timeframes';
 import { chartTimeOptions } from '../lib/chart-time';
 import { useTimeZone } from '../lib/time-zone';
+import { positionGroupId, sumFloating, type PositionGroup } from '../lib/forex-position-groups';
 
 export type ObservationChartSnapshot = Omit<MtfObservationSnapshot, 'status' | 'trend'> & {
   status: string;
@@ -43,6 +44,7 @@ export function MtfObservationChart({
   livePrice = null,
   liveCandles = [],
   executions = [],
+  positionGroups = [],
   selectedPositionId,
   frameSeconds = 900,
   pricePrecision = 3,
@@ -67,6 +69,7 @@ export function MtfObservationChart({
   livePrice?: { price: number; label: string; color?: string }[] | null;
   liveCandles?: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
   executions?: BrokerPosition[];
+  positionGroups?: PositionGroup[];
   selectedPositionId?: string;
   frameSeconds?: number;
   pricePrecision?: number;
@@ -116,8 +119,10 @@ export function MtfObservationChart({
     (row) => row.status === 'open' && row.open_price != null && row.open_price > 0,
   );
   const activeId = selectedPositionId ?? openRows[0]?.position_id;
+  const activeGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === activeId));
+  const selectedGroupId = activeGroup?.id;
   const openKey =
-    `${activeId}:` +
+    `${activeId}:${selectedGroupId}:` +
     openRows
       .map((row) => `${row.position_id}:${row.open_price}:${row.stop}:${row.target}`)
       .join('|');
@@ -139,7 +144,10 @@ export function MtfObservationChart({
               ['target', row.target],
             ] as const
           ).flatMap(([kind, price]) => {
-            if (kind !== 'entry' && row.position_id !== activeId) return [];
+            const group = positionGroups.find((group) => group.id === positionGroupId(row));
+            const representative = group?.legs.find((leg) => leg.status === 'open');
+            if (kind === 'entry' && representative && representative.position_id !== row.position_id) return [];
+            if (kind !== 'entry' && (group ? group.id !== selectedGroupId : row.position_id !== activeId)) return [];
             if (price == null || !Number.isFinite(price) || price <= 0) return [];
             const y = priceSeries.priceToCoordinate(price);
             return y === null ? [] : [{ id: row.position_id, kind, y: Math.round(y) }];
@@ -474,20 +482,27 @@ export function MtfObservationChart({
       const { count, ...marker } = event;
       points.push({ ...marker, text: `${marker.text}${count > 1 ? ` ×${count}` : ''}` });
     }
-    const openTrades = executions.filter((trade) => trade.status === 'open');
+    const chosen = executions.find((trade) => trade.position_id === selectedPositionId);
+    const chosenGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === chosen?.position_id));
+    const openTrades = executions.filter((trade) => trade.status === 'open' || chosenGroup?.legs.some((leg) => leg.position_id === trade.position_id));
     const activeId = selectedPositionId ?? openTrades[0]?.position_id;
+    const marked = new Set<string>();
     for (const trade of openTrades) {
-      const isSelected = trade.position_id === activeId;
+      const group = positionGroups.find((group) => group.id === positionGroupId(trade));
+      const isSelected = group ? group.legs.some((leg) => leg.position_id === activeId) : trade.position_id === activeId;
       for (const deal of trade.deals) {
         if (deal.type !== 'open') continue;
         const bucket = Math.floor(deal.event_time / frameSeconds) * frameSeconds;
         if (!candles.some((candle) => candle.time === bucket)) continue;
+        const markerId = group?.id ?? trade.position_id;
+        if (marked.has(markerId)) continue;
+        marked.add(markerId);
         points.push({
           time: bucket as UTCTimestamp,
           position: trade.side === 'buy' ? 'belowBar' : 'aboveBar',
           color: isSelected ? '#557fa1' : '#33443d',
           shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: `${trade.side?.toUpperCase()} #${trade.position_id} @ ${deal.price}`,
+          text: `${trade.side?.toUpperCase()} ${group?.ownership_verified ? 'Setup' : 'Ticket'} #${group?.legs[0].position_id ?? trade.position_id}`,
         });
       }
       if (isSelected) {
@@ -508,17 +523,6 @@ export function MtfObservationChart({
             }),
           );
         }
-      } else if (trade.open_price && trade.open_price > 0) {
-        lines.current.push(
-          priceSeries.createPriceLine({
-            price: trade.open_price,
-            color: '#2a3b33',
-            title: `#${trade.position_id}`,
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
-            axisLabelVisible: false,
-          }),
-        );
       }
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
@@ -871,7 +875,8 @@ export function MtfObservationChart({
               return tags.map((tag) => {
                 const row = openRows.find((item) => item.position_id === tag.id);
                 if (!row) return null;
-                const isSelected = tag.id === activeId;
+                const group = positionGroups.find((group) => group.id === positionGroupId(row));
+                const isSelected = group ? group.id === selectedGroupId : tag.id === activeId;
                 if (tag.kind !== 'entry' && !isSelected) return null;
                 const key = `${tag.id}-${tag.kind}`;
                 if (tag.kind !== 'entry') {
@@ -895,7 +900,7 @@ export function MtfObservationChart({
                     </div>
                   );
                 }
-                const pnl = pnlOf?.(row) ?? null;
+                const pnl = group && pnlOf ? sumFloating(group, pnlOf) : pnlOf?.(row) ?? null;
                 const tone = pnl == null ? 'flat' : pnl >= 0 ? 'win' : 'loss';
                 return (
                   <div
@@ -912,7 +917,7 @@ export function MtfObservationChart({
                       onClick={() => onSelectPosition?.(row.position_id)}
                     >
                       <span className="tag-vol">
-                        {row.volume} <small>#{row.position_id}</small>
+                        {group?.remaining_volume ?? row.remaining_volume ?? row.volume} <small>{group?.ownership_verified ? 'Setup' : 'Ticket'} #{group?.legs[0].position_id ?? row.position_id}</small>
                       </span>
                       <strong>
                         {pnl == null
@@ -920,7 +925,7 @@ export function MtfObservationChart({
                           : `${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)} USD`}
                       </strong>
                     </button>
-                    {isSelected &&
+                    {isSelected && !group &&
                       onClosePosition &&
                       row.signal_time != null &&
                       !row.close_requested && (

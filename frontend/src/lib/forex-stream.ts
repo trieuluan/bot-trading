@@ -4,7 +4,7 @@ type Listener = {
   data: (value: unknown) => void;
   status: (online: boolean, connecting: boolean) => void;
 };
-type Channel = { symbol: string; offset: number; listeners: Set<Listener>; close: () => void };
+type Channel = { symbol: string; offset: number; view: string; filter: string; listeners: Set<Listener>; close: () => void };
 
 const channels = new Map<string, Channel>();
 const snapshots = new Map<string, unknown>();
@@ -16,11 +16,13 @@ export function subscribeForexStream(
   data: Listener['data'],
   status: Listener['status'],
   offset = 0,
+  view: 'tickets' | 'setups' = 'tickets',
+  filter: 'all' | 'open' | 'closed' | 'bot' = 'all',
 ) {
-  const key = `${symbol}:${offset}`;
+  const key = `${symbol}:${offset}:${view}:${filter}`;
   let channel = channels.get(key);
   if (!channel) {
-    channel = { symbol, offset, listeners: new Set(), close: () => {} };
+    channel = { symbol, offset, view, filter, listeners: new Set(), close: () => {} };
     channels.set(key, channel);
   }
   const listener = { part, data, status };
@@ -58,7 +60,7 @@ function connect(channel: Channel, key: string) {
     if (disposed || document.hidden) return;
     const parts = [...new Set([...channel.listeners].map((listener) => listener.part))].sort();
     source = new EventSource(
-      `/api/workspaces/exness_forex/stream?${new URLSearchParams({ symbol: channel.symbol, parts: parts.join(','), offset: String(channel.offset) })}`,
+      `/api/workspaces/exness_forex/stream?${new URLSearchParams({ symbol: channel.symbol, parts: parts.join(','), offset: String(channel.offset), view: channel.view, status: channel.filter })}`,
     );
     const current = source;
     const received = () => {

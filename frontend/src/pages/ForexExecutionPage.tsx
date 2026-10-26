@@ -1,6 +1,8 @@
 import { useRoute, setRoute } from '../lib/router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ExnessExecution } from '../types/exness-execution';
+import { useEffect, useRef, useState } from 'react';
+import type { BrokerPosition, ExnessExecution } from '../types/exness-execution';
+import { closeSetupPath, closeTicketPath, estimatedPnl, type PositionGroup } from '../lib/forex-position-groups';
+import { ForexPositionGroups } from '../components/ForexPositionGroups';
 import type { ForexDashboard } from '../App';
 import { ForexEntryPilotPanel, ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
 import { formatForexPrice } from '../lib/format';
@@ -24,8 +26,6 @@ const panels: [Panel, string][] = [
 ];
 
 type Filter = 'all' | 'open' | 'closed' | 'bot';
-const isBot = (source: string) =>
-  source === 'learning' || source === 'hast2' || source === 'hast3' || source === 'regime_router';
 
 export function ForexExecutionPage({
   dashboard,
@@ -52,6 +52,8 @@ export function ForexExecutionPage({
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [executionOnline, setExecutionOnline] = useState(false);
+  const [liveQuote, setLiveQuote] = useState<{ symbol: string; bid: number; ask: number; time: number } | null>(null);
   const [route] = useRoute();
   const [accountRef, accountStuck] = useStickyBar<HTMLDivElement>('--forex-account-h');
   // Chart luôn hiển thị; tab cũ `chart` rơi về `orders` để link cũ vẫn chạy.
@@ -75,13 +77,17 @@ export function ForexExecutionPage({
         if (next.symbol !== symbol) return;
         setData(next);
       },
-      (online, connecting) =>
+      (online, connecting) => {
+        setExecutionOnline(online);
         setError(
           online || connecting ? '' : 'Stream lệnh sàn đang kết nối lại; dữ liệu có thể đã cũ.',
-        ),
+        );
+      },
       offset,
+      'setups',
+      filter,
     );
-  }, [offset, revision, symbol]);
+  }, [offset, revision, symbol, filter]);
   async function action(path: string, method: string, body?: object) {
     if (staleRef.current) return;
     setBusy(true);
@@ -102,23 +108,29 @@ export function ForexExecutionPage({
       setBusy(false);
     }
   }
-  const selected = data?.positions.find((position) => position.position_id === selectedId);
-  const openPositions = (data?.positions ?? []).filter((position) => position.status === 'open');
+  const rows = data?.groups ?? [];
+  const openGroups = data?.open_groups ?? [];
+  const chartGroups = [...openGroups, ...rows.filter((group) => !openGroups.some((opened) => opened.id === group.id))];
+  const chartPositions = chartGroups.flatMap((group) => group.legs);
   const chartPosition =
-    openPositions.find((position) => position.position_id === selectedId) ?? openPositions[0];
-  const rows = useMemo(
-    () =>
-      (data?.positions ?? []).filter(
-        (position) =>
-          filter === 'all' ||
-          (filter === 'bot' ? isBot(position.source) : position.status === filter),
-      ),
-    [data, filter],
-  );
-  const closedRows = (data?.positions ?? []).filter(
-    (position) => position.status === 'closed' && position.pnl != null,
-  );
-  const wins = closedRows.filter((position) => (position.pnl ?? 0) > 0).length;
+    chartPositions.find((position) => position.position_id === selectedId) ??
+    chartPositions.find((position) => position.status === 'open') ?? chartPositions[0];
+  const closedRows = rows.filter((group) => group.status === 'closed' && group.realized_pnl != null);
+  const wins = closedRows.filter((group) => (group.realized_pnl ?? 0) > 0).length;
+  const closeDisabled = busy || stale || !!error || !executionOnline || !data?.worker_online;
+  function closeTicket(position: BrokerPosition) {
+    const path = closeTicketPath(position);
+    if (!path || closeDisabled || position.close_requested) return;
+    if (window.confirm(`Đóng ticket demo #${position.position_id} (${symbol}) theo giá thị trường? Các ticket khác giữ nguyên.`)) void action(path, 'POST');
+  }
+  function closeSetup(group: PositionGroup) {
+    const path = closeSetupPath(group);
+    if (!path || closeDisabled || group.close_requested) return;
+    const tickets = group.legs.filter((leg) => leg.status === 'open').map((leg) => `#${leg.position_id}`).join(', ');
+    if (window.confirm(`Đóng cả setup demo ${symbol}, các ticket đang mở: ${tickets}, theo giá thị trường?`)) void action(path, 'POST');
+  }
+  const pnlOf = (position: BrokerPosition) => !error && !stale && liveQuote?.symbol === symbol && Date.now() / 1000 - liveQuote.time <= 15
+    ? estimatedPnl(position, position.side === 'buy' ? liveQuote.bid : liveQuote.ask, dashboard.instrument?.profile) : null;
   const picked = data?.learning?.latest?.selected;
   const treeCount = data?.learning?.htf_ast3_shadow?.tree_count ?? 56;
   const state = !data?.worker_online ? 'offline' : data.enabled ? 'live' : 'paused';
@@ -227,24 +239,16 @@ export function ForexExecutionPage({
         <ForexStrategyPage
           dashboard={dashboard}
           disconnected={!!error}
-          executions={openPositions}
+          executions={chartPositions}
+          positionGroups={chartGroups}
           selectedPosition={chartPosition}
+          onQuote={setLiveQuote}
           onSelectPosition={setSelectedId}
           executionOnly
           includeReplay={false}
-          onClosePosition={(position) => {
-            if (
-              !busy &&
-              !stale &&
-              !error &&
-              data?.worker_online &&
-              window.confirm(`Đóng vị thế demo #${position.position_id} theo giá thị trường?`)
-            )
-              void action(
-                `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
-                'POST',
-              );
-          }}
+          onClosePosition={closeTicket}
+          onCloseSetup={closeSetup}
+          closeDisabled={closeDisabled}
         />
       </section>
       {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
@@ -310,7 +314,7 @@ export function ForexExecutionPage({
                       key={key}
                       className={filter === key ? 'selected' : ''}
                       aria-pressed={filter === key}
-                      onClick={() => setFilter(key)}
+                      onClick={() => { setFilter(key); setOffset(0); }}
                     >
                       {text}
                     </button>
@@ -322,133 +326,13 @@ export function ForexExecutionPage({
                   </a>
                   {' · '}
                   {data.total ? offset + 1 : 0}–{Math.min(offset + 50, data.total)} / {data.total}{' '}
-                  lệnh
+                  setup
                 </div>
               </div>
 
-              <div className="table-wrap">
-                <table className="orders-clean-table">
-                  <thead>
-                    <tr>
-                      <th>Vị thế & Nguồn</th>
-                      <th>Chiều</th>
-                      <th className="num">Lot</th>
-                      <th className="num">Vào / Thoát</th>
-                      <th className="num">SL / TP</th>
-                      <th className="num">P&amp;L (USD)</th>
-                      <th>Trạng thái</th>
-                      <th className="actions-col">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((position) => {
-                      const isSelected = selectedId === position.position_id;
-                      return (
-                        <tr
-                          key={position.position_id}
-                          className={`${isSelected ? 'row-active' : ''} ${position.status === 'open' ? 'row-open' : ''}`}
-                        >
-                          <td>
-                            <div className="pos-id-box">
-                              <span className="pos-id">#{position.position_id}</span>
-                              <span className="pos-source">
-                                {position.source === 'learning'
-                                  ? 'Bot · HTF V3'
-                                  : position.source === 'regime_router'
-                                    ? 'Bot · Cũ'
-                                    : 'Thủ công / Probe'}
-                              </span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`side-badge side-${position.side?.toLowerCase()}`}>
-                              {position.side?.toUpperCase() ?? '—'}
-                            </span>
-                          </td>
-                          <td className="num font-mono">{amount(position.volume)}</td>
-                          <td className="num font-mono">
-                            <div>{quotePrice(position.open_price)}</div>
-                            <small className="muted">{quotePrice(position.close_price)}</small>
-                          </td>
-                          <td className="num font-mono">
-                            <div>{quotePrice(position.stop)}</div>
-                            <small className="muted">{quotePrice(position.target)}</small>
-                          </td>
-                          <td
-                            className={`num font-mono font-bold ${
-                              position.pnl == null
-                                ? ''
-                                : position.pnl >= 0
-                                  ? 'positive'
-                                  : 'negative'
-                            }`}
-                          >
-                            {position.pnl != null && position.pnl > 0 ? '+' : ''}
-                            {amount(position.pnl)}
-                          </td>
-                          <td>
-                            <span className={`order-status-pill status-${position.status}`}>
-                              {position.status === 'open' ? 'Đang mở' : 'Đã đóng'}
-                            </span>
-                            <small className="muted order-time-stamp">
-                              {date(position.close_time ?? position.open_time)}
-                            </small>
-                          </td>
-                          <td className="actions-col">
-                            <div className="order-actions-group">
-                              <button
-                                type="button"
-                                className={`btn-action ${isSelected ? 'btn-action-active' : ''}`}
-                                onClick={() => {
-                                  setSelectedId(position.position_id);
-                                  document
-                                    .getElementById('execution-chart')
-                                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                }}
-                                title="Xem trên chart & deal khớp"
-                              >
-                                Xem chart
-                              </button>
-                              {position.status === 'open' && position.signal_time != null && (
-                                <button
-                                  type="button"
-                                  className="btn-action btn-danger"
-                                  disabled={
-                                    busy ||
-                                    stale ||
-                                    !!error ||
-                                    position.close_requested ||
-                                    !data.worker_online
-                                  }
-                                  onClick={() => {
-                                    if (
-                                      window.confirm(
-                                        `Đóng vị thế demo #${position.position_id} theo giá thị trường?`,
-                                      )
-                                    )
-                                      void action(
-                                        `/trades/${position.signal_time}/close?position_id=${position.position_id}`,
-                                        'POST',
-                                      );
-                                  }}
-                                >
-                                  {position.close_requested ? 'Đang đóng...' : 'Đóng'}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {!rows.length && (
-                <div className="orders-empty-state">
-                  Không có lệnh khớp bộ lọc. Bot chờ tín hiệu hợp lệ, không ép mở lệnh.
-                </div>
-              )}
+              <ForexPositionGroups groups={rows} selectedId={chartPosition?.position_id}
+                onSelect={(id) => { setSelectedId(id); document.getElementById('execution-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                onCloseTicket={closeTicket} onCloseSetup={closeSetup} closeDisabled={closeDisabled} pnlOf={pnlOf} />
 
               <div className="orders-pagination-bar">
                 <button
@@ -459,7 +343,7 @@ export function ForexExecutionPage({
                   ← Trang trước
                 </button>
                 <span className="muted">
-                  Trang {Math.floor(offset / 50) + 1} ({data.total} lệnh tổng cộng)
+                  Trang {Math.floor(offset / 50) + 1} ({data.total} setup tổng cộng)
                 </span>
                 <button
                   className="secondary"
@@ -470,45 +354,6 @@ export function ForexExecutionPage({
                 </button>
               </div>
             </div>
-            {selected && (
-              <details open key={selected.position_id}>
-                <summary>
-                  Deal khớp sàn #{selected.position_id} · {selected.reason ?? 'Lệnh ngoài executor'}
-                </summary>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Deal / Order ID</th>
-                        <th>Loại</th>
-                        <th>Giá · lot</th>
-                        <th>Thời gian</th>
-                        <th>Profit / commission</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.deals.map((deal) => (
-                        <tr key={deal.deal_id}>
-                          <td>
-                            {deal.deal_id} / {deal.order_id ?? '—'}
-                          </td>
-                          <td>
-                            {deal.type} · {deal.direction}
-                          </td>
-                          <td>
-                            {quotePrice(deal.price)} · {amount(deal.volume)}
-                          </td>
-                          <td>{date(deal.event_time)}</td>
-                          <td>
-                            {amount(deal.profit?.amount)} / {deal.commission ?? 'Chưa có từ API'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            )}
             <p className="micro">
               SL theo vô hiệu H1 + ATR buffer; TP theo barrier cấu trúc H1/H4 (tối thiểu 1.5R). Tạm
               dừng không đóng vị thế đang mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn

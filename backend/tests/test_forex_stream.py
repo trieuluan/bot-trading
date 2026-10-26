@@ -27,7 +27,7 @@ def test_snapshots_single_flight_and_isolated(monkeypatch):
     clean(monkeypatch)
     calls = []
 
-    def build(part, symbol, offset):
+    def build(part, symbol, offset, view, status):
         calls.append((part, symbol, offset))
         return {"symbol": symbol, "offset": offset}
 

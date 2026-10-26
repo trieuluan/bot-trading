@@ -1,6 +1,14 @@
 import type { TreeLabel } from '../lib/forex-tree-label';
 import type { ForexEntryPilot } from './forex-entry';
+import type { PositionGroup } from '../lib/forex-position-groups';
 export interface BrokerPosition {
+  symbol?: string;
+  setup_id?: string | null;
+  ownership_verified?: boolean;
+  initial_volume?: number | null;
+  remaining_volume?: number | null;
+  has_closes?: boolean;
+  take_profit_filled?: boolean;
   position_id: string;
   side: 'buy' | 'sell' | null;
   volume: number | null;
@@ -41,6 +49,9 @@ export interface BrokerPosition {
 }
 
 export interface ExnessExecution {
+  groups?: PositionGroup[];
+  open_groups?: PositionGroup[];
+  view?: 'tickets' | 'setups';
   symbol: string;
   learning?: {
     engine?: string;

@@ -351,13 +351,14 @@ def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
 
 @app.get("/api/workspaces/exness_forex/markets")
 def forex_markets():
-    from .db import ExnessEntryIntent, ExnessExecutionState
+    from .db import ExnessEntryIntent, ExnessExecutionState, ExnessExecutionTrade
     from .exness_execution import max_positions, max_positions_per_symbol
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
     from .forex_entry_intents import RESERVED
     from .forex_learning import execution_status
     from .forex_market_sessions import market_session
+    from .forex_position_groups import open_setup_count, ticket_owners
 
     now = int(time.time())
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
@@ -366,6 +367,8 @@ def forex_markets():
         meta = state.snapshot if state else {}
         broker = meta.get("broker", {})
         positions = broker.get("positions", [])
+        trades = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
+        owners = ticket_owners(trades)
         intents_by_symbol = {}
         for intent in session.scalars(select(ExnessEntryIntent).where(
             ExnessEntryIntent.account == account, ExnessEntryIntent.available_at <= now,
@@ -402,6 +405,7 @@ def forex_markets():
             execution = execution_status(account, now, symbol)
             execution.pop("entry_allowed_ids", None)
             count = sum(position.get("instrument") == symbol for position in positions)
+            setups = open_setup_count(account, [p for p in positions if p.get("instrument") == symbol], owners)
             if count >= max_positions_per_symbol():
                 reason = "symbol_position_limit"
             if len(positions) >= max_positions():
@@ -413,11 +417,12 @@ def forex_markets():
                             "price": tick["bid"] if tick else last.close if last else None,
                             "price_at": stamp, "price_source": "tick" if tick else "closed_m15",
                             "age_seconds": max(0, now - stamp) if stamp is not None else None,
-                            "positions": count, "execution": execution,
+                            "positions": count, "setup_positions": setups, "execution": execution,
                             "entry_intents": intents_by_symbol.get(symbol, []),
                             "blocked_reason": execution["blocked_reason"] or reason,
                             "decision": meta.get("symbols", {}).get(symbol)})
     return {"at": now, "markets": markets, "account_positions": len(positions),
+            "account_setups": open_setup_count(account, positions, owners),
             "max_positions": max_positions(), "max_positions_per_symbol": max_positions_per_symbol()}
 
 

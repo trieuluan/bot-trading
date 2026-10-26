@@ -19,6 +19,8 @@ import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 import type { ForexEntryPilot } from '../types/forex-entry';
+import { estimatedPnl, sumFloating, type PositionGroup } from '../lib/forex-position-groups';
+import { ForexPositionGroups } from '../components/ForexPositionGroups';
 
 interface ForexCandle {
   time: number;
@@ -1201,20 +1203,28 @@ export function ForexStrategyPage({
   dashboard,
   disconnected,
   executions = [],
+  positionGroups = [],
   selectedPosition,
   executionOnly = false,
   includeReplay = true,
   onClosePosition,
   onSelectPosition,
+  onCloseSetup,
+  closeDisabled = false,
+  onQuote,
 }: {
   dashboard: ForexDashboard;
   disconnected: boolean;
   executions?: BrokerPosition[];
+  positionGroups?: PositionGroup[];
   selectedPosition?: BrokerPosition;
   executionOnly?: boolean;
   includeReplay?: boolean;
   onClosePosition?: (position: BrokerPosition) => void;
   onSelectPosition?: (id: string) => void;
+  onCloseSetup?: (group: PositionGroup) => void;
+  closeDisabled?: boolean;
+  onQuote?: (quote: { symbol: string; bid: number; ask: number; time: number } | null) => void;
 }) {
   const symbol = dashboard.workspace.symbol;
   // Nến gắn với khoá cặp/khung/phía để lần render đầu sau khi đổi không dùng nến của khoá cũ.
@@ -1308,6 +1318,10 @@ export function ForexStrategyPage({
     quoteState.quote !== null &&
     clock / 1000 - quoteState.quote.time <= 15;
   const visibleQuote = quoteLive || closedSession ? quoteState.quote : null;
+  useEffect(() => {
+    onQuote?.(quoteLive && quoteState.quote ? { ...quoteState.quote, symbol } : null);
+    return () => onQuote?.(null);
+  }, [quoteLive, quoteState.quote, symbol, onQuote]);
   const streamInterrupted =
     clock - quoteHeartbeat >= 5000 ||
     !['connecting', 'connected', 'waiting', 'live', 'stale'].includes(quoteState.status);
@@ -1500,26 +1514,9 @@ export function ForexStrategyPage({
     historyActions.current.refresh();
   }, [dashboard.market.last_sync]);
 
-  const pnlAt = (position: BrokerPosition, price: number) => {
-    const contract = Number(dashboard.instrument?.profile?.contract_size);
-    if (
-      (position.side !== 'buy' && position.side !== 'sell') ||
-      ![contract, position.volume, position.open_price, price].every(
-        (value) => typeof value === 'number' && Number.isFinite(value) && value > 0,
-      )
-    )
-      return null;
-    const move =
-      position.side === 'buy' ? price - position.open_price! : position.open_price! - price;
-    const conversion = Number(
-      move >= 0
-        ? dashboard.instrument?.profile?.quote_to_account_gain
-        : dashboard.instrument?.profile?.quote_to_account_loss,
-    );
-    return Number.isFinite(conversion) && conversion > 0
-      ? move * position.volume! * contract * conversion
-      : null;
-  };
+  const pnlAt = (position: BrokerPosition, price: number) => estimatedPnl(position, price, dashboard.instrument?.profile);
+  const selectedGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === selectedPosition?.position_id));
+  const pickerGroups = positionGroups.filter((group) => group.status === 'open' || group.id === selectedGroup?.id);
   const pnlOf = (position: BrokerPosition) => {
     const quote = quoteState.quote;
     return quoteLive && quote
@@ -1803,88 +1800,22 @@ export function ForexStrategyPage({
       {!loading && !chartError && candles.length === 0 && (
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
-      {executionOnly && executions.length > 0 && (
-        <div className="broker-position-picker" role="group" aria-label="Chọn vị thế đang mở">
-          <span className="broker-position-count">{executions.length} vị thế mở</span>
-          {executions.map((position) => {
-            const selected = position.position_id === selectedPosition?.position_id;
-            const pnl = pnlOf(position);
-            return (
-              <button
-                type="button"
-                key={position.position_id}
-                className="broker-position-chip"
-                aria-pressed={selected}
-                onClick={() => onSelectPosition?.(position.position_id)}
-              >
-                <span className={position.side === 'buy' ? 'positive' : 'negative'}>
-                  {position.side?.toUpperCase() ?? '—'}
-                </span>
-                <span>#{position.position_id}</span>
-                <span>
-                  {position.volume ?? '—'} lot{' '}
-                  {position.role === 'tp1' ? '· TP1' : position.role === 'runner' ? '· TP2' : ''}
-                </span>
-                <strong className={pnl == null ? '' : pnl >= 0 ? 'positive' : 'negative'}>
-                  {pnl == null ? '— USD' : `${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toFixed(2)} USD`}
-                </strong>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {executionOnly && selectedPosition && (
-        <div className="broker-position-strip" aria-label="Vị thế đang xem">
-          <span
-            className={`broker-direction ${selectedPosition.side === 'buy' ? 'positive' : 'negative'}`}
-          >
-            {selectedPosition.side?.toUpperCase() ?? '—'}{' '}
-            <small>
-              {selectedPosition.volume} lot · #{selectedPosition.position_id}
-            </small>
-          </span>
-          <span>
-            GIÁ VÀO
-            <strong>
-              {selectedPosition.open_price != null ? formatPrice(selectedPosition.open_price) : '—'}
-            </strong>
-          </span>
-          <span className="broker-stop">
-            STOP LOSS
-            <strong>
-              {selectedPosition.stop != null ? formatPrice(selectedPosition.stop) : '—'}
-            </strong>
-          </span>
-          <span className="broker-target">
-            TAKE PROFIT
-            <strong>
-              {selectedPosition.target != null ? formatPrice(selectedPosition.target) : '—'}
-            </strong>
-          </span>
-          <span>
-            {selectedPosition.status === 'closed' ? 'PROFIT SÀN' : 'TRẠNG THÁI'}
-            <strong>
-              {selectedPosition.status === 'closed'
-                ? `${selectedPosition.pnl?.toFixed(2) ?? '—'} USD`
-                : selectedPosition.status === 'open'
-                  ? [
-                      selectedPosition.role === 'tp1' ? 'TP1 · 1R' : 'TP2 · 2R',
-                      selectedPosition.partial_taken ? 'Đã chốt TP1' : '',
-                      selectedPosition.management_status === 'confirmed'
-                        ? selectedPosition.management_stage === 'trailing'
-                          ? 'Đã dời trailing SL'
-                          : 'Đã dời SL về entry'
-                        : selectedPosition.management_status === 'submitted'
-                          ? 'Đang xác minh dời SL'
-                          : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')
-                  : 'Chưa đủ lịch sử'}
-            </strong>
-          </span>
-        </div>
-      )}
+      {executionOnly && pickerGroups.length > 0 && <div className="broker-position-picker" role="group" aria-label="Chọn setup đã khớp">
+        <span className="broker-position-count">{positionGroups.filter((group) => group.status === 'open').length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket</span>
+        {pickerGroups.map((group) => {
+          const pnl = sumFloating(group, pnlOf);
+          const active = group.legs.find((leg) => leg.status === 'open') ?? group.legs[0];
+          return <button key={group.id} type="button" className="broker-position-chip" aria-pressed={group.id === selectedGroup?.id} onClick={() => onSelectPosition?.(active.position_id)}>
+            <span className={group.side === 'buy' ? 'positive' : 'negative'}>{group.side?.toUpperCase() ?? '—'}</span>
+            <span>Setup #{group.legs[0].position_id}</span><span>{group.remaining_volume ?? '—'} lot · {group.open_count}/{group.ticket_count} ticket</span>
+            <strong className={pnl == null ? '' : pnl >= 0 ? 'positive' : 'negative'}>{pnl == null ? '— USD' : pnl.toFixed(2) + ' USD'}</strong>
+          </button>;
+        })}
+      </div>}
+      {executionOnly && selectedGroup && <ForexPositionGroups groups={[selectedGroup]} selectedId={selectedPosition?.position_id}
+        onSelect={(id) => onSelectPosition?.(id)} onCloseTicket={(leg) => onClosePosition?.(leg)}
+        onCloseSetup={(group) => onCloseSetup?.(group)} closeDisabled={closeDisabled || !onClosePosition || disconnected}
+        pnlOf={pnlOf} />}
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
       {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
@@ -1910,6 +1841,7 @@ export function ForexStrategyPage({
         analysis={executionOnly ? analysis : null}
         shown={shownStrategies}
         executions={executions}
+        positionGroups={positionGroups}
         dark={executionOnly}
         onClosePosition={onClosePosition}
         onSelectPosition={onSelectPosition}

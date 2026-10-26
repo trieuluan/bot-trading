@@ -35,6 +35,7 @@ interface Market {
   age_seconds: number | null;
   price_source: string;
   positions: number;
+  setup_positions?: number;
   specs: string;
   blocked_reason: string | null;
   market_session?: ForexMarketSession;
@@ -73,6 +74,7 @@ export function ForexIntentBadge({ intents, now }: { intents: ForexEntryIntent[]
 interface MarketsData {
   markets: Market[];
   account_positions: number;
+  account_setups?: number;
   max_positions: number;
   max_positions_per_symbol: number;
 }
@@ -245,11 +247,11 @@ export function ForexMarkets({
                 {market.positions > 0 && (
                   <span
                     className="forex-strip-positions"
-                    aria-label={`${market.positions} vị thế đang mở`}
-                    title={`${market.positions} vị thế broker đang mở; mỗi leg tính một vị thế`}
+                    aria-label={`${market.setup_positions ?? market.positions} setup, ${market.positions} ticket đang mở`}
+                    title={`${market.setup_positions ?? market.positions} setup · ${market.positions} ticket broker; giới hạn vẫn tính theo ticket`}
                   >
                     <Layers size={10} aria-hidden="true" />
-                    {market.positions}
+                    {market.setup_positions ?? market.positions}
                   </span>
                 )}
                 </span>
@@ -296,7 +298,7 @@ export function ForexMarkets({
         <h2>{variant === 'table' ? 'Các cặp giao dịch' : 'Sức khỏe feed 11 cặp'}</h2>
         <span className="muted">
           {data
-            ? `${data.account_positions}/${data.max_positions} vị thế toàn tài khoản · tối đa ${data.max_positions_per_symbol}/cặp`
+            ? `${data.account_setups ?? data.account_positions} setup · ${data.account_positions}/${data.max_positions} ticket toàn tài khoản · tối đa ${data.max_positions_per_symbol} ticket/cặp`
             : 'Đang tải…'}
         </span>
       </div>
