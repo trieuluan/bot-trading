@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from .db import ExnessEntryIntent, Session
 from .forex_entry_intents import cancel_waiting, consume_quote, reconcile_intents
+from .forex_entry_policy import QUOTE_GAP
 
 
 class EntryConsumers:
@@ -62,7 +63,7 @@ class EntryConsumers:
                 while not self.stop.is_set() and self.waiting(symbol):
                     line = stream.readline()
                     now = time.time()
-                    if not line or now - last > 2:
+                    if not line or now - last > QUOTE_GAP:
                         self.cancel(symbol, "stream_disconnected" if not line else "quote_gap")
                         return
                     if line.startswith(b"data: "):

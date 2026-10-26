@@ -6,6 +6,7 @@ import json
 import math
 
 SCHEMA = "forex_htf_ast_v4"
+QUOTE_GAP = 5  # seconds; entry still requires a fresh (<=2s) quote
 POLICIES = ("market", "limit_setup_mid", "stop_trigger_break", "limit_or_stop")
 DEFAULTS = {"limit_ratio": 0.5, "stop_buffer_atr": 0.05, "wait_bars": 4}
 
@@ -133,7 +134,7 @@ def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=Fa
                          and 0 <= now - quote["received_at"] <= 2 and quote["time"] >= result["available_at"]):
         return {**result, "status": "cancelled", "reason": "quote_stale", "ended_at": now}
     previous = result.get("last_quote")
-    if previous and (now - previous["received_at"] > 2 or quote["time"] - previous["time"] > 2):
+    if previous and (now - previous["received_at"] > QUOTE_GAP or quote["time"] - previous["time"] > QUOTE_GAP):
         return {**result, "status": "cancelled", "reason": "quote_gap", "ended_at": now}
     if previous and quote["time"] <= previous["time"]:
         if quote["time"] < previous["time"]:

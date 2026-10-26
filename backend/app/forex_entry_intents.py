@@ -36,7 +36,8 @@ def validate_execution_signal(signal, account, now):
         state = session.get(ExnessExecutionState, account)
         if (not row or row.account != account or row.status not in ("triggered", "submitting", "submitted")
                 or not state or not state.enabled or row.snapshot.get("continuity_error")
-                or not 0 <= now - row.snapshot.get("last_quote", {}).get("received_at", 0) <= 2):
+                # Quote stream keeps updating while the executor prepares, so a quote newer than `now` is fresh.
+                or not -10 <= now - row.snapshot.get("last_quote", {}).get("received_at", 0) <= 2):
             raise ExnessError("unverified_virtual_entry")
         expected = execution_signal(row)
         supplied = dict(signal)

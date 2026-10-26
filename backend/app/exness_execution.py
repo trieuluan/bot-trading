@@ -116,7 +116,7 @@ def late_drift_ok(signal, entry, now):
         from .db import ExnessEntryIntent
         with Session() as session:
             intent = session.get(ExnessEntryIntent, signal["entry_intent_id"])
-        if not intent or not 0 <= now - intent.snapshot.get("last_quote", {}).get("received_at", 0) <= 2:
+        if not intent or not -10 <= now - intent.snapshot.get("last_quote", {}).get("received_at", 0) <= 2:
             raise ExnessError("virtual_entry_expired")
         risk = abs(float(signal["ref_price"]) - float(signal["stop"]))
         if risk <= 0 or abs(float(entry) - float(signal["ref_price"])) > MAX_LATE_DRIFT_R * risk:
