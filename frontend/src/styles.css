@@ -7310,12 +7310,24 @@ main.forex-terminal-main {
 .signal-lifecycle-disclosure::after { content: ' +'; }
 .forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
 .forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
-.signal-lifecycle-list { max-height: 280px; overflow: auto; scrollbar-gutter: stable; }
-.forex-v4-chart-selection { margin: 10px 0; padding: 12px; border: 1px solid #667d70; border-radius: 6px; }
-.forex-v4-chart-selection label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.forex-v4-chart-selection select { flex: 1 1 280px; min-width: 0; max-width: 100%; padding: 8px; }
-.forex-v4-chart-selection p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.forex-v4-levels { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; margin: 10px 0 0; list-style: none; font-size: 12px; }
+.signal-lifecycle-list { max-height: 240px; overflow: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 6px; }
+.signal-lifecycle-row { border: 1px solid #23342a; border-radius: 6px; background: #131d18; overflow: hidden; }
+.signal-lifecycle-row.is-selected { border-color: #4b7861; background: #182820; box-shadow: inset 3px 0 #88b8a3; }
+.signal-lifecycle-select { display: block; width: 100%; padding: 8px 10px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.signal-lifecycle-select:hover { background: rgba(255,255,255,0.02); }
+.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 6px 10px 8px; background: #101915; font-size: 10px; }
+.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; margin-bottom: 4px; }
+.forex-v4-chart-selection { margin: 6px 0; padding: 8px 12px; border: 1px solid #334d3f; border-radius: 6px; background: #121c17; }
+.forex-v4-snapshot-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.forex-v4-snapshot-heading label { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 320px; font-weight: 600; color: #d0ded6; }
+.forex-v4-snapshot-heading label small { font-weight: normal; color: #7f998c; }
+.forex-v4-chart-selection select { flex: 1 1 220px; min-width: 0; max-width: 100%; padding: 4px 8px; background: #0c1410; border: 1px solid #2d4537; color: #e1ede6; border-radius: 4px; font-size: 11px; }
+.forex-v4-simulation-badge { font-size: 10px; color: #8eb39f; background: #1c2b23; border: 1px solid #314a3c; padding: 2px 6px; border-radius: 3px; }
+.forex-v4-chart-selection p { margin: 4px 0 0; font-size: 11px; color: #8fa196; line-height: 1.4; overflow-wrap: anywhere; }
+.forex-v4-levels { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 0; margin: 6px 0 0; list-style: none; font-size: 11px; }
+.forex-v4-levels li { display: inline-flex; gap: 5px; align-items: baseline; background: #182720; border: 1px solid #273d31; padding: 2px 7px; border-radius: 4px; }
+.forex-v4-levels li span { color: #8fa99c; text-transform: uppercase; font-size: 9px; letter-spacing: 0.3px; }
+.forex-v4-levels li strong { color: #d7ede1; font-family: monospace; font-size: 12px; }
 .signal-lifecycle-list:focus-visible, .forex-signal-lifecycle summary:focus-visible {
   outline: 2px solid #88b8a3;
   outline-offset: 2px;

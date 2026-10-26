@@ -1853,17 +1853,20 @@ export function ForexStrategyPage({
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
       {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection">
-        <label>Snapshot V4 · H4 / H1 / M15
+        <div className="forex-v4-snapshot-heading">
+        <label><span>Snapshot V4 <small>H4 / H1 / M15</small></span>
           <select value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
             {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
           </select>
         </label>
+        <span className="forex-v4-simulation-badge">Mô phỏng · BID</span>
+        </div>
         <p role="status">{v4Chart
-          ? `Đã chụp ${formatTime(v4Chart.available_at, true)} · Hạn canh ${formatTime(v4Chart.expires_at, true)} · Giá BID · Limit/Stop và SL/TP dự kiến, không phải lệnh broker.`
+          ? `Chụp ${formatTime(v4Chart.available_at, true)} · Hạn canh ${formatTime(v4Chart.expires_at, true)} · Mức giá dự kiến, không phải lệnh broker.`
           : signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>
         {v4Chart && <ul className="forex-v4-levels" aria-label="Mức giá dự kiến V4">
-          {v4Chart.row.chart?.levels.map((level) => <li key={level.label}>
-            {level.label}: <strong>{level.price.toFixed(priceDigits(symbol))}</strong>
+          {v4Chart.row.chart?.levels.map((level) => <li key={level.label} title={level.label}>
+            <span>{level.label.split(' · ')[0]}</span><strong>{level.price.toFixed(priceDigits(symbol))}</strong>
           </li>)}
         </ul>}
       </div>}

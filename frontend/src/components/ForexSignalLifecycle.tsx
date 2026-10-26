@@ -60,13 +60,13 @@ export function ForexSignalLifecycle({
       onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
         <Activity size={14} aria-hidden="true" />
-        <strong>Chọn setup để xem chart</strong>
+        <strong>Setup trên chart</strong>
         <span>
-          {totalSignals} tín hiệu · {setups.length} setup ({waiting} canh broker · {shadowCount} mô phỏng)
+          {setups.length} setup · {totalSignals} tín hiệu · {waiting} canh broker · {shadowCount} mô phỏng
         </span>
         {unresolved > 0 && <span className="pair-intent is-uncertain">{unresolved} cần đối soát</span>}
         {selected && <span className="signal-setup-selected">Đang xem: {selected.side === 'long' ? 'Mua' : 'Bán'} · {formatTime(selected.time, true)}</span>}
-        <span className="signal-lifecycle-disclosure">Danh sách setup</span>
+        <span className="signal-lifecycle-disclosure">Danh sách</span>
       </summary>
       <div className="signal-lifecycle-toolbar">
         <div className="signal-lifecycle-filters" role="group" aria-label="Lọc setup">
@@ -77,10 +77,7 @@ export function ForexSignalLifecycle({
           <X size={12} aria-hidden="true" /> Bỏ chọn setup
         </button>}
       </div>
-      <p className="signal-lifecycle-guide">
-        Bấm vào một setup bên dưới để chart <strong>chỉ vẽ duy nhất</strong> vòng đời và mức canh
-        giá của setup đó; vị thế đang mở vẫn giữ nguyên. Bấm lại để bỏ chọn. Chọn setup không gửi hay hủy lệnh.
-      </p>
+      <p className="signal-lifecycle-guide">Chọn để xem trên chart · bấm lại để bỏ chọn. Không gửi hay hủy lệnh.</p>
       <div
         className="signal-lifecycle-list"
         role="region"
@@ -107,17 +104,9 @@ export function ForexSignalLifecycle({
             <article
               key={setup.id}
               className={`signal-lifecycle-row is-interactive${isSelected ? ' is-selected' : ''}`}
-              onClick={() => onSelect(isSelected ? null : setup.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelect(isSelected ? null : setup.id);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
             >
+              <button type="button" className="signal-lifecycle-select"
+                onClick={() => onSelect(isSelected ? null : setup.id)} aria-pressed={isSelected}>
               <div className="signal-lifecycle-heading">
                 <span className={`pair-intent is-${state.tone}`}>{state.short}</span>
                 <strong className={setup.side === 'long' ? 'positive' : 'negative'}>
@@ -128,7 +117,7 @@ export function ForexSignalLifecycle({
                 <span className="signal-lifecycle-select-action">
                   {isSelected ? (
                     <span className="is-active">
-                      <Check size={12} aria-hidden="true" /> Đang xem trên chart
+                      <Check size={12} aria-hidden="true" /> Đang xem
                     </span>
                   ) : (
                     <span>Xem trên chart</span>
@@ -162,14 +151,17 @@ export function ForexSignalLifecycle({
                     : 'Chỉ ghi nhận tín hiệu · chưa có lệnh canh giá tương ứng; không phải fill broker.'}</span>
                 )}
               </div>
-              {isSelected && <div className="signal-lifecycle-meta">
-                {mainIntent && <ol className="signal-lifecycle-steps" aria-label="Vòng đời setup đã chọn">
+                {isSelected && mainIntent && <ol className="signal-lifecycle-steps" aria-label="Vòng đời setup đã chọn">
                   {([
                     ['Tín hiệu', true], ['Canh giá', true], ['Kích hoạt', mainIntent.triggered_at != null],
                     ['Gửi broker', mainIntent.status === 'submitted' || !!mainIntent.broker_fills?.length],
                     ['Khớp', !!mainIntent.broker_fills?.length],
                   ] as const).map(([label, done]) => <li key={label} className={done ? 'is-done' : ''}>{label}</li>)}
                 </ol>}
+              </button>
+              {isSelected && <details className="signal-lifecycle-details">
+                <summary>Chi tiết thực thi · {setup.intents.length} nhánh</summary>
+                <div className="signal-lifecycle-meta">
                 {setup.intents.map((intent) => <div className="signal-setup-strategies" key={intent.id}>
                   {intent.strategy} · {entryLifecycle(intent).label} · Limit {price(intent.limit_price)} · Stop {price(intent.stop_price)}
                   {intent.expires_at ? ` · Hạn ${formatTime(intent.expires_at, true)}` : ''}
@@ -177,7 +169,8 @@ export function ForexSignalLifecycle({
                   {intent.broker_fills?.map((fill) => ` · Fill #${fill.position_id} @ ${price(fill.price)}`).join('')}
                 </div>)}
                 <span className="signal-setup-strategies">Cây ghi nhận: {setup.signals.map((signal) => signal.strategy).join(', ')}</span>
-              </div>}
+                </div>
+              </details>}
             </article>
           );
         })}
