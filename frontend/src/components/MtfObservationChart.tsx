@@ -484,7 +484,7 @@ export function MtfObservationChart({
     }
     const chosen = executions.find((trade) => trade.position_id === selectedPositionId);
     const chosenGroup = positionGroups.find((group) => group.legs.some((leg) => leg.position_id === chosen?.position_id));
-    const openTrades = executions.filter((trade) => trade.status === 'open' || chosenGroup?.legs.some((leg) => leg.position_id === trade.position_id));
+    const openTrades = executions.filter((trade) => trade.status === 'open' || trade.position_id === chosen?.position_id || chosenGroup?.legs.some((leg) => leg.position_id === trade.position_id));
     const activeId = selectedPositionId;
     const marked = new Set<string>();
     for (const trade of openTrades) {

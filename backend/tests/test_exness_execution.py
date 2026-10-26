@@ -19,20 +19,20 @@ from backend.app.main import app
 
 NOW = 1791900000
 
-def route(positions, orders):
+def route(positions, orders, equity="1000"):
     def get(path, params=None):
         if path.endswith("/snapshot"):
-            return {"positions": list(positions), "orders": list(orders), "account_state": {}}
+            return {"positions": list(positions), "orders": list(orders), "account_state": {"equity": equity}}
         return {"items": [], "has_more": False}
     return get
 
-def dummy_api(positions=(), orders=(), is_demo=True, account_id="31000117657"):
+def dummy_api(positions=(), orders=(), is_demo=True, account_id="31000117657", equity="1000"):
     key = load_private_key("00" * 32)
     api = SimpleNamespace(
         account_id=account_id, api_key="k", key=key, base_url="https://api.exness.com",
         next_request=0, request_interval=0.01, rate_limit_until=0,
         account=lambda: {"account_id": account_id, "is_demo": is_demo, "settings": {"currency": "USD"}},
-        snapshot=lambda: {"positions": list(positions), "orders": list(orders), "account_state": {}},
+        snapshot=lambda: {"positions": list(positions), "orders": list(orders), "account_state": {"equity": equity}},
         condition=lambda sym: {"instrument": "XAUUSD", "trade_mode": "enabled", "exec_mode": "market",
                                "quote_currency": "USD", "volume_min": "0.01", "volume_max": "100.0",
                                "volume_step": "0.01", "contract_size": "100", "point_digits": 3},
@@ -41,7 +41,7 @@ def dummy_api(positions=(), orders=(), is_demo=True, account_id="31000117657"):
             "methods": [{"api_operation_id": op, "rate_limit": {"limit": 100, "window_seconds": 1}}
                         for op in ("openPosition", "closePosition", "getTradingStateSnapshot", "getAccountDetails")]
         }}},
-        get=route(positions, orders),
+        get=route(positions, orders, equity),
         client=SimpleNamespace(request=MagicMock(return_value=SimpleNamespace(status_code=202, json=lambda: {"operation_id": "op-1"})))
     )
     return api
@@ -210,7 +210,7 @@ def test_virtual_split_submit_and_uncertain_restart(monkeypatch, tmp_path, secon
 
     from backend.app.db import ExnessEntryIntent
     from backend.app.forex_entry_intents import execute_trigger, reconcile_intents
-    api = dummy_api()
+    api = dummy_api(equity="2500")
     identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
@@ -434,7 +434,7 @@ def test_pending_order_blocks_new_position(monkeypatch):
 def test_signal_splits_into_native_tp1_then_runner_only_after_first_fill(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
-    api = dummy_api()
+    api = dummy_api(equity="2500")
     seed_executor(api, monkeypatch)
     bodies = []
     def request(method, url, **kwargs):
@@ -447,6 +447,58 @@ def test_signal_splits_into_native_tp1_then_runner_only_after_first_fill(monkeyp
         row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
         assert [leg["status"] for leg in row.snapshot["legs"]] == ["submitted", "planned"]
 
+@pytest.mark.parametrize("equity", [None, "", "NaN", "Infinity", "0", "-100", True])
+def test_invalid_broker_equity_blocks_auto_without_submission(monkeypatch, equity):
+    api = dummy_api(equity=equity)
+    seed_executor(api, monkeypatch)
+    assert ee._execution_tick(api, now=NOW) == "preflight_failed"
+    api.client.request.assert_not_called()
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)) is None
+
+@pytest.mark.parametrize("fresh_equity,ask", [("5000", 4000.25), ("20000", 4000.6)])
+def test_split_rechecks_current_equity_and_original_setup_budget(monkeypatch, fresh_equity, ask):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    api = dummy_api(equity="10000")
+    seed_executor(api, monkeypatch)
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
+        assert row.snapshot["risk_equity"] == "10000"
+        assert row.snapshot["risk_budget_usd"] == "100"
+        assert [leg["body"]["volume"] for leg in row.snapshot["legs"]] == ["0.09", "0.09"]
+    api.get = route((), (), fresh_equity)
+    monkeypatch.setattr(ee, "live_quote", lambda *_: {"bid": 4000.0, "ask": ask, "time": NOW, "received_at": NOW})
+    condition = {**api.condition("XAUUSD"), "account_currency": "USD", "observed_at": NOW,
+                 "account_tag": account_tag(api.account_id), "commission_per_unit": 0}
+    with pytest.raises(ExnessError, match="Combined split risk exceeds setup budget"):
+        ee.submit_leg(ee.ExnessDemoClient(api), row, 1, row.snapshot["legs"][1], condition, NOW)
+    assert api.client.request.call_count == 1
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
+        assert row.snapshot["legs"][1]["status"] == "skipped"
+
+def test_equity_missing_at_submission_does_not_send_planned_order(monkeypatch):
+    api = dummy_api(equity="1000")
+    seed_executor(api, monkeypatch)
+    original = api.get
+    snapshots = 0
+    def get(path, params=None):
+        nonlocal snapshots
+        result = original(path, params)
+        if path.endswith("/snapshot"):
+            snapshots += 1
+            if snapshots > 1:
+                result["account_state"] = {}
+        return result
+    api.get = get
+    with pytest.raises(ExnessError, match="Invalid account equity"):
+        ee._execution_tick(api, now=NOW)
+    api.client.request.assert_not_called()
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
+        assert row.snapshot["status"] == "skipped"
+
 @pytest.mark.parametrize("symbol_count,total_count", [(5, 5), (0, 65)])
 def test_entire_split_plan_must_fit_account_and_symbol_limits(monkeypatch, symbol_count, total_count):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
@@ -454,7 +506,7 @@ def test_entire_split_plan_must_fit_account_and_symbol_limits(monkeypatch, symbo
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
     positions = [{"position_id": str(index), "instrument": "XAUUSD" if index < symbol_count else "EURUSD"}
                  for index in range(total_count)]
-    api = dummy_api(positions=positions)
+    api = dummy_api(positions=positions, equity="2500")
     seed_executor(api, monkeypatch)
     assert ee._execution_tick(api, now=NOW) == "position_capacity_for_split"
     api.client.request.assert_not_called()
@@ -528,7 +580,7 @@ def test_reconciles_intent_older_than_one_day():
 def test_adaptive_signal_splits_and_manages_via_broker(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
-    api = dummy_api()
+    api = dummy_api(equity="2500")
     seed_executor(api, monkeypatch)
     adaptive_sig = {
         **signal(),

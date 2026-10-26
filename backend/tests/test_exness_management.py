@@ -4,7 +4,13 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.exness import ExnessError
-from backend.app.exness_management import exit_reason, protective_stop, size_lot, split_bodies
+from backend.app.exness_management import (
+    exit_reason,
+    protective_stop,
+    risk_budget,
+    size_lot,
+    split_bodies,
+)
 
 COND = {"volume_min": "0.01", "volume_max": "100", "volume_step": "0.01",
         "contract_size": "100", "point_digits": 3}
@@ -13,18 +19,56 @@ def bar(time, open_, high, low, close):
     return SimpleNamespace(time=time, open=open_, high=high, low=low, close=close)
 
 def test_lot_scales_by_risk_and_caps(monkeypatch):
+    assert size_lot(Decimal("20"), COND, equity="2500") == Decimal("0.01")
+    assert size_lot(Decimal("5"), COND, equity="2500") == Decimal("0.05")
+    assert size_lot(Decimal("1"), COND, equity=Decimal("10000")) == Decimal("1.00")
+    assert size_lot(Decimal("1"), COND, equity=Decimal("50000")) == Decimal("5.00")
+    with pytest.raises(ExnessError):
+        size_lot(Decimal("26"), COND, equity="2500")
+
+def test_size_lot_rejects_negative_or_zero_equity():
+    with pytest.raises(ExnessError, match="Invalid account equity"):
+        size_lot(Decimal("1"), COND, equity=Decimal("0"))
+    with pytest.raises(ExnessError, match="Invalid account equity"):
+        size_lot(Decimal("1"), COND, equity=Decimal("-100"))
+
+@pytest.mark.parametrize("equity", [None, "", "bad", "NaN", "Infinity", True, False, 0, -1])
+def test_invalid_equity_never_falls_back_to_fixed_budget(equity):
+    with pytest.raises(ExnessError, match="Invalid account equity"):
+        size_lot(Decimal("1"), COND, equity=equity)
+
+def test_old_caps_do_not_override_one_percent_or_broker_limits(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
     monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
-    assert size_lot(Decimal("20"), COND) == Decimal("0.01")
-    assert size_lot(Decimal("5"), COND) == Decimal("0.05")
-    assert size_lot(Decimal("1"), COND) == Decimal("0.10")
-    with pytest.raises(ExnessError):
-        size_lot(Decimal("26"), COND)
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PERCENT", "10")
+    assert risk_budget("10000.01") == Decimal("100.0001")
+    assert size_lot("0.1", COND, equity="1000000") == Decimal("100")
+    uneven = {**COND, "volume_min": "0.03", "volume_step": "0.02", "volume_max": "0.10"}
+    assert size_lot("1", uneven, equity="10000") == Decimal("0.09")
+    assert size_lot("3", COND, equity="10000") == Decimal("0.33")
 
-def test_max_lot_setting_cannot_exceed_requested_ceiling(monkeypatch):
-    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "1")
+@pytest.mark.parametrize("field,value", [
+    ("volume_min", "NaN"), ("volume_max", "0"), ("volume_max", "0.001"),
+    ("volume_step", "0"), ("volume_step", True), ("contract_size", "Infinity"),
+    ("quote_to_account_loss", "-1"), ("quote_to_account_loss", "NaN"),
+])
+def test_invalid_broker_lot_specs_fail_closed(field, value):
     with pytest.raises(ExnessError):
-        size_lot(Decimal("1"), COND)
+        size_lot("1", {**COND, field: value}, equity="10000")
+
+def test_live_setup_above_old_notional_cap_splits_one_budget():
+    client, condition, quote = _client_and_inputs()
+    body = client.strategy_body({"side": "long", "stop": 2595, "generated": True},
+                                condition, quote, "large", equity="100000")
+    volume = Decimal(body["volume"])
+    assert volume > Decimal("0.10")
+    assert volume * Decimal(condition["contract_size"]) * Decimal(str(quote["ask"])) > 50000
+    legs = split_bodies(body, condition, Decimal(str(quote["ask"])))
+    assert len(legs) == 2
+    total_risk = sum(Decimal(leg["volume"]) * Decimal(condition["contract_size"])
+                     * (Decimal(str(quote["ask"])) - Decimal(leg["stop_loss_price"])) for leg in legs)
+    assert total_risk <= risk_budget("100000")
+    assert sum(Decimal(leg["volume"]) for leg in legs) == volume
 
 def test_split_preserves_total_volume_and_sets_tp1():
     parts = split_bodies({"side": "buy", "volume": "0.05", "stop_loss_price": "99",
@@ -68,10 +112,10 @@ def test_structural_stop_adds_buffer_and_rounds_outward(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
     monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
     client, cond, quote = _client_and_inputs()
-    long = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8}, cond, quote, "k1")
-    short = client.strategy_body({"side": "short", "stop": 2605.0, "stop_buffer": 0.8}, cond, quote, "k2")
-    spread = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.1}, cond, quote, "k3")
-    genome = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8, "generated": True}, cond, quote, "k4")
+    long = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8}, cond, quote, "k1", equity="2500")
+    short = client.strategy_body({"side": "short", "stop": 2605.0, "stop_buffer": 0.8}, cond, quote, "k2", equity="2500")
+    spread = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.1}, cond, quote, "k3", equity="2500")
+    genome = client.strategy_body({"side": "long", "stop": 2595.0, "stop_buffer": 0.8, "generated": True}, cond, quote, "k4", equity="2500")
     assert Decimal(long["stop_loss_price"]) == Decimal("2594.200")
     assert Decimal(short["stop_loss_price"]) == Decimal("2605.800")
     assert Decimal(spread["stop_loss_price"]) == Decimal("2594.600")
@@ -101,4 +145,4 @@ def test_buffered_stop_does_not_force_minimum_lot_above_budget(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
     client, cond, quote = _client_and_inputs()
     with pytest.raises(ExnessError, match="Minimum lot exceeds risk budget"):
-        client.strategy_body({"side": "long", "stop": 2576, "stop_buffer": 2}, cond, quote, "risk")
+        client.strategy_body({"side": "long", "stop": 2576, "stop_buffer": 2}, cond, quote, "risk", equity="2500")

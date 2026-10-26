@@ -736,6 +736,14 @@ M15 trigger; không có cản hợp lệ hoặc runner R/R sau chi phí dưới 
   `EXNESS_DEMO_ORDERS_ENABLED` và control tài khoản. Thay code/example không bật các cờ local.
   Kiểm thử dùng broker giả, không cần chạy worker. Triển khai/migration dữ liệu thật là bước riêng.
 
+#### Sizing Auto Demo: 1% equity mỗi setup
+
+- Ngân sách SL = 1% equity từ snapshot broker. Tổng lot = ngân sách / (khoảng cách entry–SL × contract size × tỷ giá lỗ về USD), làm tròn xuống theo bước lot và giới hạn broker. Không còn trần 0.10 lot hay chặn notional $50,000 cho Auto.
+- TP1/Runner dùng chung ngân sách setup, không phải 1% mỗi ticket. Lưu equity/ngân sách lúc lập kế hoạch; trước mỗi lần gửi, đối chiếu equity mới và không vượt ngân sách gốc. Thiếu/không hợp lệ equity thì không mở lệnh; không fallback sang $25. Các biến cũ `EXNESS_DEMO_MAX_LOT` và `EXNESS_DEMO_RISK_PER_TRADE_USD` không còn áp dụng.
+- 1% là rủi ro giá tới SL, chưa gồm phí/swap/trượt giá, không phải margin hay bảo đảm lỗ tối đa. Giữ giới hạn số ticket và broker kiểm tra margin. Không thay lot/SL/TP của lệnh đã mở; lệnh kiểm tra thủ công vẫn 0.01 lot.
+- Thanh tài khoản hiện ngân sách setup và đòn bẩy cấu hình của cặp đang xem từ specs cache, không thêm API broker/polling. Theo Exness API: `forex`/`cfd_leverage` dùng account leverage, `forex_no_leverage`/`cfd` dùng nghịch đảo `margin_percent` (tỷ lệ, không chia thêm 100). Đây chưa phải mức HMR realtime; specs thiếu/stale hiện `—`.
+- Replay SL/TP hiện có vẫn dùng tài khoản tham chiếu $2,500 (ngân sách $25), không lấy equity broker hiện tại để sửa kết quả lịch sử; không cộng kết quả replay vào rủi ro giao dịch.
+
 #### Tài liệu execution cũ (chỉ tham khảo lịch sử)
 
 Đặt `EXNESS_DEMO_EXECUTION_ENABLED=true` trong `.env`, chạy `docker compose up -d`

@@ -62,15 +62,13 @@ def test_conversion_stale_candle_fails():
     assert conv["verified"] is False
 
 
-def test_sizing_respects_conversion_usd_risk(monkeypatch):
-    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
-    monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
+def test_sizing_respects_conversion_usd_risk():
     condition = {
         "instrument": "USDJPY", "contract_size": "100000", "volume_min": "0.01",
         "volume_max": "100.0", "volume_step": "0.01", "point_digits": 3,
         "quote_to_account_loss": str(Decimal("1") / Decimal("150.0")),
     }
-    lot = size_lot(Decimal("0.50"), condition)
+    lot = size_lot(Decimal("0.50"), condition, equity=Decimal("2500"))
     assert lot == Decimal("0.07")
     actual_usd_risk = Decimal("0.50") * Decimal("100000") * lot * (Decimal("1") / Decimal("150.0"))
     assert actual_usd_risk <= Decimal("25")

@@ -11,7 +11,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 import httpx
 
 from .exness import CONFIG_TTL, ExnessError, b64url
-from .exness_management import max_lot, risk_budget, size_lot
+from .exness_management import risk_budget, size_lot
 from .forex_buffer_study import exit_target
 from .forex_symbols import SYMBOLS, checked_symbol, configured_symbols
 
@@ -145,7 +145,7 @@ class ExnessDemoClient:
         return {"instrument": condition.get("instrument", "XAUUSD"), "side": side, "volume": format(volume, "f"),
                 "stop_loss_price": format(stop, "f"), "comment": key[:32]}
 
-    def strategy_body(self, signal, condition, quote, key):
+    def strategy_body(self, signal, condition, quote, key, equity=None):
         symbol = checked_symbol(signal.get("symbol", "XAUUSD"))
         if symbol not in configured_symbols():
             raise ExnessError("Instrument not enabled for entry")
@@ -183,7 +183,8 @@ class ExnessDemoClient:
         if risk_distance <= 0:
             raise ExnessError("Invalid structure stop")
         contract = positive_decimal(condition["contract_size"])
-        volume = size_lot(risk_distance, condition)
+        budget = risk_budget(equity)
+        volume = size_lot(risk_distance, condition, equity=equity)
         minimum = positive_decimal(condition["volume_min"])
         step = positive_decimal(condition["volume_step"])
         if (volume - minimum) % step:
@@ -191,8 +192,7 @@ class ExnessDemoClient:
         units = volume * contract
         conv = Decimal(str(condition.get("quote_to_account_loss", 1)))
         planned_risk = risk_distance * units * conv
-        if (planned_risk <= 0 or planned_risk > risk_budget()
-                or units * entry * conv > 50000
+        if (planned_risk <= 0 or planned_risk > budget
                 or (long and stop >= positive_decimal(quote["bid"]))
                 or (not long and stop <= positive_decimal(quote["ask"]))):
             raise ExnessError("Invalid structure stop or planned risk out of bounds")
@@ -243,8 +243,9 @@ class ExnessDemoClient:
                 body = self.open_body(body["side"], condition, quote, key)
             elif build is not None:
                 body = build(quote)
-            max_allowed = Decimal("0.01") if condition is not None else max_lot()
-            if body.get("side") not in ("buy", "sell") or positive_decimal(body.get("volume")) > max_allowed:
+            volume = positive_decimal(body.get("volume"))
+            if (body.get("side") not in ("buy", "sell")
+                    or ((condition is not None or build is None) and volume > Decimal("0.01"))):
                 raise ValueError("Invalid demo lot or direction")
             positive_decimal(body.get("stop_loss_price"))
         if method == "PATCH":

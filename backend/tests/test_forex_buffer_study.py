@@ -140,7 +140,7 @@ def test_live_body_uses_selected_variant_and_checks_new_risk(monkeypatch):
     quote = {"bid": 2600.0, "ask": 2600.4, "time": time.time(), "received_at": time.time()}
     signal = {**SIGNAL, "exit_variant": "k0.5_3r", "stop_buffer": 2,
               "target_context": {"barriers": [], "buffer": 0}}
-    body = ExnessDemoClient(MagicMock()).strategy_body(signal, COND, quote, "test")
+    body = ExnessDemoClient(MagicMock()).strategy_body(signal, COND, quote, "test", equity="2500")
     entry, stop, target = Decimal("2600.4"), Decimal(body["stop_loss_price"]), Decimal(body["take_profit_price"])
     assert stop == Decimal("2588.000")
     assert target == entry + 3 * (entry - stop)

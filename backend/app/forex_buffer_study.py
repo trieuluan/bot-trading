@@ -169,7 +169,7 @@ def initialize_variant(row, bid_open, ask_open, entry_time, slip, commission):
         target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
                           if signal.get("htf_ast") or signal.get("htf_ast_v2")
                           else exit_target(signal, entry, stop, tick))
-        volume = size_lot(risk, condition)
+        volume = size_lot(risk, condition, equity=Decimal("2500"))
     except ExnessError as exc:
         row.update(status="skipped", reason=str(exc))
         return

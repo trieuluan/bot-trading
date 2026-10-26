@@ -4,6 +4,19 @@ export const formatPrice = (v: number) =>
 export const formatForexPrice = (v: number) =>
   v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 10 });
 
+export function formatForexLeverage(profile?: {
+  calc_mode?: string;
+  account_leverage?: string;
+  margin_percent?: string;
+} | null) {
+  const leveraged = ['forex', 'cfd_leverage'].includes(profile?.calc_mode ?? '');
+  const fixed = ['forex_no_leverage', 'cfd'].includes(profile?.calc_mode ?? '');
+  const value = Number(leveraged ? profile?.account_leverage : profile?.margin_percent);
+  if ((!leveraged && !fixed) || !Number.isFinite(value) || value <= 0) return '—';
+  const leverage = leveraged ? value : 1 / value;
+  return `1:${leverage.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}`;
+}
+
 export const formatQuote = (v: number) => {
   const digits = Math.abs(v) >= 100 ? 2 : Math.abs(v) >= 1 ? 3 : Math.abs(v) >= 0.1 ? 4 : 5;
   return v.toLocaleString('en-US', {

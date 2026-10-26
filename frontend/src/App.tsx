@@ -54,6 +54,9 @@ export interface ForexDashboard {
       point_digits: number;
       quote_to_account_loss: string;
       quote_to_account_gain: string;
+      account_leverage?: string;
+      margin_percent?: string;
+      calc_mode?: string;
     } | null;
   };
   market: {

@@ -5,7 +5,7 @@ import { closeSetupPath, closeTicketPath, estimatedPnl, type PositionGroup } fro
 import { ForexPositionGroups } from '../components/ForexPositionGroups';
 import type { ForexDashboard } from '../App';
 import { ForexEntryPilotPanel, ForexStrategyPage, HtfLineage } from './ForexStrategyPage';
-import { formatForexPrice } from '../lib/format';
+import { formatForexLeverage, formatForexPrice } from '../lib/format';
 import { blockLabel } from '../lib/forex-labels';
 import { formatTime } from '../lib/time-format';
 import { DecisionJournal } from '../components/DecisionJournal';
@@ -158,6 +158,20 @@ export function ForexExecutionPage({
           <small>Equity</small>
           <strong>{amount(equity)}</strong>
         </span>
+        <span
+          className="terminal-stat"
+          title="Ngân sách rủi ro tới SL cho cả setup, chia giữa các ticket. Chưa bao gồm phí, swap và trượt giá; không phải tiền ký quỹ."
+        >
+          <small>Rủi ro / setup</small>
+          <strong>{data?.risk_percent ?? '—'}% · ${amount(data?.planned_risk_ceiling_usd)}</strong>
+        </span>
+        <span
+          className="terminal-stat"
+          title={`Đòn bẩy cấu hình ${symbol} từ thông số broker; chưa xác minh thay đổi HMR theo tin tức/phiên. Không dùng đòn bẩy để nhân ngân sách rủi ro.`}
+        >
+          <small>Đòn bẩy {symbol} · cấu hình</small>
+          <strong>{formatForexLeverage(dashboard.instrument?.profile)}</strong>
+        </span>
         <span className="terminal-stat">
           <small>P&amp;L thả nổi</small>
           <strong className={floating == null ? '' : floating >= 0 ? 'positive' : 'negative'}>
@@ -189,7 +203,7 @@ export function ForexExecutionPage({
           className={`terminal-toggle ${data?.enabled ? 'is-on' : ''}`}
           disabled={busy || stale || !data?.configured || !!error}
           onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
-          title={`Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? '0.01'} lot`}
+          title={`Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? 'Chưa có dữ liệu sizing'}`}
         >
           {data?.enabled ? 'Tạm dừng mở lệnh' : 'Bật bot demo'}
         </button>
@@ -245,8 +259,6 @@ export function ForexExecutionPage({
           executionOnly
           includeReplay={false}
           onClosePosition={closeTicket}
-          onCloseSetup={closeSetup}
-          closeDisabled={closeDisabled}
         />
       </section>
       {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}

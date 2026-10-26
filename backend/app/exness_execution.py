@@ -36,7 +36,6 @@ from .exness_feed import FRAMES, WORKSPACE
 from .exness_management import (
     closed_minutes,
     exit_reason,
-    max_lot,
     protective_stop,
     risk_budget,
     split_bodies,
@@ -774,7 +773,9 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 intent_row.status = "submitting"
         try:
             quote = live_quote(symbol)
-            body = client.strategy_body(signal, condition, quote, key)
+            equity = broker.get("account_state", {}).get("equity")
+            setup_budget = risk_budget(equity)
+            body = client.strategy_body(signal, condition, quote, key, equity=equity)
             late_drift_ok(signal, quote["ask" if body["side"] == "buy" else "bid"], now)
             if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
                 from .forex_exits import plan_legs
@@ -800,6 +801,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                  "role": part["role"], "status": "planned", "recorded_at": now,
                  "contract_size": condition["contract_size"]} for index, part in enumerate(bodies)]
         record = {"symbol": symbol, "key": key, "recorded_at": now, "status": "planned", "signal": signal,
+                  "risk_equity": str(equity), "risk_budget_usd": str(setup_budget), "risk_percent": 1,
                   "signal_time": stamp, "side": signal["side"], "reason": signal["reason"],
                   "legs": legs, "exit_policy": "structural_tp_v1" if signal.get("target_context") else "split_1r_2r_be_trail_early_v1"}
         if len(legs) == 1:
@@ -856,7 +858,11 @@ def submit_leg(client, row, index, data, condition, now):
         if fresh_condition.get("commission_per_unit") is None:
             raise ExnessError("costs_unverified")
         late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], submitted_at)
-        full = client.strategy_body(signal, fresh_condition, quote, key)
+        equity = current.get("account_state", {}).get("equity")
+        budget = risk_budget(equity)
+        if latest_snapshot.get("risk_budget_usd") is not None:
+            budget = min(budget, positive_decimal(latest_snapshot["risk_budget_usd"]))
+        full = client.strategy_body(signal, fresh_condition, quote, key, equity=equity)
         volume = positive_decimal(data["body"]["volume"])
         if volume > positive_decimal(full["volume"]):
             raise ExnessError("Fresh quote no longer supports planned lot")
@@ -873,7 +879,7 @@ def submit_leg(client, row, index, data, condition, now):
                            Decimal(str(other.get("quote", {}).get("ask" if full["side"] == "buy" else "bid", entry))))
             committed += abs(other_entry - positive_decimal(other["body"]["stop_loss_price"])) * positive_decimal(other["body"]["volume"]) * contract
         conversion = positive_decimal(fresh_condition["quote_to_account_loss"])
-        if (committed + abs(entry - Decimal(full["stop_loss_price"])) * volume * contract) * conversion > risk_budget():
+        if (committed + abs(entry - Decimal(full["stop_loss_price"])) * volume * contract) * conversion > budget:
             raise ExnessError("Combined split risk exceeds setup budget")
         if data["role"] == "tp1":
             target = entry + entry - Decimal(full["stop_loss_price"])
@@ -1013,8 +1019,9 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
     heartbeat = meta.get("heartbeat")
     result = {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
-        "account": account, "strategy": "learning", "lot": f"0.01..{max_lot_size():.2f}",
-        "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(), "planned_risk_ceiling_usd": planned_risk_usd(),
+        "account": account, "strategy": "learning", "lot": "Theo rủi ro 1% equity", "risk_percent": 1,
+        "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(),
+        "planned_risk_ceiling_usd": planned_risk_usd(broker.get("account_state", {}).get("equity")),
         "stop_management_available": meta.get("stop_management_available", False),
         "error": meta.get("error"),
         "error_msg": meta.get("error_msg") if meta.get("error") else None,
@@ -1107,8 +1114,8 @@ def request_close(signal_time: int, position_id: str | None = Query(None, patter
                 legs[matched[0]]["close_requested"] = True
                 row.snapshot = {**row.snapshot, "legs": legs}
     return {"status": "close_requested"}
-def planned_risk_usd():
-    return float(risk_budget())
-
-def max_lot_size():
-    return float(max_lot())
+def planned_risk_usd(equity):
+    try:
+        return float(risk_budget(equity))
+    except ExnessError:
+        return None

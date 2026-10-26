@@ -1,29 +1,19 @@
 """Demo-only sizing and closed-candle position management rules."""
 
-import os
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 
 from .exness import ExnessError
 from .forex_indicators import ema
 
 
-def bounded_setting(name, default, maximum):
-    value = Decimal(os.getenv(name, default))
-    if not value.is_finite() or value <= 0 or value > Decimal(maximum):
-        raise ExnessError(f"Invalid {name}; must be positive and <= {maximum}")
-    return value
-
-
-def max_lot():
-    value = bounded_setting("EXNESS_DEMO_MAX_LOT", "0.10", "0.10")
-    if value < Decimal("0.01"):
-        raise ExnessError("Maximum lot below 0.01")
-    return value
-
-
-def risk_budget():
-    return bounded_setting("EXNESS_DEMO_RISK_PER_TRADE_USD", "25", "25")
-
+def risk_budget(equity):
+    try:
+        value = Decimal(str(equity))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ExnessError("Invalid account equity for 1% risk sizing") from exc
+    if not value.is_finite() or value <= 0:
+        raise ExnessError("Invalid account equity for 1% risk sizing")
+    return value / 100
 
 def structure_stop_buffer(rows, multiplier=Decimal("0.25")):
     if len(rows) < 15:
@@ -39,22 +29,30 @@ def structure_stop_buffer(rows, multiplier=Decimal("0.25")):
         ranges.append(max(high - low, abs(high - close), abs(low - close)))
     return float(sum(ranges) / 14 * factor)
 
-def size_lot(distance, condition, conversion_rate=Decimal("1")):
-    conv = Decimal(str(condition.get("quote_to_account_loss", condition.get("conversion_rate", conversion_rate))))
-    minimum = max(Decimal("0.01"), Decimal(condition["volume_min"]))
-    step = Decimal(condition["volume_step"])
-    contract = Decimal(condition["contract_size"])
-    maximum = min(max_lot(), Decimal(condition["volume_max"]))
+def size_lot(distance, condition, conversion_rate=Decimal("1"), *, equity):
+    budget = risk_budget(equity)
+    try:
+        conv = Decimal(str(condition.get("quote_to_account_loss", condition.get("conversion_rate", conversion_rate))))
+        broker_min = Decimal(str(condition["volume_min"]))
+        step = Decimal(str(condition["volume_step"]))
+        contract = Decimal(str(condition["contract_size"]))
+        maximum = Decimal(str(condition["volume_max"]))
+        distance = Decimal(str(distance))
+        if (not all(value.is_finite() and value > 0 for value in
+                    (conv, broker_min, step, contract, maximum, distance))
+                or maximum < broker_min):
+            raise ExnessError("Invalid broker lot, risk or conversion")
+    except (InvalidOperation, ValueError, TypeError, KeyError) as exc:
+        raise ExnessError("Invalid broker lot, risk or conversion") from exc
+    minimum = max(Decimal("0.01"), broker_min)
     usd_risk = distance * contract * conv
-    if usd_risk <= 0:
-        raise ExnessError("Invalid risk or conversion")
-    raw = min(maximum, risk_budget() / usd_risk)
+    raw = min(maximum, budget / usd_risk)
     if raw < minimum:
         raise ExnessError("Minimum lot exceeds risk budget; skip signal")
-    volume = Decimal(condition["volume_min"]) + (
-        (raw - Decimal(condition["volume_min"])) / step
+    volume = broker_min + (
+        (raw - broker_min) / step
     ).to_integral_value(rounding=ROUND_FLOOR) * step
-    if volume < minimum or volume * usd_risk > risk_budget():
+    if volume < minimum or volume * usd_risk > budget:
         raise ExnessError("No valid lot within risk budget")
     return volume
 
