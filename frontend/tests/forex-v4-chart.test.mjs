@@ -49,3 +49,25 @@ test('styles.css keeps .signal-lifecycle-row uncompressed in flex container', as
     'Expected .signal-lifecycle-row to set flex-shrink: 0 to prevent row height crushing',
   );
 });
+
+test('ForexStripLegend renders all entry branch states without default browser title tooltip', async () => {
+  const server = await createServer({
+    root: fileURLToPath(new URL('../', import.meta.url)),
+    server: { middlewareMode: true, hmr: false, ws: false },
+    appType: 'custom',
+  });
+  try {
+    const { ForexStripLegend } = await server.ssrLoadModule('/src/components/ForexMarkets.tsx');
+    const markup = renderToStaticMarkup(React.createElement(ForexStripLegend));
+    assert.ok(markup.includes('Chú giải'));
+    assert.ok(markup.includes('Canh giá'));
+    assert.ok(markup.includes('Kích / đang gửi'));
+    assert.ok(markup.includes('Đã khớp'));
+    assert.ok(markup.includes('Đối soát'));
+    assert.ok(markup.includes('Hủy / hết hạn'));
+    assert.ok(markup.includes('Kết thúc'));
+    assert.ok(!markup.includes('title="Giải thích icon"'));
+  } finally {
+    await server.close();
+  }
+});

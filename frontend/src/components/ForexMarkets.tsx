@@ -79,6 +79,55 @@ interface MarketsData {
   max_positions_per_symbol: number;
 }
 
+export function ForexStripLegend() {
+  const legendRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent | KeyboardEvent) => {
+      const legend = legendRef.current;
+      if (!legend?.open) return;
+      if (event instanceof KeyboardEvent) {
+        if (event.key !== 'Escape') return;
+        legend.open = false;
+        legend.querySelector('summary')?.focus();
+      } else if (event.target instanceof Node && !legend.contains(event.target)) {
+        legend.open = false;
+      }
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', dismiss);
+    };
+  }, []);
+  return <details className="forex-strip-legend" ref={legendRef}>
+    <summary aria-label="Giải thích biểu tượng dải cặp tiền">
+      <HelpCircle size={14} aria-hidden="true" /><span>Chú giải</span>
+    </summary>
+    <div className="forex-strip-legend-popover">
+      <header><strong>Đọc nhanh dải cặp tiền</strong><span>Biểu tượng & trạng thái</span></header>
+      <div className="legend-row"><span className="legend-sessions" aria-hidden="true"><i className="dot dot-open" /><i className="dot dot-closed" /><i className="dot dot-unknown" /></span><span><strong>Phiên dự kiến</strong><small>Xanh: mở · xám: đóng/nghỉ · vàng: chưa rõ. Không xác nhận giá trực tiếp.</small></span></div>
+      <div className="legend-row"><span className="badge-sample is-signal"><Zap size={12} />4</span><span><strong>Tín hiệu M15</strong><small>Số cây còn tín hiệu, gồm mô phỏng; không phải lệnh khớp.</small></span></div>
+      <div className="legend-row"><span className="badge-sample is-position"><Layers size={12} />1</span><span><strong>Setup có vị thế mở</strong><small>Mỗi setup có thể gồm nhiều ticket TP1 / Runner. Không phải nhãn tài khoản live.</small></span></div>
+      <h4>Nhánh lệnh</h4>
+      <div className="legend-states">
+        {[
+          { label: 'Canh giá', tone: 'waiting', Icon: Crosshair, text: 'Nhánh ảo, chờ kích hoạt.' },
+          { label: 'Kích / đang gửi', tone: 'triggered', Icon: Zap, text: 'Đã kích hoạt hoặc đang gửi broker.' },
+          { label: 'Đã gửi', tone: 'triggered', Icon: Zap, text: 'Chưa có xác nhận khớp từ broker.' },
+          { label: 'Đã khớp', tone: 'filled', Icon: Check, text: 'Broker đã xác nhận fill.' },
+          { label: 'Đối soát', tone: 'uncertain', Icon: CircleAlert, text: 'Chưa rõ kết quả, cần kiểm tra.' },
+          { label: 'Hủy / hết hạn', tone: 'cancelled', Icon: X, text: 'Dừng canh hoặc quá hạn.' },
+          { label: 'Kết thúc', tone: 'ended', Icon: Hourglass, text: 'Vòng đời đã xong; có hoặc không có fill.' },
+        ].map(({ label, tone, Icon, text }) => <div className="legend-state" key={label}>
+          <span className={`pair-intent is-${tone}`}><Icon size={12} aria-hidden="true" />{label}</span><small>{text}</small>
+        </div>)}
+      </div>
+      <footer>Số cạnh icon chỉ đếm nhánh cùng trạng thái đang hiện, không phải tổng nhánh. Gạch chân xanh: cặp đang chọn. Vòng xoay: đang tải. “Giá có thể đã cũ”: mất kết nối feed.</footer>
+    </div>
+  </details>;
+}
+
 export function useForexMarkets() {
   const [route] = useRoute();
   const symbol = route.symbol ?? 'XAUUSD';
@@ -259,31 +308,7 @@ export function ForexMarkets({
             );
           })}
         </div>
-        <details className="forex-strip-legend">
-          <summary aria-label="Giải thích biểu tượng dải cặp tiền" title="Giải thích icon">
-            <HelpCircle size={13} aria-hidden="true" />
-          </summary>
-          <div className="forex-strip-legend-popover">
-            <div className="legend-row">
-              <span className="dot dot-open" aria-hidden="true" />
-              <span><strong>Chấm tròn</strong>: Phiên dự kiến. Xanh: mở; xám: đóng/nghỉ; vàng: chưa rõ. Không xác nhận giá đang trực tiếp.</span>
-            </div>
-            <div className="legend-row">
-              <span className="badge-sample is-signal"><Zap size={9} /> 4</span>
-              <span><strong>Tia sét xanh</strong>: Số cây có tín hiệu M15 còn hiệu lực, gồm mô phỏng; không phải số lệnh đã khớp.</span>
-            </div>
-            <div className="legend-row">
-              <span className="badge-sample is-intent"><Crosshair size={9} /> 1</span>
-              <span><strong>Tâm ngắm</strong>: Số nhánh canh giá ảo đang đợi kích hoạt; chưa phải lệnh broker.</span>
-            </div>
-            <div className="legend-row">
-              <span className="badge-sample is-position"><Layers size={9} /> 1</span>
-              <span><strong>Xếp lớp</strong>: Số setup có ticket broker đang mở. Một setup có thể gồm nhiều ticket (TP1, Runner); không phải tài khoản live.</span>
-            </div>
-            <div className="legend-row"><span><strong>Trạng thái nhánh</strong>: Tia sét: kích hoạt/đang gửi; dấu tích: broker xác nhận khớp; dấu chấm than: cần đối soát; dấu X: hủy/hết hạn; đồng hồ cát: kết thúc. Số bên cạnh chỉ đếm nhánh cùng trạng thái đang hiển thị, không phải tổng mọi nhánh.</span></div>
-            <div className="legend-row"><span><strong>Gạch chân xanh</strong>: Cặp đang chọn, không phải tiến độ hay độ mạnh tín hiệu. Rê chuột lên badge để xem chi tiết.</span></div>
-          </div>
-        </details>
+        <ForexStripLegend />
         {error && (
           <span role="alert" className="negative forex-strip-error">
             Giá có thể đã cũ

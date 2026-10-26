@@ -8,6 +8,7 @@
   import React, { useState } from 'react';
   import { createRoot } from 'react-dom/client';
   import { ForexSignalLifecycle } from '/src/components/ForexSignalLifecycle.tsx';
+  import { ForexStripLegend } from '/src/components/ForexMarkets.tsx';
   import '/src/styles.css';
 
   const setups = Array.from({ length: 12 }, (_, index) => {
@@ -46,6 +47,7 @@
     return React.createElement('main', { style: { margin: '24px auto', maxWidth: 1100 } },
       React.createElement('h1', null, 'Local fixture: 12 setups'),
       React.createElement('p', null, 'Synthetic data only. No API requests or broker actions.'),
+      React.createElement('section', { className: 'forex-markets is-compact', style: { display: 'flex', justifyContent: 'flex-end' } }, React.createElement(ForexStripLegend)),
       React.createElement('button', { type: 'button', onClick: checkLayout }, 'Check layout'),
       React.createElement('output', { role: 'status' }, result),
       React.createElement(ForexSignalLifecycle, {
