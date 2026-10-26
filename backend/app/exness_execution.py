@@ -634,7 +634,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             if row.snapshot.get("signal", {}).get("partial_be") is False:
                 continue
             quote = live_quote(symbol)
-            validate_quote(quote, now)
+            validate_quote(quote)
             action = protective_stop(position, initial, quote, protections[0], condition, mgmt_rows, partial_done)
             if action:
                 action["previous_stop"] = str(protections[0]["stop_loss_price"])

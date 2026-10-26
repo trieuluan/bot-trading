@@ -389,6 +389,42 @@ def test_open_position_and_its_protection_allow_new_signal(monkeypatch):
     assert ee._execution_tick(api, now=NOW) == "submitted"
     assert api.client.request.call_count == 1
 
+@pytest.mark.parametrize("quote_offset", [9.5, 7, 11])
+def test_stop_management_validates_quote_at_current_time(monkeypatch, quote_offset):
+    api = dummy_api()
+    seed_executor(api, monkeypatch)
+    monkeypatch.setattr(ee.time, "time", lambda: NOW + 10)
+    fresh_quote = {"bid": 4006.0, "ask": 4006.25,
+                   "time": NOW + quote_offset, "received_at": NOW + quote_offset}
+    monkeypatch.setattr(ee, "live_quote", lambda *_: fresh_quote)
+    client = MagicMock(can_modify=True)
+    client.prepare.return_value = api.condition("XAUUSD")
+    client.mutate.return_value = {"operation_id": "stop-100"}
+    monkeypatch.setattr(ee, "ExnessDemoClient", lambda *_: client)
+    monkeypatch.setattr(ee, "session_closed_ahead", lambda *args, **kwargs: False)
+    monkeypatch.setattr(ee, "load_frames", lambda *_: {})
+    position = {"position_id": "100", "instrument": "XAUUSD",
+                "open_price": "4000", "direction": "buy"}
+    protection = {"position_id": "100", "order_id": "protect-100", "order_type": "sltp",
+                  "stop_loss_price": "3995", "take_profit_price": "4010"}
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, symbol="XAUUSD",
+                    signal_time=NOW - 1800, snapshot={"status": "open", "position_id": "100",
+                    "signal": {"exit_policy": "partial_be_m15", "partial_be": True},
+                    "body": {"stop_loss_price": "3995"}}))
+    broker = {"positions": [position], "orders": [protection]}
+    if quote_offset != 9.5:
+        with pytest.raises(ValueError, match="Stale quote or excessive spread"):
+            ee._symbol_execution_tick(api, broker, NOW, "XAUUSD")
+        client.mutate.assert_not_called()
+        return
+    assert ee._symbol_execution_tick(api, broker, NOW, "XAUUSD") == "managing_stop"
+    client.mutate.assert_called_once()
+    assert client.mutate.call_args.kwargs["body"] == {"stop_loss_price": "4000.000"}
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 1800))
+        assert row.snapshot["management"]["status"] == "submitted"
+
 def test_pending_order_blocks_new_position(monkeypatch):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "5")
     assert ee.busy({"positions": [], "orders": [{"order_type": "limit"}]})
