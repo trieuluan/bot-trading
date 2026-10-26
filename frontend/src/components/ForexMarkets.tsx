@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Crosshair, Hourglass, CircleAlert, X, Zap } from 'lucide-react';
+import { Check, Crosshair, Hourglass, CircleAlert, Layers, X, Zap } from 'lucide-react';
 import type { ForexEntryIntent } from '../types/forex-entry';
 import { entryLifecycle, visibleEntryIntents } from '../lib/forex-entry-lifecycle';
 import { ForexSessionStatus } from './ForexSessionStatus';
@@ -64,9 +64,9 @@ export function ForexIntentBadge({ intents, now }: { intents: ForexEntryIntent[]
   const title = visible.map((intent) =>
     `${intent.strategy} · ${intent.side === 'long' ? 'Mua' : 'Bán'} · ${entryLifecycle(intent).label}${intent.reason ? ` · ${intent.reason}` : ''}`,
   ).join('\n');
-  return <span className={`pair-intent is-${state.tone}`} title={title}
+  return <span className={`pair-intent is-${state.tone}`} title={`${count} lệnh · ${state.label}\n${title}`}
     aria-label={`${count} lệnh: ${state.label}. ${title}`}>
-    <Icon size={10} aria-hidden="true" />{state.short}{count > 1 ? ` ${count}` : ''}
+    <Icon size={10} aria-hidden="true" />{count}
   </span>;
 }
 
@@ -208,9 +208,16 @@ export function ForexMarkets({
                 onClick={() => select(market.symbol)}
                 title={`${market.symbol} · ${session.tooltip} · Giá ${formatTime(market.price_at, true)} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
               >
-                <strong>{market.symbol}</strong>
+                <span className="forex-strip-heading">
+                  <strong>{market.symbol}</strong>
+                  <span
+                    className={`forex-strip-session is-${session.status}`}
+                    role="img"
+                    aria-label={`Phiên: ${session.label}`}
+                    title={session.tooltip}
+                  />
+                </span>
                 <span>{formatPrice(market)}</span>
-                <ForexSessionStatus session={market.market_session} now={now} compact />
                 {loading && market.symbol === symbol && (
                   <span className="pair-loading" aria-hidden="true" />
                 )}
@@ -226,16 +233,17 @@ export function ForexMarkets({
                   </span>
                 )}
                 <ForexIntentBadge intents={market.entry_intents ?? []} now={now} />
-                </span>
                 {market.positions > 0 && (
                   <span
                     className="forex-strip-positions"
                     aria-label={`${market.positions} vị thế đang mở`}
                     title={`${market.positions} vị thế broker đang mở; mỗi leg tính một vị thế`}
                   >
-                    {market.positions} mở
+                    <Layers size={10} aria-hidden="true" />
+                    {market.positions}
                   </span>
                 )}
+                </span>
               </button>
             );
           })}
