@@ -815,7 +815,7 @@ const entryPolicyLabels: Record<string, string> = {
   market: 'Market',
   limit_setup_mid: 'Limit ảo',
   stop_trigger_break: 'Stop ảo',
-  limit_or_stop: 'Limit/Stop ảo',
+  limit_or_stop: 'Hybrid · Limit/Stop ảo',
 };
 const entryParamText = (name: string, value: number) =>
   name === 'limit_ratio'
@@ -848,7 +848,6 @@ export function ForexEntryPilotPanel({
   const samples = trees.reduce((total, tree) => total + tree.samples_count, 0);
   const resolved = trees.reduce((total, tree) => total + tree.resolved_count, 0);
   const comparison = pilot?.comparison;
-  // Mọi cây cùng một kiểu vào lệnh thì đưa lên tiêu đề, không lặp lại từng dòng.
   const policies = new Set(trees.map((tree) => tree.entry_policy));
   const policyLabel = (policy: string) => entryPolicyLabels[policy] ?? policy;
   const spread = (name: string) =>
@@ -881,6 +880,8 @@ export function ForexEntryPilotPanel({
           tree.h1_setup,
           tree.m15_trigger,
           tree.exit_policy,
+          tree.entry_policy,
+          policyLabel(tree.entry_policy),
           label(tree.h1_setup),
           label(tree.m15_trigger),
           label(tree.exit_policy),
@@ -914,7 +915,7 @@ export function ForexEntryPilotPanel({
             <div>
               <h4>
                 AST V4 Pilot · {pilot.tree_count} cây{' '}
-                {policies.size === 1 ? policyLabel([...policies][0]) : 'Limit/Stop ảo'} đối chiếu
+                {policies.size === 1 ? policyLabel([...policies][0]) : 'đa dạng entry'} đối chiếu
               </h4>
               <p className="muted-desc">
                 {pilot.note ||
@@ -988,11 +989,20 @@ export function ForexEntryPilotPanel({
           <div className="entry-pilot-howto" aria-label="Cách vào lệnh">
             <h5>Cách vào lệnh</h5>
             <p>
-              Khi nến M15 trigger đóng, bot không vào Market ngay mà đặt hai mức ảo (không phải
-              pending trên sàn) và canh giá qua tick stream. Mức nào chạm trước thì gửi Market lên
-              Exness Demo, mức còn lại huỷ.
+              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh
+              qua tick stream, không phải pending trên sàn. Hybrid canh cả hai mức, nhánh chạm trước
+              gửi Market lên Exness Demo, nhánh còn lại huỷ.
             </p>
             <ol>
+              {policies.has('market') ? (
+                <li>
+                  <strong>Market · vào trực tiếp</strong>
+                  <span>
+                    Kích hoạt tại quote hợp lệ đầu tiên sau tín hiệu; cửa sổ tối đa 120 giây, vẫn
+                    chịu giới hạn tuổi setup H1 và kiểm tra an toàn trước khi gửi lệnh.
+                  </span>
+                </li>
+              ) : null}
               {policies.has('limit_or_stop') || policies.has('limit_setup_mid') ? (
                 <li>
                   <strong>Limit · chờ hồi</strong>
@@ -1013,14 +1023,18 @@ export function ForexEntryPilotPanel({
                   </span>
                 </li>
               ) : null}
-              <li>
-                <strong>Hết hạn</strong>
-                <span>
-                  Chờ tối đa{' '}
-                  <b>{showValue(waitBars, (n) => `${n} nến M15 (${n * 15} phút)`, 'wait_bars')}</b>{' '}
-                  và không quá 4h15 kể từ setup H1. Hết hạn mà chưa chạm thì bỏ setup.
-                </span>
-              </li>
+              {Array.from(policies).some((policy) => policy !== 'market') && (
+                <li>
+                  <strong>Hết hạn</strong>
+                  <span>
+                    Chờ tối đa{' '}
+                    <b>
+                      {showValue(waitBars, (n) => `${n} nến M15 (${n * 15} phút)`, 'wait_bars')}
+                    </b>{' '}
+                    và không quá 4h15 kể từ setup H1. Hết hạn mà chưa chạm thì bỏ setup.
+                  </span>
+                </li>
+              )}
             </ol>
             <p className="micro">
               SL/TP vẫn theo cấu trúc H1 như cây V3 gốc; chỉ giá vào lệnh khác.
@@ -1105,7 +1119,7 @@ export function ForexEntryPilotPanel({
               type="search"
               value={entrySearch}
               onChange={(e) => setEntrySearch(e.target.value)}
-              placeholder="Lọc theo ID, setup H1, trigger M15, quản lý…"
+              placeholder="Lọc theo ID, Market, Limit, Stop, Hybrid, setup…"
               aria-label="Lọc cây đối chiếu"
             />
             <span className="muted">
@@ -1117,7 +1131,7 @@ export function ForexEntryPilotPanel({
               <thead>
                 <tr>
                   <th>Cây V4 · gốc V3</th>
-                  {(policies.size > 1 || paramsVary) && <th>Vào lệnh</th>}
+                  <th>Cách vào lệnh</th>
                   <th>Setup H1 → Trigger M15</th>
                   <th>Quản lý</th>
                   <th className="num">Mẫu</th>
@@ -1132,27 +1146,23 @@ export function ForexEntryPilotPanel({
                       <code className="entry-tree-id">{t.id}</code>
                       <small className="entry-tree-parent">từ {t.control_tree_id}</small>
                     </td>
-                    {(policies.size > 1 || paramsVary) && (
-                      <td>
-                        {policies.size > 1 && (
-                          <span className="entry-tree-policy">{policyLabel(t.entry_policy)}</span>
-                        )}
-                        <span className="entry-tree-params">
-                          {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
-                            .filter((name) => typeof t.entry_params?.[name] === 'number')
-                            .map((name) => (
-                              <span
-                                key={name}
-                                className={
-                                  t.entry_params[name] === entryDefaults[name] ? '' : 'is-tuned'
-                                }
-                              >
-                                {entryParamText(name, t.entry_params[name])}
-                              </span>
-                            ))}
-                        </span>
-                      </td>
-                    )}
+                    <td>
+                      <span className="entry-tree-policy">{policyLabel(t.entry_policy)}</span>
+                      <span className="entry-tree-params">
+                        {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
+                          .filter((name) => typeof t.entry_params?.[name] === 'number')
+                          .map((name) => (
+                            <span
+                              key={name}
+                              className={
+                                t.entry_params[name] === entryDefaults[name] ? '' : 'is-tuned'
+                              }
+                            >
+                              {entryParamText(name, t.entry_params[name])}
+                            </span>
+                          ))}
+                      </span>
+                    </td>
                     <td>
                       <span className="lineage-tags-inline">
                         <span className="lineage-tag tag-h1">{label(t.h1_setup)}</span>
@@ -1171,10 +1181,7 @@ export function ForexEntryPilotPanel({
                 ))}
                 {!shownTrees.length && (
                   <tr>
-                    <td
-                      colSpan={policies.size > 1 || paramsVary ? 7 : 6}
-                      className="entry-pilot-empty"
-                    >
+                    <td colSpan={7} className="entry-pilot-empty">
                       Không có cây nào khớp “{entrySearch.trim()}”.
                     </td>
                   </tr>
