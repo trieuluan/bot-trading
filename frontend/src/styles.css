@@ -7310,13 +7310,13 @@ main.forex-terminal-main {
 .signal-lifecycle-disclosure::after { content: ' +'; }
 .forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
 .forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
-.signal-lifecycle-list { max-height: 240px; overflow: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 6px; }
-.signal-lifecycle-row { border: 1px solid #23342a; border-radius: 6px; background: #131d18; overflow: hidden; }
-.signal-lifecycle-row.is-selected { border-color: #4b7861; background: #182820; box-shadow: inset 3px 0 #88b8a3; }
-.signal-lifecycle-select { display: block; width: 100%; padding: 8px 10px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.signal-lifecycle-select:hover { background: rgba(255,255,255,0.02); }
-.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 6px 10px 8px; background: #101915; font-size: 10px; }
-.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; margin-bottom: 4px; }
+.signal-lifecycle-list { max-height: 360px; overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.signal-lifecycle-row { border: 1px solid #2a3d32; border-radius: 6px; background: #121c17; overflow: hidden; padding: 0; }
+.signal-lifecycle-row.is-selected { border-color: #55876d; background: #16261e; box-shadow: inset 3px 0 #8ed4b3; }
+.signal-lifecycle-select { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 58px; box-sizing: border-box; padding: 10px 12px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.signal-lifecycle-select:hover { background: rgba(255,255,255,0.03); }
+.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 8px 12px; background: #0e1612; font-size: 11px; }
+.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; margin-bottom: 6px; }
 .forex-v4-chart-selection { margin: 6px 0; padding: 8px 12px; border: 1px solid #334d3f; border-radius: 6px; background: #121c17; }
 .forex-v4-snapshot-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .forex-v4-snapshot-heading label { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 320px; font-weight: 600; color: #d0ded6; }
@@ -7332,7 +7332,7 @@ main.forex-terminal-main {
   outline: 2px solid #88b8a3;
   outline-offset: 2px;
 }
-.signal-lifecycle-row { padding: 10px 0; border-top: 1px solid #26332c; }
+/* removed legacy conflicting .signal-lifecycle-row */
 .forex-signal-lifecycle { scroll-margin-top: 160px; }
 .signal-lifecycle-toolbar, .signal-lifecycle-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .signal-lifecycle-toolbar { margin-bottom: 10px; justify-content: space-between; }
@@ -7341,10 +7341,7 @@ main.forex-terminal-main {
   border: 1px solid #34483b; border-radius: 5px; color: #adbbb2; background: transparent; font: inherit; cursor: pointer;
 }
 .signal-lifecycle-filters button[aria-pressed='true'] { background: #253c30; color: #c8ecdb; border-color: #61977b; }
-.signal-lifecycle-row.is-interactive { cursor: pointer; padding: 10px; border-radius: 5px; }
-.signal-lifecycle-row.is-interactive:hover { background: #1b2a21; }
-.signal-lifecycle-row.is-selected { background: #21382c; box-shadow: inset 3px 0 #88b8a3; }
-.signal-lifecycle-row:focus-visible, .signal-lifecycle-toolbar button:focus-visible { outline: 2px solid #88b8a3; outline-offset: -2px; }
+.signal-lifecycle-select:focus-visible, .signal-lifecycle-toolbar button:focus-visible { outline: 2px solid #88b8a3; outline-offset: -2px; }
 .signal-lifecycle-select-action { color: #88b8a3; }
 .signal-lifecycle-select-action .is-active { display: inline-flex; gap: 4px; align-items: center; }
 .signal-setup-selected { color: #b9dec9; }
@@ -7361,7 +7358,7 @@ main.forex-terminal-main {
 .signal-lifecycle-steps .is-done::before { background: currentColor; }
 .signal-lifecycle-steps .is-terminal { color: #b6c5bc; }
 .signal-lifecycle-steps .is-cancelled { color: #e2a79b; }
-.signal-lifecycle-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: #9fb0a4; line-height: 1.7; }
+.signal-lifecycle-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #b1c4b8; font-size: 11px; line-height: 1.5; min-height: 18px; }
 .forex-markets.is-compact .forex-market-strip button > span:not([class]) {
   color: #6c7a70;
   font-variant-numeric: tabular-nums;
@@ -9762,3 +9759,16 @@ button.ap-cell:focus-visible {
   .forex-position-groups { max-height: 75vh; }
   .position-leg-table { min-width: 650px; }
 }
+.forex-markets.is-compact > .forex-strip-legend,
+.forex-markets.is-compact > .forex-strip-legend[open] { position: relative; margin-left: auto; align-self: center; padding: 0 6px; background: transparent; border: 0; box-shadow: none; }
+.forex-strip-legend summary { list-style: none; cursor: pointer; color: #728a7e; display: flex; align-items: center; padding: 4px; border-radius: 4px; }
+.forex-strip-legend summary::-webkit-details-marker { display: none; }
+.forex-strip-legend summary:hover { color: #b7d6c7; background: #182821; }
+.forex-strip-legend-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(340px, calc(100vw - 40px)); box-sizing: border-box; padding: 10px 12px; background: #101a15; border: 1px solid #2b4538; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 11px; color: #c5d8ce; display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.forex-strip-legend-popover .legend-row { display: flex; align-items: center; gap: 8px; line-height: 1.4; }
+.forex-strip-legend-popover .dot { flex: 0 0 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.forex-strip-legend-popover .dot-open { background: #23826b; }
+.forex-strip-legend-popover .badge-sample { display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.forex-strip-legend-popover .badge-sample.is-signal { background: #1b4b3b; color: #7be4b8; }
+.forex-strip-legend-popover .badge-sample.is-intent { background: #234338; color: #a3e2c3; }
+.forex-strip-legend-popover .badge-sample.is-position { background: #4d381c; color: #f3be7a; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Crosshair, Hourglass, CircleAlert, Layers, X, Zap } from 'lucide-react';
+import { Check, Crosshair, HelpCircle, Hourglass, CircleAlert, Layers, X, Zap } from 'lucide-react';
 import type { ForexEntryIntent } from '../types/forex-entry';
 import { entryLifecycle, visibleEntryIntents } from '../lib/forex-entry-lifecycle';
 import { ForexSessionStatus } from './ForexSessionStatus';
@@ -259,6 +259,31 @@ export function ForexMarkets({
             );
           })}
         </div>
+        <details className="forex-strip-legend">
+          <summary aria-label="Giải thích biểu tượng dải cặp tiền" title="Giải thích icon">
+            <HelpCircle size={13} aria-hidden="true" />
+          </summary>
+          <div className="forex-strip-legend-popover">
+            <div className="legend-row">
+              <span className="dot dot-open" aria-hidden="true" />
+              <span><strong>Chấm tròn</strong>: Phiên dự kiến. Xanh: mở; xám: đóng/nghỉ; vàng: chưa rõ. Không xác nhận giá đang trực tiếp.</span>
+            </div>
+            <div className="legend-row">
+              <span className="badge-sample is-signal"><Zap size={9} /> 4</span>
+              <span><strong>Tia sét xanh</strong>: Số cây có tín hiệu M15 còn hiệu lực, gồm mô phỏng; không phải số lệnh đã khớp.</span>
+            </div>
+            <div className="legend-row">
+              <span className="badge-sample is-intent"><Crosshair size={9} /> 1</span>
+              <span><strong>Tâm ngắm</strong>: Số nhánh canh giá ảo đang đợi kích hoạt; chưa phải lệnh broker.</span>
+            </div>
+            <div className="legend-row">
+              <span className="badge-sample is-position"><Layers size={9} /> 1</span>
+              <span><strong>Xếp lớp</strong>: Số setup có ticket broker đang mở. Một setup có thể gồm nhiều ticket (TP1, Runner); không phải tài khoản live.</span>
+            </div>
+            <div className="legend-row"><span><strong>Trạng thái nhánh</strong>: Tia sét: kích hoạt/đang gửi; dấu tích: broker xác nhận khớp; dấu chấm than: cần đối soát; dấu X: hủy/hết hạn; đồng hồ cát: kết thúc. Số bên cạnh chỉ đếm nhánh cùng trạng thái đang hiển thị, không phải tổng mọi nhánh.</span></div>
+            <div className="legend-row"><span><strong>Gạch chân xanh</strong>: Cặp đang chọn, không phải tiến độ hay độ mạnh tín hiệu. Rê chuột lên badge để xem chi tiết.</span></div>
+          </div>
+        </details>
         {error && (
           <span role="alert" className="negative forex-strip-error">
             Giá có thể đã cũ
