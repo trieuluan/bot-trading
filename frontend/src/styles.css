@@ -7237,9 +7237,75 @@ main.forex-terminal-main {
   font-size: 10px;
   line-height: 14px;
 }
-.forex-markets.is-compact .forex-market-strip .pair-signal {
+.forex-markets.is-compact .forex-market-strip .forex-strip-side {
   grid-area: 1 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
+.pair-intent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  color: #526359;
+  background: #e9eee9;
+}
+.pair-intent.is-waiting, .pair-intent.is-filled {
+  color: #137765;
+  background: #dcefe7;
+}
+.pair-intent.is-triggered, .pair-intent.is-uncertain {
+  color: #8b5a16;
+  background: #faedcf;
+}
+.pair-intent.is-cancelled {
+  color: #9e5147;
+  background: #f5e5e0;
+}
+.forex-signal-lifecycle {
+  padding: 0 14px;
+  border-block: 1px solid #2a3931;
+  background: #111a16;
+  color: #adbbb2;
+  font-size: 11px;
+}
+.forex-signal-lifecycle summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.forex-signal-lifecycle summary strong { color: #e1e9e2; }
+.signal-lifecycle-disclosure { margin-left: auto; color: #88b8a3; }
+.signal-lifecycle-disclosure::after { content: ' +'; }
+.forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
+.forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; }
+.signal-lifecycle-list { max-height: 280px; overflow: auto; scrollbar-gutter: stable; }
+.signal-lifecycle-list:focus-visible, .forex-signal-lifecycle summary:focus-visible {
+  outline: 2px solid #88b8a3;
+  outline-offset: 2px;
+}
+.signal-lifecycle-row { padding: 10px 0; border-top: 1px solid #26332c; }
+.signal-lifecycle-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.signal-lifecycle-heading .font-mono { overflow-wrap: anywhere; }
+.signal-lifecycle-heading time { margin-left: auto; color: #9aaea1; }
+.signal-lifecycle-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0; padding: 0; list-style: none; }
+.signal-lifecycle-steps li { color: #83938a; }
+.signal-lifecycle-steps li::before { content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 5px 1px 0; border: 1px solid currentColor; border-radius: 50%; }
+.signal-lifecycle-steps .is-done { color: #8ed4b3; }
+.signal-lifecycle-steps .is-done::before { background: currentColor; }
+.signal-lifecycle-steps .is-terminal { color: #b6c5bc; }
+.signal-lifecycle-steps .is-cancelled { color: #e2a79b; }
+.signal-lifecycle-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: #9fb0a4; line-height: 1.7; }
 .forex-markets.is-compact .forex-market-strip .forex-strip-positions {
   grid-area: 2 / 3;
 }

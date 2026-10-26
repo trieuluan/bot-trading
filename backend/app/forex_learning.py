@@ -89,14 +89,26 @@ def execution_status(account, now, symbol="XAUUSD"):
         count = capture.get("confirmed", 0)
         fresh = (capture.get("status") == "captured" and capture.get("time") == stamp
                  and 0 <= now - stamp - 900 <= 120 and isinstance(count, int) and count > 0)
+        v3_count = count if fresh else 0
+        v4_count = 0
+        try:
+            from .forex_entry_pilot import read_ledger as read_pilot
+            pilot_capture = read_pilot(account, symbol).get("last_capture") or {}
+            pilot_count = pilot_capture.get("confirmed", 0)
+            if (pilot_capture.get("status") == "captured" and pilot_capture.get("time") == stamp
+                    and 0 <= now - stamp - 900 <= 120 and isinstance(pilot_count, int) and pilot_count > 0):
+                v4_count = pilot_count
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        signal_count = v3_count + v4_count
         return {"enabled": v2 and exness and control, "v2_enabled": v2, "exness_enabled": exness,
                 "account_enabled": control, "blocked_reason": reason or ("no_eligible_tree" if not allowed else None),
                 "entry_allowed_count": len(allowed), "entry_allowed_ids": [identifier for identifier, _ in allowed],
                 "evolution_ready_count": sum(1 for _, stats in allowed if stats["eligible"]),
                 "selected": candidates[0][0]["strategy"] if candidates else None,
-                "signal_count": count if fresh else 0,
-                "signal_available_at": stamp + 900 if fresh else None,
-                "signal_expires_at": stamp + 1020 if fresh else None}
+                "signal_count": signal_count, "signal_counts": {"v3": v3_count, "v4": v4_count},
+                "signal_available_at": stamp + 900 if signal_count else None,
+                "signal_expires_at": stamp + 1020 if signal_count else None}
     except (OSError, ValueError, KeyError, TypeError):
         return {"enabled": False, "v2_enabled": v2, "exness_enabled": exness, "account_enabled": control,
                 "blocked_reason": reason or "v2_ledger_unavailable", "entry_allowed_count": 0, "entry_allowed_ids": [],

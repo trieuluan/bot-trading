@@ -17,7 +17,8 @@ import {
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
-import type { ForexEntryIntent } from '../types/forex-entry';
+import type { ForexEntryIntent, ForexRecordedSignal } from '../types/forex-entry';
+import { intentEvents } from '../lib/forex-entry-lifecycle';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
@@ -36,6 +37,7 @@ export function MtfObservationChart({
   snapshot,
   analysis = null,
   entryIntents,
+  recordedSignals = [],
   shown = [],
   livePrice = null,
   liveCandles = [],
@@ -57,6 +59,7 @@ export function MtfObservationChart({
   snapshot: ObservationChartSnapshot | null;
   analysis?: LearnerAnalysis | null;
   entryIntents?: ForexEntryIntent[];
+  recordedSignals?: ForexRecordedSignal[];
   shown?: string[];
   title?: string;
   livePrice?: { price: number; label: string; color?: string }[] | null;
@@ -218,6 +221,9 @@ export function MtfObservationChart({
     const priceSeries = series.current;
     if (!priceSeries) return;
     const virtualLines: IPriceLine[] = [];
+    const latestCancelled = [...(entryIntents ?? [])]
+      .filter((intent) => ['cancelled', 'expired'].includes(intent.status))
+      .sort((left, right) => (right.ended_at ?? 0) - (left.ended_at ?? 0))[0];
     for (const intent of entryIntents ?? []) {
       const waiting = intent.status === 'waiting';
       const triggered =
@@ -228,9 +234,15 @@ export function MtfObservationChart({
               (position) => position.position_id === fill.position_id && position.status === 'open',
             ),
           ));
+      const ghost =
+        intent === latestCancelled &&
+        intent.ended_at != null &&
+        intent.ended_at <= Date.now() / 1000 &&
+        Date.now() / 1000 - intent.ended_at <= 21600;
       for (const branch of ['limit', 'stop'] as const) {
         const price = branch === 'limit' ? intent.limit_price : intent.stop_price;
-        if (!price || (!waiting && !(triggered && intent.winner === branch))) continue;
+        if (!price) continue;
+        if (waiting || (triggered && intent.winner === branch)) {
         virtualLines.push(
           priceSeries.createPriceLine({
             price,
@@ -241,6 +253,18 @@ export function MtfObservationChart({
             title: `${branch === 'limit' ? 'Limit giữa' : 'Stop phá nến'} ảo · ${waiting ? 'chờ giá' : 'đã kích hoạt'}`,
           }),
         );
+        } else if (ghost) {
+          virtualLines.push(
+            priceSeries.createPriceLine({
+              price,
+              color: '#8a948d',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dotted,
+              axisLabelVisible: false,
+              title: `${intent.status === 'expired' ? 'Hết hạn' : 'Hủy'} · ${branch === 'limit' ? 'Limit' : 'Stop'} ảo ${price}`,
+            }),
+          );
+        }
       }
     }
     return () => {
@@ -405,6 +429,32 @@ export function MtfObservationChart({
         }
       }
     }
+    const candleTimes = new Set(candles.map((candle) => candle.time));
+    if (liveCandles.at(-1)) candleTimes.add(liveCandles.at(-1)!.time);
+    const events = new Map<string, SeriesMarker<Time> & { count: number }>();
+    const addEvent = (time: number, side: string, text: string, color: string) => {
+      const bucket = Math.floor(time / frameSeconds) * frameSeconds;
+      if (time > Date.now() / 1000 || !candleTimes.has(bucket)) return;
+      const key = `${bucket}:${side}:${text}`;
+      const previous = events.get(key);
+      if (previous) previous.count += 1;
+      else events.set(key, { time: bucket as UTCTimestamp, position: side === 'short' ? 'aboveBar' : 'belowBar',
+        shape: 'circle', text, color, count: 1 });
+    };
+    for (const signal of recordedSignals) {
+      const version = signal.strategy.startsWith('hast4_') ? 'V4' : 'V3';
+      addEvent(signal.available_at, signal.side,
+        `TÍN HIỆU ${version} ${signal.side === 'long' ? 'MUA' : 'BÁN'}`, '#7e9eb7');
+    }
+    for (const intent of entryIntents ?? []) {
+      for (const event of intentEvents(intent)) {
+        addEvent(event.time, intent.side, event.text, event.color);
+      }
+    }
+    for (const event of events.values()) {
+      const { count, ...marker } = event;
+      points.push({ ...marker, text: `${marker.text}${count > 1 ? ` ×${count}` : ''}` });
+    }
     const openTrades = executions.filter((trade) => trade.status === 'open');
     const activeId = selectedPositionId ?? openTrades[0]?.position_id;
     for (const trade of openTrades) {
@@ -453,7 +503,8 @@ export function MtfObservationChart({
       }
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
-  }, [snapshot, candles, levelLabel, executions, selectedPositionId, frameSeconds]);
+  }, [snapshot, candles, levelLabel, executions, selectedPositionId, frameSeconds, entryIntents,
+    recordedSignals, liveCandles.at(-1)?.time]);
 
   useEffect(() => {
     const priceSeries = series.current;

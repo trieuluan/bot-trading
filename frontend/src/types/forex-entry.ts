@@ -3,6 +3,10 @@ export interface ForexEntryIntent {
   strategy: string;
   side: 'long' | 'short';
   status: string;
+  available_at?: number;
+  created_at?: number;
+  triggered_at?: number;
+  ended_at?: number;
   reason?: string;
   limit_price: number | null;
   stop_price: number | null;
@@ -20,6 +24,7 @@ export interface ForexEntryPilot {
     status: string;
     tree_count: number;
     since?: number;
+    signals?: ForexRecordedSignal[];
     counts?: Record<string, number>;
     comparison?: {
       matched_signals: number;
@@ -46,4 +51,11 @@ export interface ForexEntryPilot {
     }[];
   };
   intents: ForexEntryIntent[];
+}
+
+export interface ForexRecordedSignal {
+  strategy: string;
+  side: 'long' | 'short';
+  available_at: number;
+  status: string;
 }

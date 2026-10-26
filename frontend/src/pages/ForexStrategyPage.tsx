@@ -12,6 +12,7 @@ import { treeLabel, shortTreeId } from '../lib/forex-tree-label';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
 import { ForexSessionStatus } from '../components/ForexSessionStatus';
+import { ForexSignalLifecycle } from '../components/ForexSignalLifecycle';
 import { feedErrorText, marketSessionDisplay, priceDigits } from '../lib/forex-labels';
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
@@ -1224,6 +1225,14 @@ export function ForexStrategyPage({
   const [htf2Shadow, setHtf2Shadow] =
     useState<NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']>();
   const [entryPilot, setEntryPilot] = useState<ForexEntryPilot>();
+  const recordedSignals = useMemo(() => [
+    ...Object.entries(analysis?.strategies ?? {}).flatMap(([strategy, row]) => {
+      const zone = row.captured_zone;
+      return zone?.trigger_at == null ? [] : [{ strategy, side: zone.side,
+        available_at: zone.trigger_at, status: zone.sample_status ?? 'recorded' }];
+    }),
+    ...(entryPilot?.pilot.signals ?? []),
+  ], [analysis, entryPilot]);
   useEffect(() => {
     setAnalysis(null);
     setHtf2Shadow(undefined);
@@ -1872,6 +1881,7 @@ export function ForexStrategyPage({
       )}
       <MtfObservationChart
         entryIntents={entryPilot?.intents}
+        recordedSignals={recordedSignals}
         key={`${symbol}-${frame}-${side}-${historyBefore ?? 'live'}`}
         pricePrecision={
           dashboard.instrument?.profile?.point_digits ??
@@ -1903,6 +1913,7 @@ export function ForexStrategyPage({
         }
         title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
+      <ForexSignalLifecycle intents={entryPilot?.intents ?? []} signals={recordedSignals} symbol={symbol} />
       {executionOnly && (
         <div className="bot-footer">
           <div className="bot-footer-bar">
@@ -1962,8 +1973,7 @@ export function ForexStrategyPage({
             </details>
           )}
           <p className="bot-footer-note">
-            Chart chỉ hiện vị thế đang mở: mũi tên là fill vào, SL/TP theo dữ liệu sàn. Lệnh đã đóng
-            xem ở tab Lệnh trên sàn.
+            Tín hiệu và canh giá không đồng nghĩa đã vào lệnh. Mũi tên, SL/TP của vị thế mở theo dữ liệu broker; lịch sử lệnh ở tab Lệnh trên sàn.
           </p>
         </div>
       )}

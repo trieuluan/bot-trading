@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Zap } from 'lucide-react';
+import { Check, Crosshair, Hourglass, CircleAlert, X, Zap } from 'lucide-react';
+import type { ForexEntryIntent } from '../types/forex-entry';
+import { entryLifecycle, visibleEntryIntents } from '../lib/forex-entry-lifecycle';
 import { ForexSessionStatus } from './ForexSessionStatus';
 import { subscribeForexStream } from '../lib/forex-stream';
 import { useRoute, setRoute } from '../lib/router';
@@ -40,10 +42,32 @@ interface Market {
     entry_allowed_count?: number;
     evolution_ready_count?: number;
     signal_count?: number;
+    signal_counts?: { v3: number; v4: number };
     signal_available_at?: number | null;
     signal_expires_at?: number | null;
   };
   feed: Feed[];
+  entry_intents?: ForexEntryIntent[];
+}
+
+export function ForexIntentBadge({ intents, now }: { intents: ForexEntryIntent[]; now: number }) {
+  const visible = visibleEntryIntents(intents, now / 1000);
+  const priority = ['uncertain', 'waiting', 'triggered', 'filled', 'cancelled', 'ended'];
+  const first = [...visible].sort(
+    (left, right) => priority.indexOf(entryLifecycle(left).tone) - priority.indexOf(entryLifecycle(right).tone),
+  )[0];
+  if (!first) return null;
+  const state = entryLifecycle(first);
+  const count = visible.filter((intent) => entryLifecycle(intent).tone === state.tone).length;
+  const Icon = { waiting: Crosshair, triggered: Zap, filled: Check, uncertain: CircleAlert,
+    cancelled: X, ended: Hourglass }[state.tone] ?? Crosshair;
+  const title = visible.map((intent) =>
+    `${intent.strategy} · ${intent.side === 'long' ? 'Mua' : 'Bán'} · ${entryLifecycle(intent).label}${intent.reason ? ` · ${intent.reason}` : ''}`,
+  ).join('\n');
+  return <span className={`pair-intent is-${state.tone}`} title={title}
+    aria-label={`${count} lệnh: ${state.label}. ${title}`}>
+    <Icon size={10} aria-hidden="true" />{state.short}{count > 1 ? ` ${count}` : ''}
+  </span>;
 }
 
 interface MarketsData {
@@ -190,16 +214,19 @@ export function ForexMarkets({
                 {loading && market.symbol === symbol && (
                   <span className="pair-loading" aria-hidden="true" />
                 )}
+                <span className="forex-strip-side">
                 {signals > 0 && (
                   <span
                     className="pair-signal"
                     aria-label={`${signals} cây có tín hiệu`}
-                    title="Tín hiệu M15 mới, còn trong cửa sổ vào lệnh; vẫn phải qua kiểm tra execution"
+                    title={`Tín hiệu M15 mới: V3 ${market.execution?.signal_counts?.v3 ?? signals} · V4 ${market.execution?.signal_counts?.v4 ?? 0}. Gồm tín hiệu shadow; không phải lệnh broker.`}
                   >
                     <Zap size={10} aria-hidden="true" />
                     {signals}
                   </span>
                 )}
+                <ForexIntentBadge intents={market.entry_intents ?? []} now={now} />
+                </span>
                 {market.positions > 0 && (
                   <span
                     className="forex-strip-positions"

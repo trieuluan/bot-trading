@@ -226,4 +226,5 @@ def summary(session, account, symbol):
     rows = session.scalars(select(ExnessEntryIntent).where(ExnessEntryIntent.account == account,
                            ExnessEntryIntent.symbol == symbol).order_by(ExnessEntryIntent.available_at.desc()).limit(100)).all()
     return [{**row.snapshot, "id": row.id, "strategy": row.strategy, "setup_id": row.setup_id,
-             "side": row.side, "status": row.status} for row in rows]
+             "side": row.side, "status": row.status, "available_at": row.available_at,
+             "expires_at": row.expires_at, "limit_price": row.limit_price, "stop_price": row.stop_price} for row in rows]

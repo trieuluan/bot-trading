@@ -191,6 +191,9 @@ def summary(account, symbol):
         return {"status": "ready", "schema": SCHEMA, "tree_count": len(ledger["population"]),
                 "since": ledger["since"], "manifest": ledger["manifest"], "counts": dict(counts),
                 "trees": paired,
+                "signals": [{"strategy": sample["strategy"], "side": sample["side"],
+                             "available_at": sample["signal"]["available_at"], "status": sample["status"]}
+                            for sample in sorted(ledger["samples"], key=lambda row: row["confirm_time"], reverse=True)[:100]],
                 "comparison": {"matched_signals": len(pairs), "resolved_pairs": len(resolved_pairs),
                                "market_states": dict(Counter(control["status"] for control, _ in pairs)),
                                "hybrid_states": dict(Counter(sample["status"] for _, sample in pairs)),

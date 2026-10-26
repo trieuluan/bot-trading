@@ -351,10 +351,11 @@ def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
 
 @app.get("/api/workspaces/exness_forex/markets")
 def forex_markets():
-    from .db import ExnessExecutionState
+    from .db import ExnessEntryIntent, ExnessExecutionState
     from .exness_execution import max_positions, max_positions_per_symbol
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
+    from .forex_entry_intents import RESERVED
     from .forex_learning import execution_status
     from .forex_market_sessions import market_session
 
@@ -365,6 +366,19 @@ def forex_markets():
         meta = state.snapshot if state else {}
         broker = meta.get("broker", {})
         positions = broker.get("positions", [])
+        intents_by_symbol = {}
+        for intent in session.scalars(select(ExnessEntryIntent).where(
+            ExnessEntryIntent.account == account, ExnessEntryIntent.available_at <= now,
+            (ExnessEntryIntent.status.in_(RESERVED)) | (ExnessEntryIntent.available_at >= now - 21600),
+        ).order_by(ExnessEntryIntent.available_at.desc(), ExnessEntryIntent.id)):
+            rows = intents_by_symbol.setdefault(intent.symbol, [])
+            if len(rows) < 12 or intent.status in RESERVED:
+                rows.append({"id": intent.id, "strategy": intent.strategy, "side": intent.side,
+                             "status": intent.status, "available_at": intent.available_at,
+                             "expires_at": intent.expires_at, "limit_price": intent.limit_price,
+                             "stop_price": intent.stop_price,
+                             **{key: intent.snapshot.get(key) for key in
+                                ("triggered_at", "ended_at", "reason", "winner", "broker_fills")}})
         markets = []
         for symbol in configured_symbols():
             specs = spec_summary(session, now, symbol)
@@ -400,6 +414,7 @@ def forex_markets():
                             "price_at": stamp, "price_source": "tick" if tick else "closed_m15",
                             "age_seconds": max(0, now - stamp) if stamp is not None else None,
                             "positions": count, "execution": execution,
+                            "entry_intents": intents_by_symbol.get(symbol, []),
                             "blocked_reason": execution["blocked_reason"] or reason,
                             "decision": meta.get("symbols", {}).get(symbol)})
     return {"at": now, "markets": markets, "account_positions": len(positions),
