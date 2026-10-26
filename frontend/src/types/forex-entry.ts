@@ -1,3 +1,14 @@
+import type { LearnerAnalysis } from './exness-execution';
+
+export interface ForexSignalChart {
+  symbol: string;
+  strategy: string;
+  available_at: number;
+  candle_time: number;
+  expires_at: number;
+  row: LearnerAnalysis['strategies'][string];
+}
+
 export interface ForexEntryIntent {
   id: string;
   setup_id?: string;

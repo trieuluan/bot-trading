@@ -635,18 +635,20 @@ export function MtfObservationChart({
     const seen = new Set<string>();
     const first = candles[0].time;
     for (const name of shown) {
-      const overlay = analysis.strategies[name]?.chart?.overlays;
+      const owned = analysis.strategies[name]?.chart;
+      const overlay = owned?.overlays;
+      const asOf = owned?.as_of ?? analysis.available_at;
       for (const line of overlay?.lines ?? []) {
         const key = JSON.stringify([line.label, line.points]);
         if (seen.has(key)) continue;
         seen.add(key);
-        const points = line.points.filter((point) => point.time <= analysis.available_at);
+        const points = line.points.filter((point) => point.time <= asOf);
         const previous = [...points].reverse().find((point) => point.time < first);
         const visible = points.filter((point) => point.time >= first);
         if (previous) visible.unshift({ ...previous, time: first });
         const last = visible.at(-1);
-        if (last && last.time < analysis.available_at)
-          visible.push({ ...last, time: analysis.available_at });
+        if (last && last.time < asOf)
+          visible.push({ ...last, time: asOf });
         const aligned = new Map<number, number>();
         for (const point of visible)
           aligned.set(Math.ceil(point.time / frameSeconds) * frameSeconds, point.value);
@@ -703,9 +705,9 @@ export function MtfObservationChart({
         const rows: [number | null | undefined, string, LineStyle, string, number][] = [
           [zone.level, `${tag} · Setup H1`, LineStyle.Solid, color, 2],
           [zone.invalidation, `${tag} · vô hiệu H1`, LineStyle.Dotted, '#e0877a', 2],
-          [zone.stop, `${tag} · SL H1`, LineStyle.LargeDashed, '#bd7164', 1],
-          [zone.target, `${tag} · TP cấu trúc`, LineStyle.LargeDashed, '#2c856c', 1],
-          [zone.entry, `${tag} · Entry tham chiếu`, LineStyle.SparseDotted, '#557fa1', 1],
+          [zone.source === 'v4_pilot' ? null : zone.stop, `${tag} · SL H1`, LineStyle.LargeDashed, '#bd7164', 1],
+          [zone.source === 'v4_pilot' ? null : zone.target, `${tag} · TP cấu trúc`, LineStyle.LargeDashed, '#2c856c', 1],
+          [zone.source === 'v4_pilot' ? null : zone.entry, `${tag} · Entry tham chiếu`, LineStyle.SparseDotted, '#557fa1', 1],
         ];
         for (const [price, title, style, tint, width] of rows) {
           if (price == null || !Number.isFinite(price) || price <= 0) continue;
@@ -730,6 +732,28 @@ export function MtfObservationChart({
           );
           zoneSeries.current.push(line);
         }
+      }
+      for (const level of row.chart?.levels ?? []) {
+        const from = Math.max(first, level.from);
+        const to = Math.min(level.to, lastTime + frameSeconds * 8);
+        if (to <= from || level.price == null || !Number.isFinite(level.price) || level.price <= 0) continue;
+        const color = level.label.includes('SL') ? '#bd7164' : level.label.includes('TP') ? '#2c856c'
+          : level.label.includes('LIMIT') ? '#b17b23' : '#557fa1';
+        const line = chartApi.addSeries(LineSeries, {
+          title: `${id} · ${level.label}`,
+          color,
+          lineWidth: 1,
+          lineStyle: level.label.includes('SL') || level.label.includes('TP') ? LineStyle.Dotted : LineStyle.Dashed,
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+          autoscaleInfoProvider: () => null,
+        });
+        line.setData(
+          projectOverlayPoints([{ time: from, value: level.price }, { time: to, value: level.price }], frameSeconds)
+            .map((point) => ({ ...point, time: point.time as UTCTimestamp })),
+        );
+        zoneSeries.current.push(line);
       }
     }
     return clear;

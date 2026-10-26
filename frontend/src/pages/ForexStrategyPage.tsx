@@ -18,7 +18,7 @@ import { feedErrorText, marketSessionDisplay, priceDigits } from '../lib/forex-l
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
-import type { ForexEntryPilot } from '../types/forex-entry';
+import type { ForexEntryPilot, ForexSignalChart } from '../types/forex-entry';
 import { estimatedPnl, sumFloating, type PositionGroup } from '../lib/forex-position-groups';
 import { ForexPositionGroups } from '../components/ForexPositionGroups';
 
@@ -1248,6 +1248,35 @@ export function ForexStrategyPage({
   const [setupSelection, setSetupSelection] = useState<{ symbol: string; id: string } | null>(null);
   const selectedSetup = setupSelection?.symbol === symbol
     ? setups.find((setup) => setup.id === setupSelection.id) : undefined;
+  const [v4Selection, setV4Selection] = useState({ setup: '', strategy: '' });
+  const v4Signals = selectedSetup?.signals.filter((signal) => signal.strategy.startsWith('hast4_')) ?? [];
+  const v4Strategy = v4Signals.find((signal) => selectedSetup?.id === v4Selection.setup &&
+    signal.strategy === v4Selection.strategy)?.strategy ?? v4Signals[0]?.strategy;
+  const signalKey = v4Strategy ? `${symbol}:${selectedSetup?.time}:${v4Strategy}` : '';
+  const [signalSnapshot, setSignalSnapshot] = useState<{ key: string; data?: ForexSignalChart; error?: string }>({ key: '' });
+  const v4Chart = signalSnapshot.key === signalKey ? signalSnapshot.data : undefined;
+  useEffect(() => {
+    if (!v4Strategy || !selectedSetup?.time) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let active = true;
+    setSignalSnapshot({ key: signalKey });
+    const query = new URLSearchParams({ symbol, strategy: v4Strategy, available_at: String(selectedSetup.time) });
+    fetch(`/api/workspaces/exness_forex/learning/signal-chart?${query}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail ?? 'Không tải được snapshot V4');
+        if (body.symbol !== symbol || body.strategy !== v4Strategy || body.available_at !== selectedSetup.time)
+          throw new Error('Snapshot không khớp tín hiệu đã chọn');
+        if (active) setSignalSnapshot({ key: signalKey, data: body });
+      })
+      .catch((error) => {
+        if (active) setSignalSnapshot({ key: signalKey, error: error.name === 'AbortError'
+          ? 'Tải snapshot quá hạn; chọn lại setup để thử lại' : error.message });
+      })
+      .finally(() => clearTimeout(timer));
+    return () => { active = false; controller.abort(); clearTimeout(timer); };
+  }, [symbol, v4Strategy, selectedSetup?.time, signalKey]);
   useEffect(() => {
     setAnalysis(null);
     setHtf2Shadow(undefined);
@@ -1289,9 +1318,18 @@ export function ForexStrategyPage({
     [executions, analysis],
   );
   const shownStrategies = useMemo(
-    () => [...new Set([...picked, ...holdingTrees])],
-    [picked, holdingTrees],
+    () => [...new Set([...picked, ...holdingTrees, ...(v4Chart ? [v4Chart.strategy] : [])])],
+    [picked, holdingTrees, v4Chart],
   );
+  const chartAnalysis: LearnerAnalysis | null = v4Chart ? {
+    features: { trend: '', utc_session: 0, spread: 0, body: 0, range: 0 },
+    levels: { m15_donchian: null, m15_ema20: null, h1_ema20: null, h1_ema50: null, barriers: [] },
+    status: 'ready', source: 'v4_pilot', issues: [], scores: [], policy_mode: 'v4_pilot',
+    policy_updated_at: null, selected_signal: null,
+    ...(executionOnly ? analysis : null),
+    candle_time: v4Chart.candle_time, available_at: v4Chart.available_at,
+    strategies: { ...(executionOnly ? analysis?.strategies : {}), [v4Chart.strategy]: v4Chart.row },
+  } : executionOnly ? analysis : null;
   const historyBefore = selectedPosition?.status === 'closed' ? selectedPosition.close_time : null;
   const cacheKey = historyBefore ? null : candleKey(symbol, frame, side);
   const viewKey = `${symbol}:${frame}:${side}:${historyBefore ?? 'live'}`;
@@ -1818,6 +1856,21 @@ export function ForexStrategyPage({
         pnlOf={pnlOf} />}
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
+      {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection">
+        <label>Snapshot V4 · H4 / H1 / M15
+          <select value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
+            {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
+          </select>
+        </label>
+        <p role="status">{v4Chart
+          ? `Đã chụp ${formatTime(v4Chart.available_at, true)} · Hạn canh ${formatTime(v4Chart.expires_at, true)} · Giá BID · Limit/Stop và SL/TP dự kiến, không phải lệnh broker.`
+          : signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>
+        {v4Chart && <ul className="forex-v4-levels" aria-label="Mức giá dự kiến V4">
+          {v4Chart.row.chart?.levels.map((level) => <li key={level.label}>
+            {level.label}: <strong>{level.price.toFixed(priceDigits(symbol))}</strong>
+          </li>)}
+        </ul>}
+      </div>}
       {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
         Math.floor(selectedSetup.time / chartFrameSeconds) * chartFrameSeconds) && (
         <div className="signal-setup-notice" role="status">
@@ -1838,7 +1891,7 @@ export function ForexStrategyPage({
         candles={candles}
         liveCandles={liveCandles}
         snapshot={!executionOnly && frame === '15m' && side === 'bid' ? fullSnapshot : null}
-        analysis={executionOnly ? analysis : null}
+        analysis={chartAnalysis}
         shown={shownStrategies}
         executions={executions}
         positionGroups={positionGroups}

@@ -28,12 +28,15 @@ export function ForexSignalLifecycle({
     window.addEventListener('hashchange', show);
     return () => window.removeEventListener('hashchange', show);
   }, [symbol]);
-  const pending = (setup: ForexSignalSetup) => setup.intents.some((intent) =>
+  const shadowPending = (setup: ForexSignalSetup) => setup.signals.some((signal) =>
+    signal.strategy.startsWith('hast4_') && ['waiting', 'pending', 'open'].includes(signal.status));
+  const pending = (setup: ForexSignalSetup) => shadowPending(setup) || setup.intents.some((intent) =>
     ['waiting', 'triggered', 'submitting', 'submitted', 'uncertain'].includes(intent.status));
   const rows = setups.filter((setup) => filter === 'all' || (filter === 'pending' ? pending(setup) : !pending(setup)));
   const selected = setups.find((setup) => setup.id === selectedId);
   const allIntents = setups.flatMap((setup) => setup.intents);
   const waiting = allIntents.filter((intent) => intent.status === 'waiting').length;
+  const shadowCount = setups.filter(shadowPending).length;
   const unresolved = allIntents.filter((intent) => intent.status === 'uncertain').length;
   const totalSignals = new Set(
     setups.flatMap((setup) => setup.signals.map((signal) => `${signal.strategy}:${signal.available_at}:${signal.side}`)),
@@ -59,7 +62,7 @@ export function ForexSignalLifecycle({
         <Activity size={14} aria-hidden="true" />
         <strong>Chọn setup để xem chart</strong>
         <span>
-          {totalSignals} tín hiệu · {setups.length} setup ({waiting} đang canh)
+          {totalSignals} tín hiệu · {setups.length} setup ({waiting} canh broker · {shadowCount} mô phỏng)
         </span>
         {unresolved > 0 && <span className="pair-intent is-uncertain">{unresolved} cần đối soát</span>}
         {selected && <span className="signal-setup-selected">Đang xem: {selected.side === 'long' ? 'Mua' : 'Bán'} · {formatTime(selected.time, true)}</span>}
@@ -89,7 +92,9 @@ export function ForexSignalLifecycle({
           const mainIntent = setup.intents[0];
           const state = mainIntent
             ? entryLifecycle(mainIntent)
-            : { label: 'Tín hiệu ghi nhận', short: 'Ghi nhận', tone: 'idle' };
+            : shadowPending(setup)
+              ? { label: 'Mô phỏng đang chạy', short: 'Mô phỏng', tone: 'waiting' }
+              : { label: 'Tín hiệu ghi nhận', short: 'Ghi nhận', tone: 'idle' };
           const sideVn = setup.side === 'long' ? 'MUA' : 'BÁN';
           const v4Count = setup.signals.filter((signal) => signal.strategy.startsWith('hast4_')).length;
           const v3Count = setup.signals.filter((signal) => !signal.strategy.startsWith('hast4_')).length;
@@ -153,7 +158,8 @@ export function ForexSignalLifecycle({
                     {fill && <span>Fill #{fill.position_id} @ {price(fill.price)}</span>}
                   </>
                 ) : (
-                  <span>Chỉ ghi nhận tín hiệu · chưa có lệnh canh giá tương ứng; không phải fill broker.</span>
+                  <span>{shadowPending(setup) ? 'V4 đang canh / chạy mô phỏng · chọn để xem H4/H1/M15 và mức giá ảo.'
+                    : 'Chỉ ghi nhận tín hiệu · chưa có lệnh canh giá tương ứng; không phải fill broker.'}</span>
                 )}
               </div>
               {isSelected && <div className="signal-lifecycle-meta">

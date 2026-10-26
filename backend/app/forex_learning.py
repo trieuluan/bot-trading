@@ -5,11 +5,11 @@ import threading
 import time
 from decimal import Decimal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
 from .db import Session
 from .exness import ExnessError
-from .exness_observation import load_frames
+from .exness_observation import TICK_WINDOW, load_frames
 from .exness_targets import target_context
 from .forex_htf_v2 import (
     MAX_RISK_ATR,
@@ -280,3 +280,60 @@ def analysis_endpoint(symbol: str = "XAUUSD"):
     except Exception:
         result = {"status": "error", "reason": "Phân tích V2 chưa sẵn sàng"}
     return {**result, **summary(symbol)}
+
+@router.get("/signal-chart")
+def signal_chart_endpoint(strategy: str = Query(min_length=1, max_length=80),
+                          available_at: int = Query(gt=0), symbol: str = "XAUUSD"):
+    request_symbol(symbol)
+    return signal_chart(strategy, available_at, symbol)
+
+def signal_chart(strategy, available_at, symbol, now=None):
+    from .forex_entry_pilot import read_ledger as read_pilot
+    from .forex_entry_policy import control_tree
+    from .forex_entry_policy import tree_id as pilot_tree_id
+
+    now = int(time.time()) if now is None else now
+    if available_at > now:
+        raise HTTPException(404, "Tín hiệu chưa khả dụng")
+    try:
+        ledger = read_pilot(os.getenv("EXNESS_ACCOUNT_ID", "").strip(), symbol)
+    except FileNotFoundError:
+        raise HTTPException(404, "Chưa có tín hiệu V4") from None
+    except (OSError, ValueError, KeyError, TypeError):
+        raise HTTPException(503, "Không đọc được snapshot V4") from None
+    sample = next((sample for sample in ledger["samples"]
+                   if sample["strategy"] == strategy and sample["signal"]["available_at"] == available_at
+                   and sample.get("recorded_at", now + 1) <= now), None)
+    if sample is None:
+        raise HTTPException(404, "Không có snapshot tín hiệu đã chọn")
+    signal, tree = sample["signal"], sample["tree"]
+    if (signal.get("symbol") != symbol or signal.get("strategy") != strategy
+            or pilot_tree_id(tree) != strategy):
+        raise HTTPException(409, "Snapshot không khớp cặp hoặc cây")
+    with Session() as session:
+        frames = load_frames(session, available_at, symbol, window=TICK_WINDOW)
+    durations = {"15m": 900, "1h": 3600, "4h": 14400}
+    bids = {frame: sorted((row for row in rows if row.price_type == "bid"
+                           and row.time + durations[frame] <= available_at), key=lambda row: row.time)
+            for frame, rows in frames.items()}
+    minutes, hours, higher = bids["15m"], bids["1h"], bids["4h"]
+    if not minutes or minutes[-1].time + 900 != available_at:
+        raise HTTPException(409, "Thiếu nến M15 gốc; không dựng lại bằng nến mới")
+    candle = minutes[-1]
+    overlays = tree_overlays(tree, candle, minutes, hours, higher, symbol,
+                             chart_overlays(candle, minutes, hours, higher, symbol), {})
+    zone = signal_chart_zone(control_tree(tree), signal, "v4_pilot", available_at)
+    zone["sample_status"] = sample["status"]
+    entry = signal["entry_policy"]
+    levels = [{"label": label, "price": value, "from": available_at, "to": entry["expires_at"]}
+              for label, value in (("LIMIT ẢO · PILOT", entry.get("limit_price")),
+                                   ("STOP ENTRY ẢO · PILOT", entry.get("stop_price")),
+                                   ("SL DỰ KIẾN · PILOT", signal["stop"]),
+                                   ("TP DỰ KIẾN · PILOT", signal["target"])) if value is not None]
+    return {"symbol": symbol, "strategy": strategy, "available_at": available_at,
+            "candle_time": candle.time, "expires_at": entry["expires_at"],
+            "row": {"status": sample["status"], "side": sample["side"], "captured_zone": zone,
+                    "description": "V4 · snapshot tín hiệu · không phải lệnh broker",
+                    "chart": {"overlays": overlays, "levels": levels, "oscillator": None,
+                              "parameters": tree, "as_of": available_at, "price_type": "bid",
+                              "note": "H4/H1/M15 tại lúc phát tín hiệu; Limit/Stop và SL/TP dự kiến, không phải fill hay pending trên sàn"}}}

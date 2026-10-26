@@ -7311,6 +7311,11 @@ main.forex-terminal-main {
 .forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
 .forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
 .signal-lifecycle-list { max-height: 280px; overflow: auto; scrollbar-gutter: stable; }
+.forex-v4-chart-selection { margin: 10px 0; padding: 12px; border: 1px solid #667d70; border-radius: 6px; }
+.forex-v4-chart-selection label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.forex-v4-chart-selection select { flex: 1 1 280px; min-width: 0; max-width: 100%; padding: 8px; }
+.forex-v4-chart-selection p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.forex-v4-levels { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; margin: 10px 0 0; list-style: none; font-size: 12px; }
 .signal-lifecycle-list:focus-visible, .forex-signal-lifecycle summary:focus-visible {
   outline: 2px solid #88b8a3;
   outline-offset: 2px;
