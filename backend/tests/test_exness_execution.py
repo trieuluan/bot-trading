@@ -662,10 +662,42 @@ def test_prepare_cached_across_clients():
     api.limits = lambda: (calls.append("limits"), orig_lim())[1]
 
     ExnessDemoClient(api).prepare(require_flat=False)
-    assert calls == ["account", "condition", "limits"]
+    assert calls == ["account", "limits", "condition"]
     calls.clear()
     ExnessDemoClient(api).prepare(require_flat=False)
     assert calls == []
+
+def test_prepare_shares_account_checks_but_not_conditions_across_symbols(monkeypatch):
+    from backend.app.exness_demo_client import PREPARE_TTL, ExnessDemoClient
+    from backend.app.forex_symbols import SYMBOLS
+    api = dummy_api()
+    api.account = MagicMock(wraps=api.account)
+    api.limits = MagicMock(wraps=api.limits)
+    original = api.condition("XAUUSD")
+    api.condition = MagicMock(side_effect=lambda symbol: {**original, "instrument": symbol})
+    clock = [1000.0]
+    monkeypatch.setattr(ee.time, "monotonic", lambda: clock[0])
+    for symbol in SYMBOLS:
+        assert ExnessDemoClient(api).prepare(symbol, require_flat=False)["instrument"] == symbol
+    assert api.account.call_count == api.limits.call_count == 1
+    assert api.condition.call_count == len(SYMBOLS)
+    clock[0] += PREPARE_TTL
+    ExnessDemoClient(api).prepare("EURJPY", require_flat=False)
+    assert api.account.call_count == api.limits.call_count == 2
+    assert api.condition.call_count == len(SYMBOLS) + 1
+
+@pytest.mark.parametrize("attribute,value", [
+    ("account_id", "456"), ("base_url", "https://other.exness.com"), ("api_key", "other"),
+])
+def test_prepare_account_cache_does_not_survive_identity_change(attribute, value):
+    from backend.app.exness_demo_client import ExnessDemoClient
+    api = dummy_api()
+    ExnessDemoClient(api).prepare(require_flat=False)
+    setattr(api, attribute, value)
+    api.account = MagicMock(return_value={"is_demo": False})
+    with pytest.raises(ExnessError, match="demo account"):
+        ExnessDemoClient(api).prepare(require_flat=False)
+    api.account.assert_called_once()
 
 def test_rate_limit_before_submit_allows_retry(monkeypatch):
     api = dummy_api()

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from urllib.parse import quote, urlencode, urlsplit
 
@@ -12,6 +13,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 EMPTY_BODY_HASH = "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+CONFIG_TTL = 600
 
 
 class ExnessError(RuntimeError):
@@ -102,7 +104,6 @@ class ExnessReadOnly:
         delay = self.next_request - time.monotonic()
         if delay > 0:
             time.sleep(delay)
-        self.next_request = time.monotonic() + self.request_interval
         try:
             response = self.client.get(
                 self.base_url.rstrip("/") + target,
@@ -111,6 +112,8 @@ class ExnessReadOnly:
             )
         except httpx.HTTPError as exc:
             raise ExnessError("Cannot reach Exness API") from exc
+        finally:
+            self.next_request = time.monotonic() + self.request_interval
         if response.status_code == 429:
             try:
                 cooldown = float(response.headers.get("Retry-After", "60"))
@@ -140,7 +143,12 @@ class ExnessReadOnly:
         return self.get(f"/v1/configuration/accounts/{self.account_id}/account")
 
     def limits(self):
-        return self.get(f"/v1/configuration/accounts/{self.account_id}/limits")
+        identity = (self.account_id, self.base_url, self.api_key)
+        cached = getattr(self, "_limits_cache", None)
+        if not cached or cached[1] != identity or not 0 <= time.monotonic() - cached[0] < CONFIG_TTL:
+            payload = self.get(f"/v1/configuration/accounts/{self.account_id}/limits")
+            self._limits_cache = (time.monotonic(), identity, payload)
+        return deepcopy(self._limits_cache[2])
 
     def instruments(self):
         return self.get(f"/v1/configuration/accounts/{self.account_id}/instruments")

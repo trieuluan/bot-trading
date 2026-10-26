@@ -236,6 +236,52 @@ def test_request_spacing_obeys_configured_rate(monkeypatch):
     client.close()
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_slow_http_request_keeps_gap_after_completion(monkeypatch, fails):
+    clock, starts = [100.0], []
+    monkeypatch.setattr("backend.app.exness.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("backend.app.exness.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    def respond(request):
+        starts.append(clock[0])
+        clock[0] += 2
+        if fails:
+            raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(200, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        api = ExnessReadOnly("key", "00" * 32, "123", "https://api.exness.com", client=client)
+        for _ in range(2):
+            if fails:
+                with pytest.raises(ExnessError, match="Cannot reach"):
+                    api.get("/v1/test")
+            else:
+                api.get("/v1/test")
+    assert starts == pytest.approx([100, 102.55])
+
+def test_limits_cache_expires_isolated_from_response_and_identity(monkeypatch):
+    from backend.app.exness import CONFIG_TTL
+    clock, calls = [100.0], []
+    monkeypatch.setattr("backend.app.exness.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("backend.app.exness.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(200, json={"limits": {"rest": {"limit": 10}}})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        api = ExnessReadOnly("key", "00" * 32, "123", "https://api.exness.com", client=client)
+        api.limits()["limits"]["rest"]["limit"] = 0
+        assert api.limits()["limits"]["rest"]["limit"] == 10
+        assert len(calls) == 1
+        clock[0] += CONFIG_TTL
+        api.limits()
+        assert len(calls) == 2
+        for attribute, value in (("account_id", "456"), ("base_url", "https://other.exness.com"), ("api_key", "other")):
+            setattr(api, attribute, value)
+            api.limits()
+        assert len(calls) == 5
+
 def test_connect_uses_account_specific_candle_limits(monkeypatch):
     class ConfigApi:
         request_interval = 0.55

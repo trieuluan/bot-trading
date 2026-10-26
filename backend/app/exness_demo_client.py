@@ -10,7 +10,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 import httpx
 
-from .exness import ExnessError, b64url
+from .exness import CONFIG_TTL, ExnessError, b64url
 from .exness_management import max_lot, risk_budget, size_lot
 from .forex_buffer_study import exit_target
 from .forex_symbols import SYMBOLS, checked_symbol, configured_symbols
@@ -51,7 +51,7 @@ def signed_mutation_headers(api, method, path, body, key, now_ms=None):
             "Content-Type": "application/json"}
 
 
-PREPARE_TTL = 600
+PREPARE_TTL = CONFIG_TTL
 
 class ExnessDemoClient:
     def __init__(self, api):
@@ -80,15 +80,30 @@ class ExnessDemoClient:
         checked_symbol(symbol)
         if os.getenv("EXNESS_ENVIRONMENT") != "demo":
             raise ExnessError("Demo XAUUSD configuration required")
-        identity = (self.api.account_id, self.api.base_url, self.api.api_key, symbol)
+        identity = (self.api.account_id, self.api.base_url, self.api.api_key)
+        account = getattr(self.api, "_prepared_account", None)
+        if not account or account[2] != identity or not 0 <= time.monotonic() - account[0] < PREPARE_TTL:
+            self.verify_demo()
+            limits = self.api.limits()["limits"]["rest"]
+            required = {"openPosition", "closePosition", "getTradingStateSnapshot", "getAccountDetails"}
+            methods = limits["methods"]
+            operations = {row["api_operation_id"] for row in methods}
+            if not required <= operations:
+                raise ExnessError("Required trading methods unavailable")
+            rates = [limits["global_account_rate"], *[row["rate_limit"] for row in methods
+                     if row["api_operation_id"] in required | {"modifyOrder"}]]
+            self.api.request_interval = max(1.05, self.api.request_interval, *[
+                float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
+                for rate in rates])
+            account = (time.monotonic(), "modifyOrder" in operations, identity)
+            self.api._prepared_account = account
+        self.can_modify = account[1]
         cache = getattr(self.api, "_prepared_symbols", {})
         cached = cache.get(symbol)
         if cached and cached[3] == identity and 0 <= time.monotonic() - cached[0] < PREPARE_TTL:
-            self.can_modify = cached[2]
             if require_flat:
                 self._require_flat()
             return deepcopy(cached[1])
-        self.verify_demo()
         condition = self.api.condition(symbol)
         if (condition.get("instrument") != symbol or condition.get("trade_mode") != "enabled"
                 or condition.get("exec_mode") != "market" or condition.get("quote_currency") not in ("USD", "JPY", "CAD", "CHF", "GBP")):
@@ -101,17 +116,6 @@ class ExnessDemoClient:
         digits = condition.get("point_digits")
         if isinstance(digits, bool) or not isinstance(digits, int) or not 0 <= digits <= 10:
             raise ExnessError("Invalid price precision")
-        limits = self.api.limits()["limits"]["rest"]
-        required = {"openPosition", "closePosition", "getTradingStateSnapshot", "getAccountDetails"}
-        methods = limits["methods"]
-        self.can_modify = "modifyOrder" in {row["api_operation_id"] for row in methods}
-        if not required <= {row["api_operation_id"] for row in methods}:
-            raise ExnessError("Required trading methods unavailable")
-        rates = [limits["global_account_rate"], *[row["rate_limit"] for row in methods
-                 if row["api_operation_id"] in required | {"modifyOrder"}]]
-        self.api.request_interval = max(1.05, self.api.request_interval, *[
-            float(positive_decimal(rate["window_seconds"]) / positive_decimal(rate["limit"])) + 0.05
-            for rate in rates])
         cache[symbol] = (time.monotonic(), deepcopy(condition), self.can_modify, identity)
         self.api._prepared_symbols = cache
         if require_flat:
@@ -264,7 +268,6 @@ class ExnessDemoClient:
         if method == "PATCH":
             path = f"/v1/trading/accounts/{self.api.account_id}/orders/{order_id}"
         data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode() if body else b""
-        self.api.next_request = time.monotonic() + self.api.request_interval
         self.last_submission = {"submitted_at": time.time(), "method": method, "key": key,
                                 "quote_age_s": time.time() - quote["time"] if quote else None,
                                 "quote": quote, "body": body}
@@ -275,6 +278,8 @@ class ExnessDemoClient:
                 headers=signed_mutation_headers(self.api, method, path, data, key), follow_redirects=False)
         except httpx.HTTPError as exc:
             raise ExnessError("Submission outcome unknown; do not retry or open another position") from exc
+        finally:
+            self.api.next_request = time.monotonic() + self.api.request_interval
         if response.status_code != 202:
             raise ExnessError(f"Mutation HTTP {response.status_code}; reconcile before retry")
         return response.json()
