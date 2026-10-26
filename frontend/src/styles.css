@@ -7309,13 +7309,31 @@ main.forex-terminal-main {
 .signal-lifecycle-disclosure { margin-left: auto; color: #88b8a3; }
 .signal-lifecycle-disclosure::after { content: ' +'; }
 .forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
-.forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; }
+.forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
 .signal-lifecycle-list { max-height: 280px; overflow: auto; scrollbar-gutter: stable; }
 .signal-lifecycle-list:focus-visible, .forex-signal-lifecycle summary:focus-visible {
   outline: 2px solid #88b8a3;
   outline-offset: 2px;
 }
 .signal-lifecycle-row { padding: 10px 0; border-top: 1px solid #26332c; }
+.forex-signal-lifecycle { scroll-margin-top: 160px; }
+.signal-lifecycle-toolbar, .signal-lifecycle-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.signal-lifecycle-toolbar { margin-bottom: 10px; justify-content: space-between; }
+.signal-lifecycle-filters button, .signal-lifecycle-clear-btn {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
+  border: 1px solid #34483b; border-radius: 5px; color: #adbbb2; background: transparent; font: inherit; cursor: pointer;
+}
+.signal-lifecycle-filters button[aria-pressed='true'] { background: #253c30; color: #c8ecdb; border-color: #61977b; }
+.signal-lifecycle-row.is-interactive { cursor: pointer; padding: 10px; border-radius: 5px; }
+.signal-lifecycle-row.is-interactive:hover { background: #1b2a21; }
+.signal-lifecycle-row.is-selected { background: #21382c; box-shadow: inset 3px 0 #88b8a3; }
+.signal-lifecycle-row:focus-visible, .signal-lifecycle-toolbar button:focus-visible { outline: 2px solid #88b8a3; outline-offset: -2px; }
+.signal-lifecycle-select-action { color: #88b8a3; }
+.signal-lifecycle-select-action .is-active { display: inline-flex; gap: 4px; align-items: center; }
+.signal-setup-selected { color: #b9dec9; }
+.signal-setup-tags { color: #adc5d4; }
+.signal-setup-strategies { flex-basis: 100%; overflow-wrap: anywhere; font-family: monospace; font-size: 10px; }
+.signal-setup-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 14px; color: #d6c59c; background: #29271c; font-size: 11px; }
 .signal-lifecycle-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
 .signal-lifecycle-heading .font-mono { overflow-wrap: anywhere; }
 .signal-lifecycle-heading time { margin-left: auto; color: #9aaea1; }

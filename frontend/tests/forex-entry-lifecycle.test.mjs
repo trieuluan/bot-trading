@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { entryLifecycle, visibleEntryIntents, intentEvents } from '../src/lib/forex-entry-lifecycle.ts';
+import { entryLifecycle, visibleEntryIntents, intentEvents, signalSetups } from '../src/lib/forex-entry-lifecycle.ts';
 
 test('entryLifecycle returns distinct label, short text, and tone for each status', () => {
   assert.deepEqual(entryLifecycle({ status: 'waiting', side: 'long' }), {
@@ -101,4 +101,62 @@ test('intentEvents creates appropriate chart event markers', () => {
     { time: 9000, text: 'CANH MUA · ẢO', color: '#138b79' },
     { time: 9600, text: 'HỦY MUA · ẢO', color: '#bd7164' },
   ]);
+});
+
+test('signalSetups groups multiple trees on the same setup and sorts newest first', () => {
+  const intents = [
+    {
+      id: 'intent1',
+      setup_id: 's1',
+      strategy: 'hast4_tree1',
+      side: 'short',
+      status: 'waiting',
+      available_at: 1000,
+    },
+    {
+      id: 'intent2',
+      setup_id: 's1',
+      strategy: 'hast4_tree2',
+      side: 'short',
+      status: 'waiting',
+      available_at: 1000,
+    },
+  ];
+  const signals = [
+    { strategy: 'hast4_tree1', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_tree2', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast3_legacy', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_old', side: 'long', available_at: 500, status: 'recorded' },
+  ];
+
+  const setups = signalSetups(intents, signals, 2000);
+  assert.equal(setups.length, 3);
+  assert.equal(setups[0].time, 1000);
+  assert.equal(setups[0].side, 'short');
+  const grouped = setups.find((setup) => setup.intents.length);
+  assert.equal(grouped.intents.length, 2);
+  assert.equal(grouped.signals.length, 2);
+  assert.equal(setups.at(-1).time, 500);
+  assert.equal(setups.at(-1).side, 'long');
+});
+
+test('signalSetups keeps distinct setups, sides, versions and timestamps separate without changing input', () => {
+  const intents = [
+    { id: 'a', setup_id: 'setup-a', strategy: 'hast4_one', side: 'short', available_at: 1000 },
+    { id: 'b', setup_id: 'setup-b', strategy: 'hast4_two', side: 'short', available_at: 1000 },
+    { id: 'legacy', strategy: 'hast4_legacy', side: 'short', created_at: 1000 },
+    { id: 'future', strategy: 'hast4_future', side: 'short', available_at: 3000 },
+  ];
+  const signals = [
+    { strategy: 'hast4_one', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_one', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_one', side: 'long', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_future', side: 'short', available_at: 3000, status: 'recorded' },
+  ];
+  const before = JSON.stringify({ intents, signals });
+  const groups = signalSetups(intents, signals, 2000);
+  assert.equal(groups.length, 4);
+  assert.equal(groups.find((group) => group.intents.some((intent) => intent.id === 'a')).signals.length, 1);
+  assert.ok(groups.every((group) => group.intents.length <= 1));
+  assert.equal(JSON.stringify({ intents, signals }), before);
 });

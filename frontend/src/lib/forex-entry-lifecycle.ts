@@ -1,4 +1,44 @@
-import type { ForexEntryIntent } from '../types/forex-entry';
+import type { ForexEntryIntent, ForexRecordedSignal } from '../types/forex-entry';
+
+export interface ForexSignalSetup {
+  id: string;
+  time: number;
+  side: 'long' | 'short';
+  intents: ForexEntryIntent[];
+  signals: ForexRecordedSignal[];
+}
+
+export function signalSetups(intents: ForexEntryIntent[], signals: ForexRecordedSignal[], now = Date.now() / 1000) {
+  const groups = new Map<string, ForexSignalSetup>();
+  for (const intent of intents) {
+    const time = intent.available_at ?? intent.created_at;
+    if (time == null || !Number.isFinite(time) || time > now) continue;
+    const id = `setup:${intent.setup_id ?? intent.id}:${time}:${intent.side}`;
+    const group = groups.get(id) ?? { id, time, side: intent.side, intents: [], signals: [] };
+    group.intents.push(intent);
+    groups.set(id, group);
+  }
+  for (const signal of signals) {
+    if (!Number.isFinite(signal.available_at) || signal.available_at > now) continue;
+    const matching = [...groups.values()].filter((group) => group.time === signal.available_at &&
+      group.side === signal.side && group.intents.some((intent) => intent.strategy === signal.strategy));
+    const id = `signals:${signal.available_at}:${signal.side}:${signal.strategy.startsWith('hast4_') ? 'v4' : 'v3'}`;
+    const targets = matching.length ? matching : [groups.get(id) ?? {
+      id, time: signal.available_at, side: signal.side, intents: [], signals: [],
+    }];
+    for (const group of targets) {
+      if (!group.signals.some((recorded) => recorded.strategy === signal.strategy)) group.signals.push(signal);
+      groups.set(group.id, group);
+    }
+  }
+  for (const group of groups.values()) {
+    for (const intent of group.intents) {
+      if (!group.signals.some((signal) => signal.strategy === intent.strategy))
+        group.signals.push({ strategy: intent.strategy, side: intent.side, available_at: group.time, status: 'recorded' });
+    }
+  }
+  return [...groups.values()].sort((left, right) => right.time - left.time || left.id.localeCompare(right.id));
+}
 
 export function entryLifecycle(intent: ForexEntryIntent) {
   const filled = !!intent.broker_fills?.length;

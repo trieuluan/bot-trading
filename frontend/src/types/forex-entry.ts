@@ -1,5 +1,6 @@
 export interface ForexEntryIntent {
   id: string;
+  setup_id?: string;
   strategy: string;
   side: 'long' | 'short';
   status: string;
@@ -13,6 +14,7 @@ export interface ForexEntryIntent {
   expires_at: number;
   winner?: 'limit' | 'stop' | 'market';
   trigger_quote?: { bid: number; ask: number; time: number };
+  signal?: { stop?: number; target?: number };
   broker_fills?: { position_id: string; price: number; deviation: number | null }[];
 }
 

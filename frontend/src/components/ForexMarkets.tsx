@@ -205,7 +205,16 @@ export function ForexMarkets({
                 type="button"
                 aria-pressed={market.symbol === symbol}
                 aria-busy={loading && market.symbol === symbol}
-                onClick={() => select(market.symbol)}
+                onClick={(event) => {
+                  select(market.symbol);
+                  if ((market.symbol === symbol && (signals > 0 || !!market.entry_intents?.length)) ||
+                      (event.target as HTMLElement).closest('.pair-signal, .pair-intent')) {
+                    setRoute({ page: 'Bot', symbol: market.symbol });
+                    window.location.hash = 'forex-signals';
+                    window.dispatchEvent(new Event('hashchange'));
+                    document.getElementById('forex-signals')?.scrollIntoView({ block: 'center' });
+                  }
+                }}
                 title={`${market.symbol} · ${session.tooltip} · Giá ${formatTime(market.price_at, true)} · ${signals} cây có tín hiệu · ${market.positions} vị thế mở. Tín hiệu không đồng nghĩa đã vào lệnh.`}
               >
                 <span className="forex-strip-heading">

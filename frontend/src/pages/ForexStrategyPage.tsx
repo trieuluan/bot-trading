@@ -13,6 +13,7 @@ import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib
 import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
 import { ForexSessionStatus } from '../components/ForexSessionStatus';
 import { ForexSignalLifecycle } from '../components/ForexSignalLifecycle';
+import { signalSetups } from '../lib/forex-entry-lifecycle';
 import { feedErrorText, marketSessionDisplay, priceDigits } from '../lib/forex-labels';
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
@@ -1233,6 +1234,10 @@ export function ForexStrategyPage({
     }),
     ...(entryPilot?.pilot.signals ?? []),
   ], [analysis, entryPilot]);
+  const setups = useMemo(() => signalSetups(entryPilot?.intents ?? [], recordedSignals), [entryPilot, recordedSignals]);
+  const [setupSelection, setSetupSelection] = useState<{ symbol: string; id: string } | null>(null);
+  const selectedSetup = setupSelection?.symbol === symbol
+    ? setups.find((setup) => setup.id === setupSelection.id) : undefined;
   useEffect(() => {
     setAnalysis(null);
     setHtf2Shadow(undefined);
@@ -1254,6 +1259,7 @@ export function ForexStrategyPage({
   }, [symbol]);
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
+  const chartFrameSeconds = frame === '4h' ? 14400 : frame === '1h' ? 3600 : 900;
   const [side, setSide] = useState('bid');
   // Lựa chọn lớp vẽ theo từng cặp (không lẫn cây giữa các cặp); giữ nguyên khi đổi khung.
   const [pickedBySymbol, setPickedBySymbol] = useState<Record<string, string[]>>({});
@@ -1879,9 +1885,19 @@ export function ForexStrategyPage({
           </span>
         </div>
       )}
+      <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
+        onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
+      {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
+        Math.floor(selectedSetup.time / chartFrameSeconds) * chartFrameSeconds) && (
+        <div className="signal-setup-notice" role="status">
+          Nến của setup đã chọn chưa có trong dữ liệu chart. {hasMore ? 'Thêm lịch sử để xem đúng vị trí.' : 'Không có thêm nến trong lịch sử hiện tại.'}
+          {hasMore && <button type="button" disabled={loadingOlder} onClick={() => historyActions.current.older()}>Thêm lịch sử</button>}
+        </div>
+      )}
       <MtfObservationChart
-        entryIntents={entryPilot?.intents}
-        recordedSignals={recordedSignals}
+        entryIntents={selectedSetup?.intents}
+        recordedSignals={selectedSetup?.signals}
+        selectedSetupTime={selectedSetup?.time}
         key={`${symbol}-${frame}-${side}-${historyBefore ?? 'live'}`}
         pricePrecision={
           dashboard.instrument?.profile?.point_digits ??
@@ -1900,7 +1916,7 @@ export function ForexStrategyPage({
         pnlAt={pnlAt}
         pnlOf={pnlOf}
         selectedPositionId={selectedPosition?.position_id}
-        frameSeconds={frame === '4h' ? 14400 : frame === '1h' ? 3600 : 900}
+        frameSeconds={chartFrameSeconds}
         trendLabel="Xu hướng 4h"
         levelLabel="Mức breakout"
         livePrice={
@@ -1913,7 +1929,6 @@ export function ForexStrategyPage({
         }
         title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
-      <ForexSignalLifecycle intents={entryPilot?.intents ?? []} signals={recordedSignals} symbol={symbol} />
       {executionOnly && (
         <div className="bot-footer">
           <div className="bot-footer-bar">

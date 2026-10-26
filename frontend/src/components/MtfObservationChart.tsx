@@ -38,6 +38,7 @@ export function MtfObservationChart({
   analysis = null,
   entryIntents,
   recordedSignals = [],
+  selectedSetupTime,
   shown = [],
   livePrice = null,
   liveCandles = [],
@@ -60,6 +61,7 @@ export function MtfObservationChart({
   analysis?: LearnerAnalysis | null;
   entryIntents?: ForexEntryIntent[];
   recordedSignals?: ForexRecordedSignal[];
+  selectedSetupTime?: number;
   shown?: string[];
   title?: string;
   livePrice?: { price: number; label: string; color?: string }[] | null;
@@ -221,9 +223,6 @@ export function MtfObservationChart({
     const priceSeries = series.current;
     if (!priceSeries) return;
     const virtualLines: IPriceLine[] = [];
-    const latestCancelled = [...(entryIntents ?? [])]
-      .filter((intent) => ['cancelled', 'expired'].includes(intent.status))
-      .sort((left, right) => (right.ended_at ?? 0) - (left.ended_at ?? 0))[0];
     for (const intent of entryIntents ?? []) {
       const waiting = intent.status === 'waiting';
       const triggered =
@@ -234,11 +233,6 @@ export function MtfObservationChart({
               (position) => position.position_id === fill.position_id && position.status === 'open',
             ),
           ));
-      const ghost =
-        intent === latestCancelled &&
-        intent.ended_at != null &&
-        intent.ended_at <= Date.now() / 1000 &&
-        Date.now() / 1000 - intent.ended_at <= 21600;
       for (const branch of ['limit', 'stop'] as const) {
         const price = branch === 'limit' ? intent.limit_price : intent.stop_price;
         if (!price) continue;
@@ -253,7 +247,7 @@ export function MtfObservationChart({
             title: `${branch === 'limit' ? 'Limit giữa' : 'Stop phá nến'} ảo · ${waiting ? 'chờ giá' : 'đã kích hoạt'}`,
           }),
         );
-        } else if (ghost) {
+        } else {
           virtualLines.push(
             priceSeries.createPriceLine({
               price,
@@ -261,10 +255,19 @@ export function MtfObservationChart({
               lineWidth: 1,
               lineStyle: LineStyle.Dotted,
               axisLabelVisible: false,
-              title: `${intent.status === 'expired' ? 'Hết hạn' : 'Hủy'} · ${branch === 'limit' ? 'Limit' : 'Stop'} ảo ${price}`,
+              title: `${branch === 'limit' ? 'Limit' : 'Stop'} ảo · setup đã chọn`,
             }),
           );
         }
+      }
+      for (const [price, title, color] of [
+        [intent.signal?.stop, 'SL setup · không phải SL sàn', '#bd7164'],
+        [intent.signal?.target, 'TP setup · không phải TP sàn', '#2c856c'],
+      ] as const) {
+        if (price == null || !Number.isFinite(price) || price <= 0) continue;
+        virtualLines.push(priceSeries.createPriceLine({
+          price, title, color, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false,
+        }));
       }
     }
     return () => {
@@ -319,6 +322,22 @@ export function MtfObservationChart({
       fitted.current = true;
     }
   }, [candles, liveCandles]);
+
+  const focusedSetup = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedSetupTime == null) {
+      if (focusedSetup.current && candles.length)
+        chart.current?.timeScale().setVisibleLogicalRange(recentChartRange(candles.length));
+      focusedSetup.current = null;
+      return;
+    }
+    const key = `${selectedSetupTime}:${frameSeconds}`;
+    if (focusedSetup.current === key || !chart.current) return;
+    const index = candles.findIndex((candle) => candle.time === Math.floor(selectedSetupTime / frameSeconds) * frameSeconds);
+    if (index < 0) return;
+    chart.current.timeScale().setVisibleLogicalRange({ from: index - 12, to: index + 24 });
+    focusedSetup.current = key;
+  }, [selectedSetupTime, frameSeconds, candles]);
 
   useEffect(() => {
     const priceSeries = series.current;
