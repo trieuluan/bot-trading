@@ -1,327 +1,163 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
-import { Layers, Search, X, Sparkles } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Layers, Search, X } from 'lucide-react';
 import { compactTreeTitle, treeLabel } from '../lib/forex-tree-label';
-import type { ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
+import type { LearnerAnalysis } from '../types/exness-execution';
+import type { ForexEntryPilot } from '../types/forex-entry';
 
 export const CONTEXT_STRATEGY_KEY = '__context__';
-export const TECHNICAL_OVERLAYS = [
-  {
-    id: CONTEXT_STRATEGY_KEY,
-    title: 'Tham khảo chung · EMA20 khung chart & Cản H1/H4',
-    sub: 'Không thuộc cây; chỉ báo riêng tự hiện khi chọn chiến thuật bên dưới',
-  },
+export const TECHNICAL_OVERLAYS = [{
+  id: CONTEXT_STRATEGY_KEY,
+  title: 'Tham khảo chung · EMA20 khung chart & Cản H1/H4',
+  sub: 'Chỉ báo bổ sung, không phải setup hoặc lệnh broker',
+}] as const;
+
+type EntryTree = NonNullable<ForexEntryPilot['pilot']['trees']>[number];
+type Strategies = LearnerAnalysis['strategies'];
+type Tab = 'all' | 'holding' | 'live' | 'active';
+const policies = [
+  ['market', 'Market'], ['limit_setup_mid', 'Limit'],
+  ['stop_trigger_break', 'Stop'], ['limit_or_stop', 'Hybrid'],
 ] as const;
 
-type Tree2 = NonNullable<
-  NonNullable<ExnessExecution['learning']>['htf_ast3_shadow']
->['trees'][number];
+export function overlayBundles(strategies: Strategies, trees: EntryTree[]) {
+  const metadata = new Map(trees.map((tree) => [tree.id, tree]));
+  const groups = new Map<string, { id: string; ids: string[]; generation: number; title: string; exit: string; params: string }>();
+  for (const id of Object.keys(strategies)) {
+    const tree = metadata.get(id);
+    const key = tree?.bundle_id || id;
+    const label = treeLabel(strategies[id], id);
+    if (!groups.has(key)) groups.set(key, {
+      id: key, ids: [], generation: tree?.generation ?? label.generation,
+      title: compactTreeTitle(label.title), exit: label.policy, params: label.params,
+    });
+    groups.get(key)!.ids.push(id);
+  }
+  return [...groups.values()];
+}
+
+export function toggleOverlayGroup(selected: string[], ids: string[], automatic: string[]) {
+  const editable = ids.filter((id) => !automatic.includes(id));
+  return editable.every((id) => selected.includes(id))
+    ? selected.filter((id) => !editable.includes(id))
+    : [...new Set([...selected, ...editable])];
+}
 
 interface StrategyOverlayMenuProps {
   analysis: LearnerAnalysis | null;
   selected: string[];
   onChange: (selected: string[]) => void;
   holding?: string[];
-  trees?: Tree2[];
+  setupStrategy?: string;
+  trees?: EntryTree[];
 }
 
-type TabType = 'all' | 'holding' | 'confirmed' | 'live' | 'active';
-
-export function StrategyOverlayMenu({
-  analysis,
-  selected,
-  onChange,
-  holding = [],
-  trees = [],
-}: StrategyOverlayMenuProps) {
+export function StrategyOverlayMenu({ analysis, selected, onChange, holding = [], setupStrategy, trees = [] }: StrategyOverlayMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [tab, setTab] = useState<TabType>('all');
-  const [tip, setTip] = useState<{ name: string; top: number; left: number } | null>(null);
-  const showTip = (name: string, el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    setTip({
-      name,
-      top: r.bottom + 6,
-      left: Math.max(8, Math.min(r.left, window.innerWidth - 300)),
-    });
-  };
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
+  const [tab, setTab] = useState<Tab>('all');
+  const wrapper = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setOpen(false);
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false);
-    }
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
-    }
+    if (!open) return;
+    const outside = (event: MouseEvent) => {
+      if (!wrapper.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', escape);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', outside);
+      document.removeEventListener('keydown', escape);
     };
   }, [open]);
 
   const strategies = analysis?.strategies ?? {};
-  const allNames = Object.keys(strategies);
-
-  // Thứ tự ưu tiên: 0 = Đang giữ vị thế broker, 1 = Đã kích hoạt trigger M15, 2 = Đang có setup H1 còn hạn, 3 = Còn lại
-  const rank = (name: string) => {
-    if (holding.includes(name)) return 0;
-    const item = strategies[name];
-    if (item?.status === 'confirmed') return 1;
-    if (item?.zone || item?.captured_zone) return 2;
-    return 3;
-  };
-
-  const holdingCount = allNames.filter((n) => holding.includes(n)).length;
-  const confirmedCount = allNames.filter((n) => strategies[n]?.status === 'confirmed').length;
-  const liveCount = allNames.filter(
-    (n) => strategies[n]?.zone || strategies[n]?.captured_zone,
-  ).length;
-
-  const toggle = (name: string) =>
-    onChange(
-      selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name],
-    );
-
-  const bestTree = useMemo(() => {
-    const withSamples = trees.filter((t) => (t.resolved ?? 0) >= 1 && t.mean_r != null);
-    if (!withSamples.length) return null;
-    return [...withSamples].sort((a, b) => (b.mean_r ?? 0) - (a.mean_r ?? 0))[0];
-  }, [trees]);
-
-  const selectBest = () => {
-    if (!bestTree) return;
-    if (!selected.includes(bestTree.id)) {
-      onChange([...selected, bestTree.id]);
-    }
-  };
-
-  const q = query.trim().toLowerCase();
-  const visible = (name: string) => {
-    const item = strategies[name];
-    if (tab === 'holding' && !holding.includes(name)) return false;
-    if (tab === 'confirmed' && item?.status !== 'confirmed') return false;
-    if (tab === 'live' && !item?.zone && !item?.captured_zone) return false;
-    if (tab === 'active' && !selected.includes(name)) return false;
-    if (!q) return true;
-    return `${name} ${treeLabel(item, name).full} ${item?.description ?? ''}`
-      .toLowerCase()
-      .includes(q);
-  };
-
-  const sortedNames = useMemo(
-    () => [...allNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [strategies, holding],
-  );
-
-  const pinnedNames = sortedNames.filter((name) => rank(name) <= 1);
-  const remainingNames = sortedNames.filter((name) => rank(name) > 1);
-
-  const activeCount = selected.length;
-  const hasLiveAlert = holdingCount > 0 || confirmedCount > 0;
+  const metadata = new Map(trees.map((tree) => [tree.id, tree]));
+  const automatic = [...new Set([...holding, ...(setupStrategy ? [setupStrategy] : [])])];
+  const drawn = new Set([...selected, ...automatic]);
+  const bundles = overlayBundles(strategies, trees);
+  const hasSetup = (id: string) => Boolean(strategies[id]?.zone || strategies[id]?.captured_zone || strategies[id]?.status === 'confirmed');
+  const matchesTab = (ids: string[], value: Tab) => value === 'all' || ids.some((id) =>
+    value === 'holding' ? holding.includes(id) : value === 'live' ? hasSetup(id) : drawn.has(id));
+  const search = query.trim().toLocaleLowerCase('vi');
+  const visible = bundles.filter((bundle) => matchesTab(bundle.ids, tab) &&
+    `${bundle.title} ${bundle.exit} ${bundle.params} ${bundle.id} ${bundle.ids.map((id) => `${id} ${metadata.get(id)?.entry_policy ?? ''}`).join(' ')}`.toLocaleLowerCase('vi').includes(search));
+  const rank = (ids: string[]) => ids.some((id) => holding.includes(id)) ? 0 : ids.some((id) => drawn.has(id)) ? 1 : ids.some(hasSetup) ? 2 : 3;
+  visible.sort((left, right) => rank(left.ids) - rank(right.ids));
+  const count = Object.keys(strategies).filter((id) => drawn.has(id)).length;
+  const toggle = (ids: string[]) => onChange(toggleOverlayGroup(selected, ids, automatic));
 
   return (
-    <div className="strategy-menu-wrapper relative inline-flex min-w-0" ref={wrapperRef}>
-      <button
-        type="button"
-        className={`strategy-menu-trigger ${activeCount > 0 ? 'is-active' : ''} inline-flex items-center gap-2 rounded border border-border-base px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2`}
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title="Chọn cây V3 để vẽ vùng setup H1, mức vô hiệu và SL lên chart (cây đang giữ lệnh tự vẽ)"
-      >
-        <Layers size={13} className="menu-icon" />
-        <span>Chiến thuật</span>
-        {activeCount > 0 ? (
-          <span className="strategy-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{activeCount}</span>
-        ) : (
-          <span className="strategy-badge-off">Tắt</span>
-        )}
-        {hasLiveAlert && (
-          <span
-            className="menu-live-dot"
-            title={`${holdingCount} cây giữ lệnh · ${confirmedCount} cây có tín hiệu`}
-          />
-        )}
+    <div className="relative inline-flex min-w-0" ref={wrapper}>
+      <button ref={trigger} type="button" aria-expanded={open} aria-controls={panelId}
+        onClick={() => setOpen(!open)}
+        className="inline-flex min-h-8 items-center gap-2 rounded-lg border border-border-base px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400">
+        <Layers size={14} /><span>Lớp tham khảo</span>
+        <span className="rounded bg-surface-3 px-1.5 py-0.5 tabular-nums">{count ? `${count} cây` : 'Tắt'}</span>
       </button>
-
       {open && (
-        <div
-          className="strategy-popover-dropdown absolute left-0 top-full z-40 mt-2 flex max-h-[70dvh] w-[min(440px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-border-active bg-surface-2 shadow-lg"
-          role="dialog"
-          aria-label="Lựa chọn cây V3 hiển thị trên chart"
-        >
-          <div className="strategy-popover-header shrink-0 space-y-2 border-b border-border-base p-3">
-            <div className="popover-title-row flex items-center justify-between gap-2 text-xs">
-              <span className="popover-title">Lớp chiến thuật trên chart</span>
-              <div className="popover-actions">
-                {bestTree && (
-                  <button
-                    type="button"
-                    className="popover-btn-best"
-                    onClick={selectBest}
-                    title={`Chọn cây có R cao nhất: ${treeLabel(strategies[bestTree.id], bestTree.id).title} (+${bestTree.mean_r?.toFixed(2)}R)`}
-                  >
-                    <Sparkles size={11} /> Cây R tốt nhất
-                  </button>
-                )}
-                {activeCount > 0 && (
-                  <button type="button" className="popover-clear-btn text-xs text-text-muted hover:text-text-primary" onClick={() => onChange([])}>
-                    Bỏ chọn ({activeCount})
-                  </button>
-                )}
+        <section id={panelId} aria-label="Lớp tham khảo trên chart" className="fixed inset-x-3 z-40 mt-10 flex max-h-[min(620px,75dvh)] flex-col overflow-hidden rounded-xl border border-border-active bg-surface-2 shadow-xl sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-2 sm:w-[min(460px,calc(100vw-32px))]">
+          <header className="shrink-0 space-y-3 border-b border-border-base p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h3 className="text-sm font-semibold text-text-primary">Lớp tham khảo trên chart</h3>
+                <p className="mt-1 text-xs leading-relaxed text-text-muted">{bundles.length} bộ · {Object.keys(strategies).length} cây. Không phải danh sách setup đã ghi nhận; chọn ở đây chỉ bật lớp vẽ, không đặt lệnh.</p>
               </div>
+              <button type="button" aria-label="Đóng lớp tham khảo" onClick={() => { setOpen(false); trigger.current?.focus(); }} className="shrink-0 rounded-lg p-2 text-text-secondary hover:bg-surface-3"><X size={16} /></button>
             </div>
-
-            <div className="strategy-search-bar flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
-              <Search size={13} className="search-icon" />
-              <input
-                type="text"
-                placeholder="Tìm theo setup H1, trigger M15, exit…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                autoFocus
-              />
-              {query && (
-                <button type="button" className="search-clear-btn text-xs text-text-muted hover:text-text-primary" onClick={() => setQuery('')}>
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            <div className="strategy-filter-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1">
-              {(
-                [
-                  ['all', `Tất cả (${allNames.length})`],
-                  ...(holdingCount > 0
-                    ? ([['holding', `Giữ lệnh (${holdingCount})`]] as const)
-                    : []),
-                  ...(confirmedCount > 0
-                    ? ([['confirmed', `Có tín hiệu (${confirmedCount})`]] as const)
-                    : []),
-                  ['live', `Có setup (${liveCount})`],
-                  ['active', `Đang vẽ (${activeCount})`],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  type="button"
-                  key={key}
-                  className={tab === key ? "active bg-bull/10 text-bull" : ''}
-                  onClick={() => setTab(key as TabType)}
-                >
-                  {label}
-                </button>
+            <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border-base bg-canvas px-3 py-2 text-text-muted">
+              <Search size={14} className="shrink-0" /><span className="sr-only">Tìm bộ chiến thuật</span>
+              <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm setup H1, trigger M15, cách thoát…" className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none" />
+            </label>
+            <div role="group" aria-label="Lọc bộ chiến thuật" className="flex flex-wrap gap-1">
+              {([['all', 'Tất cả'], ['holding', 'Giữ lệnh'], ['live', 'Có vùng/tín hiệu'], ['active', 'Đang vẽ']] as const).map(([value, text]) => (
+                <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)} className="rounded-md px-2 py-1.5 text-xs text-text-secondary hover:bg-surface-3 aria-pressed:bg-sky-400/10 aria-pressed:text-sky-400">{text} ({bundles.filter((bundle) => matchesTab(bundle.ids, value)).length})</button>
               ))}
             </div>
-          </div>
-
-          <div className="strategy-popover-body min-h-0 overflow-y-auto overscroll-y-contain">
-            {tab !== 'live' && tab !== 'holding' && tab !== 'confirmed' && (
-              <div className="strategy-group">
-                <div className="group-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted">Tham khảo thêm (tuỳ chọn)</div>
-                {TECHNICAL_OVERLAYS.filter(
-                  (item) => !q || `${item.title} ${item.sub}`.toLowerCase().includes(q),
-                ).map((item) => (
-                  <label key={item.id} className="strategy-item-row flex min-w-0 items-start gap-2 border-b border-border-subtle p-3 text-xs hover:bg-surface-3 [&.is-selected]:bg-bull/5 [&_input]:mt-1">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(item.id)}
-                      onChange={() => toggle(item.id)}
-                    />
-                    <div className="strategy-item-meta min-w-0 flex-1 space-y-1">
-                      <div className="strategy-item-name text-xs font-semibold text-text-primary">{item.title}</div>
-                      <div className="strategy-item-sub text-xs leading-relaxed text-text-muted">{item.sub}</div>
+          </header>
+          <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain p-3">
+            <label className="flex items-start gap-2 rounded-lg border border-border-subtle p-3 text-xs text-text-secondary">
+              <input type="checkbox" className="mt-0.5 accent-sky-400" checked={selected.includes(CONTEXT_STRATEGY_KEY)} onChange={() => toggle([CONTEXT_STRATEGY_KEY])} />
+              <span className="min-w-0"><span className="block font-medium">EMA20 & Cản H1/H4</span><span className="mt-1 block leading-relaxed text-text-muted">Tham khảo chung · độc lập với các bộ bên dưới</span></span>
+            </label>
+            {visible.map((bundle) => {
+              const label = treeLabel(strategies[bundle.ids[0]], bundle.ids[0]);
+              const grouped = bundle.ids.some((id) => metadata.get(id)?.bundle_id);
+              const editable = bundle.ids.filter((id) => !automatic.includes(id));
+              const allSelected = editable.length > 0 && editable.every((id) => selected.includes(id));
+              return (
+                <article key={bundle.id} className="min-w-0 space-y-2 rounded-lg border border-border-base bg-canvas/40 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0"><h4 className="break-words text-xs font-semibold leading-relaxed text-text-primary">{bundle.title}</h4>
+                      <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-text-muted"><span>{bundle.exit}</span><span>G{bundle.generation}</span>{bundle.params && <span>{bundle.params}</span>}</p>
                     </div>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {/* Mục ghim lên đầu: Cây đang giữ lệnh hoặc có tín hiệu kích hoạt */}
-            {pinnedNames.filter(visible).length > 0 && (
-              <div className="strategy-group strategy-group-pinned">
-                <div className="group-heading pinned-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted text-bull">
-                  Ưu tiên: Đang giữ lệnh & Có tín hiệu ({pinnedNames.filter(visible).length})
-                </div>
-                {pinnedNames.filter(visible).map((name) => renderRow(name))}
-              </div>
-            )}
-
-            {/* Các cây còn lại */}
-            {remainingNames.filter(visible).length > 0 && (
-              <div className="strategy-group">
-                <div className="group-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted">
-                  Các cây khác ({remainingNames.filter(visible).length})
-                </div>
-                {remainingNames.filter(visible).map((name) => renderRow(name))}
-              </div>
-            )}
+                    {grouped && <button type="button" disabled={!editable.length} onClick={() => toggle(bundle.ids)} className="shrink-0 rounded px-2 py-1 text-xs text-sky-400 hover:bg-sky-400/10 disabled:opacity-40">{allSelected ? 'Bỏ bộ' : 'Cả bộ'}</button>}
+                  </div>
+                  {grouped ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {policies.map(([policy, text]) => {
+                      const id = bundle.ids.find((name) => metadata.get(name)?.entry_policy === policy);
+                      const locked = Boolean(id && automatic.includes(id));
+                      const status = id && holding.includes(id) ? 'Theo vị thế' : id === setupStrategy ? 'Theo setup' : id && strategies[id]?.status === 'confirmed' ? 'Tín hiệu M15' : id && hasSetup(id) ? 'Có vùng H1' : id ? 'Tham khảo' : 'Chưa có dữ liệu';
+                      return <button key={policy} type="button" disabled={!id || locked} aria-pressed={Boolean(id && drawn.has(id))} aria-label={`${text} · ${bundle.title} · ${status}`} onClick={() => id && toggle([id])} className="flex min-w-0 flex-col items-center gap-1 rounded-lg border border-border-base px-1 py-2 text-xs text-text-secondary hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 aria-pressed:border-sky-400/60 aria-pressed:bg-sky-400/10 aria-pressed:text-sky-400 disabled:cursor-default disabled:opacity-70"><span className="font-semibold">{text}</span><span className="text-center text-[10px] leading-snug">{status}</span></button>;
+                    })}
+                  </div> : <button type="button" disabled={automatic.includes(bundle.ids[0])} aria-pressed={drawn.has(bundle.ids[0])} onClick={() => toggle(bundle.ids)} className="rounded border border-border-base px-3 py-1.5 text-xs text-text-secondary aria-pressed:border-sky-400 aria-pressed:text-sky-400">{automatic.includes(bundle.ids[0]) ? 'Tự vẽ theo vị thế/setup' : drawn.has(bundle.ids[0]) ? 'Bỏ lớp tham khảo' : 'Vẽ tham khảo'} · #{label.short}</button>}
+                </article>
+              );
+            })}
+            {!visible.length && <p className="p-4 text-center text-xs leading-relaxed text-text-muted">{bundles.length ? 'Không có bộ khớp bộ lọc.' : 'Chưa có dữ liệu lớp chiến thuật.'}</p>}
           </div>
-
-          {tip && strategies[tip.name] !== undefined && (
-            <div className="strategy-tooltip fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg" style={{ top: tip.top, left: tip.left }}>
-              <div className="evo-tooltip-title mb-2 font-semibold text-text-primary">
-                {treeLabel(strategies[tip.name], tip.name).full}
-              </div>
-              {strategies[tip.name]?.description && (
-                <div className="evo-tooltip-body text-xs leading-relaxed text-text-secondary">{strategies[tip.name]?.description}</div>
-              )}
-              <div className="evo-tooltip-code mt-2 break-all font-mono text-xs text-text-muted">{tip.name}</div>
-            </div>
-          )}
-          <div className="strategy-popover-footer shrink-0 border-t border-border-base p-3 text-xs text-text-muted">
-            <span>
-              {activeCount === 0
-                ? holdingCount > 0
-                  ? `Tự vẽ ${holdingCount} cây đang giữ lệnh · click để xem thêm cây khác`
-                  : 'Không vẽ lớp nào lên chart (mặc định)'
-                : `Đang vẽ ${activeCount} cây: vùng setup H1, mức vô hiệu, SL`}
-            </span>
-          </div>
-        </div>
+          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border-base p-3 text-xs text-text-muted">
+            <span className="min-w-0 leading-relaxed">Lớp theo vị thế/setup tự vẽ. Bỏ setup bằng × trên chart; thao tác này không đóng lệnh.</span>
+            <button type="button" disabled={!selected.length} onClick={() => onChange([])} className="shrink-0 rounded px-2 py-1.5 text-text-secondary hover:bg-surface-3 disabled:opacity-40">Xóa tham khảo</button>
+          </footer>
+        </section>
       )}
     </div>
   );
-
-  function renderRow(name: string) {
-    const item = strategies[name];
-    const label = treeLabel(item, name);
-    const isHolding = holding.includes(name);
-    const isConfirmed = item?.status === 'confirmed';
-    const zone = item?.captured_zone ?? item?.zone;
-    return (
-      <label
-        key={name}
-        className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''} flex min-w-0 items-start gap-2 border-b border-border-subtle p-3 text-xs hover:bg-surface-3 [&.is-selected]:bg-bull/5 [&_input]:mt-1`}
-        onMouseEnter={(e) => showTip(name, e.currentTarget)}
-        onMouseLeave={() => setTip(null)}
-      >
-        <input
-          type="checkbox"
-          checked={selected.includes(name) || isHolding}
-          disabled={isHolding}
-          onChange={() => toggle(name)}
-        />
-        <div className="strategy-item-meta min-w-0 flex-1 space-y-1">
-          <div className="strategy-item-title-line flex flex-wrap items-center gap-2">
-            <span className="strategy-item-name text-xs font-semibold text-text-primary">{compactTreeTitle(label.title)}</span>
-            {isHolding && <span className="status-pill-sub status-holding inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">ĐANG GIỮ LỆNH</span>}
-            {isConfirmed && <span className="status-pill-sub status-confirmed inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">TÍN HIỆU M15</span>}
-            {zone && !isHolding && !isConfirmed && (
-              <span className="strategy-chart-indicator inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">Vùng H1 {zone.side.toUpperCase()}</span>
-            )}
-          </div>
-          <div className="strategy-item-reason text-xs leading-relaxed text-text-muted">
-            {label.policy} · G{label.generation} · #{label.short}
-            {label.params && <span className="strategy-label-params text-xs leading-relaxed text-text-muted">{label.params}</span>}
-          </div>
-        </div>
-      </label>
-    );
-  }
 }

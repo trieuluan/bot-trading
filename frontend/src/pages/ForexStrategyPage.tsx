@@ -1969,7 +1969,8 @@ export function ForexStrategyPage({
             selected={picked}
             onChange={setShownStrategies}
             holding={holdingTrees}
-            trees={htf2Shadow?.trees}
+            setupStrategy={v4Chart?.strategy}
+            trees={entryPilot?.pilot.trees}
           />
           {(hasMore || chartError) && (
             <button
