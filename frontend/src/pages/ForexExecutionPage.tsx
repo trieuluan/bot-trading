@@ -131,11 +131,17 @@ export function ForexExecutionPage({
     <div className={`execution-desk trade-terminal${stale ? ' is-stale' : ''}`} aria-busy={stale}>
       <div
         ref={accountRef}
-        className={`terminal-account-bar${accountStuck ? ' is-stuck shadow-lg shadow-black/20' : ''} sticky top-[var(--forex-strip-h,56px)] z-20 min-w-0 border-b border-border-base bg-surface-1/95 px-3 py-2 backdrop-blur-md sm:px-4`}
+        className={`terminal-account-bar${accountStuck ? ' is-stuck shadow-lg shadow-black/20' : ''} sticky top-[var(--forex-strip-h,56px)] z-20 flex min-w-0 flex-col gap-2.5 border-b border-border-base bg-surface-1/95 px-3 py-2 backdrop-blur-md sm:px-4 lg:flex-row lg:items-center lg:justify-between`}
         aria-label="Tài khoản Exness Demo"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2">
+        <dl className="m-0 grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4 lg:max-w-2xl [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:font-semibold [&_dd]:tabular-nums">
+          <div><dt>Số dư · USD</dt><dd className="text-text-primary">{amount(balance)}</dd></div>
+          <div><dt>Vốn thực · USD</dt><dd className="text-text-primary">{amount(equity)}</dd></div>
+          <div><dt>P&amp;L thả nổi · USD</dt><dd className={floating == null || floating === 0 ? 'text-text-primary' : floating > 0 ? 'text-bull' : 'text-bear'}>{floating != null && floating > 0 ? '+' : ''}{amount(floating)}</dd></div>
+          <div><dt>Vị thế {symbol}</dt><dd className="text-text-primary">{data?.symbol_open_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.open_count ?? '—'}/{data?.max_concurrent ?? '—'}</span></dd></div>
+        </dl>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 lg:shrink-0">
+          <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-text-primary">Điều khiển bot</span>
             <span className="rounded border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-sky-300">DEMO</span>
             <span
@@ -169,12 +175,6 @@ export function ForexExecutionPage({
             {busy ? 'Đang xử lý…' : data?.enabled ? 'Tạm dừng mở lệnh' : 'Bật bot demo'}
           </button>
         </div>
-        <dl className="m-0 mt-2 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border-subtle pt-2 text-xs sm:grid-cols-4 [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:font-semibold [&_dd]:tabular-nums">
-          <div><dt>Số dư · USD</dt><dd className="text-text-primary">{amount(balance)}</dd></div>
-          <div><dt>Vốn thực · USD</dt><dd className="text-text-primary">{amount(equity)}</dd></div>
-          <div><dt>P&amp;L thả nổi · USD</dt><dd className={floating == null || floating === 0 ? 'text-text-primary' : floating > 0 ? 'text-bull' : 'text-bear'}>{floating != null && floating > 0 ? '+' : ''}{amount(floating)}</dd></div>
-          <div><dt>Vị thế {symbol}</dt><dd className="text-text-primary">{data?.symbol_open_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.open_count ?? '—'}/{data?.max_concurrent ?? '—'}</span></dd></div>
-        </dl>
       </div>
       <details className="group/account border-b border-border-subtle bg-surface-1 px-3 text-xs sm:px-4">
         <summary className="flex min-h-10 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 py-2 text-text-muted [&::-webkit-details-marker]:hidden">

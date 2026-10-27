@@ -277,6 +277,20 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             </div>
           )}
           {page === 'Bot' && <ForexMarkets symbol={symbol} loading={switching && !error} />}
+          <div className="relative min-w-0" aria-busy={switching}>
+          {switching && (
+            <div className="absolute inset-0 z-40 flex flex-col items-center bg-canvas/65 px-4 py-6 backdrop-blur-sm">
+              <div className="sticky top-[calc(var(--forex-strip-h,56px)+24px)] w-full max-w-sm rounded-xl border border-border-active bg-surface-1 p-4 shadow-xl">
+                <p role={error ? 'alert' : 'status'} className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                  {!error && <span aria-hidden="true" className="size-4 shrink-0 rounded-full border-2 border-bull border-t-transparent motion-safe:animate-spin" />}
+                  {error ? `Chưa tải được ${symbol}` : `Đang tải ${symbol}…`}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-text-muted">Nội dung cặp cũ tạm khóa để tránh thao tác nhầm. Vẫn có thể chọn cặp khác hoặc chuyển trang.</p>
+                {error && <button type="button" className="mt-3 rounded-lg border border-border-active bg-surface-2 px-3 py-2 text-xs font-semibold text-text-primary hover:bg-surface-3" onClick={() => setRevision((value) => value + 1)}>Thử lại</button>}
+              </div>
+            </div>
+          )}
+          <div inert={switching} className={switching ? 'pointer-events-none select-none opacity-40' : undefined}>
           {error && (
             <div className="feedback my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full" role="alert">
               {error}
@@ -309,6 +323,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
               disconnected={!!error}
             />
           )}
+          </div>
+          </div>
         </main>
       </div>
       {help && <HelpDialog onClose={() => setHelp(false)} />}

@@ -15,8 +15,7 @@ export function groupNearbyTags<Tag extends { y: number; kind: string; side: str
   return groups;
 }
 
-export function placeChartTags<Tag extends { y: number }>(tags: Tag[], height: number) {
-  const gap = 30;
+export function placeChartTags<Tag extends { y: number }>(tags: Tag[], height: number, gap = 30) {
   const top = 16;
   const bottom = height - 16;
   if (bottom < top) return [];
@@ -43,4 +42,22 @@ export function placeChartTags<Tag extends { y: number }>(tags: Tag[], height: n
     result.push(...column);
   }
   return result;
+}
+
+export function clusterEntryTags<Tag extends { id: string; kind: string; y: number }>(
+  tags: Tag[],
+  height: number,
+  gap = 48,
+) {
+  const clusters: (Tag & { members: Tag[] })[] = [];
+  for (const tag of [...tags]
+    .filter((item) => Number.isFinite(item.y) && item.y >= 0 && item.y <= height)
+    .sort((left, right) => left.y - right.y)) {
+    const cluster = tag.kind === 'entry'
+      ? clusters.find((item) => item.kind === 'entry' && tag.y - item.y < gap)
+      : undefined;
+    if (cluster) cluster.members.push(tag);
+    else clusters.push({ ...tag, members: [tag] });
+  }
+  return placeChartTags(clusters, height, gap);
 }

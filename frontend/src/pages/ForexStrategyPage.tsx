@@ -2208,6 +2208,11 @@ export function ForexStrategyPage({
         dark
         onClosePosition={onClosePosition}
         onSelectPosition={onSelectPosition}
+        onPositionDetails={(id) => {
+          setDrawerTab('positions');
+          setDrawerFocusId(id);
+          setDrawerOpen(true);
+        }}
         pnlAt={pnlAt}
         pnlOf={pnlOf}
         selectedPositionId={selectedPosition?.position_id}

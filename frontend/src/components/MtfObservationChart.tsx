@@ -22,7 +22,8 @@ import { intentEvents } from '../lib/forex-entry-lifecycle';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
 import { chartTreeTag } from '../lib/forex-tree-label';
-import { placeChartTags } from '../lib/chart-tags';
+import { clusterEntryTags } from '../lib/chart-tags';
+import { ChartPositionCluster } from './ChartPositionCluster';
 import { CHART_RIGHT_SPACE, projectOverlayPoints, recentChartRange } from '../lib/chart-timeframes';
 import { chartTimeOptions } from '../lib/chart-time';
 import { useTimeZone } from '../lib/time-zone';
@@ -56,6 +57,7 @@ export function MtfObservationChart({
   pnlAt,
   onClosePosition,
   onSelectPosition,
+  onPositionDetails,
   title = 'BTC_USDT perpetual · 15m (vùng tham chiếu từ 1h) · Chỉ quan sát, không gửi lệnh',
 }: {
   candles: Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close'>[];
@@ -81,6 +83,7 @@ export function MtfObservationChart({
   pnlAt?: (position: BrokerPosition, price: number) => number | null;
   onClosePosition?: (position: BrokerPosition) => void;
   onSelectPosition?: (id: string) => void;
+  onPositionDetails?: (id: string) => void;
 }) {
   const [timeZone] = useTimeZone();
   const container = useRef<HTMLDivElement>(null);
@@ -113,6 +116,7 @@ export function MtfObservationChart({
       y: number;
       displayY: number;
       column: number;
+      members: { id: string; kind: 'entry' | 'stop' | 'target'; y: number }[];
     }[]
   >([]);
   const openRows = executions.filter(
@@ -145,20 +149,22 @@ export function MtfObservationChart({
             ] as const
           ).flatMap(([kind, price]) => {
             const group = positionGroups.find((group) => group.id === positionGroupId(row));
-            const representative = group?.legs.find((leg) => leg.status === 'open');
-            if (kind === 'entry' && representative && representative.position_id !== row.position_id) return [];
             if (kind !== 'entry' && (group ? group.id !== selectedGroupId : row.position_id !== activeId)) return [];
             if (price == null || !Number.isFinite(price) || price <= 0) return [];
             const y = priceSeries.priceToCoordinate(price);
             return y === null ? [] : [{ id: row.position_id, kind, y: Math.round(y) }];
           }),
         );
-        const placed = placeChartTags(
+        const placed = clusterEntryTags(
           next,
-          Math.max(0, (container.current?.clientHeight ?? 0) - 30),
+          Math.max(0, (container.current?.clientHeight ?? 0) - 30 - 44),
+          48,
         );
         const key = placed
-          .map((tag) => `${tag.id}:${tag.kind}:${tag.y}:${tag.displayY}:${tag.column}`)
+          .map(
+            (tag) =>
+              `${tag.id}:${tag.kind}:${tag.y}:${tag.displayY}:${tag.column}:[${tag.members.map((m) => m.id).join(',')}]`,
+          )
           .join('|');
         if (key !== last) {
           last = key;
@@ -869,6 +875,22 @@ export function MtfObservationChart({
           {!snapshot &&
             (() => {
               return tags.map((tag) => {
+                if (tag.kind === 'entry' && tag.members.length > 1) {
+                  const memberIds = tag.members.map((member) => member.id);
+                  const memberRows = openRows.filter((row) => memberIds.includes(row.position_id));
+                  return (
+                    <ChartPositionCluster
+                      key={memberIds.join(':')}
+                      rows={memberRows}
+                      selectedId={activeId}
+                      top={tag.displayY}
+                      left={12 + tag.column * 300}
+                      pnlOf={pnlOf}
+                      onSelect={onSelectPosition}
+                      onDetails={onPositionDetails}
+                    />
+                  );
+                }
                 const row = openRows.find((item) => item.position_id === tag.id);
                 if (!row) return null;
                 const group = positionGroups.find((group) => group.id === positionGroupId(row));
@@ -882,7 +904,7 @@ export function MtfObservationChart({
                   return (
                     <div
                       key={key}
-                      className={`position-tag ${value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
+                      className={`position-tag ${value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex h-11 items-center gap-2 whitespace-nowrap rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                       style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
                       title={`#${row.position_id} · ${price} · P/L dự kiến, chưa trừ phí/swap`}
                     >
@@ -901,7 +923,7 @@ export function MtfObservationChart({
                 return (
                   <div
                     key={key}
-                    className={`position-tag ${tone} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
+                    className={`position-tag ${tone} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex h-11 items-center gap-2 whitespace-nowrap rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                     style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
                     title={`#${row.position_id} · Giá vào ${row.open_price} · P/L ước tính, chưa trừ phí/swap`}
                   >
