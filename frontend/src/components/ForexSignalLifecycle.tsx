@@ -68,10 +68,20 @@ export function ForexSignalLifecycle({
   const [snapshot, setSnapshot] = useState<{ key: string; data?: ForexSignalChart; error?: string }>({ key: '' });
   const detailedSetup = setups.find((setup) => setup.id === detailedSetupId);
   const v4Signals = detailedSetup?.signals.filter((signal) => signal.strategy.startsWith('hast4_')) ?? [];
-  const v4Strategy = v4Signals.find((signal) => signal.strategy === previewStrategy)?.strategy ?? v4Signals[0]?.strategy;
+  const priceStrategies = [...new Set([...v4Signals.map((signal) => signal.strategy), ...(detailedSetup?.intents.map((intent) => intent.strategy) ?? [])])];
+  const priceStrategy = priceStrategies.includes(previewStrategy) ? previewStrategy : priceStrategies[0];
+  const v4Strategy = priceStrategy?.startsWith('hast4_') ? priceStrategy : undefined;
+  const priceIntent = detailedSetup?.intents.find((intent) => intent.strategy === priceStrategy);
+  const priceSignal = v4Signals.find((signal) => signal.strategy === priceStrategy);
   const snapshotKey = detailedSetup && v4Strategy ? `${symbol}:${detailedSetup.time}:${v4Strategy}` : '';
   const v4Chart = snapshot.key === snapshotKey ? snapshot.data : undefined;
   const v4Error = snapshot.key === snapshotKey ? snapshot.error : undefined;
+  const priceLevels = v4Chart?.row.chart?.levels?.length ? v4Chart.row.chart.levels : priceIntent ? [
+    { label: 'LIMIT ảo', price: priceIntent.limit_price },
+    { label: 'STOP ENTRY ảo', price: priceIntent.stop_price },
+    { label: 'SL dự kiến', price: priceIntent.signal?.stop },
+    { label: 'TP dự kiến', price: priceIntent.signal?.target },
+  ] : [];
 
   useEffect(() => {
     if (!open) setDetailedSetupId(null);
@@ -290,37 +300,109 @@ export function ForexSignalLifecycle({
               </button>
             </header>
 
-            {v4Signals.length > 0 && (
-              <section className="space-y-2 rounded-lg border border-border-base bg-surface-2/40 p-3">
+            {detailedSetup.intents.map((intent) => {
+              const fills = intent.broker_fills ?? [];
+              const lifecycle = entryLifecycle(intent);
+              const terminal = ['cancelled', 'expired', 'completed'].includes(intent.status);
+              const notSent = terminal && intent.status !== 'completed' && !fills.length;
+              const steps: { label: string; value: string | null; tone: 'done' | 'end' | 'pending' }[] = [
+                { label: 'Tín hiệu', value: intent.available_at != null ? formatTime(intent.available_at, true) : null, tone: 'done' },
+                { label: 'Canh giá', value: intent.created_at != null ? formatTime(intent.created_at, true) : null, tone: 'done' },
+                {
+                  label: 'Kích hoạt',
+                  value: intent.triggered_at != null ? `${(intent.winner ?? '').toUpperCase()} · ${formatTime(intent.triggered_at, true)}` : null,
+                  tone: 'done',
+                },
+                ...(notSent ? [] : [
+                  { label: 'Gửi broker', value: intent.status === 'submitted' || fills.length ? 'Đã gửi · Không có thời gian ghi nhận' : null, tone: 'pending' as const },
+                  {
+                    label: 'Khớp',
+                    value: fills.length ? fills.map((f) => `#${f.position_id} @ ${price(f.price)}`).join(', ') + ' · Không có thời gian ghi nhận' : null,
+                    tone: 'pending' as const,
+                  },
+                ]),
+                ...(terminal ? [{
+                  label: notSent ? (intent.status === 'expired' ? 'Hết hạn' : 'Hủy canh') : 'Kết thúc',
+                  value: intent.ended_at != null ? formatTime(intent.ended_at, true) : null,
+                  tone: 'end' as const,
+                }] : []),
+              ];
+              const r = explainReason(intent);
+              const statusTone = lifecycle.tone === 'filled' ? 'border-bull/30 bg-bull/10 text-bull' : lifecycle.tone === 'cancelled' ? 'border-border-active bg-surface-2 text-text-secondary' : lifecycle.tone === 'uncertain' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-sky-400/30 bg-sky-400/10 text-sky-200';
+
+              return (
+                <section key={intent.id} className="space-y-3 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Kết quả thực thi">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="m-0 text-sm font-semibold text-text-primary">Kết quả thực thi</h4>
+                      <p className="m-0 mt-0.5 break-all font-mono text-[10px] text-text-muted">{intent.strategy}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-md border px-2 py-1 font-medium ${statusTone}`}>{lifecycle.label}</span>
+                  </div>
+                  {r && (
+                    <div className="rounded-md border border-border-active bg-surface-1 p-2.5">
+                      <div className="font-semibold text-text-primary">{r.label}</div>
+                      <div className="mt-0.5 text-[11px] text-text-muted">{r.hint}</div>
+                      {r.detail && r.detail !== r.label && <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>}
+                    </div>
+                  )}
+                  <dl className="m-0 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3 [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
+                    <div><dt>Nhánh</dt><dd>{intent.winner?.toUpperCase() ?? 'Chưa kích hoạt'}</dd></div>
+                    <div><dt>Hạn canh</dt><dd>{intent.expires_at ? formatTime(intent.expires_at, true) : 'Không ghi nhận'}</dd></div>
+                    <div className="col-span-2 sm:col-span-1"><dt>Broker</dt><dd>{fills.length ? `${fills.length} fill` : 'Chưa xác nhận gửi/khớp'}</dd></div>
+                  </dl>
+                  <ol className="m-0 list-none space-y-0 p-0" aria-label="Dòng thời gian thực thi">
+                    {steps.map((step, index) => (
+                      <li key={step.label} className="relative grid grid-cols-[16px_76px_minmax(0,1fr)] gap-2 pb-3 last:pb-0">
+                        {index < steps.length - 1 && <span className="absolute top-3 left-[5px] h-full w-px bg-border-base" aria-hidden="true" />}
+                        <span className={`relative mt-1 size-3 rounded-full border ${!step.value ? 'border-border-active bg-surface-1' : step.tone === 'end' ? 'border-text-muted bg-surface-3' : 'border-emerald-400 bg-emerald-400/30'}`} aria-hidden="true" />
+                        <span className={step.value ? 'font-medium text-text-primary' : 'text-text-muted'}>{step.label}</span>
+                        <span className={`min-w-0 break-words font-mono ${step.value ? 'text-text-secondary' : 'text-text-muted'}`}>
+                          {step.value ?? (step.label === 'Gửi broker' ? 'Chưa có xác nhận gửi' : step.label === 'Khớp' ? 'Chưa có fill xác nhận' : 'Không có thời gian ghi nhận')}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              );
+            })}
+
+            {priceStrategies.length > 0 && (
+              <section className="space-y-3 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Kế hoạch giá V4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-text-primary">Mức giá dự kiến V4</span>
-                  {v4Signals.length > 1 ? (
+                  <div>
+                    <h4 className="m-0 text-sm font-semibold text-text-primary">Kế hoạch giá{v4Strategy ? ' V4' : ''}</h4>
+                    <p className="m-0 mt-0.5 text-[11px] text-text-muted">Mức mô phỏng, không phải lệnh broker.</p>
+                  </div>
+                  {priceStrategies.length > 1 ? (
                     <select
-                      aria-label="Chọn cây V4"
-                      className="rounded border border-border-active bg-surface-1 px-2 py-1 text-xs text-text-primary"
-                      value={v4Strategy}
+                      aria-label="Chọn cây xem mức giá"
+                      className="max-w-full rounded border border-border-active bg-surface-1 px-2 py-1 text-xs text-text-primary"
+                      value={priceStrategy}
                       onChange={(event) => setPreviewStrategy(event.target.value)}
                     >
-                      {v4Signals.map((s) => (
-                        <option key={s.strategy} value={s.strategy}>
-                          {s.strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[s.status] ?? s.status}
+                      {priceStrategies.map((strategy) => (
+                        <option key={strategy} value={strategy}>
+                          {strategy.replace('hast4_', '#').slice(0, 14)}
                         </option>
                       ))}
                     </select>
                   ) : (
                     <span className="font-mono text-[11px] text-text-muted">
-                      {v4Strategy?.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[v4Signals[0]?.status] ?? v4Signals[0]?.status}
+                      {priceStrategy?.replace('hast4_', '#').slice(0, 10)}
                     </span>
                   )}
                 </div>
-                <p className="m-0 text-[11px] text-text-muted">Giá dự kiến, không phải lệnh broker.</p>
-                {v4Chart ? (
+                {priceSignal && <p className="m-0 text-[11px] text-sky-300">Mô phỏng: {entryStateLabels[priceSignal.status] ?? priceSignal.status}</p>}
+                {v4Error && <p role="status" className="m-0 text-[11px] text-amber-200">{v4Error}{priceIntent ? ' · Hiển thị mức giá canh đã lưu thay thế.' : ''}</p>}
+                {priceLevels.length ? (
                   <>
-                    <p className="m-0 text-[11px] text-text-muted">
-                      Chụp {formatTime(v4Chart.available_at, true)} · Hạn canh {formatTime(v4Chart.expires_at, true)}
-                    </p>
-                    <ul className="m-0 grid grid-cols-2 gap-2 list-none p-0 font-mono">
-                      {v4Chart.row.chart?.levels.map((level) => {
+                    <dl className="m-0 grid grid-cols-2 gap-2 rounded-md bg-surface-1 p-2 text-[11px] [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
+                      <div><dt>{v4Chart ? 'Chụp tín hiệu' : 'Canh giá đã lưu'}</dt><dd>{(v4Chart?.available_at ?? priceIntent?.available_at) != null ? formatTime((v4Chart?.available_at ?? priceIntent?.available_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
+                      <div><dt>Hạn canh</dt><dd>{(v4Chart?.expires_at ?? priceIntent?.expires_at) != null ? formatTime((v4Chart?.expires_at ?? priceIntent?.expires_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
+                    </dl>
+                    <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0 font-mono">
+                      {priceLevels.map((level) => {
                         const label = level.label.split(' · ')[0];
                         const tone = /SL/i.test(label)
                           ? 'border-amber-400/30 text-amber-300'
@@ -328,38 +410,50 @@ export function ForexSignalLifecycle({
                             ? 'border-teal-400/30 text-teal-300'
                             : 'border-sky-400/30 text-sky-300';
                         return (
-                          <li key={level.label} className={`flex flex-col rounded-md border bg-surface-1 px-2 py-1 ${tone}`}>
+                          <li key={level.label} className={`flex min-w-0 flex-col rounded-md border bg-surface-1 px-2.5 py-2 ${tone}`}>
                             <span className="text-[10px] uppercase tracking-wide">{label}</span>
-                            <strong className="text-sm text-text-primary tabular-nums">{level.price.toFixed(priceDigits(symbol))}</strong>
+                            <strong className="break-words text-sm text-text-primary tabular-nums">{price(level.price)}</strong>
                           </li>
                         );
                       })}
                     </ul>
                   </>
                 ) : (
-                  <p className="m-0 text-[11px]">{v4Error || 'Đang tải snapshot tín hiệu đã chọn…'}</p>
+                  <p className="m-0 text-[11px]">{v4Error ? 'Chưa có mức giá đã lưu để thay thế.' : 'Đang tải snapshot tín hiệu đã chọn…'}</p>
                 )}
               </section>
             )}
 
             <section className="space-y-2 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Chỉ báo và mức giá setup">
-              <h4 className="m-0 font-semibold text-text-primary">Chỉ báo & mức giá</h4>
+              <div>
+                <h4 className="m-0 text-sm font-semibold text-text-primary">Bối cảnh tín hiệu</h4>
+                <p className="m-0 mt-0.5 text-[11px] text-text-muted">Điều kiện cây dùng khi chụp tín hiệu.</p>
+              </div>
               {detailedSetup.signals.map(({ strategy }) => {
                 const isSnapshot = strategy === v4Chart?.strategy;
                 const row = isSnapshot ? v4Chart.row : strategies?.[strategy];
                 const overlay = row?.chart?.overlays;
+                const indicators = overlay ? [...new Set(overlay.lines.map((line) => line.label)), ...overlay.notes] : [];
                 return (
-                  <div key={strategy} className="min-w-0 space-y-1 break-words rounded-md border border-border-subtle bg-surface-1 p-2.5 text-[11px]">
-                    <div className="font-semibold text-text-primary">{chartTreeTag(row, strategy)} · {treeLabel(row, strategy).full}</div>
+                  <article key={strategy} className="min-w-0 space-y-2 rounded-md border border-border-subtle bg-surface-1 p-2.5 text-[11px]">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                      <strong className="min-w-0 break-words text-text-primary">{treeLabel(row, strategy).full}</strong>
+                      <span className="font-mono text-[10px] text-text-muted">{chartTreeTag(row, strategy)}</span>
+                      <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-muted">{isSnapshot ? 'Snapshot' : 'Dữ liệu hiện tại'}</span>
+                    </div>
                     <p className="m-0 text-text-muted">{isSnapshot ? 'Snapshot của tín hiệu đang xem' : 'Dữ liệu cây hiện tại · không phải snapshot lịch sử'}</p>
-                    <div>{overlay ? [...new Set(overlay.lines.map((line) => line.label)), ...overlay.notes].join(' · ') : 'Chưa có dữ liệu chỉ báo của cây'}</div>
+                    {indicators.length ? (
+                      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Chỉ báo">
+                        {indicators.map((item) => <li key={item} className="max-w-full break-words rounded border border-border-base bg-surface-2 px-1.5 py-0.5 text-text-secondary">{item}</li>)}
+                      </ul>
+                    ) : <p className="m-0 text-text-muted">Chưa có dữ liệu chỉ báo của cây</p>}
                     {[row?.captured_zone, row?.zone].map((zone, index) => zone && (
-                      <div key={index} className="text-text-muted">
-                        {index === 0 ? 'Đã chụp' : 'Setup hiện tại'} · {zone.family} · {zone.side === 'long' ? 'LONG' : 'SHORT'}
-                        {zone.target_reason && ` · TP: ${zone.target_reason}`}
-                      </div>
+                      <dl key={index} className="m-0 grid grid-cols-[88px_minmax(0,1fr)] gap-x-2 gap-y-1 border-t border-border-subtle pt-2 [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-text-secondary [&_dt]:text-text-muted">
+                        <dt>{index === 0 ? 'Đã chụp' : 'Hiện tại'}</dt><dd>{zone.family} · {zone.side === 'long' ? 'LONG' : 'SHORT'}</dd>
+                        {zone.target_reason && <><dt>Mục tiêu</dt><dd>{zone.target_reason}</dd></>}
+                      </dl>
                     ))}
-                  </div>
+                  </article>
                 );
               })}
               {!detailedSetup.signals.length && <p className="m-0 text-text-muted">Chưa có dữ liệu chỉ báo của cây</p>}
@@ -380,83 +474,6 @@ export function ForexSignalLifecycle({
                 )}
               </div>
             )}
-
-            {detailedSetup.intents.map((intent) => {
-              const fills = intent.broker_fills ?? [];
-              const steps: [string, string | null][] = [
-                ['Tín hiệu', intent.available_at != null ? formatTime(intent.available_at, true) : null],
-                ['Canh giá', intent.created_at != null ? formatTime(intent.created_at, true) : null],
-                [
-                  'Kích hoạt',
-                  intent.triggered_at != null
-                    ? `${(intent.winner ?? '').toUpperCase()} · ${formatTime(intent.triggered_at, true)}`
-                    : null,
-                ],
-                ['Gửi broker', intent.status === 'submitted' || fills.length ? 'Đã gửi · Không có thời gian ghi nhận' : null],
-                [
-                  'Khớp',
-                  fills.length
-                    ? fills.map((f) => `#${f.position_id} @ ${price(f.price)}`).join(', ') + ' · Không có thời gian ghi nhận'
-                    : null,
-                ],
-                ['Kết thúc', intent.ended_at != null ? formatTime(intent.ended_at, true) : null],
-              ];
-
-              const r = explainReason(intent);
-
-              return (
-                <section key={intent.id} className="space-y-3 rounded-lg border border-border-base bg-surface-2/30 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-border-base bg-surface-2 px-2 py-0.5 font-medium text-text-primary">
-                      Thực thi: {entryLifecycle(intent).label}
-                    </span>
-                  </div>
-                  {r && (
-                    <div className="rounded-md border border-border-active bg-surface-2 p-2.5 text-text-secondary">
-                      <div className="font-semibold text-text-primary">{r.label}</div>
-                      <div className="mt-0.5 text-[11px] text-text-muted">{r.hint}</div>
-                      {r.detail && r.detail !== r.label && (
-                        <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>
-                      )}
-                    </div>
-                  )}
-                  <details className="rounded-md border border-border-subtle p-2">
-                    <summary className="cursor-pointer rounded text-[11px] focus-visible:outline-2 focus-visible:outline-sky-400">Mức giá canh đã lưu · {intent.strategy}</summary>
-                    <p className="my-2 text-[11px] text-text-muted">Giá dự kiến trong bản ghi thực thi, không phải giá khớp broker.</p>
-                    <dl className="m-0 grid grid-cols-2 gap-2 font-mono tabular-nums [&_dd]:m-0 [&_dd]:break-words [&_dt]:text-[10px] [&_dt]:text-text-muted">
-                      <div><dt>LIMIT ảo</dt><dd>{price(intent.limit_price)}</dd></div>
-                      <div><dt>STOP ENTRY ảo</dt><dd>{price(intent.stop_price)}</dd></div>
-                      <div><dt>SL dự kiến</dt><dd>{price(intent.signal?.stop)}</dd></div>
-                      <div><dt>TP dự kiến</dt><dd>{price(intent.signal?.target)}</dd></div>
-                    </dl>
-                  </details>
-                  <p className="m-0 text-[11px] text-text-muted">
-                    Nhánh kích hoạt: {intent.winner?.toUpperCase() ?? 'Chưa ghi nhận'} · Hạn canh:{' '}
-                    {intent.expires_at ? formatTime(intent.expires_at, true) : 'Không có thời gian ghi nhận'}
-                  </p>
-                  <ol className="m-0 list-none space-y-1.5 p-0">
-                    {steps.map(([label, info]) => (
-                      <li
-                        key={label}
-                        className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${
-                          info ? 'border-emerald-800/40 bg-emerald-950/40 text-emerald-300' : 'border-border-subtle text-text-muted'
-                        }`}
-                      >
-                        <span className="w-20 shrink-0 font-medium">{label}</span>
-                        <span className="min-w-0 break-words font-mono">
-                          {info ??
-                            (label === 'Gửi broker'
-                              ? 'Chưa có xác nhận gửi'
-                              : label === 'Khớp'
-                                ? 'Chưa có fill xác nhận'
-                                : 'Không có thời gian ghi nhận')}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              );
-            })}
 
             {!detailedSetup.intents.length && (
               <p className="text-text-muted">

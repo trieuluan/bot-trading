@@ -168,3 +168,12 @@ test('ForexStripLegend renders all entry branch states without default browser t
     await server.close();
   }
 });
+
+test('setup detail view keeps execution first and has no duplicate price dropdown', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../src/components/ForexSignalLifecycle.tsx', import.meta.url), 'utf8');
+  const i = (s) => src.indexOf(s);
+  for (const s of ['Kết quả thực thi', 'Kế hoạch giá', 'Bối cảnh tín hiệu', 'Hủy canh']) assert.ok(i(s) > 0, s);
+  assert.ok(i('Kết quả thực thi') < i('Kế hoạch giá') && i('Kế hoạch giá') < i('Bối cảnh tín hiệu'));
+  assert.equal(i('Mức giá canh đã lưu'), -1);
+});
