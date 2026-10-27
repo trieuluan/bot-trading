@@ -893,7 +893,7 @@ export function MtfObservationChart({
             </g>
           ))}
         </svg>
-        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden [&>*]:pointer-events-auto">
+        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden">
           {!snapshot &&
             (() => {
               return tags.map((tag) => {

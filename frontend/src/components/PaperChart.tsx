@@ -645,7 +645,7 @@ export function PaperChart({
           role="img"
           aria-label="Chart MEXC realtime, lệnh chờ và mức entry SL TP của lệnh mô phỏng"
         />
-        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden [&>*]:pointer-events-auto">
+        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden">
           {tags.map((tag) => {
             const members = tag.ids
               .map((id) => openTrades.find((p) => p.id === id))
@@ -709,7 +709,7 @@ export function PaperChart({
                 </div>
                 {hover === tagKey && (
                   <section
-                    className="position-tip"
+                    className="position-tip pointer-events-auto"
                     aria-label="Chi tiết vị thế"
                     onFocus={() => setHover(tagKey)}
                     onBlur={(event) => {
