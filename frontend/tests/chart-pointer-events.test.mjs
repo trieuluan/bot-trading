@@ -12,3 +12,16 @@ for (const component of ['MtfObservationChart', 'PaperChart']) {
     assert.match(source, /position-tag [^\n]*pointer-events-auto/);
   });
 }
+
+test('Forex chart keeps indicator readout in setup details, not over the canvas', async () => {
+  const chart = await readFile(new URL('../src/components/MtfObservationChart.tsx', import.meta.url), 'utf8');
+  const drawer = await readFile(new URL('../src/components/ForexSignalLifecycle.tsx', import.meta.url), 'utf8');
+  const page = await readFile(new URL('../src/pages/ForexStrategyPage.tsx', import.meta.url), 'utf8');
+  assert.ok(!chart.includes('forex-overlay-readout'));
+  assert.ok(!chart.includes('Chỉ báo & mức giá'));
+  assert.match(chart, /className="chart-ohlc pointer-events-none /);
+  assert.match(drawer, /aria-label="Chỉ báo và mức giá setup"/);
+  assert.match(drawer, /Snapshot của tín hiệu đang xem/);
+  assert.match(drawer, /không phải snapshot lịch sử/);
+  assert.match(page, /strategies=\{analysis\?\.strategies\}/);
+});

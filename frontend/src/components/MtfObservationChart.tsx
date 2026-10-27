@@ -21,7 +21,7 @@ import type { ForexEntryIntent, ForexRecordedSignal } from '../types/forex-entry
 import { intentEvents } from '../lib/forex-entry-lifecycle';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
-import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
+import { chartTreeTag } from '../lib/forex-tree-label';
 import { placeChartTags } from '../lib/chart-tags';
 import { CHART_RIGHT_SPACE, projectOverlayPoints, recentChartRange } from '../lib/chart-timeframes';
 import { chartTimeOptions } from '../lib/chart-time';
@@ -830,40 +830,6 @@ export function MtfObservationChart({
   return (
     <div className="trade-chart-wrap forex-observation-chart relative w-full min-w-0">
       <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs">{title}</div>
-      {analysis && shown.some((name) => analysis.strategies[name]) && (
-        <div className="forex-overlay-readout">
-          {shown
-            .filter((name) => analysis.strategies[name])
-            .map((name) => {
-              const row = analysis.strategies[name];
-              const overlay = row.chart?.overlays;
-              return (
-                <details key={name}>
-                  <summary>{chartTreeTag(row, name)} · Chỉ báo & mức giá</summary>
-                  <div>{treeLabel(row, name).full}</div>
-                  <div>
-                    {overlay
-                      ? [
-                          ...new Set(overlay.lines.map((line) => line.label)),
-                          ...overlay.notes,
-                        ].join(' · ')
-                      : 'Chờ dữ liệu vẽ chỉ báo của cây'}
-                  </div>
-                  {[row.captured_zone, row.zone].map(
-                    (zone, index) =>
-                      zone && (
-                        <div key={index}>
-                          {index === 0 ? 'Đã chụp' : 'Setup hiện tại'} · {zone.family} ·{' '}
-                          {zone.side === 'long' ? 'LONG' : 'SHORT'}
-                          {zone.target_reason && ` · TP: ${zone.target_reason}`}
-                        </div>
-                      ),
-                  )}
-                </details>
-              );
-            })}
-        </div>
-      )}
       <div className="chart-price-surface relative overflow-hidden">
         <div
           ref={container}

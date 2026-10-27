@@ -2176,6 +2176,7 @@ export function ForexStrategyPage({
         }}
         onClose={() => setDrawerOpen(false)}
         selectedV4Strategy={v4Strategy}
+        strategies={analysis?.strategies}
         entryStateLabels={entryStateLabels}
         hasMoreCandles={hasMore}
         loadingOlder={loadingOlder}

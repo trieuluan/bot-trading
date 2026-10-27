@@ -1,10 +1,11 @@
 import { Check, X, ChevronLeft } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { BrokerPosition } from '../types/exness-execution';
+import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 import type { ForexSignalSetup } from '../lib/forex-entry-lifecycle';
 import type { ForexEntryIntent, ForexSignalChart } from '../types/forex-entry';
 import { entryLifecycle } from '../lib/forex-entry-lifecycle';
 import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
+import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
 import { formatTime } from '../lib/time-format';
 import { priceDigits } from '../lib/forex-labels';
 
@@ -23,6 +24,7 @@ interface ForexSignalLifecycleProps {
   onSelectSetup: (id: string | null, strategy?: string) => void;
   onClose: () => void;
   selectedV4Strategy?: string;
+  strategies?: LearnerAnalysis['strategies'];
   entryStateLabels: Record<string, string>;
   hasMoreCandles?: boolean;
   loadingOlder?: boolean;
@@ -45,6 +47,7 @@ export function ForexSignalLifecycle({
   onSelectSetup,
   onClose,
   selectedV4Strategy,
+  strategies,
   entryStateLabels,
   hasMoreCandles,
   loadingOlder,
@@ -321,6 +324,29 @@ export function ForexSignalLifecycle({
                 )}
               </section>
             )}
+
+            <section className="space-y-2 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Chỉ báo và mức giá setup">
+              <h4 className="m-0 font-semibold text-text-primary">Chỉ báo & mức giá</h4>
+              {detailedSetup.signals.map(({ strategy }) => {
+                const isSnapshot = strategy === v4Chart?.strategy;
+                const row = isSnapshot ? v4Chart.row : strategies?.[strategy];
+                const overlay = row?.chart?.overlays;
+                return (
+                  <div key={strategy} className="min-w-0 space-y-1 break-words rounded-md border border-border-subtle bg-surface-1 p-2.5 text-[11px]">
+                    <div className="font-semibold text-text-primary">{chartTreeTag(row, strategy)} · {treeLabel(row, strategy).full}</div>
+                    <p className="m-0 text-text-muted">{isSnapshot ? 'Snapshot của tín hiệu đang xem' : 'Dữ liệu cây hiện tại · không phải snapshot lịch sử'}</p>
+                    <div>{overlay ? [...new Set(overlay.lines.map((line) => line.label)), ...overlay.notes].join(' · ') : 'Chưa có dữ liệu chỉ báo của cây'}</div>
+                    {[row?.captured_zone, row?.zone].map((zone, index) => zone && (
+                      <div key={index} className="text-text-muted">
+                        {index === 0 ? 'Đã chụp' : 'Setup hiện tại'} · {zone.family} · {zone.side === 'long' ? 'LONG' : 'SHORT'}
+                        {zone.target_reason && ` · TP: ${zone.target_reason}`}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {!detailedSetup.signals.length && <p className="m-0 text-text-muted">Chưa có dữ liệu chỉ báo của cây</p>}
+            </section>
 
             {!hasCandle(detailedSetup.time) && (
               <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5 text-xs text-amber-200">
