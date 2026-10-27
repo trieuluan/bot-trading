@@ -912,3 +912,26 @@ def test_reconcile_labels_breakeven_stop_exit():
         saved = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 60)).snapshot
     assert saved["status"] == "closed" and not saved["take_profit_filled"]
     assert saved["close_reason"] == "breakeven_stop"
+
+
+@pytest.mark.parametrize("message", ["poor_rr", "price_drift: virtual entry moved beyond 0.25R", "new_check: " + "x" * 250])
+def test_intent_records_preflight_reason_code_and_detail(monkeypatch, tmp_path, message):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    def reject(*args, **kwargs):
+        raise ExnessError(message)
+    from backend.app.exness_demo_client import ExnessDemoClient
+    monkeypatch.setattr(ExnessDemoClient, "strategy_body", reject)
+    execute_trigger(api, identifier, "XAUUSD")
+    api.client.request.assert_not_called()
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "cancelled"
+        assert row.snapshot["reason"] == "preflight_failed"
+        assert row.snapshot["reason_code"] == message.split(":")[0]
+        assert row.snapshot["reason_detail"] == message[:200]
+        from backend.app.forex_entry_intents import summary
+        result = summary(session, api.account_id, "XAUUSD")[0]
+        assert result["reason_detail"] == message[:200]

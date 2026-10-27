@@ -52,7 +52,7 @@
       const list = document.querySelector('.signal-lifecycle-list');
       const rows = Array.from(list.querySelectorAll('.signal-lifecycle-row'));
       const clipped = rows.some(row => {
-        const button = row.querySelector('button');
+        const button = row.querySelector('.signal-lifecycle-select');
         return row.clientHeight < button.offsetHeight || row.scrollWidth > row.clientWidth;
       });
       const selected = document.querySelectorAll('.signal-lifecycle-row.is-selected');

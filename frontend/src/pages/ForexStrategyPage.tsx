@@ -2104,22 +2104,30 @@ export function ForexStrategyPage({
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
       {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection space-y-2 border-y border-border-base bg-surface-2 px-3 py-2 text-xs">
-        <div className="forex-v4-snapshot-heading flex min-w-0 flex-wrap items-center gap-2 justify-between">
-        <label className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><span className="shrink-0 text-text-primary">Snapshot V4 <small className="text-xs text-text-muted">H4 / H1 / M15</small></span>
-          <select className="min-w-0 max-w-full flex-1 rounded-md border border-border-active bg-surface-1 px-2 py-1.5 text-xs text-text-primary" value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
-            {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
-          </select>
-        </label>
-        <span className="forex-v4-simulation-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-sky-400/10 text-sky-300">Mô phỏng · BID</span>
+        <div className="forex-v4-snapshot-heading flex min-w-0 flex-wrap items-center gap-2">
+          <span className="shrink-0 font-semibold text-text-primary">V4 <small className="font-normal text-text-muted">H4 / H1 / M15</small></span>
+          {v4Signals.length > 1
+            ? <select aria-label="Chọn cây V4" className="min-w-0 max-w-full flex-1 rounded-md border border-border-active bg-surface-1 px-2 py-1 text-xs text-text-primary" value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
+              {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
+            </select>
+            : <span className="font-mono text-text-secondary" title={v4Strategy}>{v4Strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[v4Signals[0]?.status] ?? v4Signals[0]?.status}</span>}
+          <span className="forex-v4-simulation-badge ml-auto inline-flex shrink-0 rounded bg-sky-400/10 px-1.5 py-0.5 font-medium text-sky-300">Mô phỏng · BID</span>
         </div>
-        <p role="status">{v4Chart
-          ? `Chụp ${formatTime(v4Chart.available_at, true)} · Hạn canh ${formatTime(v4Chart.expires_at, true)} · Mức giá dự kiến, không phải lệnh broker.`
-          : signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>
-        {v4Chart && <ul className="forex-v4-levels flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs" aria-label="Mức giá dự kiến V4">
-          {v4Chart.row.chart?.levels.map((level) => <li key={level.label} title={level.label}>
-            <span>{level.label.split(' · ')[0]}</span><strong>{level.price.toFixed(priceDigits(symbol))}</strong>
-          </li>)}
-        </ul>}
+        <p className="m-0 text-text-muted">Giá dự kiến, không phải lệnh broker.</p>
+        {v4Chart
+          ? <>
+            <p role="status" className="m-0 text-text-muted">Chụp {formatTime(v4Chart.available_at, true)} · Hạn canh {formatTime(v4Chart.expires_at, true)}</p>
+            <ul className="forex-v4-levels m-0 grid min-w-0 list-none grid-cols-2 gap-2 p-0 font-mono sm:grid-cols-4" aria-label="Mức giá dự kiến V4">
+              {v4Chart.row.chart?.levels.map((level) => {
+                const label = level.label.split(' · ')[0];
+                const tone = /SL/i.test(label) ? 'border-amber-400/30 text-amber-300' : /TP/i.test(label) ? 'border-teal-400/30 text-teal-300' : 'border-sky-400/30 text-sky-300';
+                return <li key={level.label} title={level.label} className={`flex flex-col rounded-md border bg-surface-1 px-2 py-1 ${tone}`}>
+                  <span className="text-[10px] uppercase tracking-wide">{label}</span><strong className="text-sm text-text-primary tabular-nums">{level.price.toFixed(priceDigits(symbol))}</strong>
+                </li>;
+              })}
+            </ul>
+          </>
+          : <p role="status" className="m-0">{signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>}
       </div>}
       {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
         Math.floor(selectedSetup.time / chartFrameSeconds) * chartFrameSeconds) && (

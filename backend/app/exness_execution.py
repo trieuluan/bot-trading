@@ -795,7 +795,9 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             state.snapshot = {**state.snapshot, "decision": "preflight_failed: " + str(exc)[:160]}
             if intent_row:
                 intent_row.status = "cancelled"
-                intent_row.snapshot = {**intent_row.snapshot, "status": "cancelled", "reason": "preflight_failed", "ended_at": now}
+                reason_detail = str(exc)[:200]
+                intent_row.snapshot = {**intent_row.snapshot, "status": "cancelled", "reason": "preflight_failed",
+                                       "reason_code": reason_detail.split(":", 1)[0].strip(), "reason_detail": reason_detail, "ended_at": now}
             return "preflight_failed"
         if not capacity_available(broker, api.account_id, symbol, len(bodies), entry_intent_id=signal.get("entry_intent_id")):
             record_journal(state, detail, "position_capacity_for_split", now)

@@ -20,6 +20,8 @@ export interface ForexEntryIntent {
   triggered_at?: number;
   ended_at?: number;
   reason?: string;
+  reason_code?: string;
+  reason_detail?: string;
   limit_price: number | null;
   stop_price: number | null;
   expires_at: number;
