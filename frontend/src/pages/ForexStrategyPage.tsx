@@ -1,7 +1,7 @@
 import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeForexStream } from '../lib/forex-stream';
-import { Eye } from 'lucide-react';
+import { Eye, X } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import {
   MtfObservationChart,
@@ -1486,6 +1486,14 @@ export function ForexStrategyPage({
     ...(entryPilot?.pilot.signals ?? []),
   ], [analysis, entryPilot]);
   const setups = useMemo(() => signalSetups(entryPilot?.intents ?? [], recordedSignals), [entryPilot, recordedSignals]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<'positions' | 'setups'>('positions');
+  const [drawerFocusId, setDrawerFocusId] = useState<string>();
+  useEffect(() => {
+    setDrawerOpen(false);
+    setDrawerTab('positions');
+    setDrawerFocusId(undefined);
+  }, [symbol]);
   const [setupSelection, setSetupSelection] = useState<{ symbol: string; id: string } | null>(null);
   const selectedSetup = setupSelection?.symbol === symbol
     ? setups.find((setup) => setup.id === setupSelection.id) : undefined;
@@ -2080,62 +2088,105 @@ export function ForexStrategyPage({
       {!loading && !chartError && candles.length === 0 && (
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
-      {executionOnly && pickerPositions.length > 0 && <div className="broker-position-picker min-w-0 border-b border-border-subtle bg-canvas/40 px-3 py-2.5" role="group" aria-label="Chọn ticket đã khớp">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-text-muted"><span className="broker-position-count"><strong className="font-medium text-text-secondary">Vị thế broker</strong> · {openGroups.length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket mở</span><span>Chọn ticket để định vị trên chart</span></div>
-        <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 overscroll-x-contain">
-        {pickerPositions.map((position) => {
-          const selected = position.position_id === selectedPosition?.position_id;
-          const pnl = position.status === 'closed' ? position.pnl : pnlOf(position);
-          const closed = position.status === 'closed';
-          const roleLabel = ticketRole(position);
-          const tone = !closed ? 'border-border-base bg-surface-1' : position.take_profit_filled ? 'border-bull/40 bg-bull/10' : position.close_reason === 'stop_loss' ? 'border-bear/40 bg-bear/5' : 'border-amber-400/40 bg-amber-400/5';
-          return <button key={position.position_id} type="button" className={`broker-position-chip min-w-64 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors hover:border-border-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tone} ${selected ? 'ring-2 ring-sky-400/60' : ''}`} aria-pressed={selected}
-            aria-label={`Chọn ticket #${position.position_id} · ${roleLabel}`}
-            title={`${ticketStatus(position)} · ${closed ? 'Profit đã chốt' : 'Thả nổi ước tính'} · chưa xác minh phí/swap`}
-            onClick={() => onSelectPosition?.(selected ? undefined : position.position_id)}>
-            <span className="flex items-center gap-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${position.side === 'buy' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'}`}>{position.side?.toUpperCase() ?? '—'}</span><span className="font-mono text-text-primary">#{position.position_id}</span><span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-secondary">{roleLabel}</span></span>
-            <span className="mt-2 flex items-baseline justify-between gap-3"><span className="text-text-muted">{closed ? 'Đã đóng hết' : `${position.remaining_volume ?? position.volume ?? '—'} lot`}</span><strong className={`font-mono tabular-nums ${pnl == null ? 'text-text-muted' : pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{pnl == null ? '— USD' : `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`}</strong></span>
-            <span className="mt-1 flex items-center justify-between gap-3 text-[10px]"><span className={`rounded px-1.5 py-0.5 font-medium ${closed ? (position.take_profit_filled ? 'bg-bull/15 text-bull' : position.close_reason === 'stop_loss' ? 'bg-bear/10 text-bear' : 'bg-amber-400/10 text-amber-300') : 'bg-surface-3 text-text-secondary'}`}>{ticketStatus(position)}</span>{selected && <span className="text-sky-300">Đang xem</span>}</span>
-            <span className="mt-1 block text-[10px] text-text-muted">{closed ? 'P&L đã chốt · chưa phí/swap' : 'P&L thả nổi ước tính'}</span>
-          </button>;
-        })}
+      <div id="forex-signals" className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border-base bg-surface-1 px-3 py-2 text-xs">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {selectedPosition && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 bg-sky-400/10 px-2 py-1 text-xs font-medium text-sky-200">
+              <button
+                type="button"
+                className="hover:underline flex items-center gap-1"
+                onClick={() => {
+                  setDrawerTab('positions');
+                  setDrawerFocusId(selectedPosition.position_id);
+                  setDrawerOpen(true);
+                }}
+              >
+                <span>Ticket {selectedPosition.side === 'buy' ? 'MUA' : 'BÁN'} #{selectedPosition.position_id}</span>
+                <span className="font-mono">({ticketRole(selectedPosition)})</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Bỏ chọn ticket"
+                className="ml-1 rounded p-0.5 hover:bg-sky-400/20 text-sky-300"
+                onClick={() => onSelectPosition?.(undefined)}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+
+          {selectedSetup && (
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-sky-400/40 bg-sky-400/10 px-2 py-1 text-xs font-medium text-sky-200">
+              <button
+                type="button"
+                className="hover:underline flex items-center gap-1"
+                onClick={() => {
+                  setDrawerTab('setups');
+                  setDrawerFocusId(selectedSetup.id);
+                  setDrawerOpen(true);
+                }}
+              >
+                <span>Setup {selectedSetup.side === 'long' ? 'MUA' : 'BÁN'}</span>
+                <span className="font-mono text-[11px]">({formatTime(selectedSetup.time)})</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Bỏ chọn setup"
+                className="ml-1 shrink-0 rounded p-0.5 text-sky-300 hover:bg-sky-400/20"
+                onClick={() => setSetupSelection(null)}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+
+          {!selectedPosition && !selectedSetup && (
+            <span className="text-text-muted text-[11px]">Chưa chọn vị thế hoặc setup nào</span>
+          )}
         </div>
-      </div>}
-      <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
-        onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
-      {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection space-y-2 border-y border-border-base bg-surface-2 px-3 py-2 text-xs">
-        <div className="forex-v4-snapshot-heading flex min-w-0 flex-wrap items-center gap-2">
-          <span className="shrink-0 font-semibold text-text-primary">V4 <small className="font-normal text-text-muted">H4 / H1 / M15</small></span>
-          {v4Signals.length > 1
-            ? <select aria-label="Chọn cây V4" className="min-w-0 max-w-full flex-1 rounded-md border border-border-active bg-surface-1 px-2 py-1 text-xs text-text-primary" value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
-              {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
-            </select>
-            : <span className="font-mono text-text-secondary" title={v4Strategy}>{v4Strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[v4Signals[0]?.status] ?? v4Signals[0]?.status}</span>}
-          <span className="forex-v4-simulation-badge ml-auto inline-flex shrink-0 rounded bg-sky-400/10 px-1.5 py-0.5 font-medium text-sky-300">Mô phỏng · BID</span>
-        </div>
-        <p className="m-0 text-text-muted">Giá dự kiến, không phải lệnh broker.</p>
-        {v4Chart
-          ? <>
-            <p role="status" className="m-0 text-text-muted">Chụp {formatTime(v4Chart.available_at, true)} · Hạn canh {formatTime(v4Chart.expires_at, true)}</p>
-            <ul className="forex-v4-levels m-0 grid min-w-0 list-none grid-cols-2 gap-2 p-0 font-mono sm:grid-cols-4" aria-label="Mức giá dự kiến V4">
-              {v4Chart.row.chart?.levels.map((level) => {
-                const label = level.label.split(' · ')[0];
-                const tone = /SL/i.test(label) ? 'border-amber-400/30 text-amber-300' : /TP/i.test(label) ? 'border-teal-400/30 text-teal-300' : 'border-sky-400/30 text-sky-300';
-                return <li key={level.label} title={level.label} className={`flex flex-col rounded-md border bg-surface-1 px-2 py-1 ${tone}`}>
-                  <span className="text-[10px] uppercase tracking-wide">{label}</span><strong className="text-sm text-text-primary tabular-nums">{level.price.toFixed(priceDigits(symbol))}</strong>
-                </li>;
-              })}
-            </ul>
-          </>
-          : <p role="status" className="m-0">{signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>}
-      </div>}
-      {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
-        Math.floor(selectedSetup.time / chartFrameSeconds) * chartFrameSeconds) && (
-        <div className="signal-setup-notice space-y-2 border-y border-border-base bg-surface-2 px-3 py-2 text-xs" role="status">
-          Nến của setup đã chọn chưa có trong dữ liệu chart. {hasMore ? 'Thêm lịch sử để xem đúng vị trí.' : 'Không có thêm nến trong lịch sử hiện tại.'}
-          {hasMore && <button type="button" disabled={loadingOlder} onClick={() => historyActions.current.older()}>Thêm lịch sử</button>}
-        </div>
-      )}
+
+        <button
+          type="button"
+          onClick={() => { setDrawerFocusId(undefined); setDrawerOpen(true); }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border-base bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-border-active hover:bg-surface-3"
+        >
+          <span>Danh sách</span>
+          <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+            {pickerPositions.filter((position) => position.status === 'open').length} ticket mở · {setups.length} setup
+          </span>
+        </button>
+      </div>
+
+      <ForexSignalLifecycle
+        key={symbol}
+        open={drawerOpen}
+        initialTab={drawerTab}
+        onTabChange={(tab) => { setDrawerTab(tab); setDrawerFocusId(undefined); }}
+        focusId={drawerFocusId}
+        symbol={symbol}
+        positions={pickerPositions}
+        selectedPositionId={selectedPosition?.position_id}
+        onSelectPosition={onSelectPosition ?? (() => {})}
+        pnlOf={pnlOf}
+        setups={setups}
+        selectedSetupId={selectedSetup?.id}
+        onSelectSetup={(id, strategy) => {
+          if (id && strategy) setV4Selection({ setup: id, strategy });
+          setSetupSelection(id ? { symbol, id } : null);
+        }}
+        onClose={() => setDrawerOpen(false)}
+        selectedV4Strategy={v4Strategy}
+        entryStateLabels={entryStateLabels}
+        hasMoreCandles={hasMore}
+        loadingOlder={loadingOlder}
+        onLoadOlder={() => historyActions.current.older()}
+        hasCandle={(time) =>
+          [...candles, ...liveCandles].some(
+            (c) => c.time === Math.floor(time / chartFrameSeconds) * chartFrameSeconds,
+          )
+        }
+      />
+
       <MtfObservationChart
         entryIntents={selectedSetup?.intents}
         recordedSignals={selectedSetup?.signals}

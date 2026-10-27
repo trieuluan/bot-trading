@@ -33,8 +33,17 @@
     };
   });
 
+  const positions = [
+    { position_id: '123', symbol: 'USDJPY', side: 'buy', role: 'tp1', volume: 0.05, remaining_volume: 0.05, status: 'open', deals: [], pnl: null },
+    { position_id: '124', symbol: 'USDJPY', side: 'sell', role: 'runner', volume: 0.05, remaining_volume: 0.05, status: 'open', deals: [], pnl: null },
+    { position_id: '125', symbol: 'USDJPY', side: 'buy', role: 'tp1', volume: 0.05, remaining_volume: 0, status: 'closed', deals: [], pnl: 4.25, take_profit_filled: true },
+  ];
+
   function Fixture() {
-    const [selectedId, select] = useState(null);
+    const [open, setOpen] = useState(true);
+    const [tab, setTab] = useState('setups');
+    const [selectedPositionId, setSelectedPositionId] = useState(null);
+    const [selectedSetupId, setSelectedSetupId] = useState(null);
     const [result, setResult] = useState('');
     const [strategies, setStrategies] = useState([]);
     useEffect(() => {
@@ -49,18 +58,14 @@
       return () => document.removeEventListener('toggle', check, true);
     }, []);
     function checkLayout() {
-      const list = document.querySelector('.signal-lifecycle-list');
-      const rows = Array.from(list.querySelectorAll('.signal-lifecycle-row'));
-      const clipped = rows.some(row => {
-        const button = row.querySelector('.signal-lifecycle-select');
-        return row.clientHeight < button.offsetHeight || row.scrollWidth > row.clientWidth;
-      });
-      const selected = document.querySelectorAll('.signal-lifecycle-row.is-selected');
-      const passed = rows.length > 0 && !clipped && selected.length <= 1 && list.clientHeight <= 250 &&
-        (rows.length < 9 || list.scrollHeight > list.clientHeight) &&
-        document.documentElement.scrollWidth <= innerWidth;
-      setResult(passed ? `PASS: ${rows.length} rows, no clipped content or horizontal overflow` : 'FAIL: layout regression');
-      console.assert(passed, 'Lifecycle rows must retain their content height inside the scrolling list');
+      const drawer = document.querySelector('dialog.forex-inspector');
+      const isModal = drawer && drawer.matches(':modal');
+      const bounds = drawer?.getBoundingClientRect();
+      const fitsWidth = bounds && bounds.width <= 560 && bounds.right <= innerWidth + 1;
+      const rows = Array.from(document.querySelectorAll('.signal-lifecycle-row'));
+      const passed = Boolean(isModal && fitsWidth && rows.length > 0 && document.documentElement.scrollWidth <= innerWidth);
+      setResult(passed ? `PASS: drawer is modal, max width ${Math.round(bounds?.width || 0)}px, fits viewport` : 'FAIL: drawer layout regression');
+      console.assert(passed, 'Drawer must open as modal dialog fitting right-hand side');
     }
     function checkMenu() {
       const menu = document.querySelector('.futures-strategy-menu');
@@ -86,10 +91,23 @@
       React.createElement('p', null, 'Synthetic data only. No API requests or broker actions.'),
       React.createElement(TimeZoneToggle),
       React.createElement('section', { className: 'forex-markets is-compact', style: { display: 'flex', justifyContent: 'flex-end', overflow: 'hidden' } }, React.createElement(ForexStripLegend)),
-      React.createElement('button', { type: 'button', className: 'rounded border border-border-active bg-surface-2 px-3 py-2 text-xs text-text-primary', onClick: checkLayout }, 'Check layout'),
-      React.createElement('output', { role: 'status' }, result),
+      React.createElement('button', { id: 'check-btn', type: 'button', className: 'rounded border border-border-active bg-surface-2 px-3 py-2 text-xs text-text-primary', onClick: checkLayout }, 'Check layout'),
+      React.createElement('output', { id: 'status-out', role: 'status' }, result),
       React.createElement(ForexSignalLifecycle, {
-        setups, symbol: 'USDJPY', selectedId, onSelect: select,
+        open,
+        initialTab: tab,
+        onTabChange: setTab,
+        symbol: 'USDJPY',
+        positions,
+        selectedPositionId,
+        onSelectPosition: setSelectedPositionId,
+        pnlOf: () => 1.25,
+        setups,
+        selectedSetupId,
+        onSelectSetup: (id) => setSelectedSetupId(id),
+        onClose: () => setOpen(false),
+        entryStateLabels: { waiting: 'Đang chờ', recorded: 'Đã ghi nhận' },
+        hasCandle: () => true,
       }),
       React.createElement('section', { className: 'mt-6 flex flex-wrap items-center gap-3' },
         React.createElement(FuturesStrategyMenu, {

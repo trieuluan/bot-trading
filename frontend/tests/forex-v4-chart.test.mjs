@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-test('ForexSignalLifecycle marks V4 shadow setups as simulation and renders compact layout', async () => {
+test('ForexSignalLifecycle drawer marks V4 shadow setups as simulation and renders drawer layout', async () => {
   const server = await createServer({
     root: fileURLToPath(new URL('../', import.meta.url)),
     server: { middlewareMode: true, hmr: false, ws: false },
@@ -25,38 +25,105 @@ test('ForexSignalLifecycle marks V4 shadow setups as simulation and renders comp
     let selected = null;
     const markup = renderToStaticMarkup(
       React.createElement(ForexSignalLifecycle, {
-        setups,
+        open: true,
+        initialTab: 'setups',
+        onTabChange: () => {},
         symbol: 'EURUSD',
-        selectedId: null,
-        onSelect: (id) => { selected = id; },
+        positions: [],
+        pnlOf: () => null,
+        setups,
+        selectedSetupId: undefined,
+        onSelectPosition: () => {},
+        onSelectSetup: (id) => { selected = id; },
+        onClose: () => {},
+        entryStateLabels: { waiting: 'Đang chờ' },
+        hasCandle: () => true,
       }),
     );
-    assert.ok(markup.includes('Mô phỏng'));
-    assert.ok(markup.includes('1 mô phỏng'));
-    assert.ok(markup.includes('Hướng dẫn · trạng thái'));
+    assert.ok(markup.includes('Mô phỏng: Đang chạy'));
     assert.ok(markup.includes('Chi tiết'));
-    assert.match(markup, /class="signal-lifecycle-list [^"]*max-h-\[260px\][^"]*overflow-y-auto/);
-    assert.ok(!markup.includes('role="dialog"'));
+    assert.match(markup, /class="[^"]*forex-inspector[^"]*"/);
+    assert.ok(markup.includes('<dialog'));
 
     const selectedMarkup = renderToStaticMarkup(
       React.createElement(ForexSignalLifecycle, {
-        setups, symbol: 'EURUSD', selectedId: 'setup:1', onSelect: () => {},
+        open: true,
+        initialTab: 'setups',
+        onTabChange: () => {},
+        symbol: 'EURUSD',
+        positions: [],
+        pnlOf: () => null,
+        setups,
+        selectedSetupId: 'setup:1',
+        onSelectPosition: () => {},
+        onSelectSetup: () => {},
+        onClose: () => {},
+        entryStateLabels: { waiting: 'Đang chờ' },
+        hasCandle: () => true,
       }),
     );
     assert.ok(selectedMarkup.includes('aria-pressed="true"'));
-    assert.ok(selectedMarkup.includes('aria-label="Vòng đời tín hiệu EURUSD"'));
+    assert.ok(selectedMarkup.includes('aria-label="Danh sách vị thế và setup"'));
     assert.ok(selectedMarkup.includes('is-selected'));
-    assert.ok(!selectedMarkup.includes('lg:col-span-2'));
 
     const failed = renderToStaticMarkup(React.createElement(ForexSignalLifecycle, {
+      open: true,
+      initialTab: 'setups',
+      onTabChange: () => {},
       setups: [{ ...setups[0], intents: [{ id: 'i1', strategy: 'hast4_alpha', side: 'long', status: 'cancelled',
         reason: 'preflight_failed', reason_code: 'poor_rr', reason_detail: 'poor_rr: below 1.5R',
         limit_price: 1.1, stop_price: 1.2, expires_at: 2000 }] }],
-      symbol: 'EURUSD', selectedId: 'setup:1', onSelect: () => {},
+      symbol: 'EURUSD',
+      positions: [],
+      pnlOf: () => null,
+      selectedSetupId: 'setup:1',
+      onSelectPosition: () => {},
+      onSelectSetup: () => {},
+      onClose: () => {},
+      entryStateLabels: { waiting: 'Đang chờ' },
+      hasCandle: () => true,
     }));
     assert.ok(failed.includes('Hủy'));
     assert.ok(failed.includes('Mô phỏng: Đang chạy'));
     assert.ok(failed.includes('R/R kém'));
+
+    // Chi tiết setup trong cùng drawer (không dùng dialog lồng nhau)
+    const detailMarkup = renderToStaticMarkup(
+      React.createElement(ForexSignalLifecycle, {
+        open: true,
+        initialTab: 'setups',
+        onTabChange: () => {},
+        symbol: 'EURUSD',
+        positions: [],
+        pnlOf: () => null,
+        setups: [{
+          id: 'setup:detail',
+          time: 1000,
+          side: 'long',
+          signals: [{ strategy: 'hast4_alpha', side: 'long', available_at: 1000, status: 'waiting' }],
+          intents: [{
+            id: 'intent-detail',
+            strategy: 'hast4_alpha',
+            side: 'long',
+            status: 'cancelled',
+            reason: 'preflight_failed',
+            reason_code: 'sl_too_tight',
+            limit_price: 1.085,
+            stop_price: 1.087,
+            expires_at: 2000,
+            signal: { stop: 1.083, target: 1.092 },
+          }],
+        }],
+        selectedSetupId: undefined,
+        onSelectPosition: () => {},
+        onSelectSetup: () => {},
+        onClose: () => {},
+        entryStateLabels: { waiting: 'Đang chờ' },
+        hasCandle: () => false,
+      }),
+    );
+    assert.ok((detailMarkup.match(/<dialog\b/g) || []).length === 1);
+    assert.ok(!detailMarkup.includes('role="dialog"') || (detailMarkup.match(/<dialog\b/g) || []).length === 1);
   } finally {
     await server.close();
   }

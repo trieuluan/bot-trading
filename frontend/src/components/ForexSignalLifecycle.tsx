@@ -1,81 +1,150 @@
-import { Activity, Check, ChevronDown, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Check, X, ChevronLeft } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { BrokerPosition } from '../types/exness-execution';
 import type { ForexSignalSetup } from '../lib/forex-entry-lifecycle';
-import type { ForexEntryIntent } from '../types/forex-entry';
+import type { ForexEntryIntent, ForexSignalChart } from '../types/forex-entry';
 import { entryLifecycle } from '../lib/forex-entry-lifecycle';
+import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { formatTime } from '../lib/time-format';
 import { priceDigits } from '../lib/forex-labels';
 
-export function ForexSignalLifecycle({
-  setups,
-  symbol,
-  selectedId,
-  onSelect,
-}: {
-  setups: ForexSignalSetup[];
+interface ForexSignalLifecycleProps {
+  open: boolean;
+  initialTab?: 'positions' | 'setups';
+  onTabChange: (tab: 'positions' | 'setups') => void;
+  focusId?: string;
   symbol: string;
-  selectedId?: string;
-  onSelect: (id: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState<'pending' | 'history' | 'all'>('pending');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  positions: BrokerPosition[];
+  selectedPositionId?: string;
+  onSelectPosition: (id?: string) => void;
+  pnlOf: (pos: BrokerPosition) => number | null;
+  setups: ForexSignalSetup[];
+  selectedSetupId?: string;
+  onSelectSetup: (id: string | null, strategy?: string) => void;
+  onClose: () => void;
+  selectedV4Strategy?: string;
+  entryStateLabels: Record<string, string>;
+  hasMoreCandles?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
+  hasCandle: (time: number) => boolean;
+}
+
+export function ForexSignalLifecycle({
+  open,
+  initialTab = 'positions',
+  onTabChange,
+  focusId,
+  symbol,
+  positions,
+  selectedPositionId,
+  onSelectPosition,
+  pnlOf,
+  setups,
+  selectedSetupId,
+  onSelectSetup,
+  onClose,
+  selectedV4Strategy,
+  entryStateLabels,
+  hasMoreCandles,
+  loadingOlder,
+  onLoadOlder,
+  hasCandle,
+}: ForexSignalLifecycleProps) {
+  const tab = initialTab;
+  const [setupFilter, setSetupFilter] = useState<'pending' | 'history' | 'all'>('pending');
+  const [detailedSetupId, setDetailedSetupId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const openerRef = useRef<HTMLButtonElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollPositions = useRef({ positions: 0, setups: 0 });
+  const pendingFocus = useRef<string | undefined>(undefined);
+  const detailTrigger = useRef<HTMLButtonElement | null>(null);
+  const backRef = useRef<HTMLButtonElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const [previewStrategy, setPreviewStrategy] = useState('');
+  const [snapshot, setSnapshot] = useState<{ key: string; data?: ForexSignalChart; error?: string }>({ key: '' });
+  const detailedSetup = setups.find((setup) => setup.id === detailedSetupId);
+  const v4Signals = detailedSetup?.signals.filter((signal) => signal.strategy.startsWith('hast4_')) ?? [];
+  const v4Strategy = v4Signals.find((signal) => signal.strategy === previewStrategy)?.strategy ?? v4Signals[0]?.strategy;
+  const snapshotKey = detailedSetup && v4Strategy ? `${symbol}:${detailedSetup.time}:${v4Strategy}` : '';
+  const v4Chart = snapshot.key === snapshotKey ? snapshot.data : undefined;
+  const v4Error = snapshot.key === snapshotKey ? snapshot.error : undefined;
 
   useEffect(() => {
-    const show = () => {
-      if (window.location.hash === '#forex-signals') setOpen(true);
-    };
-    setOpen(false);
-    setFilter('pending');
-    setDetailId(null);
-    show();
-    window.addEventListener('hashchange', show);
-    return () => window.removeEventListener('hashchange', show);
-  }, [symbol]);
+    if (!open) setDetailedSetupId(null);
+  }, [open]);
 
-  const shadowPending = (setup: ForexSignalSetup) =>
-    setup.signals.some(
-      (signal) =>
-        signal.strategy.startsWith('hast4_') &&
-        ['waiting', 'pending', 'open'].includes(signal.status),
-    );
-
-  const pending = (setup: ForexSignalSetup) =>
-    shadowPending(setup) ||
-    setup.intents.some((intent) =>
-      ['waiting', 'triggered', 'submitting', 'submitted', 'uncertain'].includes(intent.status),
-    );
-
-  const pendingCount = setups.filter(pending).length;
-  const rows = setups.filter((setup) =>
-    filter === 'all' ? true : filter === 'pending' ? pending(setup) : !pending(setup),
-  );
-  const selected = setups.find((setup) => setup.id === selectedId);
-  const detail = setups.find((setup) => setup.id === detailId);
   useEffect(() => {
+    if (detailedSetupId && !detailedSetup) setDetailedSetupId(null);
+  }, [detailedSetupId, detailedSetup]);
+
+  useEffect(() => {
+    if (!open || !detailedSetup || !v4Strategy) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let active = true;
+    setSnapshot({ key: snapshotKey });
+    const query = new URLSearchParams({ symbol, strategy: v4Strategy, available_at: String(detailedSetup.time) });
+    fetch(`/api/workspaces/exness_forex/learning/signal-chart?${query}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail ?? 'Không tải được snapshot V4');
+        if (body.symbol !== symbol || body.strategy !== v4Strategy || body.available_at !== detailedSetup.time)
+          throw new Error('Snapshot không khớp setup đang xem');
+        if (active) setSnapshot({ key: snapshotKey, data: body });
+      })
+      .catch((error) => {
+        if (active) setSnapshot({ key: snapshotKey, error: error.name === 'AbortError' ? 'Tải snapshot quá hạn' : error.message });
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => { active = false; controller.abort(); clearTimeout(timeout); };
+  }, [open, symbol, detailedSetup?.time, v4Strategy, snapshotKey]);
+
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
-    if (!detail || !dialog) return;
-    const opener = openerRef.current;
+    if (!dialog) return;
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     dialog.showModal();
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    pendingFocus.current = focusId;
     return () => {
       dialog.close();
       document.body.style.overflow = previousOverflow;
       if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
-  }, [detail?.id, symbol]);
-  const allIntents = setups.flatMap((setup) => setup.intents);
-  const waiting = allIntents.filter((intent) => intent.status === 'waiting').length;
-  const shadowCount = setups.filter(shadowPending).length;
-  const unresolved = allIntents.filter((intent) => intent.status === 'uncertain').length;
-  const totalSignals = new Set(
-    setups.flatMap((setup) =>
-      setup.signals.map((signal) => `${signal.strategy}:${signal.available_at}:${signal.side}`),
-    ),
-  ).size;
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !scrollRef.current) return;
+    if (tab === 'setups' && pendingFocus.current && !filteredSetups.some((setup) => setup.id === pendingFocus.current)
+      && setups.some((setup) => setup.id === pendingFocus.current)) {
+      setSetupFilter('all');
+      return;
+    }
+    scrollRef.current.scrollTop = detailedSetup ? 0 : scrollPositions.current[tab];
+    if (detailedSetup) backRef.current?.focus();
+    else if (pendingFocus.current) {
+      const row = [...scrollRef.current.querySelectorAll<HTMLElement>('[data-item-id]')]
+        .find((element) => element.dataset.itemId === pendingFocus.current);
+      row?.scrollIntoView({ block: 'nearest' });
+      row?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+      pendingFocus.current = undefined;
+    } else if (detailTrigger.current?.isConnected) {
+      detailTrigger.current.focus({ preventScroll: true });
+      detailTrigger.current = null;
+    }
+  }, [open, tab, detailedSetup?.id, setupFilter]);
+
+  const shadowPending = (setup: ForexSignalSetup) =>
+    setup.signals.some((s) => s.strategy.startsWith('hast4_') && ['waiting', 'pending', 'open'].includes(s.status));
+  const setupPending = (setup: ForexSignalSetup) =>
+    shadowPending(setup) || setup.intents.some((i) => ['waiting', 'triggered', 'submitting', 'submitted', 'uncertain'].includes(i.status));
+
+  const filteredSetups = setups.filter((s) => (setupFilter === 'all' ? true : setupFilter === 'pending' ? setupPending(s) : !setupPending(s)));
+  const pendingSetupCount = setups.filter(setupPending).length;
 
   const price = (value: number | null | undefined) =>
     value == null || !Number.isFinite(value) ? '—' : value.toFixed(priceDigits(symbol));
@@ -85,17 +154,14 @@ export function ForexSignalLifecycle({
     sl_too_tight: { label: 'SL quá sát', hint: 'Khoảng cách SL dưới ngưỡng ATR của phiên bản chiến thuật' },
     sl_too_wide: { label: 'SL quá xa', hint: 'Vượt 3 ATR H1' },
     price_drift: { label: 'Giá lệch quá xa', hint: 'Giá hiện tại lệch quá 0.25R so với giá tham chiếu' },
-    virtual_entry_expired: { label: 'Entry ảo không còn hợp lệ', hint: 'Không tìm thấy intent hoặc quote của intent không đủ mới' },
+    virtual_entry_expired: { label: 'Entry ảo không còn hợp lệ', hint: 'Quote không đủ mới hoặc vượt hạn canh' },
     invalid_htf_levels: { label: 'Mức HTF không hợp lệ', hint: 'Thiếu hoặc lỗi cấu trúc TP/SL' },
     quote_gap: { label: 'Mất nhịp giá', hint: 'Khoảng quote vượt quá 2 giây' },
     quote_stale: { label: 'Giá quá cũ', hint: 'Dữ liệu quote không đủ mới' },
     level_already_crossed: { label: 'Giá đã vượt mức chờ', hint: 'Không thể vào đuổi' },
     entry_expired: { label: 'Quá thời hạn chờ', hint: 'Hết thời gian canh nến' },
     worker_restart: { label: 'Worker khởi động lại', hint: 'Hủy canh để đảm bảo an toàn' },
-    preflight_failed: {
-      label: 'Không qua kiểm tra trước gửi',
-      hint: 'Bản ghi chưa lưu nguyên nhân chi tiết; chưa xác định kiểm tra nào đã chặn lệnh.',
-    },
+    preflight_failed: { label: 'Không qua kiểm tra trước gửi', hint: 'Bản ghi chưa lưu nguyên nhân chi tiết; chưa xác định kiểm tra nào đã chặn lệnh.' },
     trigger_preflight_failed: { label: 'Không qua kiểm tra trước gửi', hint: 'Chưa có thông tin chi tiết' },
     ambiguous_entry: { label: 'Không rõ nhánh chạm trước', hint: 'Dữ liệu không đủ xác định thứ tự kích hoạt' },
     capacity_unavailable: { label: 'Không đủ chỗ mở lệnh', hint: 'Giới hạn số vị thế đồng thời' },
@@ -107,251 +173,172 @@ export function ForexSignalLifecycle({
     const code = intent.reason_code || (intent.reason !== 'preflight_failed' ? intent.reason : null);
     const mapped = code ? reasonCatalog[code] : reasonCatalog[intent.reason];
     if (mapped) return { code: code || intent.reason, label: mapped.label, hint: mapped.hint, detail: intent.reason_detail };
-    return { code: code || intent.reason, label: 'Kiểm tra trước gửi không đạt', hint: 'Chưa có diễn giải cho mã này; xem chi tiết kỹ thuật.', detail: intent.reason_detail || code || intent.reason };
+    return {
+      code: code || intent.reason,
+      label: 'Kiểm tra trước gửi không đạt',
+      hint: 'Chưa có diễn giải cho mã này; xem chi tiết kỹ thuật.',
+      detail: intent.reason_detail || code || intent.reason,
+    };
   };
 
-  const closeDialog = () => setDetailId(null);
-
   return (
-    <>
-    <details
-      id="forex-signals"
-      className="forex-signal-lifecycle group/lifecycle min-w-0 border-y border-border-base bg-surface-1 text-xs text-text-secondary"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+    <dialog
+      ref={dialogRef}
+      aria-label="Danh sách vị thế và setup"
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onClick={(e) => {
+        if (e.target === dialogRef.current) onClose();
+      }}
+      className="forex-inspector fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-[min(560px,100vw)] max-w-none border-0 border-l border-border-active bg-surface-1 p-0 text-xs text-text-secondary shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm open:flex open:flex-col open:animate-in open:slide-in-from-right duration-300 motion-reduce:animate-none"
     >
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 select-none hover:bg-surface-2 transition-colors">
-        <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-3 text-text-secondary">
-          <Activity size={13} aria-hidden="true" />
-        </span>
-        <strong className="text-xs font-semibold text-text-primary">Setup trên chart</strong>
-        <span className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
-          {setups.length}
-        </span>
-        <span className="text-[11px] text-text-muted">{totalSignals} tín hiệu</span>
-        {waiting > 0 && <span className="text-[11px] text-amber-300">{waiting} canh broker</span>}
-        {shadowCount > 0 && <span className="text-[11px] text-sky-300">{shadowCount} mô phỏng</span>}
-        {unresolved > 0 && (
-          <span className="pair-intent is-uncertain inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-200 bg-amber-400/10 border border-amber-400/20">
-            {unresolved} cần đối soát
-          </span>
-        )}
-        {selected && (
-          <span className="signal-setup-selected text-xs font-medium text-sky-300">
-            Đang xem: {selected.side === 'long' ? 'Mua' : 'Bán'} · {formatTime(selected.time, true)}
-          </span>
-        )}
-        <span className="signal-lifecycle-disclosure ml-auto inline-flex items-center gap-1 text-xs font-medium text-text-muted group-hover/lifecycle:text-text-primary">
-          <span>Danh sách</span>
-          <ChevronDown
-            size={14}
-            className="transition-transform duration-200 group-open/lifecycle:rotate-180"
-            aria-hidden="true"
-          />
-        </span>
-      </summary>
-
-      <div className="signal-lifecycle-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-surface-2/30 px-3 py-2">
-        <div className="signal-lifecycle-filters flex flex-wrap items-center gap-1" role="group" aria-label="Lọc setup">
-          {(
-            [
-              ['pending', 'Đang canh / xử lý', pendingCount],
-              ['history', 'Lịch sử', setups.length - pendingCount],
-              ['all', 'Tất cả', setups.length],
-            ] as const
-          ).map(([value, label, count]) => (
+      <header className="flex shrink-0 items-center justify-between border-b border-border-base px-4 py-3">
+        <div className="flex items-center gap-2">
+          {detailedSetup ? (
             <button
+              ref={backRef}
               type="button"
-              key={value}
-              aria-pressed={filter === value}
-              onClick={() => setFilter(value)}
-              className={`inline-flex min-h-8 items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                filter === value
-                  ? 'border-sky-400/30 bg-sky-400/10 font-semibold text-sky-200'
-                  : 'border-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary'
-              }`}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+              onClick={() => setDetailedSetupId(null)}
             >
-              {label}
-              <span className="rounded bg-surface-3 px-1.5 font-mono text-[10px] text-text-secondary">
-                {count}
-              </span>
+              <ChevronLeft size={14} /> Quay lại
             </button>
-          ))}
+          ) : (
+            <div role="group" aria-label="Danh mục chart" className="flex items-center gap-1 rounded-lg border border-border-base bg-surface-2/60 p-0.5">
+              <button
+                type="button"
+                aria-pressed={tab === 'positions'}
+                onClick={() => onTabChange('positions')}
+                className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                  tab === 'positions' ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                Vị thế ({positions.length})
+              </button>
+              <button
+                type="button"
+                aria-pressed={tab === 'setups'}
+                onClick={() => onTabChange('setups')}
+                className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                  tab === 'setups' ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                Setup ({setups.length})
+              </button>
+            </div>
+          )}
         </div>
-        {selected && (
-          <button
-            type="button"
-            className="signal-lifecycle-clear-btn inline-flex items-center gap-1 rounded border-0 bg-transparent px-2 py-1 text-xs text-text-secondary hover:text-bear"
-            onClick={() => onSelect(null)}
-          >
-            <X size={12} aria-hidden="true" /> Bỏ chọn setup
-          </button>
-        )}
-      </div>
+        <button
+          ref={closeRef}
+          type="button"
+          aria-label="Đóng danh sách"
+          className="rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-primary"
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
+      </header>
 
-      <div
-        className="signal-lifecycle-list grid max-h-[260px] min-w-0 grid-cols-1 items-start gap-2 overflow-y-auto overscroll-y-contain px-3 py-2 sm:grid-cols-2 xl:grid-cols-3"
-        role="region"
-        aria-label={`Vòng đời tín hiệu ${symbol}`}
-        tabIndex={0}
-      >
-        {rows.map((setup) => {
-          const isSelected = setup.id === selectedId;
-          const mainIntent = setup.intents[0];
-          const execState = mainIntent ? entryLifecycle(mainIntent) : null;
-          const isSimulating = shadowPending(setup);
-          const sideVn = setup.side === 'long' ? 'MUA' : 'BÁN';
-          const v4Count = setup.signals.filter((signal) => signal.strategy.startsWith('hast4_')).length;
-          const v3Count = setup.signals.filter((signal) => !signal.strategy.startsWith('hast4_')).length;
-          const tagParts: string[] = [];
-          if (v4Count > 0) tagParts.push(`V4 ×${v4Count}`);
-          if (v3Count > 0) tagParts.push(`V3 ×${v3Count}`);
-          const fill = setup.intents.flatMap((intent) => intent.broker_fills ?? [])[0];
-          const reasonInfo = explainReason(mainIntent);
-
-          const execTone = !execState
-            ? 'border-border-subtle bg-surface-2 text-text-muted'
-            : execState.tone === 'filled'
-              ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300'
-              : execState.tone === 'waiting' || execState.tone === 'triggered'
-                ? 'border-amber-400/20 bg-amber-400/10 text-amber-300'
-                : execState.tone === 'uncertain'
-                  ? 'border-rose-400/20 bg-rose-400/10 text-rose-300'
-                  : 'border-border-subtle bg-surface-2 text-text-muted';
-
-          return (
-            <article
-              key={setup.id}
-              className={`signal-lifecycle-row is-interactive flex min-w-0 items-stretch rounded-lg border transition-colors ${
-                isSelected
-                  ? 'is-selected border-sky-400/60 bg-sky-400/5 ring-1 ring-sky-400/20'
-                  : 'border-border-base bg-canvas/40 hover:border-border-active hover:bg-surface-2'
-              }`}
-            >
-              <button
-                type="button"
-                className="signal-lifecycle-select flex min-w-0 flex-1 cursor-pointer flex-col gap-1 border-0 bg-transparent px-3 py-2 text-left text-inherit"
-                onClick={() => onSelect(isSelected ? null : setup.id)}
-                aria-pressed={isSelected}
-              >
-                <span className="flex min-w-0 items-center gap-2 text-xs">
-                  {isSelected && (
-                    <Check size={12} className="shrink-0 text-sky-300" aria-label="Đang xem trên chart" />
-                  )}
-                  <strong
-                    className={`rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide ${
-                      setup.side === 'long' ? 'positive bg-bull/15 text-bull' : 'negative bg-bear/15 text-bear'
-                    }`}
-                  >
-                    {sideVn}
-                  </strong>
-                  <span className="signal-setup-tags truncate font-mono text-text-muted">
-                    {tagParts.join(' · ')}
-                  </span>
-                  <time
-                    className="ml-auto shrink-0 font-mono text-[11px] text-text-muted tabular-nums"
-                    title={formatTime(setup.time, true)}
-                  >
-                    {formatTime(setup.time)}
-                  </time>
-                </span>
-
-                <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
-                  {execState ? (
-                    <span
-                      className={`pair-intent is-${execState.tone} shrink-0 rounded-md border px-1.5 py-0.5 font-medium ${execTone}`}
-                      title={execState.label}
-                    >
-                      {execState.short}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 rounded-md border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-medium text-text-muted">
-                      Ghi nhận
-                    </span>
-                  )}
-                  {v4Count > 0 && (
-                    <span className="shrink-0 rounded bg-sky-400/10 px-1.5 py-0.5 font-medium text-sky-300">
-                      Mô phỏng: {isSimulating ? 'Đang chạy' : 'Đã ghi nhận'}
-                    </span>
-                  )}
-                  {reasonInfo && (
-                    <span className="truncate text-amber-400/90" title={reasonInfo.hint}>
-                      {reasonInfo.label}
-                    </span>
-                  )}
-                  {fill && (
-                    <span className="truncate font-mono text-emerald-400">
-                      Fill @ {price(fill.price)}
-                    </span>
-                  )}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className="signal-lifecycle-detail-btn m-1.5 shrink-0 self-center rounded-md border border-border-base bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:border-border-active hover:text-text-primary"
-                onClick={(event) => {
-                  openerRef.current = event.currentTarget;
-                  setDetailId(setup.id);
-                }}
-              >
-                Chi tiết
-              </button>
-            </article>
-          );
-        })}
-
-        {!rows.length && (
-          <p className="signal-lifecycle-empty col-span-full m-0 rounded-lg border border-dashed border-border-base px-4 py-4 text-center text-xs text-text-muted">
-            {setups.length
-              ? 'Không có setup trong bộ lọc này. Chọn Lịch sử hoặc Tất cả để xem tín hiệu đã qua.'
-              : 'Chưa có tín hiệu ghi nhận hoặc setup canh giá trong dữ liệu hiện tại.'}
-          </p>
-        )}
-      </div>
-
-      <details className="signal-lifecycle-help border-t border-border-subtle px-3 py-2 text-[11px] text-text-muted [&_p]:mt-2 [&_p]:leading-relaxed">
-        <summary className="cursor-pointer font-medium select-none hover:text-text-primary">Hướng dẫn · trạng thái</summary>
-        <p>Chọn để xem trên chart · bấm lại để bỏ chọn. Bấm Chi tiết để xem timeline đầy đủ. Không gửi hay hủy lệnh.</p>
-        <p>Thực thi và mô phỏng là hai luồng độc lập. Mô phỏng không phải fill broker.</p>
-      </details>
-    </details>
-      <dialog
-        ref={dialogRef}
-        aria-label="Chi tiết setup"
-        onClose={closeDialog}
-        onClick={(event) => {
-          if (event.target === dialogRef.current) closeDialog();
-        }}
-        className="signal-drawer fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-[min(520px,100vw)] max-w-none border-0 border-l border-border-active bg-surface-1 p-0 text-xs text-text-secondary shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm open:flex open:flex-col open:animate-in open:slide-in-from-right duration-300 motion-reduce:animate-none"
-      >
-        {detail && (
-          <div className="flex h-full flex-col overflow-y-auto p-5">
-            <header className="flex items-center justify-between gap-2 border-b border-border-base pb-3">
+      <div ref={scrollRef} data-inspector-scroll onScroll={(event) => {
+        if (!detailedSetup) scrollPositions.current[tab] = event.currentTarget.scrollTop;
+      }} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain p-4">
+        {detailedSetup ? (
+          <article className="space-y-4">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border-base pb-3">
               <div className="flex items-center gap-2">
                 <strong
                   className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
-                    detail.side === 'long' ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'
+                    detailedSetup.side === 'long' ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'
                   }`}
                 >
-                  {detail.side === 'long' ? 'MUA' : 'BÁN'}
+                  {detailedSetup.side === 'long' ? 'MUA' : 'BÁN'}
                 </strong>
-                <span className="font-mono text-text-primary">
-                  {symbol} · {formatTime(detail.time, true)}
-                </span>
+                <span className="font-mono text-text-primary">{symbol} · {formatTime(detailedSetup.time, true)}</span>
               </div>
               <button
                 type="button"
-                autoFocus
-                aria-label="Đóng chi tiết"
-                className="rounded p-1 text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                onClick={closeDialog}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  detailedSetup.id === selectedSetupId
+                    ? 'border-sky-400/40 bg-sky-400/10 text-sky-200'
+                    : 'border-border-base bg-surface-2 text-text-primary hover:border-border-active'
+                }`}
+                onClick={() => {
+                  onSelectSetup(detailedSetup.id, v4Strategy);
+                  onClose();
+                }}
               >
-                <X size={16} />
+                {detailedSetup.id === selectedSetupId ? '✓ Đang hiển thị trên chart' : 'Xem trên chart'}
               </button>
             </header>
 
-            {detail.intents.map((intent) => {
+            {v4Signals.length > 0 && (
+              <section className="space-y-2 rounded-lg border border-border-base bg-surface-2/40 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-text-primary">Mức giá dự kiến V4</span>
+                  {v4Signals.length > 1 ? (
+                    <select
+                      aria-label="Chọn cây V4"
+                      className="rounded border border-border-active bg-surface-1 px-2 py-1 text-xs text-text-primary"
+                      value={v4Strategy}
+                      onChange={(event) => setPreviewStrategy(event.target.value)}
+                    >
+                      {v4Signals.map((s) => (
+                        <option key={s.strategy} value={s.strategy}>
+                          {s.strategy.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[s.status] ?? s.status}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="font-mono text-[11px] text-text-muted">
+                      {v4Strategy?.replace('hast4_', '#').slice(0, 10)} · {entryStateLabels[v4Signals[0]?.status] ?? v4Signals[0]?.status}
+                    </span>
+                  )}
+                </div>
+                <p className="m-0 text-[11px] text-text-muted">Giá dự kiến, không phải lệnh broker.</p>
+                {v4Chart ? (
+                  <>
+                    <p className="m-0 text-[11px] text-text-muted">
+                      Chụp {formatTime(v4Chart.available_at, true)} · Hạn canh {formatTime(v4Chart.expires_at, true)}
+                    </p>
+                    <ul className="m-0 grid grid-cols-2 gap-2 list-none p-0 font-mono">
+                      {v4Chart.row.chart?.levels.map((level) => {
+                        const label = level.label.split(' · ')[0];
+                        const tone = /SL/i.test(label)
+                          ? 'border-amber-400/30 text-amber-300'
+                          : /TP/i.test(label)
+                            ? 'border-teal-400/30 text-teal-300'
+                            : 'border-sky-400/30 text-sky-300';
+                        return (
+                          <li key={level.label} className={`flex flex-col rounded-md border bg-surface-1 px-2 py-1 ${tone}`}>
+                            <span className="text-[10px] uppercase tracking-wide">{label}</span>
+                            <strong className="text-sm text-text-primary tabular-nums">{level.price.toFixed(priceDigits(symbol))}</strong>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="m-0 text-[11px]">{v4Error || 'Đang tải snapshot tín hiệu đã chọn…'}</p>
+                )}
+              </section>
+            )}
+
+            {!hasCandle(detailedSetup.time) && (
+              <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5 text-xs text-amber-200">
+                <p className="m-0">Nến của setup đã chọn chưa có trong dữ liệu chart.</p>
+                {hasMoreCandles && (
+                  <button
+                    type="button"
+                    disabled={loadingOlder}
+                    onClick={onLoadOlder}
+                    className="mt-1.5 rounded border border-amber-400/40 bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100"
+                  >
+                    Thêm lịch sử nến
+                  </button>
+                )}
+              </div>
+            )}
+
+            {detailedSetup.intents.map((intent) => {
               const fills = intent.broker_fills ?? [];
               const steps: [string, string | null][] = [
                 ['Tín hiệu', intent.available_at != null ? formatTime(intent.available_at, true) : null],
@@ -366,30 +353,30 @@ export function ForexSignalLifecycle({
                 [
                   'Khớp',
                   fills.length
-                    ? fills.map((fill) => `#${fill.position_id} @ ${price(fill.price)}`).join(', ') + ' · Không có thời gian ghi nhận'
+                    ? fills.map((f) => `#${f.position_id} @ ${price(f.price)}`).join(', ') + ' · Không có thời gian ghi nhận'
                     : null,
                 ],
                 ['Kết thúc', intent.ended_at != null ? formatTime(intent.ended_at, true) : null],
               ];
 
+              const r = explainReason(intent);
+
               return (
-                <section key={intent.id} className="mt-4 space-y-3">
+                <section key={intent.id} className="space-y-3 rounded-lg border border-border-base bg-surface-2/30 p-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md border border-border-base bg-surface-2 px-2 py-0.5 font-medium text-text-primary">
                       Thực thi: {entryLifecycle(intent).label}
                     </span>
                   </div>
-                  {(() => {
-                    const r = explainReason(intent);
-                    if (!r) return null;
-                    return (
-                      <div className="rounded-md border border-amber-400/20 bg-amber-400/10 p-2 text-amber-200">
-                        <div className="font-semibold">{r.label}</div>
-                        <div className="text-[11px] text-amber-300/80">{r.hint}</div>
-                        {r.detail && r.detail !== r.label && <div className="mt-1 font-mono text-[10px] text-amber-400/70 break-all">{r.detail}</div>}
-                      </div>
-                    );
-                  })()}
+                  {r && (
+                    <div className="rounded-md border border-amber-400/20 bg-amber-400/10 p-2 text-amber-200">
+                      <div className="font-semibold">{r.label}</div>
+                      <div className="text-[11px] text-amber-300/80">{r.hint}</div>
+                      {r.detail && r.detail !== r.label && (
+                        <div className="mt-1 break-all font-mono text-[10px] text-amber-400/70">{r.detail}</div>
+                      )}
+                    </div>
+                  )}
                   <dl className="grid grid-cols-2 gap-2 font-mono tabular-nums">
                     <div className="rounded-md bg-sky-400/10 p-2">
                       <dt className="text-[10px] text-sky-300">LIMIT</dt>
@@ -399,55 +386,249 @@ export function ForexSignalLifecycle({
                       <dt className="text-[10px] text-sky-300">STOP</dt>
                       <dd className="m-0 text-sm font-semibold text-text-primary">{price(intent.stop_price)}</dd>
                     </div>
-                    <div className="rounded-md bg-amber-400/10 p-2"><dt className="text-amber-300">SL dự kiến</dt><dd className="m-0">{price(intent.signal?.stop)}</dd></div>
-                    <div className="rounded-md bg-teal-400/10 p-2"><dt className="text-teal-300">TP dự kiến</dt><dd className="m-0">{price(intent.signal?.target)}</dd></div>
+                    <div className="rounded-md bg-amber-400/10 p-2">
+                      <dt className="text-amber-300">SL dự kiến</dt>
+                      <dd className="m-0">{price(intent.signal?.stop)}</dd>
+                    </div>
+                    <div className="rounded-md bg-teal-400/10 p-2">
+                      <dt className="text-teal-300">TP dự kiến</dt>
+                      <dd className="m-0">{price(intent.signal?.target)}</dd>
+                    </div>
                   </dl>
-                  <p>Nhánh kích hoạt: {intent.winner?.toUpperCase() ?? 'Chưa ghi nhận'} · Hạn canh: {intent.expires_at ? formatTime(intent.expires_at, true) : 'Không có thời gian ghi nhận'}</p>
+                  <p className="m-0 text-[11px] text-text-muted">
+                    Nhánh kích hoạt: {intent.winner?.toUpperCase() ?? 'Chưa ghi nhận'} · Hạn canh:{' '}
+                    {intent.expires_at ? formatTime(intent.expires_at, true) : 'Không có thời gian ghi nhận'}
+                  </p>
                   <ol className="m-0 list-none space-y-1.5 p-0">
                     {steps.map(([label, info]) => (
                       <li
                         key={label}
                         className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${
-                          info
-                            ? 'border-emerald-800/40 bg-emerald-950/40 text-emerald-300'
-                            : 'border-border-subtle text-text-muted'
+                          info ? 'border-emerald-800/40 bg-emerald-950/40 text-emerald-300' : 'border-border-subtle text-text-muted'
                         }`}
                       >
                         <span className="w-20 shrink-0 font-medium">{label}</span>
-                        <span className="min-w-0 break-words font-mono">{info ?? (label === 'Gửi broker' ? 'Chưa có xác nhận gửi' : label === 'Khớp' ? 'Chưa có fill xác nhận' : 'Không có thời gian ghi nhận')}</span>
+                        <span className="min-w-0 break-words font-mono">
+                          {info ??
+                            (label === 'Gửi broker'
+                              ? 'Chưa có xác nhận gửi'
+                              : label === 'Khớp'
+                                ? 'Chưa có fill xác nhận'
+                                : 'Không có thời gian ghi nhận')}
+                        </span>
                       </li>
                     ))}
                   </ol>
-                  <p className="m-0 break-all font-mono text-[11px] text-text-muted" title={intent.reason ?? undefined}>
-                    {intent.strategy}
-                    {intent.reason ? ` · ${intent.reason}` : ''}
-                  </p>
                 </section>
               );
             })}
 
-            {!detail.intents.length && (
-              <p className="mt-4 text-text-muted">
-                {shadowPending(detail)
-                  ? 'V4 đang chạy mô phỏng đối chiếu · mức giá và trạng thái xem tại thanh snapshot sát chart; không gửi lệnh broker.'
+            {!detailedSetup.intents.length && (
+              <p className="text-text-muted">
+                {shadowPending(detailedSetup)
+                  ? 'V4 đang chạy mô phỏng đối chiếu · mức giá và trạng thái hiển thị bên trên; không gửi lệnh broker.'
                   : 'Chỉ ghi nhận tín hiệu · chưa có lệnh canh giá tương ứng; không phải fill broker.'}
               </p>
             )}
 
-            <section className="mt-4 border-t border-border-base pt-3">
-              <h4 className="m-0 mb-2 font-semibold text-text-primary">Cây ghi nhận ({detail.signals.length})</h4>
+            <section className="border-t border-border-base pt-3">
+              <h4 className="m-0 mb-2 font-semibold text-text-primary">Cây ghi nhận ({detailedSetup.signals.length})</h4>
               <ul className="m-0 list-none space-y-1 p-0 font-mono text-[11px]">
-                {detail.signals.map((signal) => (
-                  <li key={`${signal.strategy}${signal.available_at}`} className="break-all text-text-secondary">
-                    {signal.strategy} · {signal.strategy.startsWith('hast4_') ? 'Mô phỏng' : 'Tín hiệu'}: {({ waiting: 'Chờ kích hoạt', pending: 'Chờ xử lý', open: 'Đang mở', resolved: 'Hoàn tất', excluded: 'Đã loại', ambiguous: 'Chưa xác định', recorded: 'Đã ghi nhận' } as Record<string, string>)[signal.status] ?? signal.status}
+                {detailedSetup.signals.map((sig) => (
+                  <li key={`${sig.strategy}${sig.available_at}`} className="break-all text-text-secondary">
+                    {sig.strategy} · {sig.strategy.startsWith('hast4_') ? 'Mô phỏng' : 'Tín hiệu'}: {entryStateLabels[sig.status] ?? sig.status}
                   </li>
                 ))}
               </ul>
             </section>
+          </article>
+        ) : tab === 'positions' ? (
+          <div className="space-y-2" role="group" aria-label="Danh sách vị thế broker">
+            {!positions.length && (
+              <p className="rounded-lg border border-dashed border-border-base p-6 text-center text-text-muted">
+                Không có ticket phù hợp trong dữ liệu chart hiện tại.
+              </p>
+            )}
+            {positions.map((pos) => {
+              const selected = pos.position_id === selectedPositionId;
+              const pnl = pos.status === 'closed' ? pos.pnl : pnlOf(pos);
+              const closed = pos.status === 'closed';
+              const roleLabel = ticketRole(pos);
+              const tone = !closed
+                ? 'border-border-base bg-surface-1'
+                : pos.take_profit_filled
+                  ? 'border-bull/40 bg-bull/10'
+                  : pos.close_reason === 'stop_loss'
+                    ? 'border-bear/40 bg-bear/5'
+                    : 'border-amber-400/40 bg-amber-400/5';
+              return (
+                <div data-item-id={pos.position_id} key={pos.position_id}>
+                <button
+                  type="button"
+                  className={`broker-position-chip flex w-full flex-col gap-2 rounded-lg border p-3 text-left transition-colors hover:border-border-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tone} ${
+                    selected ? 'ring-2 ring-sky-400/60' : ''
+                  }`}
+                  aria-pressed={selected}
+                  aria-label={`Chọn ticket #${pos.position_id} · ${roleLabel}`}
+                  onClick={() => {
+                    if (!selected) onSelectPosition(pos.position_id);
+                    onClose();
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                        pos.side === 'buy' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'
+                      }`}
+                    >
+                      {pos.side?.toUpperCase() ?? '—'}
+                    </span>
+                    <span className="font-mono text-sm font-semibold text-text-primary">#{pos.position_id}</span>
+                    <span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-secondary">{roleLabel}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-text-muted">{closed ? 'Đã đóng hết' : `${pos.remaining_volume ?? pos.volume ?? '—'} lot`}</span>
+                    <strong
+                      className={`font-mono text-sm tabular-nums ${
+                        pnl == null ? 'text-text-muted' : pnl >= 0 ? 'text-bull' : 'text-bear'
+                      }`}
+                    >
+                      {pnl == null ? '— USD' : `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`}
+                    </strong>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span
+                      className={`rounded px-1.5 py-0.5 font-medium ${
+                        closed
+                          ? pos.take_profit_filled
+                            ? 'bg-bull/15 text-bull'
+                            : pos.close_reason === 'stop_loss'
+                              ? 'bg-bear/10 text-bear'
+                              : 'bg-amber-400/10 text-amber-300'
+                          : 'bg-surface-3 text-text-secondary'
+                      }`}
+                    >
+                      {ticketStatus(pos)}
+                    </span>
+                    {selected && <span className="font-semibold text-sky-300">✓ Đang hiển thị trên chart</span>}
+                  </div>
+                  <span className="text-[11px] text-text-muted">{closed ? 'P&L đã chốt · chưa phí/swap' : 'P&L thả nổi ước tính'}</span>
+                </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-3" role="region" aria-label={`Vòng đời tín hiệu ${symbol}`}>
+            <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Lọc setup">
+              {(
+                [
+                  ['pending', 'Đang canh / xử lý', pendingSetupCount],
+                  ['history', 'Lịch sử', setups.length - pendingSetupCount],
+                  ['all', 'Tất cả', setups.length],
+                ] as const
+              ).map(([val, label, count]) => (
+                <button
+                  type="button"
+                  key={val}
+                  aria-pressed={setupFilter === val}
+                  onClick={() => setSetupFilter(val)}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    setupFilter === val
+                      ? 'border-sky-400/30 bg-sky-400/10 font-semibold text-sky-200'
+                      : 'border-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary'
+                  }`}
+                >
+                  {label}
+                  <span className="rounded bg-surface-3 px-1.5 font-mono text-[10px] text-text-secondary">{count}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              {!filteredSetups.length && (
+                <p className="rounded-lg border border-dashed border-border-base p-6 text-center text-text-muted">
+                  Không có setup nào trong bộ lọc này.
+                </p>
+              )}
+              {filteredSetups.map((setup) => {
+                const isSelected = setup.id === selectedSetupId;
+                const mainIntent = setup.intents[0];
+                const execState = mainIntent ? entryLifecycle(mainIntent) : null;
+                const isSimulating = shadowPending(setup);
+                const sideVn = setup.side === 'long' ? 'MUA' : 'BÁN';
+                const v4Count = setup.signals.filter((s) => s.strategy.startsWith('hast4_')).length;
+                const v3Count = setup.signals.filter((s) => !s.strategy.startsWith('hast4_')).length;
+                const tagParts: string[] = [];
+                if (v4Count > 0) tagParts.push(`V4 ×${v4Count}`);
+                if (v3Count > 0) tagParts.push(`V3 ×${v3Count}`);
+                const r = explainReason(mainIntent);
+
+                return (
+                  <article
+                    key={setup.id}
+                    data-item-id={setup.id}
+                    className={`signal-lifecycle-row flex min-w-0 items-stretch rounded-lg border transition-colors ${
+                      isSelected
+                        ? 'is-selected border-sky-400/60 bg-sky-400/5 ring-1 ring-sky-400/20'
+                        : 'border-border-base bg-canvas/40 hover:border-border-active hover:bg-surface-2'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="signal-lifecycle-select flex min-w-0 flex-1 flex-col gap-1.5 p-3 text-left"
+                      onClick={() => {
+                        if (!isSelected) onSelectSetup(setup.id);
+                        onClose();
+                      }}
+                      aria-pressed={isSelected}
+                    >
+                      <div className="flex min-w-0 items-center gap-2 text-xs">
+                        {isSelected && <Check size={14} className="text-sky-300" />}
+                        <strong
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
+                            setup.side === 'long' ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'
+                          }`}
+                        >
+                          {sideVn}
+                        </strong>
+                        <span className="truncate font-mono text-text-muted">{tagParts.join(' · ')}</span>
+                        <time className="ml-auto shrink-0 font-mono text-[11px] text-text-muted tabular-nums">
+                          {formatTime(setup.time)}
+                        </time>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        {execState ? (
+                          <span className="rounded-md border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-medium text-text-secondary">
+                            Thực thi: {execState.short}
+                          </span>
+                        ) : (
+                          <span className="rounded-md border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-text-muted">
+                            Ghi nhận
+                          </span>
+                        )}
+                        {v4Count > 0 && (
+                          <span className="rounded bg-sky-400/10 px-1.5 py-0.5 font-medium text-sky-300">
+                            Mô phỏng: {isSimulating ? 'Đang chạy' : 'Đã ghi nhận'}
+                          </span>
+                        )}
+                        {r && <span className="truncate text-amber-400/90">{r.label}</span>}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="signal-lifecycle-detail-btn m-2 shrink-0 self-center rounded-md border border-border-base bg-surface-2 px-2.5 py-1 text-xs text-text-secondary hover:border-border-active hover:text-text-primary"
+                      onClick={(event) => { detailTrigger.current = event.currentTarget; setPreviewStrategy(setup.id === selectedSetupId ? selectedV4Strategy ?? '' : ''); setDetailedSetupId(setup.id); }}
+                    >
+                      Chi tiết
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
           </div>
         )}
-      </dialog>
-
-    </>
+      </div>
+    </dialog>
   );
 }
