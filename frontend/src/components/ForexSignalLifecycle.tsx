@@ -331,7 +331,7 @@ export function ForexSignalLifecycle({
               const statusTone = lifecycle.tone === 'filled' ? 'border-bull/30 bg-bull/10 text-bull' : lifecycle.tone === 'cancelled' ? 'border-border-active bg-surface-2 text-text-secondary' : lifecycle.tone === 'uncertain' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-sky-400/30 bg-sky-400/10 text-sky-200';
 
               return (
-                <section key={intent.id} className="space-y-3 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Kết quả thực thi">
+                <section key={intent.id} className="flex flex-col gap-3.5 rounded-lg border border-border-base bg-surface-2/40 p-3.5" aria-label="Kết quả thực thi">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h4 className="m-0 text-sm font-semibold text-text-primary">Kết quả thực thi</h4>
@@ -346,18 +346,20 @@ export function ForexSignalLifecycle({
                       {r.detail && r.detail !== r.label && <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>}
                     </div>
                   )}
-                  <dl className="m-0 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3 [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
-                    <div><dt>Nhánh</dt><dd>{intent.winner?.toUpperCase() ?? 'Chưa kích hoạt'}</dd></div>
-                    <div><dt>Hạn canh</dt><dd>{intent.expires_at ? formatTime(intent.expires_at, true) : 'Không ghi nhận'}</dd></div>
-                    <div className="col-span-2 sm:col-span-1"><dt>Broker</dt><dd>{fills.length ? `${fills.length} fill` : 'Chưa xác nhận gửi/khớp'}</dd></div>
-                  </dl>
-                  <ol className="m-0 list-none space-y-0 p-0" aria-label="Dòng thời gian thực thi">
+                  <div className="rounded-md border border-border-subtle bg-surface-1 p-2.5">
+                    <dl className="m-0 grid grid-cols-1 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-3 [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
+                      <div><dt className="text-[10px] uppercase tracking-wide">Nhánh</dt><dd className="break-words">{intent.winner?.toUpperCase() ?? 'Chưa kích hoạt'}</dd></div>
+                      <div><dt className="text-[10px] uppercase tracking-wide">Hạn canh</dt><dd className="break-words">{intent.expires_at ? formatTime(intent.expires_at, true) : 'Không ghi nhận'}</dd></div>
+                      <div><dt className="text-[10px] uppercase tracking-wide">Broker</dt><dd className="break-words">{fills.length ? `${fills.length} fill` : 'Chưa xác nhận gửi/khớp'}</dd></div>
+                    </dl>
+                  </div>
+                  <ol className="m-0 list-none space-y-2.5 p-0 pt-1" aria-label="Dòng thời gian thực thi">
                     {steps.map((step, index) => (
-                      <li key={step.label} className="relative grid grid-cols-[16px_76px_minmax(0,1fr)] gap-2 pb-3 last:pb-0">
-                        {index < steps.length - 1 && <span className="absolute top-3 left-[5px] h-full w-px bg-border-base" aria-hidden="true" />}
-                        <span className={`relative mt-1 size-3 rounded-full border ${!step.value ? 'border-border-active bg-surface-1' : step.tone === 'end' ? 'border-text-muted bg-surface-3' : 'border-emerald-400 bg-emerald-400/30'}`} aria-hidden="true" />
-                        <span className={step.value ? 'font-medium text-text-primary' : 'text-text-muted'}>{step.label}</span>
-                        <span className={`min-w-0 break-words font-mono ${step.value ? 'text-text-secondary' : 'text-text-muted'}`}>
+                      <li key={step.label} className="relative grid grid-cols-[14px_88px_minmax(0,1fr)] items-baseline gap-x-3 gap-y-0.5">
+                        {index < steps.length - 1 && <span className="absolute top-2.5 left-[4.5px] h-[calc(100%+10px)] w-px bg-border-base" aria-hidden="true" />}
+                        <span className={`relative self-center size-2.5 rounded-full border ${!step.value ? 'border-border-active bg-surface-1' : step.tone === 'end' ? 'border-text-muted bg-surface-3' : 'border-emerald-400 bg-emerald-400/40'}`} aria-hidden="true" />
+                        <span className={`text-xs ${step.value ? 'font-medium text-text-primary' : 'text-text-muted'}`}>{step.label}</span>
+                        <span className={`min-w-0 break-words font-mono text-xs ${step.value ? 'text-text-secondary' : 'text-text-muted'}`}>
                           {step.value ?? (step.label === 'Gửi broker' ? 'Chưa có xác nhận gửi' : step.label === 'Khớp' ? 'Chưa có fill xác nhận' : 'Không có thời gian ghi nhận')}
                         </span>
                       </li>
@@ -368,7 +370,7 @@ export function ForexSignalLifecycle({
             })}
 
             {priceStrategies.length > 0 && (
-              <section className="space-y-3 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Kế hoạch giá V4">
+              <section className="flex flex-col gap-3 rounded-lg border border-border-base bg-surface-2/40 p-3.5" aria-label="Kế hoạch giá V4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="m-0 text-sm font-semibold text-text-primary">Kế hoạch giá{v4Strategy ? ' V4' : ''}</h4>
@@ -397,9 +399,9 @@ export function ForexSignalLifecycle({
                 {v4Error && <p role="status" className="m-0 text-[11px] text-amber-200">{v4Error}{priceIntent ? ' · Hiển thị mức giá canh đã lưu thay thế.' : ''}</p>}
                 {priceLevels.length ? (
                   <>
-                    <dl className="m-0 grid grid-cols-2 gap-2 rounded-md bg-surface-1 p-2 text-[11px] [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
-                      <div><dt>{v4Chart ? 'Chụp tín hiệu' : 'Canh giá đã lưu'}</dt><dd>{(v4Chart?.available_at ?? priceIntent?.available_at) != null ? formatTime((v4Chart?.available_at ?? priceIntent?.available_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
-                      <div><dt>Hạn canh</dt><dd>{(v4Chart?.expires_at ?? priceIntent?.expires_at) != null ? formatTime((v4Chart?.expires_at ?? priceIntent?.expires_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
+                    <dl className="m-0 grid grid-cols-1 gap-x-4 gap-y-2 rounded-md border border-border-subtle bg-surface-1 p-2.5 text-[11px] sm:grid-cols-2 [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
+                      <div><dt className="text-[10px] uppercase tracking-wide">{v4Chart ? 'Chụp tín hiệu' : 'Canh giá đã lưu'}</dt><dd className="break-words">{(v4Chart?.available_at ?? priceIntent?.available_at) != null ? formatTime((v4Chart?.available_at ?? priceIntent?.available_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
+                      <div><dt className="text-[10px] uppercase tracking-wide">Hạn canh</dt><dd className="break-words">{(v4Chart?.expires_at ?? priceIntent?.expires_at) != null ? formatTime((v4Chart?.expires_at ?? priceIntent?.expires_at)!, true) : 'Không có thời gian ghi nhận'}</dd></div>
                     </dl>
                     <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0 font-mono">
                       {priceLevels.map((level) => {
@@ -424,7 +426,7 @@ export function ForexSignalLifecycle({
               </section>
             )}
 
-            <section className="space-y-2 rounded-lg border border-border-base bg-surface-2/40 p-3" aria-label="Chỉ báo và mức giá setup">
+            <section className="flex flex-col gap-3 rounded-lg border border-border-base bg-surface-2/40 p-3.5" aria-label="Chỉ báo và mức giá setup">
               <div>
                 <h4 className="m-0 text-sm font-semibold text-text-primary">Bối cảnh tín hiệu</h4>
                 <p className="m-0 mt-0.5 text-[11px] text-text-muted">Điều kiện cây dùng khi chụp tín hiệu.</p>
@@ -435,20 +437,22 @@ export function ForexSignalLifecycle({
                 const overlay = row?.chart?.overlays;
                 const indicators = overlay ? [...new Set(overlay.lines.map((line) => line.label)), ...overlay.notes] : [];
                 return (
-                  <article key={strategy} className="min-w-0 space-y-2 rounded-md border border-border-subtle bg-surface-1 p-2.5 text-[11px]">
-                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                      <strong className="min-w-0 break-words text-text-primary">{treeLabel(row, strategy).full}</strong>
-                      <span className="font-mono text-[10px] text-text-muted">{chartTreeTag(row, strategy)}</span>
-                      <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-muted">{isSnapshot ? 'Snapshot' : 'Dữ liệu hiện tại'}</span>
+                  <article key={strategy} className="min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3 text-[11px]">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <strong className="block break-words text-xs text-text-primary">{treeLabel(row, strategy).full}</strong>
+                        <span className="mt-0.5 block font-mono text-[10px] text-text-muted">{chartTreeTag(row, strategy)}</span>
+                      </div>
+                      <span className="shrink-0 rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-muted">{isSnapshot ? 'Snapshot' : 'Dữ liệu hiện tại'}</span>
                     </div>
                     <p className="m-0 text-text-muted">{isSnapshot ? 'Snapshot của tín hiệu đang xem' : 'Dữ liệu cây hiện tại · không phải snapshot lịch sử'}</p>
                     {indicators.length ? (
-                      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Chỉ báo">
-                        {indicators.map((item) => <li key={item} className="max-w-full break-words rounded border border-border-base bg-surface-2 px-1.5 py-0.5 text-text-secondary">{item}</li>)}
+                      <ul className="m-0 flex list-none flex-wrap gap-2 p-0" aria-label="Chỉ báo">
+                        {indicators.map((item) => <li key={item} className="max-w-full break-words rounded border border-border-base bg-surface-2 px-2 py-1 text-text-secondary">{item}</li>)}
                       </ul>
                     ) : <p className="m-0 text-text-muted">Chưa có dữ liệu chỉ báo của cây</p>}
                     {[row?.captured_zone, row?.zone].map((zone, index) => zone && (
-                      <dl key={index} className="m-0 grid grid-cols-[88px_minmax(0,1fr)] gap-x-2 gap-y-1 border-t border-border-subtle pt-2 [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-text-secondary [&_dt]:text-text-muted">
+                      <dl key={index} className="m-0 grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t border-border-subtle pt-3 [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-text-secondary [&_dt]:text-text-muted">
                         <dt>{index === 0 ? 'Đã chụp' : 'Hiện tại'}</dt><dd>{zone.family} · {zone.side === 'long' ? 'LONG' : 'SHORT'}</dd>
                         {zone.target_reason && <><dt>Mục tiêu</dt><dd>{zone.target_reason}</dd></>}
                       </dl>
