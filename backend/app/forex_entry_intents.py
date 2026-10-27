@@ -168,12 +168,16 @@ def cancel_waiting(session, account, reason, now, symbol=None):
 
 def execute_trigger(api, identifier, symbol):
     from .exness_execution import execution_tick
+    outcome = None
     try:
-        execution_tick(api, entry_request=(identifier, symbol))
+        outcome = execution_tick(api, entry_request=(identifier, symbol))
+    except Exception as exc:
+        outcome = f"execution_error: {type(exc).__name__}"
+        raise
     finally:
-        reconcile_intents(api.account_id, time.time(), identifier=identifier)
+        reconcile_intents(api.account_id, time.time(), identifier=identifier, outcome=outcome)
 
-def reconcile_intents(account, now, *, identifier=None, restart=False):
+def reconcile_intents(account, now, *, identifier=None, restart=False, outcome=None):
     from .db import ExnessDeal, ExnessExecutionTrade, Session
     with Session.begin() as session:
         lock_account(session, account)
@@ -218,6 +222,9 @@ def reconcile_intents(account, now, *, identifier=None, restart=False):
                 status = "cancelled"
                 row.snapshot = {**row.snapshot, "reason": "worker_restart" if restart else "trigger_preflight_failed",
                                 "ended_at": now}
+                if outcome and not restart:
+                    row.snapshot = {**row.snapshot, "reason_code": str(outcome).split(":", 1)[0].strip()[:80],
+                                    "reason_detail": str(outcome)[:200]}
             row.status = status
             row.snapshot = {**row.snapshot, "status": status}
 

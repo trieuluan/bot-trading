@@ -165,7 +165,24 @@ export function ForexSignalLifecycle({
     entry_expired: { label: 'Quá thời hạn chờ', hint: 'Hết thời gian canh nến' },
     worker_restart: { label: 'Worker khởi động lại', hint: 'Hủy canh để đảm bảo an toàn' },
     preflight_failed: { label: 'Không qua kiểm tra trước gửi', hint: 'Bản ghi chưa lưu nguyên nhân chi tiết; chưa xác định kiểm tra nào đã chặn lệnh.' },
-    trigger_preflight_failed: { label: 'Không qua kiểm tra trước gửi', hint: 'Chưa có thông tin chi tiết' },
+    trigger_preflight_failed: { label: 'Canh giá đã hủy; thiếu lý do chi tiết', hint: 'Bản ghi chưa lưu kết quả executor. Chưa có xác nhận gửi broker; không suy diễn nguyên nhân.' },
+    history_catching_up: { label: 'Đang đồng bộ lịch sử', hint: 'Executor chờ đồng bộ xong lịch sử giao dịch trước khi gửi lệnh.' },
+    executor_active: { label: 'Executor đang bận', hint: 'Một tác vụ khác đang giữ khóa thực thi nên hủy để tránh gửi trùng.' },
+    calibration_or_executor_active: { label: 'Executor đang bận', hint: 'Đang hiệu chỉnh hoặc thực thi tác vụ khác nên hủy để tránh gửi trùng.' },
+    session_close_near: { label: 'Gần giờ đóng phiên', hint: 'Không mở lệnh mới sát giờ thị trường nghỉ.' },
+    unverified_virtual_entry: { label: 'Không xác minh được entry ảo', hint: 'Quote hoặc dữ liệu setup không khớp bản ghi khi kích hoạt.' },
+    position_active: { label: 'Đã có vị thế đang mở', hint: 'Giới hạn vị thế hiện tại chưa cho phép mở thêm lệnh.' },
+    costs_unverified: { label: 'Chi phí chưa xác thực', hint: 'Spread, phí hoặc thông số sàn chưa đủ mới.' },
+    reconciling: { label: 'Đang đối soát lệnh trước đó', hint: 'Có lệnh chưa rõ trạng thái nên không gửi thêm.' },
+    paused: { label: 'Thực thi đang tạm dừng', hint: 'Bot không gửi lệnh mới khi đang tạm dừng.' },
+    disabled: { label: 'Thực thi đang tắt', hint: 'Cấu hình hiện tại không cho phép executor chạy.' },
+    waiting_signal: { label: 'Chưa có tín hiệu đủ điều kiện gửi', hint: 'Executor không nhận được tín hiệu đã xác nhận phù hợp.' },
+    position_capacity_for_split: { label: 'Không đủ chỗ cho các nhánh lệnh', hint: 'Số vị thế còn trống không đủ cho kế hoạch chia lệnh.' },
+    symbol_disabled: { label: 'Cặp tiền không được bật', hint: 'Cặp tiền không nằm trong danh sách thực thi.' },
+    shadow_only_signal: { label: 'Tín hiệu chỉ mô phỏng', hint: 'Tín hiệu không được phép gửi lệnh thật.' },
+    entry_pilot_disabled: { label: 'Pilot entry đang tắt', hint: 'Cấu hình thực thi entry ảo đang tắt.' },
+    v2_execution_disabled: { label: 'Thực thi HTF đang tắt', hint: 'Cấu hình thực thi HTF hoặc demo đang tắt.' },
+    execution_error: { label: 'Executor gặp lỗi', hint: 'Lỗi xảy ra trước khi xác nhận gửi lệnh.' },
     ambiguous_entry: { label: 'Không rõ nhánh chạm trước', hint: 'Dữ liệu không đủ xác định thứ tự kích hoạt' },
     capacity_unavailable: { label: 'Không đủ chỗ mở lệnh', hint: 'Giới hạn số vị thế đồng thời' },
     invalidated: { label: 'Setup mất hiệu lực', hint: 'Cấu trúc thị trường đã thay đổi' },
@@ -173,7 +190,7 @@ export function ForexSignalLifecycle({
 
   const explainReason = (intent?: ForexEntryIntent | null) => {
     if (!intent?.reason) return null;
-    const code = intent.reason_code || (intent.reason !== 'preflight_failed' ? intent.reason : null);
+    const code = intent.reason_code || (!['preflight_failed', 'trigger_preflight_failed'].includes(intent.reason) ? intent.reason : null);
     const mapped = code ? reasonCatalog[code] : reasonCatalog[intent.reason];
     if (mapped) return { code: code || intent.reason, label: mapped.label, hint: mapped.hint, detail: intent.reason_detail };
     return {
@@ -395,32 +412,24 @@ export function ForexSignalLifecycle({
                     </span>
                   </div>
                   {r && (
-                    <div className="rounded-md border border-amber-400/20 bg-amber-400/10 p-2 text-amber-200">
-                      <div className="font-semibold">{r.label}</div>
-                      <div className="text-[11px] text-amber-300/80">{r.hint}</div>
+                    <div className="rounded-md border border-border-active bg-surface-2 p-2.5 text-text-secondary">
+                      <div className="font-semibold text-text-primary">{r.label}</div>
+                      <div className="mt-0.5 text-[11px] text-text-muted">{r.hint}</div>
                       {r.detail && r.detail !== r.label && (
-                        <div className="mt-1 break-all font-mono text-[10px] text-amber-400/70">{r.detail}</div>
+                        <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>
                       )}
                     </div>
                   )}
-                  <dl className="grid grid-cols-2 gap-2 font-mono tabular-nums">
-                    <div className="rounded-md bg-sky-400/10 p-2">
-                      <dt className="text-[10px] text-sky-300">LIMIT</dt>
-                      <dd className="m-0 text-sm font-semibold text-text-primary">{price(intent.limit_price)}</dd>
-                    </div>
-                    <div className="rounded-md bg-sky-400/10 p-2">
-                      <dt className="text-[10px] text-sky-300">STOP</dt>
-                      <dd className="m-0 text-sm font-semibold text-text-primary">{price(intent.stop_price)}</dd>
-                    </div>
-                    <div className="rounded-md bg-amber-400/10 p-2">
-                      <dt className="text-amber-300">SL dự kiến</dt>
-                      <dd className="m-0">{price(intent.signal?.stop)}</dd>
-                    </div>
-                    <div className="rounded-md bg-teal-400/10 p-2">
-                      <dt className="text-teal-300">TP dự kiến</dt>
-                      <dd className="m-0">{price(intent.signal?.target)}</dd>
-                    </div>
-                  </dl>
+                  <details className="rounded-md border border-border-subtle p-2">
+                    <summary className="cursor-pointer rounded text-[11px] focus-visible:outline-2 focus-visible:outline-sky-400">Mức giá canh đã lưu · {intent.strategy}</summary>
+                    <p className="my-2 text-[11px] text-text-muted">Giá dự kiến trong bản ghi thực thi, không phải giá khớp broker.</p>
+                    <dl className="m-0 grid grid-cols-2 gap-2 font-mono tabular-nums [&_dd]:m-0 [&_dd]:break-words [&_dt]:text-[10px] [&_dt]:text-text-muted">
+                      <div><dt>LIMIT ảo</dt><dd>{price(intent.limit_price)}</dd></div>
+                      <div><dt>STOP ENTRY ảo</dt><dd>{price(intent.stop_price)}</dd></div>
+                      <div><dt>SL dự kiến</dt><dd>{price(intent.signal?.stop)}</dd></div>
+                      <div><dt>TP dự kiến</dt><dd>{price(intent.signal?.target)}</dd></div>
+                    </dl>
+                  </details>
                   <p className="m-0 text-[11px] text-text-muted">
                     Nhánh kích hoạt: {intent.winner?.toUpperCase() ?? 'Chưa ghi nhận'} · Hạn canh:{' '}
                     {intent.expires_at ? formatTime(intent.expires_at, true) : 'Không có thời gian ghi nhận'}

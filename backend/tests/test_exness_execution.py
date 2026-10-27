@@ -951,3 +951,44 @@ def test_intent_records_preflight_reason_code_and_detail(monkeypatch, tmp_path, 
         from backend.app.forex_entry_intents import summary
         result = summary(session, api.account_id, "XAUUSD")[0]
         assert result["reason_detail"] == message[:200]
+
+
+@pytest.mark.parametrize("outcome", ["history_catching_up", "executor_active", "calibration_or_executor_active", "disabled"])
+def test_trigger_cancel_records_executor_outcome(monkeypatch, tmp_path, outcome):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setattr(ee, "execution_tick", lambda *args, **kwargs: outcome)
+    execute_trigger(api, identifier, "XAUUSD")
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "cancelled"
+        assert row.snapshot["reason"] == "trigger_preflight_failed"
+        assert row.snapshot["reason_code"] == outcome
+        assert row.snapshot["reason_detail"] == outcome
+    api.client.request.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["triggered", "submitting"])
+def test_trigger_error_keeps_uncertain_submission_and_reraises(monkeypatch, tmp_path, status):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session.begin() as session:
+        session.get(ExnessEntryIntent, identifier).status = status
+    def fail(*args, **kwargs):
+        raise RuntimeError("private exception detail")
+    monkeypatch.setattr(ee, "execution_tick", fail)
+    with pytest.raises(RuntimeError, match="private exception detail"):
+        execute_trigger(api, identifier, "XAUUSD")
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == ("cancelled" if status == "triggered" else "uncertain")
+        if status == "triggered":
+            assert row.snapshot["reason_code"] == "execution_error"
+            assert row.snapshot["reason_detail"] == "execution_error: RuntimeError"
+        else:
+            assert not row.snapshot.get("reason_code")
+    api.client.request.assert_not_called()

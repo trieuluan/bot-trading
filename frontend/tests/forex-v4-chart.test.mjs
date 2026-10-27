@@ -124,6 +124,17 @@ test('ForexSignalLifecycle drawer marks V4 shadow setups as simulation and rende
     );
     assert.ok((detailMarkup.match(/<dialog\b/g) || []).length === 1);
     assert.ok(!detailMarkup.includes('role="dialog"') || (detailMarkup.match(/<dialog\b/g) || []).length === 1);
+
+    const legacy = renderToStaticMarkup(React.createElement(ForexSignalLifecycle, {
+      open: true, initialTab: 'setups', onTabChange: () => {}, symbol: 'XAUUSD', positions: [], pnlOf: () => null,
+      setups: [{ id: 'legacy', time: 1000, side: 'short', signals: [{ strategy: 'hast4_legacy', status: 'waiting' }], intents: [{
+        id: 'legacy-intent', strategy: 'hast4_legacy', side: 'short', status: 'cancelled',
+        reason: 'trigger_preflight_failed', limit_price: 4061.822, stop_price: 4057.495,
+      }] }],
+      onSelectPosition: () => {}, onSelectSetup: () => {}, onClose: () => {},
+      entryStateLabels: {}, hasCandle: () => true,
+    }));
+    assert.ok(legacy.includes('Canh giá đã hủy; thiếu lý do chi tiết'));
   } finally {
     await server.close();
   }
