@@ -92,7 +92,7 @@ def execution_status(account, now, symbol="XAUUSD"):
         v3_count = count if fresh else 0
         v4_count = 0
         try:
-            from .forex_entry_pilot import read_ledger as read_pilot
+            from .forex_htf_v4 import read_ledger as read_pilot
             pilot_capture = read_pilot(account, symbol).get("last_capture") or {}
             pilot_count = pilot_capture.get("confirmed", 0)
             if (pilot_capture.get("status") == "captured" and pilot_capture.get("time") == stamp
@@ -128,14 +128,14 @@ def summary(symbol: str = "XAUUSD"):
 
     from .forex_entry_intents import pilot_enabled
     from .forex_entry_intents import summary as intent_summary
-    from .forex_entry_pilot import summary as pilot_summary
+    from .forex_htf_v4 import summary as pilot_summary
     try:
         with Session() as session:
             active_intents = intent_summary(session, account, symbol) if account else []
         intent_status = "ready"
     except SQLAlchemyError:
         active_intents, intent_status = [], "intent_storage_unavailable"
-    return {"symbol": symbol, "engine": SCHEMA, "mode": "v3_shadow", "execution_v2": execution_status(account, int(time.time()), symbol),
+    return {"symbol": symbol, "engine": SCHEMA, "mode": "v4_balanced", "execution_v2": execution_status(account, int(time.time()), symbol),
             "htf_ast3_shadow": htf_ast3_summary(account, symbol),
             "entry_pilot": {"enabled": pilot_enabled(), "status": intent_status,
                             "pilot": pilot_summary(account, symbol), "intents": active_intents}}
@@ -295,15 +295,24 @@ def signal_chart(strategy, available_at, symbol, now=None):
     now = int(time.time()) if now is None else now
     if available_at > now:
         raise HTTPException(404, "Tín hiệu chưa khả dụng")
-    try:
-        ledger = read_pilot(os.getenv("EXNESS_ACCOUNT_ID", "").strip(), symbol)
-    except FileNotFoundError:
-        raise HTTPException(404, "Chưa có tín hiệu V4") from None
-    except (OSError, ValueError, KeyError, TypeError):
-        raise HTTPException(503, "Không đọc được snapshot V4") from None
-    sample = next((sample for sample in ledger["samples"]
-                   if sample["strategy"] == strategy and sample["signal"]["available_at"] == available_at
-                   and sample.get("recorded_at", now + 1) <= now), None)
+    from .forex_htf_v4 import read_ledger as read_v4
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    sample, readable = None, False
+    for read in (read_v4, read_pilot):  # V4 cohort first; old Pilot snapshots stay viewable
+        try:
+            ledger = read(account, symbol)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        readable = True
+        sample = next((sample for sample in ledger["samples"]
+                       if sample["strategy"] == strategy and sample["signal"]["available_at"] == available_at
+                       and sample.get("recorded_at", now + 1) <= now), None)
+        if sample:
+            break
+    if not readable:
+        raise HTTPException(404, "Chưa có tín hiệu V4")
     if sample is None:
         raise HTTPException(404, "Không có snapshot tín hiệu đã chọn")
     signal, tree = sample["signal"], sample["tree"]
@@ -326,10 +335,10 @@ def signal_chart(strategy, available_at, symbol, now=None):
     zone["sample_status"] = sample["status"]
     entry = signal["entry_policy"]
     levels = [{"label": label, "price": value, "from": available_at, "to": entry["expires_at"]}
-              for label, value in (("LIMIT ẢO · PILOT", entry.get("limit_price")),
-                                   ("STOP ENTRY ẢO · PILOT", entry.get("stop_price")),
-                                   ("SL DỰ KIẾN · PILOT", signal["stop"]),
-                                   ("TP DỰ KIẾN · PILOT", signal["target"])) if value is not None]
+              for label, value in (("LIMIT ẢO · V4", entry.get("limit_price")),
+                                   ("STOP ENTRY ẢO · V4", entry.get("stop_price")),
+                                   ("SL DỰ KIẾN · V4", signal["stop"]),
+                                   ("TP DỰ KIẾN · V4", signal["target"])) if value is not None]
     return {"symbol": symbol, "strategy": strategy, "available_at": available_at,
             "candle_time": candle.time, "expires_at": entry["expires_at"],
             "row": {"status": sample["status"], "side": sample["side"], "captured_zone": zone,

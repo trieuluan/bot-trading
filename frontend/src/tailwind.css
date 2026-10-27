@@ -138,3 +138,8 @@
   .positive { color: var(--color-bull); }
   .negative { color: var(--color-bear); }
 }
+
+/* Lock root scroll when native modal dialog is open */
+html:has(dialog:modal[open]) {
+  overflow: hidden;
+}

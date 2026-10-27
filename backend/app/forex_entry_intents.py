@@ -27,8 +27,11 @@ def execution_signal(row):
 def validate_execution_signal(signal, account, now):
     from .db import Session
     from .exness import ExnessError
-    from .forex_entry_pilot import PROVENANCE, logic_version, read_ledger
+    from .forex_entry_pilot import PROVENANCE as PILOT_PROVENANCE
+    from .forex_entry_pilot import logic_version as pilot_version
+    from .forex_entry_pilot import read_ledger as read_pilot
     from .forex_entry_policy import tree_id
+    from .forex_htf_v4 import PROVENANCE, logic_version, read_ledger
     if not pilot_enabled() or signal.get("shadow_only") is not False:
         raise ExnessError("entry_pilot_disabled")
     with Session() as session:
@@ -45,7 +48,9 @@ def validate_execution_signal(signal, account, now):
             supplied.pop("tp_reason")
         supplied.pop("partial_skip_reason", None)
         expected_version = logic_version()
-        if row.snapshot.get("provenance", PROVENANCE) != PROVENANCE:
+        if row.snapshot.get("provenance", PROVENANCE) == PILOT_PROVENANCE:
+            ledger, expected_version = read_pilot(account, row.symbol), pilot_version()
+        elif row.snapshot.get("provenance", PROVENANCE) != PROVENANCE:
             from .forex_htf_v2 import PROVENANCE as MAIN_PROVENANCE
             from .forex_htf_v2 import logic_version as main_version
             from .forex_htf_v2 import read_ledger as read_main

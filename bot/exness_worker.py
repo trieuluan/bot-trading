@@ -18,7 +18,6 @@ from backend.app.exness_feed import (
 )
 from backend.app.exness_observation import observation_tick
 from backend.app.forex_costs import sync_specs
-from backend.app.forex_htf_v2 import safe_htf_ast3_tick
 from backend.app.forex_symbols import configured_symbols
 from backend.app.settings import validate_mode
 
@@ -98,11 +97,10 @@ def main():
                                 continue
                             observation_tick(symbol=symbol)
                             try:
-                                from backend.app.forex_entry_pilot import tick as pilot_tick
-                                pilot_tick(api.account_id, symbol)
+                                from backend.app.forex_htf_v4 import tick as v4_tick
+                                v4_tick(api.account_id, symbol)
                             except Exception:
-                                logging.exception("Forex entry pilot tick failed: %s", symbol)
-                            safe_htf_ast3_tick(symbol=symbol)
+                                logging.exception("Forex V4 tick failed: %s", symbol)
                         except ExnessError as exc:
                             logging.warning("Exness sync paused for %s: %s", symbol, exc)
                             if exc.rate_limited or exc.account_blocked:

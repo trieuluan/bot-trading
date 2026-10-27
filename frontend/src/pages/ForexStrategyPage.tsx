@@ -1013,6 +1013,8 @@ function paramSpread(values: number[]) {
   return { min, max, same: min === max };
 }
 
+const POLICY_ORDER = ['market', 'limit_setup_mid', 'stop_trigger_break', 'limit_or_stop'] as const;
+
 export function ForexEntryPilotPanel({
   entryPilot,
   symbol,
@@ -1021,7 +1023,6 @@ export function ForexEntryPilotPanel({
   symbol: string;
 }) {
   const [entrySearch, setEntrySearch] = useState('');
-  const [policyFilter, setPolicyFilter] = useState<'all' | string>('all');
   const [pilotPage, setPilotPage] = useState(0);
   const digits = priceDigits(symbol);
   const price = (value: number | null) => (value == null ? '—' : value.toFixed(digits));
@@ -1056,12 +1057,12 @@ export function ForexEntryPilotPanel({
   // Cột tham số từng cây chỉ cần khi các cây khác nhau.
   const paramsVary = [limitRatio, stopBuffer, waitBars].some((value) => value && !value.same);
   const needle = entrySearch.trim().toLowerCase();
-  const filteredByPolicy = policyFilter === 'all' ? trees : trees.filter((t) => t.entry_policy === policyFilter);
   const shownTrees = needle
-    ? filteredByPolicy.filter((tree) =>
+    ? trees.filter((tree) =>
         [
           tree.id,
           tree.control_tree_id,
+          tree.bundle_id ?? '',
           tree.h1_setup,
           tree.m15_trigger,
           tree.exit_policy,
@@ -1072,11 +1073,61 @@ export function ForexEntryPilotPanel({
           label(tree.exit_policy),
         ].some((value) => value.toLowerCase().includes(needle)),
       )
-    : filteredByPolicy;
-  const pageSize = 12;
-  const totalPages = Math.max(1, Math.ceil(shownTrees.length / pageSize));
+    : trees;
+
+  // Group trees by bundle_id so 14 setups are viewed as bundles with 4 entry variants each
+  const bundleMap = new Map<string, {
+    bundle_id: string;
+    control_tree_id: string;
+    generation: number;
+    h1_setup: string;
+    m15_trigger: string;
+    exit_policy: string;
+    treesByPolicy: Record<string, (typeof trees)[number]>;
+    total_samples: number;
+    total_resolved: number;
+  }>();
+
+  for (const t of trees) {
+    const bId = t.bundle_id ?? (t.control_tree_id ? `b_${t.control_tree_id.slice(0, 10)}` : 'bundle_single');
+    let b = bundleMap.get(bId);
+    if (!b) {
+      b = {
+        bundle_id: bId,
+        control_tree_id: t.control_tree_id,
+        generation: t.generation ?? 0,
+        h1_setup: t.h1_setup,
+        m15_trigger: t.m15_trigger,
+        exit_policy: t.exit_policy,
+        treesByPolicy: {},
+        total_samples: 0,
+        total_resolved: 0,
+      };
+      bundleMap.set(bId, b);
+    }
+    b.treesByPolicy[t.entry_policy] = t;
+    b.total_samples += t.samples_count;
+    b.total_resolved += t.resolved_count;
+  }
+
+  const bundles = Array.from(bundleMap.values()).sort((a, b) => a.bundle_id.localeCompare(b.bundle_id));
+  const filteredBundles = needle
+    ? bundles.filter((b) =>
+        [
+          b.bundle_id,
+          b.control_tree_id,
+          label(b.h1_setup),
+          label(b.m15_trigger),
+          label(b.exit_policy),
+          ...Object.keys(b.treesByPolicy).map(policyLabel),
+        ].some((v) => v.toLowerCase().includes(needle)),
+      )
+    : bundles;
+
+  const pageSize = 14;
+  const totalPages = Math.max(1, Math.ceil(filteredBundles.length / pageSize));
   const pageIndex = Math.min(pilotPage, totalPages - 1);
-  const pagedTrees = shownTrees.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
+  const pagedBundles = filteredBundles.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
   const states = Object.entries(pilot?.counts ?? {});
   return (
     <>
@@ -1084,7 +1135,7 @@ export function ForexEntryPilotPanel({
         <div className="learning-section-card entry-pilot is-blocked min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3 space-y-3 [&.is-blocked]:border-amber-400/30" role="status">
           <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
-              <h4>AST V4 Pilot · Limit/Stop ảo</h4>
+              <h4>AST V4 · 14 bộ × 4 entry</h4>
               <p className="muted-desc text-xs leading-relaxed text-text-muted">
                 {pilot.status === 'not_initialized'
                   ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
@@ -1104,12 +1155,12 @@ export function ForexEntryPilotPanel({
             <div>
               <h4 className="flex items-center gap-2 text-base font-semibold text-text-primary">
                 <span className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-400/10 text-sky-300">⚡</span>
-                AST V4 Pilot · {pilot.tree_count} cây{' '}
-                {policies.size === 1 ? policyLabel([...policies][0]) : 'đa dạng entry'} đối chiếu
+                AST V4 · {pilot.bundle_count ?? 14} bộ · {pilot.tree_count} cây{' '}
+                · G{pilot.generation ?? 0}
               </h4>
               <p className="muted-desc mt-1 text-xs leading-relaxed text-text-muted">
                 {pilot.note ||
-                  'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
+                  'Mỗi setup chỉ chọn một entry luân phiên Market → Limit → Stop → Hybrid. Bốn cây vẫn mô phỏng độc lập; không fallback.'}
               </p>
             </div>
             <span
@@ -1120,8 +1171,8 @@ export function ForexEntryPilotPanel({
               }`}
               title={
                 entryPilot.enabled
-                  ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có'
-                  : 'Execution nhóm thử đang tắt'
+                  ? 'V4 được bật; vẫn cần quyền execution demo hiện có'
+                  : 'Execution V4 đang tắt'
               }
             >
               <span className={`h-2 w-2 rounded-full ${entryPilot.enabled ? 'bg-bull' : 'bg-text-muted'}`} />
@@ -1140,25 +1191,16 @@ export function ForexEntryPilotPanel({
               <strong className="block font-mono text-xl text-text-primary">{samples}</strong>
               <span className="text-[11px] text-text-muted">{resolved} đã đóng</span>
             </div>
-            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
-              <small className="block text-xs text-text-muted">Mean R (Hybrid vs Market)</small>
-              <strong className="block font-mono text-xl">
-                <span className={rTone(comparison?.hybrid_mean_r)}>
-                  {signedR(comparison?.hybrid_mean_r)}
-                </span>
-                <em className="text-xs font-normal text-text-muted"> vs {signedR(comparison?.market_mean_r)}</em>
-              </strong>
-              <span className="text-[11px] text-text-muted">
-                {comparison?.matched_signals
-                  ? `Limit/Stop · ${comparison.matched_signals} tín hiệu, ${comparison.resolved_pairs} cặp đã đóng`
-                  : 'Chưa có tín hiệu trùng setup'}
-              </span>
-            </div>
-            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
-              <small className="block text-xs text-text-muted">Chênh lệch delta R</small>
-              <strong className={`block font-mono text-xl ${comparison?.delta_r != null && comparison.delta_r >= 0 ? 'text-bull' : 'text-bear'}`}>{signedR(comparison?.delta_r)}</strong>
-              <span className="text-[11px] text-text-muted">Limit/Stop − Market</span>
-            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Thống kê bốn entry V4">
+            {Object.entries(pilot.policy_stats ?? {}).map(([policy, stats]) => (
+              <div key={policy} className="rounded-xl border border-sky-400/20 bg-sky-400/5 p-3">
+                <small className="block text-xs font-semibold text-sky-300">{policyLabel(policy)}</small>
+                <strong className={"block font-mono text-xl " + rTone(stats.mean_r)}>{signedR(stats.mean_r)}</strong>
+                <span className="block text-[11px] text-text-muted">{stats.tree_count} cây · {stats.resolved_count} mẫu đóng · net R</span>
+              </div>
+            ))}
           </div>
 
           <div className="entry-pilot-meta flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
@@ -1183,7 +1225,7 @@ export function ForexEntryPilotPanel({
 
           <details className="group rounded-xl border border-border-subtle bg-surface-2/20 p-3 text-xs leading-relaxed">
             <summary className="flex cursor-pointer items-center justify-between font-semibold text-text-primary">
-              <span>📖 Hướng dẫn & Cơ chế Limit / Stop ảo của Pilot</span>
+              <span>📖 Hướng dẫn & Cơ chế entry V4</span>
               <span className="text-text-muted transition-transform group-open:rotate-180">▾</span>
             </summary>
             <p className="mt-2 text-text-muted">
@@ -1318,106 +1360,54 @@ export function ForexEntryPilotPanel({
               type="search"
               value={entrySearch}
               onChange={(e) => { setEntrySearch(e.target.value); setPilotPage(0); }}
-              placeholder="Lọc theo ID, Market, Limit, Stop, Hybrid, setup…"
-              aria-label="Lọc cây đối chiếu"
+              placeholder="Lọc theo bộ, ID, Market, Limit, Stop, Hybrid, setup…"
+              aria-label="Lọc bộ V4"
               className="min-h-9 w-full min-w-0 rounded-lg border border-border-active bg-surface-1 px-3 text-xs text-text-primary placeholder:text-text-muted focus-visible:outline-2 focus-visible:outline-sky-400 sm:max-w-80"
             />
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Lọc chính sách entry">
-              {[
-                ['all', `Tất cả (${trees.length})`],
-                ['limit_or_stop', `Hybrid (${trees.filter((t) => t.entry_policy === 'limit_or_stop').length})`],
-                ['limit_setup_mid', `Limit ảo (${trees.filter((t) => t.entry_policy === 'limit_setup_mid').length})`],
-                ['stop_trigger_break', `Stop ảo (${trees.filter((t) => t.entry_policy === 'stop_trigger_break').length})`],
-                ['market', `Market (${trees.filter((t) => t.entry_policy === 'market').length})`],
-              ].filter(([k, _]) => k === 'all' || trees.some((t) => t.entry_policy === k)).map(([key, labelText]) => (
-                <button
-                  type="button"
-                  key={key}
-                  aria-pressed={policyFilter === key}
-                  onClick={() => { setPolicyFilter(key); setPilotPage(0); }}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
-                    policyFilter === key
-                      ? 'bg-sky-400/15 text-sky-300 border border-sky-400/30'
-                      : 'bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-text-secondary border border-border-subtle'
-                  }`}
-                >
-                  {labelText}
-                </button>
-              ))}
-            </div>
             <span aria-live="polite" className="ml-auto text-xs text-text-muted">
-              {shownTrees.length ? `${pageIndex * pageSize + 1}–${Math.min((pageIndex + 1) * pageSize, shownTrees.length)}` : '0'} / {shownTrees.length} cây khớp
+              {filteredBundles.length} / {bundles.length} bộ · mỗi bộ {POLICY_ORDER.length} entry
             </span>
           </div>
           {samples === 0 && <p className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs leading-relaxed text-text-secondary"><strong className="text-amber-300">Chưa có mẫu shadow.</strong> Các cây đã khởi tạo nhưng chưa ghi nhận tín hiệu. Mean R “—” là chưa có kết quả, không phải 0R. Đây không phải lịch sử khớp lệnh broker.</p>}
-          <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border-subtle bg-surface-1 shadow-sm">
-            <table aria-label="Cây pilot V4 và đối chiếu V3" className="learner-clean-table entry-pilot-trees block w-full border-collapse text-xs xl:table">
-              <thead className="hidden xl:table-header-group">
-                <tr className="border-b border-border-base bg-surface-2/60 text-left text-text-muted font-medium [&>th]:px-3.5 [&>th]:py-3">
-                  <th className="min-w-44">Cây V4 · gốc V3</th>
-                  <th>Cách vào lệnh</th>
-                  <th className="min-w-48">Setup H1 → Trigger M15</th>
-                  <th className="min-w-36">Quản lý lệnh</th>
-                  <th className="num font-mono tabular-nums text-right w-16">Mẫu</th>
-                  <th className="num font-mono tabular-nums text-right w-20">Đã đóng</th>
-                  <th className="num font-mono tabular-nums text-right w-20">Mean R</th>
-                </tr>
-              </thead>
-              <tbody className="grid gap-3 p-3 md:grid-cols-2 xl:table-row-group xl:divide-y xl:divide-border-subtle/70 xl:p-0">
-                {pagedTrees.map((t) => (
-                  <tr key={t.id} className="grid min-w-0 grid-cols-3 rounded-lg border border-border-base bg-surface-2/20 transition-colors hover:bg-surface-2/60 xl:table-row xl:rounded-none xl:border-0 xl:bg-transparent [&>td]:px-3.5 [&>td]:py-3">
-                    <td className="col-span-3 min-w-0 align-middle">
-                      <code className="entry-tree-id break-all font-mono text-xs font-semibold text-text-primary">{t.id}</code>
-                      <small className="entry-tree-parent block font-mono text-[11px] text-text-muted">từ {t.control_tree_id}</small>
-                    </td>
-                    <td className="col-span-3 align-middle">
-                      <span className="entry-tree-policy inline-flex items-center rounded-md bg-sky-400/10 px-2 py-0.5 text-xs font-medium text-sky-300 border border-sky-400/20">{policyLabel(t.entry_policy)}</span>
-                      <span className="entry-tree-params mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
-                        {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
-                          .filter((name) => typeof t.entry_params?.[name] === 'number')
-                          .map((name) => (
-                            <span
-                              key={name}
-                              className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-text-secondary border border-border-subtle"
-                            >
-                              {entryParamText(name, t.entry_params[name])}
-                            </span>
-                          ))}
-                      </span>
-                    </td>
-                    <td className="col-span-3 align-middle">
-                      <span className="lineage-tags-inline flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="lineage-tag tag-h1 inline-flex items-center gap-1 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] font-medium text-amber-300"><b>H1</b> {label(t.h1_setup)}</span>
-                        <span aria-hidden="true" className="text-[10px] text-text-muted">→</span>
-                        <span className="lineage-tag tag-m15 inline-flex items-center gap-1 rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-1 text-[11px] font-medium text-sky-300"><b>M15</b> {label(t.m15_trigger)}</span>
-                      </span>
-                    </td>
-                    <td className="col-span-3 align-middle">
-                      <span className="mb-1 block text-[10px] text-text-muted xl:hidden">Quản lý lệnh</span>
-                      <span className="lineage-tag tag-exit inline-flex rounded-md border border-teal-400/20 bg-teal-400/10 px-2 py-1 text-[11px] font-medium text-teal-300">{label(t.exit_policy)}</span>
-                    </td>
-                    <td className="num border-t border-border-subtle align-middle font-mono text-text-muted tabular-nums xl:border-0 xl:text-right"><span className="mb-1 block font-sans text-[10px] xl:hidden">Mẫu</span>{t.samples_count}</td>
-                    <td className="num border-t border-border-subtle align-middle font-mono text-text-muted tabular-nums xl:border-0 xl:text-right"><span className="mb-1 block font-sans text-[10px] xl:hidden">Đã đóng</span>{t.resolved_count}</td>
-                    <td className={`num border-t border-border-subtle align-middle font-mono font-semibold tabular-nums xl:border-0 xl:text-right ${t.mean_r == null ? 'text-text-muted' : t.mean_r >= 0 ? 'text-bull' : 'text-bear'}`}>
-                      <span className="mb-1 block font-sans text-[10px] font-normal text-text-muted xl:hidden">Mean R</span>
-                      {signedR(t.mean_r)}
-                    </td>
-                  </tr>
-                ))}
-                {!shownTrees.length && (
-                  <tr>
-                    <td colSpan={7} className="entry-pilot-empty min-h-24 p-6 text-center text-xs text-text-muted">
-                      Không có cây nào khớp “{entrySearch.trim()}”.
-                      <button type="button" className="ml-2 rounded border border-border-active px-2 py-1 text-text-primary hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={() => { setEntrySearch(''); setPolicyFilter('all'); setPilotPage(0); }}>Xóa bộ lọc</button>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <ul aria-label="Các bộ V4" className="grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {pagedBundles.map((b) => (
+              <li key={b.bundle_id} className="entry-bundle min-w-0 space-y-3 rounded-xl border border-border-base bg-surface-2/20 p-3.5">
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <strong className="font-mono text-sm text-text-primary">{b.bundle_id}</strong>
+                    <small className="block break-all font-mono text-[11px] text-text-muted">từ {b.control_tree_id}</small>
+                  </div>
+                  <span className="shrink-0 rounded bg-surface-3 px-2 py-0.5 font-mono text-[11px] font-semibold text-sky-300">G{b.generation}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+                  <span className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-amber-300"><b>H1</b> {label(b.h1_setup)}</span>
+                  <span className="rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-1 text-sky-300"><b>M15</b> {label(b.m15_trigger)}</span>
+                  <span className="rounded-md border border-teal-400/20 bg-teal-400/10 px-2 py-1 text-teal-300">{label(b.exit_policy)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {POLICY_ORDER.map((policy) => {
+                    const t = b.treesByPolicy[policy];
+                    return (
+                      <div key={policy} className="entry-tree-policy-cell min-w-0 rounded-lg border border-border-subtle bg-surface-1 p-2" title={t?.id}>
+                        <span className="entry-tree-policy block truncate text-[11px] font-semibold text-sky-300">{policyLabel(policy)}</span>
+                        <strong className={'block font-mono text-sm tabular-nums ' + (t ? rTone(t.mean_r) : 'text-text-muted')}>{t ? signedR(t.mean_r) : '—'}</strong>
+                        <span className="block text-[10px] text-text-muted">{t ? `${t.resolved_count}/${t.samples_count} mẫu đóng` : 'thiếu cây'}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {!filteredBundles.length && (
+            <p className="entry-pilot-empty min-h-24 p-6 text-center text-xs text-text-muted">
+              Không có bộ nào khớp “{entrySearch.trim()}”.
+              <button type="button" className="ml-2 rounded border border-border-active px-2 py-1 text-text-primary hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={() => { setEntrySearch(''); setPilotPage(0); }}>Xóa bộ lọc</button>
+            </p>
+          )}
           {totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3 text-xs">
-              <span className="text-text-muted">Trang {pageIndex + 1} / {totalPages} ({shownTrees.length} cây)</span>
+              <span className="text-text-muted">Trang {pageIndex + 1} / {totalPages} ({filteredBundles.length} bộ)</span>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
@@ -2353,7 +2343,7 @@ export function ForexStrategyPage({
         <div className="learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
           <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
-              <h4>AST HTF V3 — Hai chiều · thuận H4</h4>
+              <h4>AST HTF V3 · Lưu trữ, chỉ đọc</h4>
               <p className="muted-desc text-xs leading-relaxed text-text-muted">
                 {htf2Shadow.note}. Thế hệ {htf2Shadow.generation}, {htf2Shadow.tree_count} cây.
               </p>

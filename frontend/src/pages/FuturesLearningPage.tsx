@@ -5,6 +5,7 @@ import { formatTime } from '../lib/time-format';
 import { useEffect, useRef, useState } from 'react';
 import { Activity, Archive, Brain, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Dna, Power, X } from 'lucide-react';
 import { FuturesDraftsPanel, type Draft, type DraftWorker } from './FuturesDraftsPanel';
+import { Drawer } from '../components/Drawer';
 import {
   exitLabel,
   HTF_LABELS,
@@ -603,23 +604,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
                 </p>
               )}
-              {detail && (
-                <div
-                  className="evo-drawer-backdrop fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm animate-in fade-in duration-200"
-                  onClick={() => setDetail(null)}
-                >
-                  <aside
-                    className="evo-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-5 text-text-secondary shadow-2xl animate-in slide-in-from-right duration-300 motion-reduce:animate-none"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Cách đánh"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                {(() => {
-                  const row = detail ? all.find((r) => r.strategy === detail) : undefined;
-                  if (!row) return null;
-                  const info = strategyInfo(row.genome);
-                  return (
+              {detail && (() => {
+                const row = all.find((r) => r.strategy === detail);
+                if (!row) return null;
+                const info = strategyInfo(row.genome);
+                return (
+                  <Drawer label="Cách đánh chiến thuật" onClose={() => setDetail(null)}>
                     <div className="evo-drawer-body space-y-4">
                       <header className="flex items-start justify-between border-b border-border-base pb-3">
                         <div className="space-y-1">
@@ -648,21 +638,21 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         {howToPlay(row.genome, info.stop).map((step, index) => {
                           const kind = stepKind(step.label);
                           const borderClass =
-                            kind === "entry"
-                              ? "border-sky-500/30 bg-sky-950/20"
-                              : kind === "sl"
-                                ? "border-bear/30 bg-bear-bg/30"
-                                : kind === "tp"
-                                  ? "border-bull/30 bg-bull-bg/30"
-                                  : "border-border-base bg-surface-2/40";
+                            kind === 'entry'
+                              ? 'border-sky-500/30 bg-sky-950/20'
+                              : kind === 'sl'
+                                ? 'border-bear/30 bg-bear-bg/30'
+                                : kind === 'tp'
+                                  ? 'border-bull/30 bg-bull-bg/30'
+                                  : 'border-border-base bg-surface-2/40';
                           const badgeClass =
-                            kind === "entry"
-                              ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
-                              : kind === "sl"
-                                ? "bg-bear/20 text-bear border border-bear/40"
-                                : kind === "tp"
-                                  ? "bg-bull/20 text-bull border border-bull/40"
-                                  : "bg-surface-3 text-text-secondary border border-border-subtle";
+                            kind === 'entry'
+                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                              : kind === 'sl'
+                                ? 'bg-bear/20 text-bear border border-bear/40'
+                                : kind === 'tp'
+                                  ? 'bg-bull/20 text-bull border border-bull/40'
+                                  : 'bg-surface-3 text-text-secondary border border-border-subtle';
                           return (
                             <li key={index} className={`rounded-lg border p-3 ${borderClass}`}>
                               <div className="mb-1.5 flex items-center gap-2">
@@ -691,11 +681,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
                       </p>
                     </div>
-                  );
-                })()}
-                  </aside>
-                </div>
-              )}
+                  </Drawer>
+                );
+              })()}
               <div className="evo-grid grid min-w-0 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {sorted.slice((cardPage - 1) * PAGE.cards, cardPage * PAGE.cards).map((row) => {
                   const learned = row.learned_mean_r;

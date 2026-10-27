@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Bot, Clock3, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { Drawer } from '../components/Drawer';
 import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
 import { FuturesLearningPage } from './FuturesLearningPage';
@@ -690,24 +691,16 @@ export function PaperTradingPage({
           </p>
         </section>
         {detailOpen && selected && (
-          <div className="trade-drawer-backdrop fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setDetailOpen(false)}>
-            <aside
-              className="trade-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-5 shadow-2xl animate-in slide-in-from-right duration-200"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`Chi tiết lệnh #${selected.id}`}
-              onClick={(event) => event.stopPropagation()}
+          <Drawer label={`Chi tiết lệnh #${selected.id}`} onClose={() => setDetailOpen(false)}>
+            <button
+              className="icon-button close absolute right-3 top-3 inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-2 hover:text-text-primary"
+              aria-label="Đóng chi tiết lệnh"
+              onClick={() => setDetailOpen(false)}
             >
-              <button
-                className="icon-button close absolute right-3 top-3 inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-2 hover:text-text-primary"
-                aria-label="Đóng chi tiết lệnh"
-                onClick={() => setDetailOpen(false)}
-              >
-                <X size={18} />
-              </button>
-              <PaperTradeDetails trade={selected} symbol={symbol} />
-            </aside>
-          </div>
+              <X size={18} />
+            </button>
+            <PaperTradeDetails trade={selected} symbol={symbol} />
+          </Drawer>
         )}
         <aside className="desk-controls min-w-0 space-y-3 rounded-xl border border-border-base bg-surface-1 p-3 [&_button]:disabled:cursor-not-allowed [&_button]:disabled:opacity-50 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-sky-400 xl:sticky xl:top-[calc(var(--desk-header-h,120px)+12px)] xl:max-h-[calc(100dvh-var(--desk-header-h,120px)-24px)] xl:self-start xl:overflow-y-auto" aria-label="Điều khiển giao dịch Paper">
           <div className="desk-mode-switch grid grid-cols-2 gap-1 rounded-md bg-canvas p-1 [&>button]:flex [&>button]:h-9 [&>button]:items-center [&>button]:justify-center [&>button]:gap-1.5 [&>button]:rounded [&>button]:text-xs [&>button]:font-semibold [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary" role="group" aria-label="Chế độ đặt lệnh">

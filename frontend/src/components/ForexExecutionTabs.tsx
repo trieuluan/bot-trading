@@ -238,10 +238,10 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
               entryPilot={data.learning?.entry_pilot}
             />
             {data.learning?.htf_ast3_shadow && (
-              <div className="learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
-                <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
+              <details className="group learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
+                <summary className="card-header mb-3 flex min-w-0 cursor-pointer flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
                   <div>
-                    <h4 className="flex items-center gap-2"><GitBranch size={15} className="text-sky-300" aria-hidden="true" />Quần thể HTF V3 · dòng dõi G0 → G1…</h4>
+                    <h4 className="flex items-center gap-2"><GitBranch size={15} className="text-sky-300" aria-hidden="true" />Lưu trữ · Quần thể HTF V3 (chỉ đọc, không sinh setup mới)</h4>
                     <span className="muted-desc text-xs leading-relaxed text-text-muted">
                       Thế hệ {data.learning.htf_ast3_shadow.generation} ·{' '}
                       {data.learning.htf_ast3_shadow.tree_count} cây ·{' '}
@@ -253,12 +253,12 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
                     {data.learning.htf_ast3_shadow.resolved} đã đóng ·{' '}
                     {data.learning.htf_ast3_shadow.pending} đang chạy
                   </span>
-                </div>
+                </summary>
                 <HtfLineage
                   trees={data.learning.htf_ast3_shadow.trees}
                   nextEvolutionAt={data.learning.htf_ast3_shadow.next_evolution_at}
                 />
-              </div>
+              </details>
             )}
           </section>
         </section>

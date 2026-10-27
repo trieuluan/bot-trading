@@ -52,8 +52,13 @@ export interface ForexEntryPilot {
     };
     error?: string;
     note?: string;
+    generation?: number;
+    bundle_count?: number;
+    policy_stats?: Record<string, { tree_count: number; resolved_count: number; mean_r: number | null }>;
     trees?: {
       id: string;
+      bundle_id?: string | null;
+      generation?: number;
       control_tree_id: string;
       entry_policy: string;
       entry_params: Record<string, number>;
@@ -73,4 +78,5 @@ export interface ForexRecordedSignal {
   side: 'long' | 'short';
   available_at: number;
   status: string;
+  live_assigned?: boolean;
 }

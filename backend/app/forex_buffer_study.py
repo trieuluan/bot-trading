@@ -35,7 +35,7 @@ def variant_settings(name):
 
 
 def htf_exit_target(signal, entry, stop, tick, slip=0, commission=0, condition=None):
-    verified = signal.get("shadow_only") is False and signal.get("execution_source") in ("live_forward_htf_ast3_shadow", "live_forward_htf_ast4_entry_pilot")
+    verified = signal.get("shadow_only") is False and signal.get("execution_source") in ("live_forward_htf_ast3_shadow", "live_forward_htf_ast4_entry_pilot", "live_forward_htf_ast4_v2")
     if ((not signal.get("shadow_only") and not verified) or not isinstance(signal.get("strategy"), str)
             or not signal["strategy"].startswith(("hast_", "hast2_", "hast3_", "hast4_"))
             or signal.get("side") not in ("long", "short")):

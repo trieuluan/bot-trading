@@ -43,7 +43,7 @@ from .exness_management import (
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
 from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
-from .forex_htf_v2 import execution_candidates, validate_execution_signal
+from .forex_htf_v2 import validate_execution_signal
 from .forex_learning import cached_summary as learning_summary
 from .forex_notifications import notify_reconciled, stop_exit_reason
 from .forex_symbols import configured_symbols, request_symbol
@@ -362,11 +362,13 @@ def evaluate(session, now, symbol="XAUUSD"):
         return None
     account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     try:
-        candidates = execution_candidates(account, now, symbol)
+        from .forex_htf_v4 import candidates as v4_candidates
+        proposals = v4_candidates(account, symbol, now)
     except (OSError, ValueError, KeyError, TypeError):
         detail["why"] = "v2_ledger_unavailable"
         return None
-    detail.update(candle_time=candle.time, evaluated=True, mode="htf_v2",
+    candidates = [(sample["signal"], {}) for sample in proposals]
+    detail.update(candle_time=candle.time, evaluated=True, mode="htf_v4",
                   confirmed=[{"strategy": signal["strategy"], "side": signal["side"], "shadow": False}
                              for signal, _ in candidates],
                   strategies=[{"strategy": signal["strategy"], "status": "confirmed", "reason": None}
@@ -375,7 +377,7 @@ def evaluate(session, now, symbol="XAUUSD"):
     detail["selected"] = selected["strategy"] if selected else None
     if selected:
         selected["ref_price"] = ask.close if selected["side"] == "long" else candle.close
-    return selected
+    return None
 
 def record_journal(state, detail, outcome, now):
     """One row per closed M15: what the learner saw and why the executor did or did not trade."""
@@ -715,11 +717,12 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
         from .forex_htf_v2 import execution_enabled
         if not reason and not entry_intent_id and pilot_enabled() and execution_enabled():
             from .forex_entry_intents import create_intent
-            from .forex_entry_pilot import PROVENANCE as PILOT_PROVENANCE
-            from .forex_entry_pilot import candidates as pilot_candidates
-            from .forex_htf_v2 import virtual_candidates
-            waiting = pilot_candidates(api.account_id, symbol, now) + virtual_candidates(api.account_id, symbol, now)
-            for sample in sorted(waiting, key=lambda item: (item["provenance"] != PILOT_PROVENANCE, item["strategy"])):
+            from .forex_htf_v4 import candidates as v4_candidates
+            try:
+                waiting = v4_candidates(api.account_id, symbol, now)
+            except FileNotFoundError:
+                waiting = []
+            for sample in sorted(waiting, key=lambda item: item["strategy"]):
                 proposal = sample["signal"]
                 from .db import ExnessEntryIntent
                 from .forex_entry_intents import identity
