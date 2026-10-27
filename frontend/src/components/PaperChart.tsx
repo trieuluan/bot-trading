@@ -772,68 +772,74 @@ export function PaperChart({
                             ? null
                             : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
                         const unit = getFuturesSymbol().split('_')[0];
+                        const rawTitle =
+                          tradeStrategy(p.audit)?.title ?? (p.origin === 'manual' ? 'Thủ công' : 'Auto');
+                        const [, name = rawTitle, code = ''] = rawTitle.match(/^(.*?)\s+(#[0-9a-f]{4,})$/i) ?? [];
+                        const strat = { name, code };
                         return (
                           <details
                             key={p.id}
                             className="position-tip-trade group border-b border-border-subtle py-1.5 last:border-b-0"
                           >
-                            <summary className="flex cursor-pointer select-none flex-col gap-1 rounded py-2 text-xs font-medium hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 [&::-webkit-details-marker]:hidden">
-                              <span className="w-full break-words">
-                                <b className="mr-1 text-sky-300">#{p.id}</b>{' '}
-                                {tradeStrategy(p.audit)?.title ??
-                                  (p.origin === 'manual' ? 'Thủ công' : 'Auto')}
-                              </span>
-                              <span className="flex w-full flex-wrap items-center justify-between gap-2 font-mono tabular-nums">
-                                <span className="text-text-muted">Entry {formatQuote(p.entry)}</span>
-                                <span className={tradeNet === null ? 'text-text-muted' : tradeNet >= 0 ? 'text-bull' : 'text-bear'}>
-                                  {fmt(tradeNet)} USDT
+                            <summary className="flex cursor-pointer select-none flex-col gap-1 rounded py-2 text-xs hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 [&::-webkit-details-marker]:hidden">
+                              <span className="flex w-full min-w-0 items-center gap-2">
+                                <b className="shrink-0 text-sky-300">#{p.id}</b>
+                                <span className="min-w-0 truncate font-medium">{strat.name}</span>
+                                {strat.code && <span className="shrink-0 font-mono text-[10px] text-text-muted">{strat.code}</span>}
+                                <span className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${p.side === 'long' ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'}`}>
+                                  {p.side === 'long' ? 'LONG' : 'SHORT'}
                                 </span>
-                                <span className="text-[10px] text-text-muted transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                              </span>
+                              <span className="flex w-full items-center justify-between gap-2 font-mono tabular-nums">
+                                <span className="text-text-muted">Entry {formatQuote(p.entry)}</span>
+                                <span className="flex items-center gap-1">
+                                  <span className="font-sans text-[10px] text-text-muted">Ròng ước tính</span>
+                                  <span className={`font-semibold ${tradeNet === null ? 'text-text-muted' : tradeNet >= 0 ? 'text-bull' : 'text-bear'}`}>
+                                    {fmt(tradeNet)} USDT
+                                  </span>
+                                  <span className="text-[10px] text-text-muted transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                                </span>
                               </span>
                             </summary>
-                            <dl className="m-0 mt-1.5 border-t border-border-subtle/50 pt-1 text-[11px] [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&>div]:gap-2 [&>div]:py-0.5">
+                            <dl className="m-0 mt-1.5 grid grid-cols-2 gap-1.5 border-t border-border-subtle/50 pt-2 text-[11px] [&>div]:rounded [&>div]:bg-surface-1 [&>div]:px-2 [&>div]:py-1 [&_dd]:!text-left">
                               <div>
-                                <dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt>
+                                <dt>{tag.kind === 'entry' ? 'Giá hiện tại' : 'Giá chốt'}</dt>
                                 <dd>
-                                  {price === null ? '—' : formatQuote(price)} <i>({fmt(move)}%)</i>
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Entry</dt>
-                                <dd>{formatQuote(p.entry)}</dd>
-                              </div>
-                              <div>
-                                <dt>SL · TP</dt>
-                                <dd>
-                                  {formatQuote(p.stop)} · {formatQuote(p.target)}
+                                  {price === null ? '—' : formatQuote(price)} <i>({fmt(move)}% theo vị thế)</i>
                                 </dd>
                               </div>
                               <div>
                                 <dt>Khối lượng</dt>
-                                <dd>
-                                  {p.quantity} {unit}
-                                </dd>
+                                <dd>{p.quantity} {unit}</dd>
                               </div>
                               <div>
-                                <dt>PnL giá</dt>
-                                <dd>{fmt(gross)}</dd>
+                                <dt>Stop Loss</dt>
+                                <dd>{formatQuote(p.stop)}</dd>
                               </div>
                               <div>
-                                <dt>Phí vào · ra</dt>
-                                <dd>
-                                  −{p.entry_fee.toFixed(2)} · −
-                                  {exitFee === null ? '—' : exitFee.toFixed(2)}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Funding</dt>
-                                <dd>{fmt(-p.funding_cost)}</dd>
+                                <dt>Take Profit</dt>
+                                <dd>{formatQuote(p.target)}</dd>
                               </div>
                             </dl>
-                            {onSelectPosition && <button type="button" className="mt-2 min-h-9 rounded border border-border-active px-3 text-sky-300 hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={(event) => {
-                              onSelectPosition(p.id);
-                              event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover();
-                            }}>Xem #{p.id} trên chart</button>}
+                            <details className="mt-1.5 text-[11px]">
+                              <summary className="cursor-pointer text-text-muted hover:text-text-primary">Chi tiết chi phí</summary>
+                              <dl className="m-0 mt-1 [&>div]:flex [&>div]:justify-between [&>div]:gap-2 [&>div]:py-0.5">
+                                <div><dt>PnL giá</dt><dd>{fmt(gross)}</dd></div>
+                                <div><dt>Phí vào</dt><dd>−{p.entry_fee.toFixed(2)}</dd></div>
+                                <div><dt>Phí ra ước tính</dt><dd>−{exitFee === null ? '—' : exitFee.toFixed(2)}</dd></div>
+                                <div><dt>Funding</dt><dd>{fmt(-p.funding_cost)}</dd></div>
+                              </dl>
+                            </details>
+                            {onSelectPosition && (
+                              p.id === trade?.id ? (
+                                <span className="mt-2 inline-block text-[11px] text-sky-300">Đang xem trên chart</span>
+                              ) : (
+                                <button type="button" className="mt-2 min-h-8 rounded border border-border-active px-2.5 text-[11px] text-sky-300 hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={(event) => {
+                                  onSelectPosition(p.id);
+                                  event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover();
+                                }}>Xem trên chart</button>
+                              )
+                            )}
                           </details>
                         );
                       })}

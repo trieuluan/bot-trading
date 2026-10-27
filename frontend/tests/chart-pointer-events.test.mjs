@@ -21,7 +21,9 @@ test('PaperChart separates hover preview from persistent native position details
     assert.ok(tip?.includes(utility), `Tooltip needs ${utility}`);
   }
   assert.match(source, /position-tip-list min-h-0 overflow-y-auto overscroll-contain/);
-  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_minmax\(0,2fr\)\]/);
+  assert.match(source, /grid grid-cols-2 gap-1.5/);
+  for (const label of ['Stop Loss', 'Take Profit', 'Chi tiết chi phí', 'Phí ra ước tính', 'Đang xem trên chart']) assert.ok(source.includes(label));
+  assert.ok(!source.includes('SL · TP') && !source.includes('Phí vào · ra'));
   assert.match(source, /event.key === 'Escape'\) setHover\(null\)/);
   assert.match(source, /position-quick-tip pointer-events-none/);
   assert.match(source, /popover="auto"/);
