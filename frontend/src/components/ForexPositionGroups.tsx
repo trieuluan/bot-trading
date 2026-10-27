@@ -271,6 +271,9 @@ export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, 
                           <td className="px-3 py-2.5 tabular-nums">
                             <div>SL: {price(leg.stop)}</div>
                             <small className="text-text-muted">TP: {price(leg.target)}</small>
+                            {(leg.role === 'partial1' || leg.role === 'partial2') && (
+                              <small className="block font-sans text-amber-300/80" title="Không đặt TP riêng trên sàn. Bot tự đóng khi đạt điều kiện chốt phần (weak_close / scale_out); TP sàn chỉ là trần dự phòng.">Bot tự chốt sớm · TP sàn dự phòng</small>
+                            )}
                           </td>
                           <td className="px-3 py-2.5 tabular-nums font-semibold">
                             <span
