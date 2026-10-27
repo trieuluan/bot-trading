@@ -1,5 +1,5 @@
 import { getFuturesSymbol } from '../lib/futures-symbol';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   LineSeries,
@@ -134,6 +134,7 @@ export function PaperChart({
   }
   const snap = (time: number) => Math.floor(time / step) * step;
   const [hover, setHover] = useState<string | null>(null);
+  const popoverPrefix = useId();
   const [tags, setTags] = useState<
     {
       id: number;
@@ -653,6 +654,7 @@ export function PaperChart({
             if (!members.length) return null;
             const open = members[0];
             const tagKey = `${tag.ids.join(',')}-${tag.kind}`;
+            const popoverId = `${popoverPrefix}-${tagKey}`;
             const sumPnl = (net = false) =>
               members.reduce<number | null>((acc, p) => {
                 const price =
@@ -677,23 +679,16 @@ export function PaperChart({
                   if (event.key === 'Escape') setHover(null);
                 }}
               >
-                <div
+                <button
+                  type="button"
+                  popoverTarget={popoverId}
                   className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                   style={{ top: tag.displayY, left }}
                   onMouseEnter={() => setHover(tagKey)}
-                  tabIndex={0}
                   onFocus={() => setHover(tagKey)}
                   onBlur={(event) => {
                     if (!event.currentTarget.parentElement?.contains(event.relatedTarget))
                       setHover(null);
-                  }}
-                  onClick={() => onSelectPosition?.(open.id)}
-                  role="button"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onSelectPosition?.(open.id);
-                    }
                   }}
                 >
                   <span>
@@ -706,42 +701,31 @@ export function PaperChart({
                       ? '—'
                       : `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(2)} USDT`}
                   </strong>
-                </div>
+                </button>
                 {hover === tagKey && (
-                  <section
-                    className="position-tip pointer-events-auto absolute z-30 m-0 flex w-[360px] max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-lg border border-border-active bg-surface-2 px-3 py-2 font-mono text-xs leading-relaxed text-text-primary shadow-xl [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-right [&_dd]:tabular-nums [&_i]:not-italic [&_i]:text-text-muted"
-                    aria-label="Chi tiết vị thế"
-                    onFocus={() => setHover(tagKey)}
-                    onBlur={(event) => {
-                      if (!event.currentTarget.parentElement?.contains(event.relatedTarget))
-                        setHover(null);
+                  <div
+                    className="position-quick-tip pointer-events-none absolute z-30 w-[280px] max-w-[calc(100%-16px)] rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-primary shadow-xl"
+                    role="tooltip"
+                    style={{
+                      top: tag.displayY > (container.current?.clientHeight ?? 430) / 2 ? undefined : tag.displayY + 36,
+                      bottom: tag.displayY > (container.current?.clientHeight ?? 430) / 2 ? (container.current?.clientHeight ?? 430) - tag.displayY + 6 : undefined,
+                      left: Math.max(8, Math.min(left, (container.current?.clientWidth ?? 300) - 288)),
                     }}
-                    style={
-                      tag.displayY > (container.current?.clientHeight ?? 430) * 0.48
-                        ? {
-                            bottom: (container.current?.clientHeight ?? 430) - tag.displayY + 10,
-                            left: Math.max(
-                              8,
-                              Math.min(left, (container.current?.clientWidth ?? 380) - 368),
-                            ),
-                            maxHeight: Math.min(440, Math.max(80, tag.displayY - 18)),
-                          }
-                        : {
-                            top: tag.displayY + 10,
-                            left: Math.max(
-                              8,
-                              Math.min(left, (container.current?.clientWidth ?? 380) - 368),
-                            ),
-                            maxHeight: Math.min(
-                              440,
-                              Math.max(
-                                80,
-                                (container.current?.clientHeight ?? 430) - tag.displayY - 28,
-                              ),
-                            ),
-                          }
-                    }
                   >
+                    <div>{members.length} vị thế · {open.side.toUpperCase()} · {label}</div>
+                    <strong className={`mt-1 block font-mono ${net === null ? 'text-text-muted' : net >= 0 ? 'text-bull' : 'text-bear'}`}>Ròng ước tính {fmt(net)} USDT</strong>
+                    <span className="mt-1 block text-text-muted">Bấm để xem chi tiết</span>
+                  </div>
+                )}
+                  <section
+                    id={popoverId}
+                    popover="auto"
+                    role="dialog"
+                    className="position-tip pointer-events-auto fixed inset-auto right-0 bottom-0 m-0 hidden max-h-[min(560px,calc(100dvh-24px))] w-full flex-col overflow-hidden rounded-t-xl border border-border-active bg-surface-2 p-4 text-xs leading-relaxed text-text-primary shadow-xl [&:popover-open]:flex sm:right-4 sm:bottom-4 sm:w-[400px] sm:rounded-xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-150 [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-right [&_dd]:font-mono [&_dd]:tabular-nums [&_i]:not-italic [&_i]:text-text-muted"
+                    aria-label="Chi tiết vị thế"
+                    onToggle={() => setHover(null)}
+                  >
+                    <div className="flex shrink-0 items-start justify-between gap-3">
                     <h4 className="m-0 mb-1.5 shrink-0 text-xs font-semibold text-sky-300">
                       {members.length > 1 ? `${members.length} lệnh` : `#${open.id}`} ·{' '}
                       {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
@@ -751,6 +735,22 @@ export function PaperChart({
                           ? 'Nếu chạm SL'
                           : 'Nếu chạm TP'}
                     </h4>
+                    <button type="button" autoFocus popoverTarget={popoverId} popoverTargetAction="hide" className="flex size-8 shrink-0 items-center justify-center rounded hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" aria-label="Đóng chi tiết vị thế">×</button>
+                    </div>
+                    <p className="m-0 mb-3 text-text-muted">Giá hiện tại <span className="font-mono text-text-primary">{markPrice === null ? '—' : formatQuote(markPrice)}</span>{markStale ? ' · Giá đang chậm' : ''}</p>
+                    <div className="total mb-2 shrink-0 rounded border border-border-subtle bg-surface-1 px-2.5 py-1.5">
+                      <div className="flex items-center justify-between text-xs font-semibold">
+                        <span className="text-text-muted">
+                          PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}
+                        </span>
+                        <span className={net === null ? 'text-text-muted' : net >= 0 ? 'text-bull' : 'text-bear'}>
+                          {fmt(net)} USDT
+                        </span>
+                      </div>
+                      <p className="m-0 mt-0.5 text-[10px] text-text-muted">
+                        Đã tính phí đóng ước tính {feeBps} bps · Chưa gồm trượt giá và funding tương lai.
+                      </p>
+                    </div>
                     <div
                       className="position-tip-list min-h-0 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:outline-sky-400"
                       tabIndex={0}
@@ -773,13 +773,25 @@ export function PaperChart({
                             : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
                         const unit = getFuturesSymbol().split('_')[0];
                         return (
-                          <div key={p.id} className="position-tip-trade border-b border-border-subtle py-2 last:border-b-0">
-                            <h5 className="m-0 mb-1 break-words text-xs font-medium">
-                              <b className="mr-1 text-sky-300">#{p.id}</b>{' '}
-                              {tradeStrategy(p.audit)?.title ??
-                                (p.origin === 'manual' ? 'Thủ công' : 'Auto')}
-                            </h5>
-                            <dl className="m-0 [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&>div]:gap-2 [&>div]:py-0.5">
+                          <details
+                            key={p.id}
+                            className="position-tip-trade group border-b border-border-subtle py-1.5 last:border-b-0"
+                          >
+                            <summary className="flex cursor-pointer select-none flex-col gap-1 rounded py-2 text-xs font-medium hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 [&::-webkit-details-marker]:hidden">
+                              <span className="w-full break-words">
+                                <b className="mr-1 text-sky-300">#{p.id}</b>{' '}
+                                {tradeStrategy(p.audit)?.title ??
+                                  (p.origin === 'manual' ? 'Thủ công' : 'Auto')}
+                              </span>
+                              <span className="flex w-full flex-wrap items-center justify-between gap-2 font-mono tabular-nums">
+                                <span className="text-text-muted">Entry {formatQuote(p.entry)}</span>
+                                <span className={tradeNet === null ? 'text-text-muted' : tradeNet >= 0 ? 'text-bull' : 'text-bear'}>
+                                  {fmt(tradeNet)} USDT
+                                </span>
+                                <span className="text-[10px] text-text-muted transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                              </span>
+                            </summary>
+                            <dl className="m-0 mt-1.5 border-t border-border-subtle/50 pt-1 text-[11px] [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&>div]:gap-2 [&>div]:py-0.5">
                               <div>
                                 <dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt>
                                 <dd>
@@ -817,27 +829,16 @@ export function PaperChart({
                                 <dt>Funding</dt>
                                 <dd>{fmt(-p.funding_cost)}</dd>
                               </div>
-                              <div>
-                                <dt>Ròng nếu chốt</dt>
-                                <dd>{fmt(tradeNet)} USDT</dd>
-                              </div>
                             </dl>
-                          </div>
+                            {onSelectPosition && <button type="button" className="mt-2 min-h-9 rounded border border-border-active px-3 text-sky-300 hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={(event) => {
+                              onSelectPosition(p.id);
+                              event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover();
+                            }}>Xem #{p.id} trên chart</button>}
+                          </details>
                         );
                       })}
                     </div>
-                    <dl className="total m-0 mt-1 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 border-t border-border-active pt-2 font-semibold">
-                      <dt>
-                        PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}
-                        <small className="mt-0.5 block text-[10px] font-normal">Phí đóng ước tính {feeBps} bps</small>
-                      </dt>
-                      <dd>{fmt(net)} USDT</dd>
-                    </dl>
-                    <p className="m-0 mt-1.5 shrink-0 text-[11px] text-text-muted">
-                      Chưa gồm trượt giá và funding tương lai{markStale ? ' · giá đang chậm' : ''}.
-                    </p>
                   </section>
-                )}
               </div>
             );
           })}

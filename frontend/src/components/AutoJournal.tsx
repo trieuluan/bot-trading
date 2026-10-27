@@ -66,16 +66,17 @@ export function AutoJournal({
   if (coverage.unrecorded) reasons.set(UNRECORDED, coverage.unrecorded);
   return (
     <section className="ap-journal min-w-0 space-y-2 py-2" aria-label="Nhật ký Auto Paper 24 giờ">
-      <header>
-        <strong>Nhật ký · 24 giờ qua</strong>
-        <span className={missedTotal ? 'ap-journal-missed' : undefined}>
+      <header className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+        <strong className="text-text-primary">Nhật ký · 24 giờ qua</strong>
+        <span className={`inline-flex flex-wrap items-center gap-1 ${missedTotal ? 'ap-journal-missed text-amber-300' : 'text-text-muted'}`}>
           {missedTotal > 0 && <TriangleAlert size={12} aria-hidden="true" />}
           Đã xét {coverage.evaluated}/{coverage.tracked_candles} nến
           {missedTotal > 0 && ` · lỡ ${missedTotal}`}
         </span>
       </header>
       <div
-        className="ap-strip flex min-w-0 gap-px overflow-x-auto"
+        className="ap-strip grid w-full min-w-0 gap-px"
+        style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
         role="group"
         onMouseLeave={hideTip}
         onBlur={(event) => {
@@ -99,7 +100,7 @@ export function AutoJournal({
             <button
               key={candle}
               type="button"
-              className={`ap-cell ${action} min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear`}
+              className={`ap-cell ${action} block h-6 min-w-0 rounded-sm border-0 bg-surface-3 p-0 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-sky-400 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear [&.untracked]:bg-transparent [&.untracked]:ring-1 [&.untracked]:ring-inset [&.untracked]:ring-border-base`}
               aria-label={title}
               onMouseEnter={(e) => showTip(e, title)}
               onFocus={(e) => showTip(e, title)}
@@ -108,8 +109,12 @@ export function AutoJournal({
           ) : (
             <span
               key={candle}
-              className={`ap-cell ${action} min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear`}
+              className={`ap-cell ${action} block h-6 min-w-0 rounded-sm bg-surface-3 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-sky-400 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear [&.untracked]:bg-transparent [&.untracked]:ring-1 [&.untracked]:ring-inset [&.untracked]:ring-border-base`}
+              tabIndex={0}
+              role="img"
+              aria-label={title}
               onMouseEnter={(e) => showTip(e, title)}
+              onFocus={(e) => showTip(e, title)}
             />
           );
         })}
@@ -131,28 +136,28 @@ export function AutoJournal({
         <span>{time(coverage.end_time)}</span>
       </div>
       {!!coverage.pending && <p>{coverage.pending} tín hiệu đang có lệnh chờ.</p>}
-      <div className="ap-legend flex flex-wrap gap-3 text-xs text-text-muted [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1 [&_i]:inline-block [&_i]:size-2 [&_i]:rounded-sm [&_i]:bg-surface-3" aria-hidden="true">
+      <div className="ap-legend flex flex-wrap gap-x-3 gap-y-2 text-[11px] text-text-muted [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1.5 [&_i]:inline-block [&_i]:size-2 [&_i]:shrink-0 [&_i]:rounded-sm" aria-hidden="true">
         <span>
-          <i className="ap-cell no_setup min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> không tín hiệu
+          <i className="bg-surface-3" /> không tín hiệu
         </span>
         <span>
-          <i className="ap-cell opened min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> mở lệnh
+          <i className="bg-bull" /> mở lệnh
         </span>
         <span>
-          <i className="ap-cell pending min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> lệnh chờ
+          <i className="bg-amber-400" /> lệnh chờ
         </span>
         <span>
-          <i className="ap-cell skipped min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> bỏ qua
+          <i className="bg-slate-600" /> bỏ qua
         </span>
         <span>
-          <i className="ap-cell missed min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> lỡ có lý do
+          <i className="bg-bear" /> lỡ có lý do
         </span>
         <span>
-          <i className="ap-cell none min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> không bản ghi
+          <i className="bg-surface-3" /> không bản ghi
         </span>
         {coverage.tracked_candles < coverage.window_candles && (
           <span>
-            <i className="ap-cell untracked min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> chưa theo dõi
+            <i className="bg-transparent ring-1 ring-inset ring-border-base" /> chưa theo dõi
           </span>
         )}
       </div>
@@ -166,12 +171,12 @@ export function AutoJournal({
         </p>
       )}
       {events.length > 0 && (
-        <ol>
+        <ol className="max-h-64 space-y-2 overflow-y-auto border-t border-border-subtle pt-2">
           {events.map((row) => (
-            <li key={row.candle_time} className={row.action}>
-              <time>{time(row.candle_time)}</time>
+            <li key={row.candle_time} className={`${row.action} flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 text-xs`}>
+              <time className="shrink-0 whitespace-nowrap font-mono tabular-nums text-text-muted">{time(row.candle_time)}</time>
               {row.action === 'opened' ? (
-                <span>
+                <span className="min-w-0 break-words">
                   Đã mở{' '}
                   {row.trade_id && onViewTrade ? (
                     <button
@@ -187,7 +192,7 @@ export function AutoJournal({
                   {row.side?.toUpperCase()}
                 </span>
               ) : (
-                <span title={row.reason}>
+                <span className="min-w-0 break-words" title={row.reason}>
                   {/^bỏ qua/i.test(row.reason) ? row.reason : `Bỏ qua · ${row.reason}`}
                 </span>
               )}

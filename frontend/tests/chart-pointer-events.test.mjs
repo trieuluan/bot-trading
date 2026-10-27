@@ -14,15 +14,25 @@ for (const component of ['MtfObservationChart', 'PaperChart']) {
   });
 }
 
-test('PaperChart position tooltip retains bounded Tailwind layout after legacy CSS removal', async () => {
+test('PaperChart separates hover preview from persistent native position details', async () => {
   const source = await readFile(new URL('../src/components/PaperChart.tsx', import.meta.url), 'utf8');
   const tip = source.match(/className="position-tip [^"]*"/)?.[0];
-  for (const utility of ['pointer-events-auto', 'absolute', 'z-30', 'flex-col', 'overflow-hidden', 'bg-surface-2', 'w-[360px]', 'max-w-[calc(100%-16px)]']) {
+  for (const utility of ['pointer-events-auto', 'fixed', 'flex-col', 'overflow-hidden', 'bg-surface-2', 'sm:w-[400px]', 'w-full', '[&:popover-open]:flex']) {
     assert.ok(tip?.includes(utility), `Tooltip needs ${utility}`);
   }
   assert.match(source, /position-tip-list min-h-0 overflow-y-auto overscroll-contain/);
   assert.match(source, /grid-cols-\[minmax\(0,1fr\)_minmax\(0,2fr\)\]/);
   assert.match(source, /event.key === 'Escape'\) setHover\(null\)/);
+  assert.match(source, /position-quick-tip pointer-events-none/);
+  assert.match(source, /popover="auto"/);
+  assert.match(source, /popoverTarget=\{popoverId\}/);
+  assert.match(source, /popoverTargetAction="hide"/);
+  assert.match(source, /<details/);
+  assert.match(source, /<summary/);
+  assert.match(source, /onSelectPosition\(p.id\)/);
+  assert.match(source, /hidePopover\(\)/);
+  assert.ok(!source.includes('onSelectPosition?.(open.id)'));
+  assert.match(source, /onMouseLeave=\{\(\) => setHover\(null\)\}/);
 });
 
 test('Forex chart keeps indicator readout in setup details, not over the canvas', async () => {
