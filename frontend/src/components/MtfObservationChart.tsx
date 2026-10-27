@@ -295,7 +295,7 @@ export function MtfObservationChart({
         price: row.price,
         color: row.color ?? '#287fa3',
         lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
+        lineStyle: LineStyle.SparseDotted,
         axisLabelVisible: true,
         title: row.label,
       }),
@@ -506,10 +506,16 @@ export function MtfObservationChart({
         });
       }
       if (isSelected) {
-        for (const [price, color, title] of [
-          [trade.open_price, '#557fa1', `ENTRY #${trade.position_id}`],
-          [trade.stop, '#bd7164', `SL #${trade.position_id}`],
-          [trade.target, '#2c856c', `TP #${trade.position_id}`],
+        const id = trade.position_id;
+        const same = (x?: number | null, y?: number | null) =>
+          x != null && y != null && Math.abs(x - y) <= Math.abs(x) * 1e-6;
+        const breakeven = same(trade.open_price, trade.stop);
+        // ponytail: gộp nhãn chỉ khi trùng giá; mức gần nhau chỉ phụ thuộc nhãn trục của thư viện chart.
+        for (const [price, color, title, style, width] of [
+          [trade.open_price, breakeven ? '#f59e0b' : '#60a5fa',
+            breakeven ? `ENTRY = SL · HÒA VỐN #${id}` : `ENTRY #${id}`, breakeven ? LineStyle.Solid : LineStyle.LargeDashed, breakeven ? 2 : 1],
+          [breakeven ? null : trade.stop, '#f59e0b', `SL #${id}`, LineStyle.Solid, 2],
+          [trade.target, '#14b8a6', `TP #${id}`, LineStyle.Solid, 2],
         ] as const) {
           if (price == null || price <= 0) continue;
           lines.current.push(
@@ -517,8 +523,8 @@ export function MtfObservationChart({
               price,
               color,
               title,
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
+              lineWidth: width,
+              lineStyle: style,
               axisLabelVisible: true,
             }),
           );
@@ -991,9 +997,9 @@ export function MtfObservationChart({
           </span>
           {selectedPositionId && (
             <>
-              <span className="stop-legend">--- SL sàn</span>
-              <span className="target-legend">--- TP sàn</span>
-              <span className="entry-legend">--- Giá vào</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-400"><span className="h-0.5 w-4 bg-amber-400" aria-hidden="true" /> SL sàn</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-teal-400"><span className="h-0.5 w-4 bg-teal-400" aria-hidden="true" /> TP sàn</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-sky-400"><span className="h-0.5 w-4 border-b-2 border-dashed border-sky-400" aria-hidden="true" /> Giá vào</span>
             </>
           )}
         </div>

@@ -167,3 +167,14 @@ def test_compose_injects_telegram_into_forex_worker():
     worker = compose.split("  exness-feed:\n", 1)[1].split("  frontend:\n", 1)[0]
     assert "TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}" in worker
     assert "TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}" in worker
+
+
+
+def test_stop_exit_reason_only_when_exit_reached_stop():
+    from backend.app.forex_notifications import stop_exit_reason
+    assert stop_exit_reason("sell", "157.574", "157.574", "157.574") == "breakeven_stop"
+    assert stop_exit_reason("sell", "157.700", "157.574", "157.100") == "stop_loss"
+    assert stop_exit_reason("sell", "157.500", "157.574", "157.100") is None
+    assert stop_exit_reason("buy", "1.0890", "1.0900", "1.0950") == "stop_loss"
+    assert stop_exit_reason("buy", "1.0950", "1.0900", "1.0850") is None
+    assert stop_exit_reason("buy", "1.0", None, None) is None

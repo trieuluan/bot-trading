@@ -80,6 +80,17 @@ def setup_progress(trade, updated, deals):
     ]
 
 
+def stop_exit_reason(side, exit_price, stop, entry=None):
+    """SL reason when the exit price reached the last known stop, else None (cause stays unverified)."""
+    price, stop = number(exit_price), number(stop)
+    if price is None or stop is None:
+        return None
+    if (price > stop) if side in ("buy", "long") else (price < stop):
+        return None  # exit never reached the stop
+    entry = number(entry)
+    breakeven = entry is not None and abs(stop - entry) <= abs(entry) * 1e-6
+    return "breakeven_stop" if breakeven else "stop_loss"
+
 def notify_reconciled(session, trade, previous, updated, position, protection, deals, now):
     """Enqueue Telegram alerts inside the reconcile transaction without extra locks."""
     symbol = esc(getattr(trade, "symbol", None) or "XAUUSD")
@@ -213,11 +224,13 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         if closed_volume and all(value is not None for value in closed_volume):
             vol = sum(closed_volume)
         tp_filled = updated.get("take_profit_filled")
-        reason = "take_profit" if tp_filled else updated.get("close_reason", "closed_by_broker")
+        reason = "take_profit" if tp_filled else updated.get("close_reason") or stop_exit_reason(
+            direction, close_p, updated.get("broker_stop") or body.get("stop_loss_price"), open_p) or "closed_by_broker"
         pnl_icon = "✅" if profit is not None and profit > 0 else "🛑" if profit is not None and profit < 0 else "⚪"
         reason_vn = {
             "take_profit": "Chạm Take Profit (TP)",
             "stop_loss": "Chạm Stop Loss (SL)",
+            "breakeven_stop": "Chạm SL hòa vốn (đã dời về giá vào)",
             "session_close": "Đóng cuối phiên",
             "early_risk_exit": "Thoát sớm do cấu trúc suy yếu",
             "manual": "Đóng thủ công",

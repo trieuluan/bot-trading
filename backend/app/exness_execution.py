@@ -45,7 +45,7 @@ from .exness_sessions import session_closed_ahead
 from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
 from .forex_htf_v2 import execution_candidates, validate_execution_signal
 from .forex_learning import cached_summary as learning_summary
-from .forex_notifications import notify_reconciled
+from .forex_notifications import notify_reconciled, stop_exit_reason
 from .forex_symbols import configured_symbols, request_symbol
 
 router = APIRouter(prefix="/api/workspaces/exness_forex/execution")
@@ -330,7 +330,13 @@ def reconcile(api, broker, now):
             tp_filled = bool(status == "closed" and exits and target and not data.get("close_reason") and (
                 Decimal(exits[-1]["price"]) >= Decimal(target) if data.get("body", {}).get("side") == "buy" else
                 Decimal(exits[-1]["price"]) <= Decimal(target)))
+            sl_reason = (stop_exit_reason(data.get("body", {}).get("side"), exits[-1].get("price"),
+                                          data.get("broker_stop") or data.get("body", {}).get("stop_loss_price"),
+                                          next((d.snapshot.get("price") for d in deals if d.position_id == pid
+                                                and d.snapshot.get("type") == "open"), None))
+                         if status == "closed" and exits and not tp_filled and not data.get("close_reason") else None)
             save({"position_id": pid, "status": status, "take_profit_filled": tp_filled,
+                  **({"close_reason": sl_reason} if sl_reason else {}),
                   **({"management": management} if management else {})})
 
 def evaluate(session, now, symbol="XAUUSD"):

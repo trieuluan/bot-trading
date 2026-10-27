@@ -887,3 +887,28 @@ def test_execution_summary_setups_view(monkeypatch):
     assert group["remaining_volume"] == 0.05
     assert group["realized_pnl"] == 25.0
     assert len(summary["open_groups"]) == 1
+
+def test_reconcile_labels_breakeven_stop_exit():
+    api = dummy_api()
+    leg = {"status": "submitted", "key": "rr-be", "recorded_at": NOW - 60, "ack": {"operation_id": "9"},
+           "body": {"side": "sell", "stop_loss_price": "157.900", "take_profit_price": "157.000"},
+           "broker_stop": "157.574"}
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=NOW - 60, snapshot=leg))
+        session.add(ExnessDeal(account=api.account_id, deal_id="o", position_id="P", event_time=NOW - 50,
+                               snapshot={"type": "open", "price": "157.574", "position_id": "P"}))
+        session.add(ExnessDeal(account=api.account_id, deal_id="c", position_id="P", event_time=NOW - 10,
+                               snapshot={"type": "close", "price": "157.574", "position_id": "P"}))
+    def get(path, params=None):
+        if "/operations/" in path:
+            return {"status": "accepted"}
+        if path.endswith("/orders"):
+            return {"items": [{"order": {"comment": "rr-be", "instrument": "XAUUSD",
+                                         "state": "filled", "position_id": "P", "order_id": "1"}}], "has_more": False}
+        return {"items": [], "has_more": False}
+    api.get = get
+    ee.reconcile(api, {"positions": [], "orders": []}, NOW)
+    with Session() as session:
+        saved = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 60)).snapshot
+    assert saved["status"] == "closed" and not saved["take_profit_filled"]
+    assert saved["close_reason"] == "breakeven_stop"

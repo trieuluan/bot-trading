@@ -52,6 +52,7 @@ export function ticketStatus(position: BrokerPosition): string {
   if (position.status !== 'closed') return 'Lịch sử chưa đủ';
   if (position.take_profit_filled) return position.role === 'tp1' ? 'Đã chốt TP1' : 'Đã chốt TP';
   if (position.close_reason === 'stop_loss') return 'Đã cắt SL';
+  if (position.close_reason === 'breakeven_stop') return 'Đã chạm SL hòa vốn';
   if (position.close_reason === 'weak_close') return 'Đã đóng · tín hiệu suy yếu';
   if (position.close_reason === 'scale_out') return 'Đã chốt từng phần';
   if (position.close_requested || position.close_reason === 'manual') return 'Đóng thủ công';
