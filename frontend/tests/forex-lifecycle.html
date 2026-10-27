@@ -5,10 +5,12 @@
 <title>Forex lifecycle layout check</title>
 <div id="root"></div>
 <script type="module">
-  import React, { useState } from 'react';
+  import React, { useEffect, useState } from 'react';
   import { createRoot } from 'react-dom/client';
   import { ForexSignalLifecycle } from '/src/components/ForexSignalLifecycle.tsx';
   import { ForexStripLegend } from '/src/components/ForexMarkets.tsx';
+  import { FuturesStrategyMenu } from '/src/components/FuturesStrategyMenu.tsx';
+  import { TimeZoneToggle } from '/src/components/TimeZoneToggle.tsx';
   import '/src/tailwind.css';
 
   const setups = Array.from({ length: 12 }, (_, index) => {
@@ -34,6 +36,18 @@
   function Fixture() {
     const [selectedId, select] = useState(null);
     const [result, setResult] = useState('');
+    const [strategies, setStrategies] = useState([]);
+    useEffect(() => {
+      const check = event => {
+        if (event.target.matches('.futures-strategy-menu') && event.newState === 'open') {
+          requestAnimationFrame(checkMenu);
+        } else if (event.target.matches('.forex-strip-legend-popover') && event.newState === 'open') {
+          requestAnimationFrame(checkLegend);
+        }
+      };
+      document.addEventListener('toggle', check, true);
+      return () => document.removeEventListener('toggle', check, true);
+    }, []);
     function checkLayout() {
       const list = document.querySelector('.signal-lifecycle-list');
       const rows = Array.from(list.querySelectorAll('.signal-lifecycle-row'));
@@ -48,15 +62,44 @@
       setResult(passed ? `PASS: ${rows.length} rows, no clipped content or horizontal overflow` : 'FAIL: layout regression');
       console.assert(passed, 'Lifecycle rows must retain their content height inside the scrolling list');
     }
+    function checkMenu() {
+      const menu = document.querySelector('.futures-strategy-menu');
+      const bounds = menu.getBoundingClientRect();
+      const body = menu.querySelector('.strategy-popover-body');
+      const passed = menu.matches(':popover-open') && bounds.top >= 0 && bounds.left >= 0 &&
+        bounds.bottom <= innerHeight && bounds.right <= innerWidth &&
+        menu.scrollWidth <= menu.clientWidth && body.clientHeight > 0 && body.scrollHeight > body.clientHeight;
+      setResult(passed ? 'PASS: strategy popup fits viewport, list scrolls' : 'FAIL: strategy popup regression');
+      console.assert(passed, 'Strategy popup must stay inside viewport with a scrollable list');
+    }
+    function checkLegend() {
+      const legend = document.querySelector('.forex-strip-legend-popover');
+      const bounds = legend.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.left + 20, bounds.top + 20);
+      const passed = legend.matches(':popover-open') && legend.contains(hit) && bounds.top >= 0 &&
+        bounds.left >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight;
+      setResult(passed ? 'PASS: legend escapes clipping ancestor and fits viewport' : 'FAIL: clipped legend');
+      console.assert(passed, 'Legend must appear above its overflow-hidden ancestor');
+    }
     return React.createElement('main', { style: { margin: '24px auto', padding: '0 12px', maxWidth: 1100 } },
       React.createElement('h1', { className: 'text-lg' }, 'Local fixture: 12 setups'),
       React.createElement('p', null, 'Synthetic data only. No API requests or broker actions.'),
-      React.createElement('section', { className: 'forex-markets is-compact', style: { display: 'flex', justifyContent: 'flex-end' } }, React.createElement(ForexStripLegend)),
+      React.createElement(TimeZoneToggle),
+      React.createElement('section', { className: 'forex-markets is-compact', style: { display: 'flex', justifyContent: 'flex-end', overflow: 'hidden' } }, React.createElement(ForexStripLegend)),
       React.createElement('button', { type: 'button', className: 'rounded border border-border-active bg-surface-2 px-3 py-2 text-xs text-text-primary', onClick: checkLayout }, 'Check layout'),
       React.createElement('output', { role: 'status' }, result),
       React.createElement(ForexSignalLifecycle, {
         setups, symbol: 'USDJPY', selectedId, onSelect: select,
-      }));
+      }),
+      React.createElement('section', { className: 'mt-6 flex flex-wrap items-center gap-3' },
+        React.createElement(FuturesStrategyMenu, {
+          rows: Array.from({ length: 24 }, (_, index) => ({
+            strategy: `rule_tree:fixture-${index}`, status: index % 2 ? 'signal' : 'waiting',
+            side: index % 2 ? 'long' : 'short',
+            note: index === 0 ? 'long_unbroken_identifier_'.repeat(16) : 'Synthetic strategy description for viewport checks.',
+          })),
+          holding: ['rule_tree:fixture-2'], selected: strategies, onChange: setStrategies,
+        })));
   }
   createRoot(document.getElementById('root')).render(React.createElement(Fixture));
 </script>

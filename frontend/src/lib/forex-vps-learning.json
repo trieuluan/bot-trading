@@ -1,0 +1,2641 @@
+{
+  "symbol": "EURUSD",
+  "captured_at": 1793096140,
+  "htf_ast3_shadow": {
+    "status": "captured",
+    "generation": 0,
+    "tree_count": 56,
+    "since": 1792591069,
+    "last_capture": {
+      "time": 1793095200,
+      "at": 1793096140,
+      "status": "captured",
+      "confirmed": 0,
+      "rejected": {
+        "no_m15_trigger": 11,
+        "no_h1_setup": 41,
+        "sl_too_wide": 4
+      }
+    },
+    "last_evolution": null,
+    "next_evolution_at": 1792594669,
+    "pending": 0,
+    "resolved": 0,
+    "excluded": 0,
+    "mean_r": null,
+    "note": "AST HTF v2: H4 xu hướng, H1 setup + SL, M15 trigger; so sánh quản lý H1 vs M15; R sau chi phí, chưa swap",
+    "trees": [
+      {
+        "id": "hast3_22628f90fb2c",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 channel + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "channel",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_2f8b7d294b1e",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 channel + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "channel",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_286cc5120a7c",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 rsi + Cấu trúc thuần (không BE)",
+        "h1_setup": "sweep",
+        "m15_trigger": "rsi",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_e39140eea5cd",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 rsi + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "sweep",
+        "m15_trigger": "rsi",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_a8a0d1315282",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 fvg + M15 fvg + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "fvg",
+        "m15_trigger": "fvg",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_634e0833d2c0",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 fvg + M15 fvg + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "fvg",
+        "m15_trigger": "fvg",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_7ffa74e5d4e7",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 session + Giữ 100%, trail ATR H1",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "session",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_9a71e2bfaf52",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 session + trail_swing_h1",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "session",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_e810914997bf",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 squeeze + M15 squeeze + Chốt từng nấc R, trail H1",
+        "h1_setup": "squeeze",
+        "m15_trigger": "squeeze",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_e5c63b78071a",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 squeeze + M15 squeeze + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "squeeze",
+        "m15_trigger": "squeeze",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_a9942ecbfa3a",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 sweep + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "sweep",
+        "m15_trigger": "sweep",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_18c37bbf148f",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 sweep + Cấu trúc thuần (không BE)",
+        "h1_setup": "sweep",
+        "m15_trigger": "sweep",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_ffdebdc55d5d",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pullback + M15 pullback + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "pullback",
+        "m15_trigger": "pullback",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_fc5769708c08",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pullback + M15 pullback + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "pullback",
+        "m15_trigger": "pullback",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_0bd36097afc4",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 range + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "sweep",
+        "m15_trigger": "range",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_f6eaefb1c1fd",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 range + Giữ 100%, trail ATR H1",
+        "h1_setup": "sweep",
+        "m15_trigger": "range",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_5178e3e186fb",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 retest + M15 retest + trail_swing_h1",
+        "h1_setup": "retest",
+        "m15_trigger": "retest",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_189c22e886b2",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 retest + M15 retest + Chốt từng nấc R, trail H1",
+        "h1_setup": "retest",
+        "m15_trigger": "retest",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_e93c5aa04f1e",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pullback + M15 router + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "pullback",
+        "m15_trigger": "router",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_d61455f6c7c3",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pullback + M15 router + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "pullback",
+        "m15_trigger": "router",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_df6f29dfab6a",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 orb + Cấu trúc thuần (không BE)",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "orb",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_56893227245c",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 channel_breakout + M15 orb + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "channel_breakout",
+        "m15_trigger": "orb",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_87518311cefc",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 mss + M15 vsa + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "mss",
+        "m15_trigger": "vsa",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_0d2309c65e35",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 mss + M15 vsa + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "mss",
+        "m15_trigger": "vsa",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_72c4e07a457e",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 mss + M15 mss + Giữ 100%, trail ATR H1",
+        "h1_setup": "mss",
+        "m15_trigger": "mss",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_0a0004463e34",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 mss + M15 mss + trail_swing_h1",
+        "h1_setup": "mss",
+        "m15_trigger": "mss",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_6206a5b7553a",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 vwap + Chốt từng nấc R, trail H1",
+        "h1_setup": "sweep",
+        "m15_trigger": "vwap",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_001c926b2fe3",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 vwap + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "sweep",
+        "m15_trigger": "vwap",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_2d28d59eeb11",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 order_block + M15 setup_reclaim + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "order_block",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_8ea3ffa62ce5",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 order_block + M15 setup_reclaim + Cấu trúc thuần (không BE)",
+        "h1_setup": "order_block",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_f98a449e51a2",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 order_block + M15 engulfing + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "order_block",
+        "m15_trigger": "engulfing",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_41503ff38692",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 order_block + M15 engulfing + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "order_block",
+        "m15_trigger": "engulfing",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_b71dc67ba5ac",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pdh_pdl_sweep + M15 setup_reclaim + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "pdh_pdl_sweep",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_d90caea83a6b",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pdh_pdl_sweep + M15 setup_reclaim + Giữ 100%, trail ATR H1",
+        "h1_setup": "pdh_pdl_sweep",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_21745235b977",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pdh_pdl_sweep + M15 engulfing + trail_swing_h1",
+        "h1_setup": "pdh_pdl_sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_35864e9732ab",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pdh_pdl_sweep + M15 engulfing + Chốt từng nấc R, trail H1",
+        "h1_setup": "pdh_pdl_sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_5f942fde3267",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 asia_sweep + M15 setup_reclaim + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "asia_sweep",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_1b1f544b986a",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 asia_sweep + M15 setup_reclaim + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "asia_sweep",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_5b6279d2e5cd",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 asia_sweep + M15 engulfing + Cấu trúc thuần (không BE)",
+        "h1_setup": "asia_sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_549e66ed79b7",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 asia_sweep + M15 engulfing + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "asia_sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_3c7421e97e0b",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 inside_bar + M15 setup_reclaim + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "inside_bar",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_991e7ff4b99b",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 inside_bar + M15 setup_reclaim + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "inside_bar",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_31645c6b02aa",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 inside_bar + M15 engulfing + Giữ 100%, trail ATR H1",
+        "h1_setup": "inside_bar",
+        "m15_trigger": "engulfing",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_a2b6c99499aa",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 inside_bar + M15 engulfing + trail_swing_h1",
+        "h1_setup": "inside_bar",
+        "m15_trigger": "engulfing",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_9c25a63faa25",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 round_level + M15 setup_reclaim + Chốt từng nấc R, trail H1",
+        "h1_setup": "round_level",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_0eb553e9c59b",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 round_level + M15 setup_reclaim + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "round_level",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_164cf7067ed2",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 round_level + M15 engulfing + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "round_level",
+        "m15_trigger": "engulfing",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_4cdd50f98bc2",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 round_level + M15 engulfing + Cấu trúc thuần (không BE)",
+        "h1_setup": "round_level",
+        "m15_trigger": "engulfing",
+        "exit_policy": "fixed_structural",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_ce32c8623eb1",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 order_block + M15 setup_reclaim + Chốt khi nến H1 yếu, giữ runner tới cản",
+        "h1_setup": "order_block",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "evidence_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_201a79aa55e0",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 pdh_pdl_sweep + M15 engulfing + Chốt khi nến M15 yếu, giữ runner tới cản",
+        "h1_setup": "pdh_pdl_sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "evidence_m15",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_94482049272e",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 asia_sweep + M15 setup_reclaim + Chốt tại cản H1, runner tới cản xa hơn",
+        "h1_setup": "asia_sweep",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "barrier_partial_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "min_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_ead380e587d1",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 inside_bar + M15 engulfing + Giữ 100%, trail ATR H1",
+        "h1_setup": "inside_bar",
+        "m15_trigger": "engulfing",
+        "exit_policy": "runner_h1",
+        "exit_params": {
+          "trail_r": 1.5,
+          "atr_multiple": 2
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_c74ce0e01ebf",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 round_level + M15 setup_reclaim + trail_swing_h1",
+        "h1_setup": "round_level",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "trail_swing_h1",
+        "exit_params": {
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_302bbfde0f46",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 fvg + M15 setup_reclaim + Chốt từng nấc R, trail H1",
+        "h1_setup": "fvg",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "ladder_h1",
+        "exit_params": {
+          "fraction": 0.3,
+          "step_r": 1,
+          "trail_r": 1.5
+        },
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_23f35d516116",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 sweep + M15 engulfing + Quản lý H1 (TP1 +1R, BE)",
+        "h1_setup": "sweep",
+        "m15_trigger": "engulfing",
+        "exit_policy": "partial_be_h1",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      },
+      {
+        "id": "hast3_74506032a313",
+        "description": "H4 EMA50 (Hai chiều · thuận H4) + H1 mss + M15 setup_reclaim + Quản lý M15 (TP1 +1R, BE)",
+        "h1_setup": "mss",
+        "m15_trigger": "setup_reclaim",
+        "exit_policy": "partial_be_m15",
+        "exit_params": {},
+        "generation": 0,
+        "parents": [],
+        "eligible": false,
+        "signals": 0,
+        "pending": 0,
+        "resolved": 0,
+        "excluded": 0,
+        "mean_r": null,
+        "lower_r": null,
+        "sides": {
+          "long": {
+            "resolved": 0,
+            "mean_r": null
+          },
+          "short": {
+            "resolved": 0,
+            "mean_r": null
+          }
+        },
+        "last_levels": null
+      }
+    ]
+  },
+  "entry_pilot": {
+    "enabled": false,
+    "pilot": {
+      "status": "ready",
+      "tree_count": 56,
+      "since": 1792770418,
+      "counts": {},
+      "comparison": {
+        "matched_signals": 0,
+        "resolved_pairs": 0,
+        "market_states": {},
+        "hybrid_states": {},
+        "market_mean_r": null,
+        "hybrid_mean_r": null,
+        "delta_r": null
+      },
+      "trees": [
+        {
+          "id": "hast4_4d0e6e751824",
+          "control_tree_id": "hast3_22628f90fb2c",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "channel",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_cdf2c6c37f51",
+          "control_tree_id": "hast3_2f8b7d294b1e",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "channel",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_ccfc728cb18b",
+          "control_tree_id": "hast3_286cc5120a7c",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "rsi",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_c582b9845381",
+          "control_tree_id": "hast3_e39140eea5cd",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "rsi",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_b7dec265ea5f",
+          "control_tree_id": "hast3_a8a0d1315282",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "fvg",
+          "m15_trigger": "fvg",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_64e51dc4d196",
+          "control_tree_id": "hast3_634e0833d2c0",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "fvg",
+          "m15_trigger": "fvg",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_cc5c1c579175",
+          "control_tree_id": "hast3_7ffa74e5d4e7",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "session",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_844f3259b197",
+          "control_tree_id": "hast3_9a71e2bfaf52",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "session",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_64d7f162e2f0",
+          "control_tree_id": "hast3_e810914997bf",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "squeeze",
+          "m15_trigger": "squeeze",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_2ddb40d5b920",
+          "control_tree_id": "hast3_e5c63b78071a",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "squeeze",
+          "m15_trigger": "squeeze",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_269dc55f2072",
+          "control_tree_id": "hast3_a9942ecbfa3a",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "sweep",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_29cda350e467",
+          "control_tree_id": "hast3_18c37bbf148f",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "sweep",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_e3382108d4ca",
+          "control_tree_id": "hast3_ffdebdc55d5d",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pullback",
+          "m15_trigger": "pullback",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_2025a41f0606",
+          "control_tree_id": "hast3_fc5769708c08",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pullback",
+          "m15_trigger": "pullback",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_686c91d8825f",
+          "control_tree_id": "hast3_0bd36097afc4",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "range",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_f9373d1ea10b",
+          "control_tree_id": "hast3_f6eaefb1c1fd",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "range",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_22bdd1609e19",
+          "control_tree_id": "hast3_5178e3e186fb",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "retest",
+          "m15_trigger": "retest",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_36e33acb04e1",
+          "control_tree_id": "hast3_189c22e886b2",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "retest",
+          "m15_trigger": "retest",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_f6891021d6c0",
+          "control_tree_id": "hast3_e93c5aa04f1e",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pullback",
+          "m15_trigger": "router",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_3644736a27b0",
+          "control_tree_id": "hast3_d61455f6c7c3",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pullback",
+          "m15_trigger": "router",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_430d149f62ec",
+          "control_tree_id": "hast3_df6f29dfab6a",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "orb",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_28ea5a3fa94a",
+          "control_tree_id": "hast3_56893227245c",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "channel_breakout",
+          "m15_trigger": "orb",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_cd065d7b44a2",
+          "control_tree_id": "hast3_87518311cefc",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "mss",
+          "m15_trigger": "vsa",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_6bbe33fba7fa",
+          "control_tree_id": "hast3_0d2309c65e35",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "mss",
+          "m15_trigger": "vsa",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_646ebad0bd01",
+          "control_tree_id": "hast3_72c4e07a457e",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "mss",
+          "m15_trigger": "mss",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_1908ef3a8bb5",
+          "control_tree_id": "hast3_0a0004463e34",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "mss",
+          "m15_trigger": "mss",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_05b007fed3bd",
+          "control_tree_id": "hast3_6206a5b7553a",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "vwap",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_0de1968e4ac2",
+          "control_tree_id": "hast3_001c926b2fe3",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "vwap",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_feba4a93cab1",
+          "control_tree_id": "hast3_2d28d59eeb11",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "order_block",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_7218f0fd9e97",
+          "control_tree_id": "hast3_8ea3ffa62ce5",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "order_block",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_39d286b3f451",
+          "control_tree_id": "hast3_f98a449e51a2",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "order_block",
+          "m15_trigger": "engulfing",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_ac7ced04345e",
+          "control_tree_id": "hast3_41503ff38692",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "order_block",
+          "m15_trigger": "engulfing",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_d42ef0abb253",
+          "control_tree_id": "hast3_b71dc67ba5ac",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pdh_pdl_sweep",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_835822dedb3e",
+          "control_tree_id": "hast3_d90caea83a6b",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pdh_pdl_sweep",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_2bb96441c7cb",
+          "control_tree_id": "hast3_21745235b977",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pdh_pdl_sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_9db514e8709b",
+          "control_tree_id": "hast3_35864e9732ab",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pdh_pdl_sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_8b17d41acf45",
+          "control_tree_id": "hast3_5f942fde3267",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "asia_sweep",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_de7a757366b3",
+          "control_tree_id": "hast3_1b1f544b986a",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "asia_sweep",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_1adf584aa97a",
+          "control_tree_id": "hast3_5b6279d2e5cd",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "asia_sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_fbd98b0a2c65",
+          "control_tree_id": "hast3_549e66ed79b7",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "asia_sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_869a584554dd",
+          "control_tree_id": "hast3_3c7421e97e0b",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "inside_bar",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_90233589eeb3",
+          "control_tree_id": "hast3_991e7ff4b99b",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "inside_bar",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_4f66e3511f1b",
+          "control_tree_id": "hast3_31645c6b02aa",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "inside_bar",
+          "m15_trigger": "engulfing",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_bc120bbfaed9",
+          "control_tree_id": "hast3_a2b6c99499aa",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "inside_bar",
+          "m15_trigger": "engulfing",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_acf5e347bcff",
+          "control_tree_id": "hast3_9c25a63faa25",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "round_level",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_77fe6312f9e8",
+          "control_tree_id": "hast3_0eb553e9c59b",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "round_level",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_65be7a3dc13e",
+          "control_tree_id": "hast3_164cf7067ed2",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "round_level",
+          "m15_trigger": "engulfing",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_df62789392a1",
+          "control_tree_id": "hast3_4cdd50f98bc2",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "round_level",
+          "m15_trigger": "engulfing",
+          "exit_policy": "fixed_structural",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_5a5de3b5ed23",
+          "control_tree_id": "hast3_ce32c8623eb1",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "order_block",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "evidence_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_652f20e8f499",
+          "control_tree_id": "hast3_201a79aa55e0",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "pdh_pdl_sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "evidence_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_e3be2772b8e4",
+          "control_tree_id": "hast3_94482049272e",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "asia_sweep",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "barrier_partial_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_2aa12f2d289f",
+          "control_tree_id": "hast3_ead380e587d1",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "inside_bar",
+          "m15_trigger": "engulfing",
+          "exit_policy": "runner_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_3cc26a0cad26",
+          "control_tree_id": "hast3_c74ce0e01ebf",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "round_level",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "trail_swing_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_0ed535a52696",
+          "control_tree_id": "hast3_302bbfde0f46",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "fvg",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "ladder_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_bcf8d49b6b2c",
+          "control_tree_id": "hast3_23f35d516116",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "sweep",
+          "m15_trigger": "engulfing",
+          "exit_policy": "partial_be_h1",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        },
+        {
+          "id": "hast4_b108032bc0f2",
+          "control_tree_id": "hast3_74506032a313",
+          "entry_policy": "limit_or_stop",
+          "entry_params": {
+            "limit_ratio": 0.5,
+            "stop_buffer_atr": 0.05,
+            "wait_bars": 4
+          },
+          "h1_setup": "mss",
+          "m15_trigger": "setup_reclaim",
+          "exit_policy": "partial_be_m15",
+          "samples_count": 0,
+          "resolved_count": 0,
+          "mean_r": null
+        }
+      ]
+    },
+    "intents": []
+  }
+}

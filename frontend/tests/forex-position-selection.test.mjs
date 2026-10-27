@@ -153,4 +153,51 @@ test('terminal-account-bar shows configured pair leverage and 1% risk budget', a
   assert.ok(html.includes('1:2.000'));
   assert.ok(html.includes('Rủi ro / setup'));
   assert.ok(html.includes('Đòn bẩy cấu hình USDJPY từ thông số broker'));
+  assert.ok(html.includes('Điều khiển bot'));
+  assert.ok(html.includes('Số dư · USD'));
+  assert.ok(html.includes('Vốn thực · USD'));
+  assert.ok(html.includes('grid-cols-2'));
+  assert.ok(html.includes('sm:grid-cols-4'));
+  assert.match(html, /<details[^>]*group\/account/);
+  assert.match(html, /<button[^>]*terminal-toggle[^>]*disabled=""/);
+});
+
+test('setup empty state preserves filters, disclosure and chart-only safety guidance', async () => {
+  const { ForexSignalLifecycle } = await server.ssrLoadModule('/src/components/ForexSignalLifecycle.tsx');
+  const html = renderToStaticMarkup(React.createElement(ForexSignalLifecycle, {
+    setups: [], symbol: 'EURUSD', onSelect() {},
+  }));
+  assert.ok(html.includes('id="forex-signals"'));
+  assert.ok(html.includes('aria-label="Lọc setup"'));
+  assert.ok(html.includes('aria-pressed="true"'));
+  assert.ok(html.includes('Chưa có tín hiệu ghi nhận'));
+  assert.ok(html.includes('Không gửi hay hủy lệnh.'));
+});
+
+test('ForexCatchupStatus compact view shows clean status summary and retry countdown', async () => {
+  const { ForexCatchupStatus } = await server.ssrLoadModule('/src/pages/ForexStrategyPage.tsx');
+  const retry = new Date(Date.now() + 16000).toISOString();
+  const html = renderToStaticMarkup(React.createElement(ForexCatchupStatus, {
+    dashboard: {
+      workspace: { symbol: 'EURUSD', id: 'exness_forex', name: 'Forex' },
+      market: { status: 'running', message: 'OK', worker_online: true },
+      observation: {
+        status: 'catching_up',
+        message: 'OK',
+        catch_up: { pending_bars: 41, last_processed_candle: 1729996200, latest_closed_candle: 1730000000 },
+      },
+      frames: [
+        { timeframe: '15m', remaining_intervals: 9, error: 'Cannot reach Exness API', retry_at: retry },
+        { timeframe: '1h', remaining_intervals: 2, error: 'Cannot reach Exness API', retry_at: retry },
+        { timeframe: '4h', remaining_intervals: 3, error: 'Cannot reach Exness API', retry_at: retry },
+      ],
+    },
+    disconnected: false,
+    compact: true,
+  }));
+  assert.ok(html.includes('Kết nối nến Exness gián đoạn'));
+  assert.ok(html.includes('Tự thử lại'));
+  assert.ok(html.includes('15m: 9'));
+  assert.ok(html.includes('MTF: 41'));
+  assert.ok(html.includes('Chi tiết'));
 });

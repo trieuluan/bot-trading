@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { ChevronRight, ReceiptText, Zap } from 'lucide-react';
+import { Activity, ChevronDown, ChevronRight, ReceiptText, Target, TrendingUp, Zap } from 'lucide-react';
 import { FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { formatPrice, formatQuote } from '../lib/format';
 import { subscribeFuturesStream } from '../lib/futures-stream';
@@ -232,48 +232,48 @@ export function TradeHistoryTable({
     <>
       {total.closed > 0 && (
         <>
-          <p className="micro text-xs leading-relaxed text-text-muted">
-            Tổng lịch sử đang tải · {total.closed} lệnh đã chốt · tối đa 100 lệnh/cặp
+          <p className="text-xs leading-relaxed text-text-muted">
+            Thống kê trên {total.closed} lệnh đã chốt trong lịch sử đã tải · tối đa 100 lệnh/cặp
           </p>
-          <div className="history-summary flex flex-wrap items-center gap-3 py-2 text-xs text-text-muted" aria-label="Tổng kết lịch sử lệnh">
-            <div>
-              <small>PnL ròng</small>
-              <strong className={sign(totalNet)}>
+          <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4" aria-label="Tổng kết lịch sử lệnh">
+            <div className={`rounded-xl border p-3.5 ${totalNet < 0 ? 'border-bear/20 bg-bear/5' : 'border-bull/20 bg-bull/5'}`}>
+              <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-secondary">PnL ròng <TrendingUp size={15} aria-hidden="true" /></div>
+              <strong className={`block font-mono text-lg tabular-nums ${totalNet < 0 ? 'text-bear' : 'text-bull'}`}>
                 {totalNet > 0 ? '+' : ''}
-                {formatPrice(totalNet)} <em>USDT</em>
+                {formatPrice(totalNet)} <span className="text-[10px] font-normal text-text-muted">USDT</span>
               </strong>
+              <small className="mt-1 block text-text-muted">Đã trừ phí và funding</small>
             </div>
-            <div>
-              <small>Tỉ lệ thắng</small>
-              <strong>
-                {Math.round((total.wins / total.closed) * 100)}%
-                <em>
-                  {' '}
-                  {total.wins}/{total.closed}
-                </em>
-              </strong>
+            <div className="rounded-xl border border-sky-400/20 bg-sky-400/5 p-3.5">
+              <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-secondary">Tỉ lệ thắng <Target size={15} className="text-sky-300" aria-hidden="true" /></div>
+              <strong className="block font-mono text-lg tabular-nums text-sky-300">{Math.round((total.wins / total.closed) * 100)}%</strong>
+              <small className="mt-1 block text-text-muted">{total.wins}/{total.closed} lệnh đã chốt</small>
             </div>
-            <div>
-              <small>R trung bình</small>
-              <strong className={meanR == null ? '' : sign(meanR)}>
+            <div className="rounded-xl border border-border-base bg-surface-2/50 p-3.5">
+              <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-secondary">R trung bình <Activity size={15} className="text-amber-200" aria-hidden="true" /></div>
+              <strong className={`block font-mono text-lg tabular-nums ${meanR == null ? 'text-text-muted' : meanR < 0 ? 'text-bear' : 'text-bull'}`}>
                 {meanR == null ? '—' : `${meanR > 0 ? '+' : ''}${meanR.toFixed(2)}R`}
               </strong>
+              <small className="mt-1 block text-text-muted">PnL / rủi ro theo SL</small>
             </div>
-            <div>
-              <small>Phí + funding</small>
-              <strong>
-                {formatPrice(fees)} <em>USDT</em>
+            <div className="rounded-xl border border-border-base bg-surface-2/50 p-3.5">
+              <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-secondary">Phí + funding <ReceiptText size={15} className="text-amber-200" aria-hidden="true" /></div>
+              <strong className="block font-mono text-lg tabular-nums text-text-primary">
+                {formatPrice(fees)} <span className="text-[10px] font-normal text-text-muted">USDT</span>
               </strong>
+              <small className="mt-1 block text-text-muted">Tổng chi phí đã ghi nhận</small>
             </div>
           </div>
         </>
       )}
-      <div className="history-filters flex flex-wrap items-center gap-3 py-2 text-xs text-text-muted" role="group" aria-label="Lọc lịch sử lệnh">
+      <div className="flex flex-wrap items-center justify-between gap-3 py-2">
+      <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-border-base bg-canvas/60 p-1" role="group" aria-label="Lọc lịch sử lệnh">
         {historyFilters.map(([key, label]) => (
           <button
             key={key}
             type="button"
             aria-pressed={filter === key}
+            className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors motion-reduce:transition-none ${filter === key ? 'bg-surface-3 text-text-primary shadow-sm ring-1 ring-border-active' : 'text-text-muted hover:bg-surface-2 hover:text-text-primary'}`}
             onClick={() => {
               setFilter(key);
               setLimit(PAGE);
@@ -282,10 +282,11 @@ export function TradeHistoryTable({
             {label}
           </button>
         ))}
-        <span className="muted text-text-muted">{shown.length} lệnh · bấm số lệnh để xem trên chart</span>
+      </div>
+        <span className="text-xs text-text-muted" role="status">{shown.length} lệnh · Bấm mã lệnh để xem chart</span>
       </div>
       {filter !== 'all' && (
-        <div className="history-filter-summary flex flex-wrap items-center gap-3 py-2 text-xs text-text-muted" role="status" aria-live="polite" aria-atomic="true">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border-subtle bg-surface-2/60 px-3 py-2.5 text-xs text-text-secondary" role="status" aria-live="polite" aria-atomic="true">
           <strong>Đang xem: {historyFilters.find(([key]) => key === filter)?.[1]}</strong>
           <span>{filtered.count} lệnh</span>
           {filtered.count > filtered.closed && (
@@ -297,14 +298,14 @@ export function TradeHistoryTable({
             <>
               <span>
                 PnL ròng{' '}
-                <b className={sign(filtered.net)}>
+                <b className={`font-mono tabular-nums ${filtered.net < 0 ? 'text-bear' : 'text-bull'}`}>
                   {filtered.net > 0 ? '+' : ''}
                   {formatPrice(filtered.net)} USDT
                 </b>
               </span>
               <span>
                 R TB{' '}
-                <b className={filtered.meanR === null ? '' : sign(filtered.meanR)}>
+                <b className={`font-mono tabular-nums ${filtered.meanR === null ? 'text-text-muted' : filtered.meanR < 0 ? 'text-bear' : 'text-bull'}`}>
                   {filtered.meanR === null
                     ? '—'
                     : `${filtered.meanR > 0 ? '+' : ''}${filtered.meanR.toFixed(2)}R`}
@@ -330,19 +331,20 @@ export function TradeHistoryTable({
           )}
         </div>
       )}
-      <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-        <table className="positions-table history-table w-full border-collapse whitespace-nowrap text-xs w-full border-collapse whitespace-nowrap text-xs">
-          <thead>
+      {shown.length > 0 && <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-border-base overscroll-x-contain" role="region" aria-label="Danh sách lịch sử lệnh" tabIndex={0}>
+        <table className="w-full border-collapse text-xs text-text-secondary lg:whitespace-nowrap">
+          <caption className="sr-only">Lịch sử giao dịch, kết quả ròng, chiến thuật và giá khớp lệnh</caption>
+          <thead className="sr-only lg:not-sr-only [&_th]:bg-surface-2 [&_th]:py-3 [&_th]:text-[11px]">
             <tr>
-              <th>Lệnh</th>
-              <th className="num font-mono tabular-nums text-right">PnL ròng</th>
-              <th>Chiến thuật</th>
-              <th>Entry → Exit · SL / TP</th>
-              <th>Kết thúc</th>
-              <th>Khối lượng · phí</th>
+              <th scope="col">Lệnh / nguồn</th>
+              <th scope="col" className="text-right">PnL ròng · USDT</th>
+              <th scope="col">Chiến thuật</th>
+              <th scope="col">Giá vào / ra</th>
+              <th scope="col">Kết thúc</th>
+              <th scope="col">Giá trị · chi phí</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block lg:table-row-group">
             {shown.slice(0, limit).map((row) => {
               const { s, t } = row;
               const lev = t.leverage ?? 1;
@@ -354,20 +356,21 @@ export function TradeHistoryTable({
               return (
                 <tr
                   key={`${s}${t.id}`}
-                  className={selectedId === t.id ? "selected-trade-row bg-bull/10" : undefined}
+                  className={`grid grid-cols-2 border-b border-border-base p-2 last:border-b-0 lg:table-row lg:p-0 [&_td]:min-w-0 [&_td]:border-0 [&_td]:px-2 [&_td]:py-2.5 lg:[&_td]:px-3 lg:[&_td]:py-4 ${selectedId === t.id ? 'bg-bull/10 ring-1 ring-inset ring-bull/25' : 'bg-surface-1 transition-colors hover:bg-surface-2/70'}`}
                 >
                   <td>
-                    <button className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline" onClick={() => onView(row)}>
+                    <button type="button" aria-label={`Xem lệnh ${unit} #${t.id} trên chart`} className="mb-2 inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border-base bg-surface-2 px-2 font-mono font-semibold text-text-primary hover:border-bull/50 hover:text-bull" onClick={() => onView(row)}>
                       {showPair ? `${unit} ` : ''}#{t.id}
+                      <ChevronRight size={12} aria-hidden="true" />
                     </button>
-                    <span className={`side-tag ${t.side} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{t.side.toUpperCase()}</span>
-                    <small className="trade-origin inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
+                    <span className={`ml-2 inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold ${t.side === 'long' ? 'bg-bull/10 text-bull ring-1 ring-bull/20' : 'bg-bear/10 text-bear ring-1 ring-bear/20'}`}>{t.side.toUpperCase()}</span>
+                    <small className="block text-[11px] text-text-muted">
                       {t.origin === 'auto' ? 'Auto' : 'Thủ công'} · {fmtTime(t.entry_time)}
                     </small>
                   </td>
-                  <td className={`num history-pnl ${net === null ? '' : sign(net)} font-mono tabular-nums text-right`}>
-                    {net === null ? 'Chưa chốt' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
-                    <small>
+                  <td className="text-right font-mono tabular-nums">
+                    <strong className={`block text-sm ${net === null ? 'text-amber-200' : net < 0 ? 'text-bear' : 'text-bull'}`}>{net === null ? 'Chưa chốt' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}</strong>
+                    <small className="mt-1 block text-[11px] text-text-muted">
                       {net !== null && risk > 0 ? `${(net / risk).toFixed(2)}R` : ''}
                       {net !== null && margin > 0
                         ? ` · ${((net / margin) * 100).toFixed(1)}% ký quỹ`
@@ -375,48 +378,61 @@ export function TradeHistoryTable({
                     </small>
                   </td>
                   <td>
+                    <span className="mb-1 block text-[10px] text-text-muted lg:hidden">Chiến thuật</span>
                     <StrategyCell trade={t} />
                   </td>
-                  <td>
+                  <td className="font-mono tabular-nums">
+                    <span className="mb-1 block font-sans text-[10px] text-text-muted lg:hidden">Giá vào / ra</span>
                     {formatQuote(t.entry)} → {t.exit === null ? '—' : formatQuote(t.exit)}
-                    <small>
-                      SL <span className="negative text-bear">{formatQuote(t.stop)}</span> · TP{' '}
-                      <span className="positive text-bull">{formatQuote(t.target)}</span> · rủi ro{' '}
-                      {formatPrice(risk)}
+                    <small className="mt-1 block text-[11px] text-text-muted">
+                      SL <span className="text-bear">{formatQuote(t.stop)}</span> · TP{' '}
+                      <span className="text-bull">{formatQuote(t.target)}</span>
                     </small>
+                    <small className="mt-1 block text-[11px] text-text-muted">Rủi ro {formatPrice(risk)} USDT</small>
                   </td>
                   <td>
-                    {t.exit_reason ? (exitLabels[t.exit_reason] ?? t.exit_reason) : 'Đang mở'}
-                    <small>
+                    <span className="mb-1 block text-[10px] text-text-muted lg:hidden">Kết thúc</span>
+                    <span className={`inline-flex rounded-md px-2 py-1 text-[11px] ${t.exit_time ? 'bg-surface-3 text-text-secondary' : 'bg-amber-400/10 text-amber-200'}`}>{t.exit_reason ? (exitLabels[t.exit_reason] ?? t.exit_reason) : 'Đang mở'}</span>
+                    <small className="mt-1.5 block text-[11px] text-text-muted">
                       {t.exit_time
-                        ? `${fmtTime(t.exit_time)} · giữ ${span(t.entry_time, t.exit_time)}`
+                        ? fmtTime(t.exit_time)
                         : ''}
                     </small>
+                    {t.exit_time && <small className="mt-1 block text-[11px] text-text-muted">Giữ {span(t.entry_time, t.exit_time)}</small>}
                   </td>
-                  <td>
+                  <td className="font-mono tabular-nums">
+                    <span className="mb-1 block font-sans text-[10px] text-text-muted lg:hidden">Giá trị · chi phí</span>
                     {formatPrice(notional)} USDT
-                    <small>
-                      {formatPrice(margin)} × {lev}x · phí {formatPrice(t.entry_fee + t.exit_fee)} ·
-                      funding {formatPrice(t.funding_cost)}
+                    <small className="mt-1 block text-[11px] text-text-muted">
+                      Ký quỹ {formatPrice(margin)} · {lev}x
                     </small>
+                    <small className="mt-1 block text-[11px] text-text-muted">Phí {formatPrice(t.entry_fee + t.exit_fee)} · funding {formatPrice(t.funding_cost)}</small>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </div>
-      {shown.length > limit && (
+      </div>}
+      {shown.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
+        <span className="text-xs text-text-muted">Hiển thị <b className="font-mono font-medium text-text-secondary">{Math.min(limit, shown.length)}/{shown.length}</b> lệnh</span>
+        {shown.length > limit && (
         <button
           type="button"
-          className="secondary history-more inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 mx-auto my-3 flex"
-          onClick={() => setLimit(limit + PAGE)}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border-active bg-surface-2 px-4 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
+          onClick={() => setLimit((current) => current + PAGE)}
         >
-          Xem thêm {Math.min(PAGE, shown.length - limit)} lệnh · còn {shown.length - limit}
+          Xem thêm {Math.min(PAGE, shown.length - limit)} lệnh
+          <ChevronDown size={14} aria-hidden="true" />
         </button>
-      )}
-      {rows.length > 0 && !shown.length && (
-        <p className="muted history-empty text-text-muted grid min-h-24 place-content-center gap-2 p-4 text-center text-xs text-text-muted">Không có lệnh khớp bộ lọc.</p>
+      )}</div>}
+      {!shown.length && (
+        <div className="grid min-h-48 justify-items-center content-center gap-2 rounded-xl border border-dashed border-border-base bg-surface-2/30 p-6 text-center">
+          <ReceiptText size={24} className="mb-1 text-text-muted" aria-hidden="true" />
+          <strong className="text-sm text-text-secondary">{rows.length ? 'Không có lệnh khớp bộ lọc' : 'Chưa có lịch sử lệnh'}</strong>
+          <p className="text-xs text-text-muted">{rows.length ? 'Thử chọn bộ lọc khác để xem các giao dịch.' : 'Các giao dịch mô phỏng sẽ xuất hiện tại đây.'}</p>
+          {filter !== 'all' && <button type="button" className="mt-2 min-h-9 rounded-lg border border-border-base bg-surface-2 px-3 text-xs text-text-primary hover:bg-surface-3" onClick={() => { setFilter('all'); setLimit(PAGE); }}>Xem tất cả lệnh</button>}
+        </div>
       )}
     </>
   );
@@ -697,7 +713,7 @@ export function PairStrip({
   onSelect: (s: FuturesSymbol) => void;
 }) {
   return (
-    <nav className="pair-strip flex min-w-0 gap-1 overflow-x-auto border-b border-border-base py-1 [&>button]:flex [&>button]:shrink-0 [&>button]:flex-col [&>button]:gap-1 [&>button]:border-b-2 [&>button]:border-transparent [&>button]:px-3 [&>button]:py-2 [&>button.on]:border-bull [&>button:hover]:bg-surface-2" aria-label="Chọn cặp Futures">
+    <nav className="pair-strip flex min-w-0 gap-1.5 overflow-x-auto pb-2" aria-label="Chọn cặp Futures">
       {FUTURES_SYMBOLS.map((s) => {
         const w = board[s].wallet;
         const open = w?.positions.length ?? 0;
@@ -706,13 +722,14 @@ export function PairStrip({
           <button
             key={s}
             type="button"
+            className={`inline-flex min-h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border px-2.5 py-1 text-left transition-colors ${s === symbol ? 'border-bull/60 bg-bull/10' : 'border-border-base bg-surface-2/50 hover:border-border-active hover:bg-surface-2'}`}
             aria-pressed={s === symbol}
             onClick={() => onSelect(s)}
             title={`${s.replace('_', ' / ')} · PnL ${w ? formatPrice(w.pair_unrealized_pnl) : '—'} · ⚡ ${sigs} cây có tín hiệu · ${open} vị thế mở`}
           >
-            <strong className="pair-sym text-xs font-semibold text-text-primary">{short(s)}</strong>
-            <small className="pair-price font-mono text-sm tabular-nums">{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</small>
-            <span className="pair-indicators flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <strong className="pair-sym text-xs font-semibold text-text-primary">{short(s)} <span className="text-[10px] font-normal text-text-muted">/ USDT</span></strong>
+            <small className="pair-price font-mono text-xs tabular-nums">{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</small>
+            <span className="pair-indicators flex items-center gap-1 text-xs">
               {sigs > 0 && (
                 <span
                   className="pair-signal inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull"
@@ -729,7 +746,7 @@ export function PairStrip({
                 </span>
               )}
               <span
-                className={`pair-dot ${board[s].auto?.enabled && board[s].auto?.worker_online ? 'on' : ''} inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400`}
+                className={`pair-dot inline-block size-1 shrink-0 rounded-full ${board[s].auto?.enabled && board[s].auto?.worker_online ? 'bg-bull' : 'bg-text-muted/40'}`}
                 title={board[s].auto?.enabled ? 'Auto Paper đang chạy' : 'Auto Paper đang tắt'}
               />
             </span>
@@ -765,7 +782,10 @@ export function AllPairsPanel({
   return (
     <section className="panel prose desk-activity-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0">
       <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
-        <h2>Tổng quan 10 cặp</h2>
+        <div className="space-y-1">
+          <h2>{tab === 'position' ? `Vị thế đang mở (${positions.length})` : tab === 'evolution' ? 'Tiến hóa · Tất cả 10 cặp' : 'Tổng quan 10 cặp'}</h2>
+          {tab === 'evolution' && <p>So sánh bộ học theo cặp · R học không phải PnL ví</p>}
+        </div>
         <span className="muted text-text-muted">
           Ví chung · Equity {account ? formatPrice(account.equity) : '—'} · PnL chưa chốt{' '}
           <span className={sign(account?.unrealized_pnl ?? 0)}>
@@ -775,15 +795,16 @@ export function AllPairsPanel({
         </span>
       </div>
       {tab === 'evolution' && (
-        <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-          <table>
+        <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-border-subtle">
+          <table className="w-full min-w-[820px] text-xs [&_th]:whitespace-nowrap [&_th]:py-3 [&_td]:align-middle [&_td]:py-3 [&_small]:mt-1 [&_small]:block [&_small]:text-[11px] [&_small]:leading-relaxed">
+            <caption className="sr-only">Trạng thái Auto, giao dịch Paper và kết quả học của 10 cặp Futures</caption>
             <thead>
               <tr>
-                <th>Cặp</th>
-                <th>Auto · nến 24h</th>
-                <th>Auto Paper</th>
-                <th>Bộ học</th>
-                <th>Top chiến thuật · R học</th>
+                <th scope="col">Cặp giao dịch</th>
+                <th scope="col">Auto · nến 24h</th>
+                <th scope="col">Giao dịch Paper</th>
+                <th scope="col">Tiến độ học</th>
+                <th scope="col">Chiến thuật dẫn đầu</th>
               </tr>
             </thead>
             <tbody>
@@ -802,15 +823,17 @@ export function AllPairsPanel({
                 const pnl = strategies.reduce((n, r) => n + (r.paper?.net_pnl ?? 0), 0);
                 const signals = a?.learner_decision ? liveSignals(a).length : 0;
                 return (
-                  <tr key={s}>
+                  <tr key={s} className="transition-colors hover:bg-surface-2/60 [&:last-child>td]:border-b-0">
                     <td>
-                      <button className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline" onClick={() => onSelect(s)}>
+                      <button type="button" className="inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md font-semibold text-text-primary underline-offset-4 hover:text-bull hover:underline" onClick={() => onSelect(s)} aria-label={`Xem ${s.replace('_', ' / ')}`}>
                         {s.replace('_', ' / ')}
+                        <ChevronRight size={13} className="text-text-muted" aria-hidden="true" />
                       </button>
                       {signals > 0 && <small className="positive text-bull">⚡ {signals} tín hiệu</small>}
                     </td>
                     <td>
-                      <span className={`pill ${a?.enabled && a.worker_online ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
+                      <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium ${!a || !a.enabled ? 'bg-surface-3 text-text-muted' : a.worker_online ? 'bg-bull/10 text-bull' : 'bg-tone-waiting/10 text-tone-waiting'}`}>
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                         {!a ? '—' : !a.enabled ? 'Dừng' : a.worker_online ? 'Chạy' : 'Worker off'}
                       </span>
                       {a?.coverage && (
@@ -818,7 +841,7 @@ export function AllPairsPanel({
                           className={
                             a.enabled && a.coverage.missed + a.coverage.unrecorded
                               ? "negative text-bear"
-                              : undefined
+                              : 'text-text-muted'
                           }
                         >
                           Xét {a.coverage.evaluated}/{a.coverage.tracked_candles}
@@ -848,7 +871,7 @@ export function AllPairsPanel({
                         ) : (
                           <>
                             {learned.length}/{l.population} có mẫu học
-                            <small>
+                            <small className="text-text-muted">
                               {l.promoted} đã duyệt · {l.samples} mẫu forward
                             </small>
                           </>
@@ -861,13 +884,13 @@ export function AllPairsPanel({
                       {top ? (
                         <>
                           {strategyShortTitle(top.genome, top.strategy)}
-                          <small className={sign(top.learned_mean_r ?? 0)}>
+                          <small className={`font-mono tabular-nums ${sign(top.learned_mean_r ?? 0)}`}>
                             {(top.learned_mean_r ?? 0) > 0 ? '+' : ''}
                             {(top.learned_mean_r ?? 0).toFixed(2)}R · {top.learned_samples} mẫu
                           </small>
                         </>
                       ) : (
-                        <span className="muted text-text-muted">Chưa có chiến thuật ≥{MIN_TOP_SAMPLES} mẫu</span>
+                        <span className="block text-text-muted">Chưa đủ mẫu<small>Cần ≥{MIN_TOP_SAMPLES} mẫu / chiến thuật</small></span>
                       )}
                     </td>
                   </tr>
@@ -891,7 +914,6 @@ export function AllPairsPanel({
       )}
       {tab === 'position' && (
         <>
-          <h3>Vị thế đang mở ({positions.length})</h3>
           {positions.length ? (
             <PositionsTable
               showPair
@@ -899,7 +921,10 @@ export function AllPairsPanel({
               onView={({ s, p }) => onSelect(s as FuturesSymbol, p.id)}
             />
           ) : (
-            <p className="muted text-text-muted">Không có vị thế mở.</p>
+            <div className="flex min-h-36 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-base px-4 text-center">
+              <strong className="text-sm font-medium text-text-secondary">Chưa có vị thế đang mở</strong>
+              <p className="text-xs text-text-muted">Lệnh mô phỏng của tất cả 10 cặp sẽ xuất hiện tại đây.</p>
+            </div>
           )}
         </>
       )}
@@ -944,14 +969,14 @@ function FamilySummary({ board }: { board: Board }) {
   const rows = [...fam.entries()].sort((a, b) => b[1].hold - a[1].hold || b[1].n - a[1].n);
   if (!rows.length) return null;
   return (
-    <details className="family-summary">
-      <summary>Gộp theo họ chiến thuật · cả 10 cặp ({rows.length} họ)</summary>
-      <p className="micro text-xs leading-relaxed text-text-muted">
+    <details className="family-summary group rounded-lg border border-border-subtle bg-surface-2/30 open:pb-3">
+      <summary className="flex min-h-11 list-none items-center gap-2 rounded-lg px-3 text-xs font-medium text-text-secondary hover:bg-surface-2 [&::-webkit-details-marker]:hidden"><ChevronRight size={14} className="shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />Gộp theo họ chiến thuật<span className="ml-auto rounded bg-surface-3 px-2 py-0.5 text-[11px] text-text-muted">{rows.length} họ · 10 cặp</span></summary>
+      <p className="micro px-3 pb-3 text-xs leading-relaxed text-text-muted">
         R học gộp theo số mẫu (replay + forward) của mọi chiến thuật cùng họ. Cùng họ không có nghĩa
         cùng điều kiện; không phải PnL ví.
       </p>
       <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-        <table>
+        <table className="w-full min-w-[640px] text-xs [&_td:not(:first-child)]:text-right [&_td:not(:first-child)]:tabular-nums [&_th:not(:first-child)]:text-right">
           <thead>
             <tr>
               <th>Họ</th>

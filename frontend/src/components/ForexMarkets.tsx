@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Check, Crosshair, HelpCircle, Hourglass, CircleAlert, Layers, X, Zap } from 'lucide-react';
 import type { ForexEntryIntent } from '../types/forex-entry';
 import { entryLifecycle, visibleEntryIntents } from '../lib/forex-entry-lifecycle';
@@ -80,32 +80,29 @@ interface MarketsData {
 }
 
 export function ForexStripLegend() {
-  const legendRef = useRef<HTMLDetailsElement>(null);
+  const id = useId();
+  const [position, setPosition] = useState({ top: 8, left: 8, maxHeight: 600 });
   useEffect(() => {
-    const dismiss = (event: PointerEvent | KeyboardEvent) => {
-      const legend = legendRef.current;
-      if (!legend?.open) return;
-      if (event instanceof KeyboardEvent) {
-        if (event.key !== 'Escape') return;
-        legend.open = false;
-        legend.querySelector('summary')?.focus();
-      } else if (event.target instanceof Node && !legend.contains(event.target)) {
-        legend.open = false;
-      }
-    };
-    document.addEventListener('pointerdown', dismiss);
-    document.addEventListener('keydown', dismiss);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      document.removeEventListener('keydown', dismiss);
-    };
-  }, []);
-  return <details className="forex-strip-legend relative shrink-0 border-0 bg-transparent p-0 shadow-none [&>summary]:flex [&>summary]:size-8 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary]:items-center [&>summary]:justify-center [&>summary]:border-0 [&>summary]:bg-transparent [&>summary]:p-0 [&>summary]:text-text-muted [&>summary:hover]:text-bull [&>summary::-webkit-details-marker]:hidden" ref={legendRef}>
-    <summary aria-label="Chú giải biểu tượng">
+    const dismiss = () => document.getElementById(id)?.hidePopover();
+    window.addEventListener('resize', dismiss);
+    return () => window.removeEventListener('resize', dismiss);
+  }, [id]);
+  return <div className="forex-strip-legend relative shrink-0 border-0 bg-transparent p-0 shadow-none">
+    <button type="button" aria-label="Chú giải biểu tượng" aria-haspopup="dialog" popoverTarget={id}
+      className="inline-flex size-8 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-text-muted hover:text-bull"
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const maxHeight = Math.min(600, window.innerHeight - 32);
+        setPosition({
+          top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - maxHeight - 8)),
+          left: Math.max(8, Math.min(rect.right - 360, window.innerWidth - 368)),
+          maxHeight,
+        });
+      }}>
       <HelpCircle size={15} aria-hidden="true" />
-    </summary>
-    <div className="forex-strip-legend-popover absolute right-0 top-full z-50 mt-2 flex max-h-[min(72dvh,600px)] w-[min(360px,calc(100vw-32px))] flex-col gap-3 overflow-y-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs shadow-lg [&_header]:flex [&_header]:items-center [&_header]:justify-between [&_header]:border-b [&_header]:flex [&_header]:items-center [&_header]:justify-between [&_header]:border-border-base [&_header]:pb-2 [&_header>span]:hidden [&_strong]:text-text-primary [&_small]:text-xs [&_small]:text-text-secondary [&_h4]:m-0 [&_h4]:text-xs [&_h4]:text-text-muted [&_footer]:border-t [&_footer]:border-border-base [&_footer]:pt-2 [&_footer]:text-xs [&_footer]:leading-relaxed [&_footer]:text-text-secondary">
-      <header><strong>Đọc nhanh dải cặp tiền</strong><span>Biểu tượng & trạng thái</span></header>
+    </button>
+    <div id={id} popover="auto" role="dialog" aria-label="Chú giải dải cặp tiền" style={position} className="forex-strip-legend-popover fixed inset-auto z-50 m-0 flex w-[min(360px,calc(100vw-16px))] flex-col gap-3 overflow-y-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg [&:not(:popover-open)]:hidden [&_header]:flex [&_header]:items-center [&_header]:justify-between [&_header]:border-b [&_header]:border-border-base [&_header]:pb-2 [&_strong]:text-text-primary [&_small]:text-xs [&_small]:text-text-secondary [&_h4]:m-0 [&_h4]:text-xs [&_h4]:text-text-muted [&_footer]:border-t [&_footer]:border-border-base [&_footer]:pt-2 [&_footer]:text-xs [&_footer]:leading-relaxed [&_footer]:text-text-secondary">
+      <header><strong>Đọc nhanh dải cặp tiền</strong><button type="button" popoverTarget={id} popoverTargetAction="hide" aria-label="Đóng chú giải" className="inline-flex size-8 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-text-muted hover:text-text-primary"><X size={16} aria-hidden="true" /></button></header>
       <div className="legend-row grid grid-cols-[36px_minmax(0,1fr)] items-start gap-2 [&>span:last-child]:flex [&>span:last-child]:flex-col [&>span:last-child]:gap-1"><span className="legend-sessions flex items-center gap-1 pt-1" aria-hidden="true"><i className="dot dot-open inline-block size-1.5 shrink-0 rounded-full bg-bull" /><i className="dot dot-closed inline-block size-1.5 shrink-0 rounded-full bg-slate-500" /><i className="dot dot-unknown inline-block size-1.5 shrink-0 rounded-full bg-amber-400" /></span><span><strong>Phiên dự kiến</strong><small>Xanh: mở · xám: đóng/nghỉ · vàng: chưa rõ. Không xác nhận giá trực tiếp.</small></span></div>
       <div className="legend-row grid grid-cols-[36px_minmax(0,1fr)] items-start gap-2 [&>span:last-child]:flex [&>span:last-child]:flex-col [&>span:last-child]:gap-1"><span className="badge-sample is-signal inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-amber-400/10 text-amber-300"><Zap size={12} />4</span><span><strong>Tín hiệu M15</strong><small>Số cây còn tín hiệu, gồm mô phỏng; không phải lệnh khớp.</small></span></div>
       <div className="legend-row grid grid-cols-[36px_minmax(0,1fr)] items-start gap-2 [&>span:last-child]:flex [&>span:last-child]:flex-col [&>span:last-child]:gap-1"><span className="badge-sample is-position inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-amber-400/10 text-amber-300"><Layers size={12} />1</span><span><strong>Setup có vị thế mở</strong><small>Mỗi setup có thể gồm nhiều ticket TP1 / Runner. Không phải nhãn tài khoản live.</small></span></div>
@@ -125,7 +122,7 @@ export function ForexStripLegend() {
       </div>
       <footer>Số cạnh icon chỉ đếm nhánh cùng trạng thái đang hiện, không phải tổng nhánh. Gạch chân xanh: cặp đang chọn. Vòng xoay: đang tải. “Giá có thể đã cũ”: mất kết nối feed.</footer>
     </div>
-  </details>;
+  </div>;
 }
 
 export function useForexMarkets() {
@@ -320,33 +317,36 @@ export function ForexMarkets({
   const rows = data?.markets ?? [];
   const head =
     variant === 'table' ? (
-      <tr>
-        <th>Cặp</th>
-        <th>Phiên dự kiến</th>
-        <th className="num font-mono tabular-nums text-right">Giá bid</th>
-        <th>Độ mới</th>
-        <th className="num font-mono tabular-nums text-right">Vị thế</th>
-        <th className="num font-mono tabular-nums text-right" title="Cây được phép vào lệnh / đủ chuẩn tiến hoá">
+      <tr className="border-b border-border-base bg-surface-2/80 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+        <th className="py-2.5 px-3 text-left">Cặp</th>
+        <th className="py-2.5 px-3 text-left">Phiên dự kiến</th>
+        <th className="py-2.5 px-3 text-right font-mono tabular-nums">Giá bid</th>
+        <th className="py-2.5 px-3 text-left">Độ mới</th>
+        <th className="py-2.5 px-3 text-right font-mono tabular-nums">Vị thế</th>
+        <th className="py-2.5 px-3 text-right font-mono tabular-nums" title="Cây được phép vào lệnh / đủ chuẩn tiến hoá">
           Cây vào lệnh · tiến hoá
         </th>
-        <th>Entry</th>
+        <th className="py-2.5 px-3 text-left">Entry</th>
       </tr>
     ) : (
-      <tr>
-        <th>Cặp</th>
-        <th>Giá · độ mới</th>
-        <th>Feed 15M</th>
-        <th>Feed 1H</th>
-        <th>Feed 4H</th>
-        <th>Thông số</th>
+      <tr className="border-b border-border-base bg-surface-2/80 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+        <th className="py-2.5 px-3 text-left">Cặp</th>
+        <th className="py-2.5 px-3 text-left">Giá · độ mới</th>
+        <th className="py-2.5 px-3 text-left">Feed 15M</th>
+        <th className="py-2.5 px-3 text-left">Feed 1H</th>
+        <th className="py-2.5 px-3 text-left">Feed 4H</th>
+        <th className="py-2.5 px-3 text-left">Thông số</th>
       </tr>
     );
 
   return (
-    <section className="panel forex-pairs-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4" aria-label="Các cặp Forex">
-      <div className="forex-pairs-head flex min-w-0 flex-wrap items-center gap-2 mb-3 justify-between">
-        <h2>{variant === 'table' ? 'Các cặp giao dịch' : 'Sức khỏe feed 11 cặp'}</h2>
-        <span className="muted text-text-muted">
+    <section
+      className="panel forex-pairs-panel min-w-0 rounded-2xl border border-border-base bg-surface-1 p-4 lg:p-5 shadow-xs"
+      aria-label="Các cặp Forex"
+    >
+      <div className="forex-pairs-head flex min-w-0 flex-wrap items-center gap-2 mb-3.5 justify-between">
+        <h2 className="text-base font-bold text-text-primary">{variant === 'table' ? 'Các cặp giao dịch' : 'Sức khỏe feed 11 cặp'}</h2>
+        <span className="text-xs text-text-muted font-mono">
           {data
             ? `${data.account_setups ?? data.account_positions} setup · ${data.account_positions}/${data.max_positions} ticket toàn tài khoản · tối đa ${data.max_positions_per_symbol} ticket/cặp`
             : 'Đang tải…'}
@@ -357,10 +357,10 @@ export function ForexMarkets({
           Không tải được danh sách cặp; số liệu có thể đã cũ.
         </p>
       )}
-      <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+      <div className="table-scroll min-w-0 max-w-full overflow-x-auto rounded-xl border border-border-subtle/80 overscroll-x-contain" role="region" aria-label="Bảng các cặp Forex" tabIndex={0}>
         <table className="forex-pairs-table w-full border-collapse whitespace-nowrap text-xs">
           <thead>{head}</thead>
-          <tbody>
+          <tbody className="divide-y divide-border-subtle/40">
             {!data &&
               Array.from({ length: 6 }, (_, index) => (
                 <tr key={index} className="skeleton-row min-h-5 animate-pulse rounded bg-surface-3" aria-hidden="true">
@@ -378,39 +378,45 @@ export function ForexMarkets({
               return (
                 <tr
                   key={market.symbol}
-                  className={active ? 'is-active' : ''}
+                  className={`cursor-pointer transition-colors ${active ? 'bg-bull/10 hover:bg-bull/15' : 'hover:bg-surface-2/60'}`}
                   onClick={() => select(market.symbol)}
                 >
-                  <th scope="row">
-                    <button
-                      type="button"
-                      className="forex-pair-link text-bull hover:underline"
-                      aria-current={active ? 'true' : undefined}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        select(market.symbol);
-                      }}
-                    >
-                      {market.symbol}
-                    </button>
-                    {active && <span className="forex-pair-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">Đang xem</span>}
+                  <th scope="row" className="bg-transparent py-2.5 px-3 text-left">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                      className="forex-pair-link inline-flex min-h-9 items-center font-semibold text-text-primary hover:text-bull transition-colors"
+                        aria-current={active ? 'true' : undefined}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          select(market.symbol);
+                        }}
+                      >
+                        {market.symbol}
+                      </button>
+                      {active && (
+                        <span className="inline-flex items-center rounded-md bg-bull/15 px-1.5 py-0.5 text-[10px] font-semibold text-bull border border-bull/20">
+                          Đang xem
+                        </span>
+                      )}
+                    </div>
                   </th>
                   {variant === 'table' ? (
                     <>
-                      <td>
+                      <td className="max-w-52 whitespace-normal leading-relaxed">
                         <ForexSessionStatus session={market.market_session} now={now} />
                       </td>
-                      <td className="num font-mono font-mono tabular-nums text-right font-mono tabular-nums">{formatPrice(market)}</td>
+                      <td className="font-mono tabular-nums text-right text-text-primary">{formatPrice(market)}</td>
                       <td>
                         <span
-                          className={`dot-label tone-${closed ? 'idle' : fresh ? 'ok' : 'warn'} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}
+                          className={`inline-flex items-center gap-1.5 text-xs ${closed ? 'text-text-muted' : fresh ? 'text-bull' : 'text-amber-200'}`}
                           title={formatTime(market.price_at, true)}
                         >
                           {market.age_seconds == null
                             ? 'Chưa có giá'
                             : closed
                               ? `Giá cuối phiên · ${formatTime(market.price_at)}`
-                              : `${Math.floor(market.age_seconds)}s · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
+                              : `${relativeTime(market.price_at, now)} · ${market.price_source === 'tick' ? 'tick' : 'nến đóng'}`}
                         </span>
                       </td>
                       <td className="num font-mono tabular-nums text-right">
@@ -423,9 +429,9 @@ export function ForexMarkets({
                           · {market.execution?.evolution_ready_count ?? '—'}
                         </span>
                       </td>
-                      <td>
+                      <td className="max-w-56 whitespace-normal">
                         <span
-                          className={`status-chip tone-${!closed && blocked ? 'warn' : 'idle'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
+                          className={`inline-flex rounded-md border px-2 py-1 text-[11px] leading-relaxed ${!closed && blocked ? 'border-amber-400/15 bg-amber-400/5 text-amber-200' : 'border-border-base bg-surface-2 text-text-secondary'}`}
                           title={blocked ?? undefined}
                         >
                           {closed

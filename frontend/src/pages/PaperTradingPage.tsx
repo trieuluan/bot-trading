@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Bot, Clock3, RefreshCw, ShieldCheck } from 'lucide-react';
+import { Bot, Clock3, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
 import { FuturesLearningPage } from './FuturesLearningPage';
@@ -390,132 +390,115 @@ export function PaperTradingPage({
   const selectedTitle = selectedRow ? chartStrategyText(selectedRow).title : '';
   const nextCloseSeconds = 900 - (Math.floor(clock / 1000) % 900);
   return (
-    <div className="futures-desk">
-      <div className="desk-sticky-header relative min-w-0 border-b border-border-base bg-surface-1 p-3">
+    <div className="futures-desk min-w-0 space-y-3">
+      <div className="desk-sticky-header relative min-w-0 rounded-lg border border-border-base bg-surface-1 px-3 py-2 min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-30">
         <PairStrip board={board} symbol={symbol} onSelect={onSelect} />
-        <div className="mexc-top-dock relative min-w-0 border-b border-border-base bg-surface-1 p-3">
-          <div className="mexc-ticker-left flex flex-wrap items-center gap-x-4 gap-y-2 text-xs [&_small]:text-xs [&_small]:text-text-muted">
-            <span className="desk-paper-label text-xs uppercase tracking-wider text-amber-300" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
-              <ShieldCheck size={13} /> PAPER · 1×
-            </span>
-            <span className="mexc-pair-title font-display text-lg font-semibold text-text-primary">
-              {symbol.replace('_', ' / ')} <small>Perp</small>
-            </span>
-            <strong className="mexc-last-price font-mono text-xl font-semibold text-text-primary">
-              {stream.candle
-                ? formatQuote(stream.candle.close)
-                : quote
-                  ? formatQuote(quote.lastPrice)
-                  : '—'}
-            </strong>
-            <span className="mexc-fair-price flex items-baseline gap-1 font-mono text-xs text-text-muted">
-              Fair {quote ? formatQuote(quote.fairPrice) : '—'}
-            </span>
-            {quote?.fundingRate !== undefined && (
-              <span
-                className="mexc-stat flex items-baseline gap-1 font-mono text-xs text-text-muted"
-                title={`${quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'} · đếm ngược tới kỳ thanh toán funding`}
-              >
-                <span className="muted text-text-muted">Funding / Còn lại</span>
-                <strong>
-                  <span className={quote.fundingRate >= 0 ? "negative text-bear" : "positive text-bull"}>
-                    {quote.fundingRate >= 0 ? '+' : ''}
-                    {(quote.fundingRate * 100).toFixed(4)}%
-                  </span>
-                  {quote.nextFundingTime && (
-                    <> / {fundingCountdown(quote.nextFundingTime - clock / 1000)}</>
-                  )}
-                </strong>
-              </span>
-            )}
-            <span
-              className="mexc-stat flex items-baseline gap-1 font-mono text-xs text-text-muted"
-              title="Open Interest: số hợp đồng còn mở trên MEXC. Chỉ tham khảo bối cảnh, không kích hoạt lệnh."
+        <div className="mexc-top-dock relative flex min-w-0 items-center gap-x-4 overflow-x-auto border-t border-border-base pt-2 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span className="desk-paper-label inline-flex shrink-0 items-center gap-1 rounded border border-amber-400/20 bg-amber-400/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-300" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
+            <ShieldCheck size={12} /> PAPER
+          </span>
+          <span className="mexc-pair-title shrink-0 font-display text-sm font-semibold text-text-primary">
+            {symbol.replace('_', ' / ')} <small className="text-[11px] text-text-muted">Perp</small>
+          </span>
+          <strong className="mexc-last-price shrink-0 font-mono text-base font-semibold tracking-tight text-text-primary">
+            {stream.candle
+              ? formatQuote(stream.candle.close)
+              : quote
+                ? formatQuote(quote.lastPrice)
+                : '—'}
+          </strong>
+          <span className="mexc-fair-price flex shrink-0 items-baseline gap-1 font-mono text-xs text-text-muted">
+            Fair {quote ? formatQuote(quote.fairPrice) : '—'}
+          </span>
+          {quote?.fundingRate !== undefined && (
+            <div
+              className="mexc-stat flex shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs"
+              title={`${quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'} · đếm ngược tới kỳ thanh toán funding`}
             >
-              <span className="muted text-text-muted">OI (hợp đồng) / 24h</span>
+              <span className="text-[11px] text-text-muted">Funding / Còn lại</span>
               <strong>
-                {wallet?.open_interest
-                  ? wallet.open_interest.contracts.toLocaleString('en-US', {
-                      notation: 'compact',
-                      maximumFractionDigits: 2,
-                    })
-                  : '—'}
-                {' / '}
-                {wallet?.open_interest?.change_24h_pct != null && !wallet.stale
-                  ? `${wallet.open_interest.change_24h_pct > 0 ? '+' : ''}${wallet.open_interest.change_24h_pct.toFixed(2)}%`
-                  : '—'}
-                {wallet?.stale && <small> · cũ</small>}
+                <span className={quote.fundingRate >= 0 ? "negative text-bear" : "positive text-bull"}>
+                  {quote.fundingRate >= 0 ? '+' : ''}
+                  {(quote.fundingRate * 100).toFixed(4)}%
+                </span>
+                {quote.nextFundingTime && (
+                  <span className="text-text-muted"> / {fundingCountdown(quote.nextFundingTime - clock / 1000)}</span>
+                )}
               </strong>
-            </span>
-            <span
-              className={`pill ${stream.live ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
-              title="Độ trễ ước tính từ timestamp MEXC đến trình duyệt; phụ thuộc đồng hồ máy (đồng hồ lệch thì ẩn ms). Tuổi dữ liệu tính từ timestamp MEXC."
-            >
-              {stream.live ? 'LIVE 15m' : 'REST'}
-              {stream.latencyMs !== null &&
-                stream.live &&
-                (stream.latencyMs < 0 ? '' : ` · ~${Math.round(stream.latencyMs)} ms`)}
-              {stream.ageMs !== null && ` · tuổi ${(stream.ageMs / 1000).toFixed(1)}s`}
-            </span>
-            <span
-              className={`pill ${
-                !wallet?.stale &&
-                wallet?.quote?.source === 'websocket' &&
-                clock - wallet.quote.time * 1000 < 5000
-                  ? 'green'
-                  : 'amber'
-              } inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
-              title="Nguồn giá backend dùng kiểm tra SL/TP Paper. WebSocket ticker khoảng 1 giây/lần; REST dự phòng khoảng 5 giây/lần."
-            >
-              SL/TP:{' '}
-              {wallet?.stale || !wallet?.quote
-                ? 'giá cũ'
-                : wallet.quote.source === 'websocket'
-                  ? 'WS'
-                  : 'REST'}
-              {wallet?.quote && ` · ${Math.max(0, clock / 1000 - wallet.quote.time).toFixed(1)}s`}
-            </span>
-            <button
-              type="button"
-              className={`pill-btn ${auto?.enabled ? 'on' : ''} inline-flex items-center gap-2 rounded px-2 py-1 text-xs [&.is-on]:text-bull [&.on]:text-bull`}
-              onClick={() => setOrderMode('auto')}
-            >
-              <Bot size={13} /> {auto?.enabled ? 'Auto ON' : 'Auto OFF'}
-            </button>
-          </div>
-          <div className="mexc-wallet-strip mt-3 border-t border-border-subtle pt-2" aria-label="Ví Paper">
-            <div>
-              <span className="muted text-text-muted">Số dư ví chung</span>
-              <strong>{wallet ? formatPrice(wallet.balance) : '—'}</strong>
             </div>
-            <div>
-              <span className="muted text-text-muted">Equity chung</span>
-              <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
-            </div>
-            <div>
-              <span className="muted text-text-muted" title="PnL chưa chốt của toàn ví / của cặp đang xem">
-                PnL mở · tổng / cặp
-              </span>
-              {typeof wallet?.unrealized_pnl === 'number' ? (
-                <strong>
-                  <span className={wallet.unrealized_pnl < 0 ? "negative text-bear" : "positive text-bull"}>
-                    {formatPrice(wallet.unrealized_pnl)}
-                  </span>
-                  {' / '}
-                  <span className={(wallet.pair_unrealized_pnl ?? 0) < 0 ? "negative text-bear" : "positive text-bull"}>
-                    {formatPrice(wallet.pair_unrealized_pnl ?? 0)}
-                  </span>{' '}
-                  <small>USDT</small>
-                </strong>
-              ) : (
-                <strong>—</strong>
+          )}
+          <div
+            className="mexc-stat hidden shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs sm:flex"
+            title="Open Interest: số hợp đồng còn mở trên MEXC."
+          >
+            <span className="text-[11px] text-text-muted">OI / 24h</span>
+            <strong>
+              {wallet?.open_interest
+                ? wallet.open_interest.contracts.toLocaleString('en-US', {
+                    notation: 'compact',
+                    maximumFractionDigits: 1,
+                  })
+                : '—'}
+              {wallet?.open_interest?.change_24h_pct != null && !wallet.stale && (
+                <span className={wallet.open_interest.change_24h_pct > 0 ? "text-bull" : "text-bear"}>
+                  {' '}{wallet.open_interest.change_24h_pct > 0 ? '+' : ''}{wallet.open_interest.change_24h_pct.toFixed(1)}%
+                </span>
               )}
-            </div>
-            <div>
-              <span className="muted text-text-muted">Khả dụng chung</span>
-              <strong>{wallet ? formatPrice(wallet.available) : '—'}</strong>
-            </div>
+            </strong>
           </div>
+          <div className="h-4 w-px shrink-0 bg-border-base" aria-hidden="true" />
+          <div className="flex shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs">
+            <span className="text-[11px] text-text-muted">Số dư ví</span>
+            <strong className="text-text-primary">{wallet ? formatPrice(wallet.balance) : '—'}</strong>
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs">
+            <span className="text-[11px] text-text-muted">Equity</span>
+            <strong className="text-text-primary">{wallet ? formatPrice(wallet.equity) : '—'}</strong>
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs">
+            <span className="text-[11px] text-text-muted" title="PnL chưa chốt của toàn ví / của cặp đang xem">PnL mở</span>
+            {typeof wallet?.unrealized_pnl === 'number' ? (
+              <strong>
+                <span className={wallet.unrealized_pnl < 0 ? "text-bear" : "text-bull"}>
+                  {formatPrice(wallet.unrealized_pnl)}
+                </span>
+                {' / '}
+                <span className={(wallet.pair_unrealized_pnl ?? 0) < 0 ? "text-bear" : "text-bull"}>
+                  {formatPrice(wallet.pair_unrealized_pnl ?? 0)}
+                </span>
+              </strong>
+            ) : (
+              <strong>—</strong>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-0.5 whitespace-nowrap font-mono text-xs">
+            <span className="text-[11px] text-text-muted">Khả dụng</span>
+            <strong className="text-text-primary">{wallet ? formatPrice(wallet.available) : '—'}</strong>
+          </div>
+          <div className="h-4 w-px shrink-0 bg-border-base" aria-hidden="true" />
+          <span
+            className={`pill ${stream.live ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-surface-3 text-text-secondary`}
+          >
+            {stream.live ? 'LIVE 15m' : 'REST'}
+          </span>
+          <span
+            className={`pill ${
+              !wallet?.stale &&
+              wallet?.quote?.source === 'websocket' &&
+              clock - wallet.quote.time * 1000 < 5000
+                ? 'green'
+                : 'amber'
+            } inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium bg-surface-3 text-text-secondary`}
+          >
+            SL/TP: {!wallet?.quote ? 'giá cũ' : wallet.quote.source === 'websocket' ? 'WS' : 'REST'}
+          </span>
+          <button
+            type="button"
+            className={`pill-btn ${auto?.enabled ? 'on' : ''} ml-auto inline-flex shrink-0 items-center gap-1.5 rounded border border-border-base bg-surface-2 px-2.5 py-1 text-xs [&.is-on]:text-bull [&.on]:text-bull`}
+            onClick={() => setOrderMode('auto')}
+          >
+            <Bot size={13} /> {auto?.enabled ? 'Auto ON' : 'Auto OFF'}
+          </button>
         </div>
         {((stale && !connecting) || wallet?.funding_error || error || message) && (
           <div className="mexc-dock-alert mt-2 rounded border border-amber-400/30 p-2 text-xs text-amber-200" role="status">
@@ -538,8 +521,8 @@ export function PaperTradingPage({
           </div>
         )}
       </div>
-      <div className="paper-terminal relative min-w-0 overflow-clip bg-canvas">
-        <section ref={chartSection} className="panel prose paper-market min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="paper-terminal relative grid min-w-0 gap-3 bg-canvas xl:grid-cols-[minmax(0,1fr)_300px]">
+        <section ref={chartSection} className="paper-market min-w-0 overflow-hidden rounded-lg border border-border-base bg-surface-1 text-sm text-text-secondary">
           <div className="desk-chart-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-base px-3 py-2 text-xs">
             <div className="desk-toolbar-lead flex min-w-0 flex-wrap items-center gap-2 text-xs">
               <button
@@ -561,7 +544,7 @@ export function PaperTradingPage({
                 </span>
               )}
               {historicalId === null && !botFresh && (
-                <span className="desk-strategy-stale text-xs text-text-muted" role="status">
+                <span className="desk-strategy-stale hidden text-xs text-text-muted 2xl:inline" role="status">
                   Chờ nến đánh giá mới
                 </span>
               )}
@@ -590,9 +573,9 @@ export function PaperTradingPage({
               )}
             </div>
             {historicalId === null && (
-              <div className="paper-strategy-toolbar min-w-0 border-b border-border-base">
+              <div className="paper-strategy-toolbar ml-auto flex min-w-0 flex-wrap items-center gap-3">
                 <label
-                  className="chart-follow ml-auto text-xs text-bull"
+                  className="chart-follow inline-flex min-h-9 items-center gap-2 text-xs text-bull"
                   title="Tự hiện trên chart các cây bot đang giữ lệnh, hoặc cây bot vừa chọn"
                 >
                   <input
@@ -682,7 +665,7 @@ export function PaperTradingPage({
                               ? 'Bộ học đã tạm dừng'
                               : auto.status}
               </span>
-              <span className="desk-bot-next text-text-muted">
+              <span className="desk-bot-next ml-auto inline-flex items-center gap-1.5 text-text-muted [&_strong]:font-mono">
                 <Clock3 size={13} /> Nến kế tiếp đóng sau{' '}
                 <strong>
                   {Math.floor(nextCloseSeconds / 60)}:
@@ -691,7 +674,7 @@ export function PaperTradingPage({
               </span>
             </div>
           )}
-          <div className="paper-book min-w-0 border-t border-border-base p-3 xl:border-t-0 xl:border-l">
+          <div className="paper-book flex min-w-0 flex-wrap gap-5 px-3 pt-3 text-xs text-text-muted [&_strong]:ml-2 [&_strong]:font-mono [&_strong]:text-text-secondary">
             <span>
               Bid (worker) <strong>{quote ? formatQuote(quote.bid1) : '—'}</strong>
             </span>
@@ -707,27 +690,27 @@ export function PaperTradingPage({
           </p>
         </section>
         {detailOpen && selected && (
-          <div className="trade-drawer-backdrop fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm" onClick={() => setDetailOpen(false)}>
+          <div className="trade-drawer-backdrop fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setDetailOpen(false)}>
             <aside
-              className="trade-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-4 shadow-lg"
+              className="trade-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-5 shadow-2xl animate-in slide-in-from-right duration-200"
               role="dialog"
               aria-modal="true"
               aria-label={`Chi tiết lệnh #${selected.id}`}
               onClick={(event) => event.stopPropagation()}
             >
               <button
-                className="icon-button close inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary absolute right-3 top-3"
+                className="icon-button close absolute right-3 top-3 inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-2 hover:text-text-primary"
                 aria-label="Đóng chi tiết lệnh"
                 onClick={() => setDetailOpen(false)}
               >
-                ×
+                <X size={18} />
               </button>
               <PaperTradeDetails trade={selected} symbol={symbol} />
             </aside>
           </div>
         )}
-        <aside className="desk-controls min-w-0 space-y-3 p-3" aria-label="Điều khiển giao dịch Paper">
-          <div className="desk-mode-switch flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chế độ đặt lệnh">
+        <aside className="desk-controls min-w-0 space-y-3 rounded-lg border border-border-base bg-surface-1 p-3 xl:sticky xl:top-[calc(var(--desk-header-h,120px)+12px)] xl:max-h-[calc(100dvh-var(--desk-header-h,120px)-24px)] xl:self-start xl:overflow-y-auto" aria-label="Điều khiển giao dịch Paper">
+          <div className="desk-mode-switch grid grid-cols-2 gap-1 rounded-md bg-canvas p-1 [&>button]:flex [&>button]:h-9 [&>button]:items-center [&>button]:justify-center [&>button]:gap-1.5 [&>button]:rounded [&>button]:text-xs [&>button]:font-semibold [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary" role="group" aria-label="Chế độ đặt lệnh">
             <button
               type="button"
               aria-pressed={orderMode === 'manual'}
@@ -743,7 +726,7 @@ export function PaperTradingPage({
               Auto Paper <span className={`status-dot ${auto?.enabled ? '' : 'stale-dot'} inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400`} />
             </button>
           </div>
-          <section hidden={orderMode !== 'manual'} className="panel prose paper-order min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0 space-y-3 p-3">
+          <section hidden={orderMode !== 'manual'} className="paper-order min-w-0 space-y-4 px-1 pt-2 text-sm text-text-secondary">
             <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
               <h2>Đặt lệnh thủ công</h2>
               <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">MARKET</span>
@@ -780,13 +763,13 @@ export function PaperTradingPage({
                 </button>
               </div>
             )}
-            <details className="desk-manual-form grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full" open={!auto?.enabled}>
-              <summary>Thông số lệnh thủ công</summary>
-              <form onSubmit={(event) => void submit(event)}>
-                <div className="period-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chiều lệnh">
+            <details className="desk-manual-form min-w-0 [&_label]:flex [&_label]:min-w-0 [&_label]:flex-col [&_label]:gap-2 [&_label]:text-xs [&_label]:text-text-muted [&_input]:h-11 [&_input]:w-full [&_input]:min-w-0 [&_input]:font-mono [&_select]:w-full" open={!auto?.enabled}>
+              <summary className="mb-4 text-xs text-text-muted">Thông số lệnh thủ công</summary>
+              <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Chiều lệnh">
                   <button
                     type="button"
-                    className={side === 'long' ? "secondary selected inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 bg-bull/10 text-bull" : "secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"}
+                    className={`h-10 rounded-md border text-sm font-semibold transition-colors ${side === 'long' ? 'border-bull bg-bull text-canvas' : 'border-border-base bg-surface-2 text-text-muted hover:border-bull/50 hover:text-bull'}`}
                     aria-pressed={side === 'long'}
                     onClick={() => {
                       setSide('long');
@@ -797,7 +780,7 @@ export function PaperTradingPage({
                   </button>
                   <button
                     type="button"
-                    className={side === 'short' ? "secondary selected inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 bg-bull/10 text-bull" : "secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"}
+                    className={`h-10 rounded-md border text-sm font-semibold transition-colors ${side === 'short' ? 'border-bear bg-bear text-white' : 'border-border-base bg-surface-2 text-text-muted hover:border-bear/50 hover:text-bear'}`}
                     aria-pressed={side === 'short'}
                     onClick={() => {
                       setSide('short');
@@ -851,7 +834,7 @@ export function PaperTradingPage({
                 </button>
                 <button
                   type="submit"
-                  className="primary inline-flex items-center justify-center gap-2 rounded-md bg-bull px-3 py-2 text-xs font-semibold text-canvas hover:bg-emerald-300"
+                  className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${side === 'long' ? 'bg-bull text-canvas hover:bg-emerald-300' : 'bg-bear text-white hover:bg-rose-400'}`}
                   disabled={stale || busy || !!auto?.enabled}
                 >
                   {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
@@ -878,7 +861,7 @@ export function PaperTradingPage({
       </div>
       <div
         ref={activitySection}
-        className="desk-activity-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-base"
+        className="desk-activity-tabs flex flex-wrap items-center gap-1 rounded-lg border border-border-base bg-surface-1 p-1.5 [&>button]:min-h-10 [&>button]:rounded-md [&>button]:px-4 [&>button]:text-xs [&>button]:font-medium [&>button]:text-text-muted [&>button:hover]:bg-surface-2 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary"
         role="group"
         aria-label="Theo dõi giao dịch"
       >

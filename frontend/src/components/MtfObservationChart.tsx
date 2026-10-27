@@ -51,7 +51,7 @@ export function MtfObservationChart({
   onLoadOlder,
   trendLabel = 'Xu hướng 4h',
   levelLabel = 'Mức breakout',
-  dark = false,
+  dark = true,
   pnlOf,
   pnlAt,
   onClosePosition,
@@ -822,7 +822,7 @@ export function MtfObservationChart({
   }, [analysis, candles, shown, frameSeconds]);
 
   return (
-    <div className="trade-chart-wrap forex-observation-chart">
+    <div className="trade-chart-wrap forex-observation-chart relative w-full min-w-0">
       <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs">{title}</div>
       {analysis && shown.some((name) => analysis.strategies[name]) && (
         <div className="forex-overlay-readout">
@@ -858,15 +858,15 @@ export function MtfObservationChart({
             })}
         </div>
       )}
-      <div className="chart-price-surface">
+      <div className="chart-price-surface relative overflow-hidden">
         <div
           ref={container}
-          className="trade-candlestick-chart"
+          className="trade-candlestick-chart h-[440px] w-full md:h-[540px]"
           role="img"
           aria-label="Chart quan sát đa khung"
         />
         <svg
-          className="forex-setup-zones"
+          className="forex-setup-zones pointer-events-none absolute inset-0 z-10 h-full w-full"
           aria-label="Vùng setup H1 từ mức cấu trúc tới mức vô hiệu"
         >
           {setupBoxes.map((box) => (
@@ -893,7 +893,7 @@ export function MtfObservationChart({
             </g>
           ))}
         </svg>
-        <div className="position-tag-layer">
+        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden [&>*]:pointer-events-auto">
           {!snapshot &&
             (() => {
               return tags.map((tag) => {
@@ -967,7 +967,7 @@ export function MtfObservationChart({
                 );
               });
             })()}
-          <svg className="position-tag-leaders" aria-hidden="true">
+          <svg className="position-tag-leaders pointer-events-none absolute inset-0 h-full w-full stroke-text-muted opacity-60 [stroke-dasharray:2_3]" aria-hidden="true">
             {!snapshot &&
               tags.map((tag) =>
                 tag.y !== tag.displayY ? (

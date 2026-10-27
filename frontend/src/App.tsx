@@ -123,10 +123,11 @@ export default function App() {
     };
   }, []);
   const picker = (
-    <div className="workspace workspace-picker flex min-w-0 items-center gap-2 rounded-md border border-border-base p-2 text-xs [&_small]:block [&_small]:text-text-muted md:in-[[data-sidebar=collapsed]]:hidden w-full min-w-0 bg-surface-2 text-text-secondary">
-      <label htmlFor="venue-workspace">Workspace / Sàn</label>
+    <div className="workspace workspace-picker m-0 grid w-full min-w-0 gap-1.5 text-xs text-text-secondary [&_small]:block [&_small]:text-text-muted md:in-[[data-sidebar=collapsed]]:hidden">
+      <label htmlFor="venue-workspace" className="px-1 text-[11px] font-medium text-text-muted">Sàn giao dịch</label>
       <select
         id="venue-workspace"
+        className="w-full min-w-0 rounded border border-border-base bg-surface-1 p-2 text-xs text-text-primary"
         value={selected}
         disabled={workspaces.length === 0}
         onChange={(event) =>
@@ -213,6 +214,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
       <Sidebar
         page={page}
         menu={menu}
+        onCloseMenu={() => setMenu(false)}
         workspacePicker={workspacePicker}
         botCount={dashboard?.execution_enabled ? 1 : 0}
         exness
@@ -223,7 +225,7 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         }}
         onOpenHelp={() => setHelp(true)}
       />
-      <div className="main min-w-0 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
+      <div className="main min-w-0 flex-1 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
         <header className="topbar relative flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border-base bg-canvas px-3 py-2 lg:px-5">
           {switching && page !== 'Bot' && (
             <span className="route-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-bull" role="status" aria-label={`Đang tải ${symbol}`} />
@@ -347,11 +349,12 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
       <Sidebar
         page={page}
         menu={menu}
+        onCloseMenu={() => setMenu(false)}
         workspacePicker={workspacePicker}
         onNavigate={navigate}
         onOpenHelp={() => setHelp(true)}
       />
-      <div className="main min-w-0 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
+      <div className="main min-w-0 flex-1 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
         <header className="topbar relative flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border-base bg-canvas px-3 py-2 lg:px-5">
           <div className="breadcrumb flex min-w-0 flex-wrap items-center gap-2 text-xs [&>strong]:text-text-primary">
             <button

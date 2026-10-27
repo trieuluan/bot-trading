@@ -1,8 +1,9 @@
-@layer theme, legacy, base, components, utilities;
+@layer theme, base, components, utilities;
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;800&display=swap');
 @import "tailwindcss/theme.css" layer(theme);
-@import "./styles.css" layer(legacy);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "tw-animate-css";
 @source "./";
 @source "../tests/forex-lifecycle.html";
 
@@ -12,18 +13,18 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Trading desk dark theme palette */
-  --color-canvas: #090e0b;
-  --color-surface-1: #0f1612;
-  --color-surface-2: #151e19;
-  --color-surface-3: #1c2822;
+  --color-canvas: #0b0e14;
+  --color-surface-1: #11161f;
+  --color-surface-2: #181f2a;
+  --color-surface-3: #232d3b;
 
-  --color-border-subtle: #19261f;
-  --color-border-base: #24352b;
-  --color-border-active: #385344;
+  --color-border-subtle: #1d2633;
+  --color-border-base: #2a3545;
+  --color-border-active: #45566d;
 
-  --color-text-primary: #ecfdf5;
-  --color-text-secondary: #b5c9bd;
-  --color-text-muted: #93a89c;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #bec9d7;
+  --color-text-muted: #8d9db2;
 
   /* Trading signal actions */
   --color-bull: #10b981;
@@ -68,6 +69,7 @@
     --green: var(--color-bull);
     --muted: var(--color-text-muted);
     --border: var(--color-border-base);
+    font-synthesis: none;
   }
   body {
     background-color: var(--color-canvas);
@@ -78,6 +80,17 @@
     line-height: 1.5;
   }
   button, input, select, textarea { font: inherit; }
+  button, summary { cursor: pointer; }
+  button:disabled { @apply cursor-not-allowed opacity-45; }
+  input, select, textarea { @apply rounded-md border border-border-base bg-surface-2 px-2.5 py-2 text-text-primary accent-bull; }
+  input[type='checkbox'], input[type='radio'], input[type='range'] { @apply p-0; }
+  input::placeholder, textarea::placeholder { @apply text-text-muted; }
+  h1 { @apply text-xl font-bold; }
+  h2 { @apply text-base font-semibold; }
+  h3, h4 { @apply text-sm font-semibold; }
+  th { @apply bg-surface-2 text-left font-medium text-text-muted; }
+  th, td { @apply border-b border-border-subtle px-3 py-2.5 align-top; }
+  small { @apply text-xs; }
   h1, h2, h3 {
     color: var(--color-text-primary);
     font-family: var(--font-display);
@@ -91,25 +104,7 @@
 }
 
 
-/* Legacy bridge for non-utility properties: charts, keyframes, scrollbars */
-@layer components {
-  /* Lightweight-charts container sizing */
-  .trade-chart-wrap {
-    position: relative;
-    width: 100%;
-    min-width: 0;
-  }
-  .trade-candlestick-chart {
-    width: 100%;
-    height: 440px;
-  }
-  @media (min-width: 768px) {
-    .trade-candlestick-chart {
-      height: 540px;
-    }
-  }
-
-  /* Thin dark scrollbars across panels */
+@layer base {
   * {
     scrollbar-width: thin;
     scrollbar-color: #24352b transparent;
@@ -129,34 +124,17 @@
     background: #385344;
   }
 
-  /* Interactive position tags on charts */
-  .position-tag-layer {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    overflow: hidden;
-    z-index: 20;
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
-  .position-tag-leaders {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 15;
-  }
-  .forex-setup-zones {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 10;
-  }
+}
 
-  /* Native details reset marker */
-  details > summary {
-    list-style: none;
-  }
-  details > summary::-webkit-details-marker {
-    display: none;
-  }
+@layer utilities {
+  .positive { color: var(--color-bull); }
+  .negative { color: var(--color-bear); }
 }

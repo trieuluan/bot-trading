@@ -58,21 +58,21 @@ export function ForexSignalLifecycle({
   return (
     <details id="forex-signals" className="forex-signal-lifecycle group/lifecycle min-w-0 border-y border-border-base bg-surface-1 text-xs text-text-secondary" open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 select-none hover:bg-surface-2">
-        <Activity size={14} aria-hidden="true" />
-        <strong className="text-text-primary text-xs font-semibold">Setup trên chart</strong>
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 select-none hover:bg-surface-2 transition-colors">
+        <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-3 text-text-secondary"><Activity size={13} aria-hidden="true" /></span>
+        <strong className="text-xs font-semibold text-text-primary">Setup trên chart</strong>
         <span className="text-xs text-text-muted">
           {setups.length} setup · {totalSignals} tín hiệu · {waiting} canh broker · {shadowCount} mô phỏng
         </span>
-        {unresolved > 0 && <span className="pair-intent is-uncertain inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium [&.is-waiting]:bg-tone-waiting-bg [&.is-waiting]:text-tone-waiting [&.is-triggered]:bg-tone-triggered-bg [&.is-triggered]:text-tone-triggered [&.is-filled]:bg-tone-filled-bg [&.is-filled]:text-tone-filled [&.is-uncertain]:bg-tone-uncertain-bg [&.is-uncertain]:text-tone-uncertain [&.is-cancelled]:bg-tone-cancelled-bg [&.is-cancelled]:text-tone-cancelled [&.is-ended]:bg-tone-ended-bg [&.is-ended]:text-tone-ended">{unresolved} cần đối soát</span>}
-        {selected && <span className="signal-setup-selected text-xs text-bull">Đang xem: {selected.side === 'long' ? 'Mua' : 'Bán'} · {formatTime(selected.time, true)}</span>}
-        <span className="signal-lifecycle-disclosure ml-auto text-xs text-text-muted after:content-['+'] group-open/lifecycle:after:content-['−']">Danh sách</span>
+        {unresolved > 0 && <span className="pair-intent is-uncertain inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-200 bg-amber-400/10 border border-amber-400/20">{unresolved} cần đối soát</span>}
+        {selected && <span className="signal-setup-selected text-xs font-medium text-bull">Đang xem: {selected.side === 'long' ? 'Mua' : 'Bán'} · {formatTime(selected.time, true)}</span>}
+        <span className="signal-lifecycle-disclosure ml-auto text-xs font-medium text-text-muted after:content-['+'] group-open/lifecycle:after:content-['−']">Danh sách</span>
       </summary>
-      <div className="signal-lifecycle-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-border-subtle px-3 py-2">
+      <div className="signal-lifecycle-toolbar flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-surface-2/30 px-3 py-2">
         <div className="signal-lifecycle-filters flex flex-wrap items-center gap-1" role="group" aria-label="Lọc setup">
           {([['pending', 'Đang canh / xử lý'], ['history', 'Lịch sử'], ['all', 'Tất cả']] as const).map(([value, label]) =>
             <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}
-              className={`rounded border border-transparent px-2.5 py-1 text-xs font-medium transition-colors ${filter === value ? 'bg-surface-3 text-bull' : 'bg-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary'}`}>{label}</button>)}
+              className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${filter === value ? 'border-bull/20 bg-bull/10 font-semibold text-bull' : 'border-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary'}`}>{label}</button>)}
         </div>
         {selected && <button type="button" className="signal-lifecycle-clear-btn inline-flex items-center gap-1 rounded border-0 bg-transparent px-2 py-1 text-xs text-text-secondary hover:text-bear" onClick={() => onSelect(null)}>
           <X size={12} aria-hidden="true" /> Bỏ chọn setup
@@ -181,7 +181,7 @@ export function ForexSignalLifecycle({
           );
         })}
         {!rows.length && (
-          <p className="signal-lifecycle-empty m-0 px-4 py-3 text-xs text-text-muted">
+          <p className="signal-lifecycle-empty m-0 px-4 py-4 text-center text-xs text-text-muted">
             {setups.length ? 'Không có setup trong bộ lọc này. Chọn Lịch sử hoặc Tất cả để xem tín hiệu đã qua.'
               : 'Chưa có tín hiệu ghi nhận hoặc setup canh giá trong dữ liệu hiện tại.'}
           </p>

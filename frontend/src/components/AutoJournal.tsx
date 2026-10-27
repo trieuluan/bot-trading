@@ -114,7 +114,7 @@ export function AutoJournal({
           );
         })}
       </div>
-      {typeof document !== 'undefined' &&
+      {typeof document !== 'undefined' && tip.visible &&
         createPortal(
           <div
             className={`ap-portal-tooltip${tip.below ? ' below' : ''}${tip.visible ? ' is-visible' : ''} fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg`}

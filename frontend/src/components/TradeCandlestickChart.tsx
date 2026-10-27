@@ -46,14 +46,14 @@ export function TradeCandlestickChart({
     const chart = createChart(container.current, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#fcfdf9' },
-        textColor: '#63746a',
-        fontFamily: 'Inter, sans-serif',
+        background: { type: ColorType.Solid, color: '#0f1612' },
+        textColor: '#93a89c',
+        fontFamily: "'DM Sans', sans-serif",
         attributionLogo: true,
       },
-      grid: { vertLines: { color: '#eef1e9' }, horzLines: { color: '#eef1e9' } },
-      rightPriceScale: { borderColor: '#dce1d7', scaleMargins: { top: 0.12, bottom: 0.24 } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#dce1d7' },
+      grid: { vertLines: { color: '#19261f' }, horzLines: { color: '#19261f' } },
+      rightPriceScale: { borderColor: '#24352b', scaleMargins: { top: 0.12, bottom: 0.24 } },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#24352b' },
       localization: { locale: 'vi-VN' },
     });
     const series = chart.addSeries(CandlestickSeries, {
@@ -179,7 +179,7 @@ export function TradeCandlestickChart({
   }, [candles, trades, selected, selectedIndex, focusRevision]);
 
   return (
-    <div className="trade-chart-wrap">
+    <div className="trade-chart-wrap relative w-full min-w-0">
       <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs" aria-live="off">
         {hover ? (
           <>
@@ -197,7 +197,7 @@ export function TradeCandlestickChart({
       </div>
       <div
         ref={container}
-        className="trade-candlestick-chart"
+        className="trade-candlestick-chart h-[440px] w-full md:h-[540px]"
         role="img"
         aria-label="Chart nến MEXC Futures với điểm vào, thoát và mức SL TP của lệnh backtest"
       />

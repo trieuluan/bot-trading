@@ -62,6 +62,8 @@ test('ForexStripLegend renders all entry branch states without default browser t
     const markup = renderToStaticMarkup(React.createElement(ForexStripLegend));
     assert.ok(!markup.includes('<span>Chú giải</span>'));
     assert.ok(markup.includes('aria-label="Chú giải biểu tượng"'));
+    assert.match(markup, /popover="auto" role="dialog" aria-label="Chú giải dải cặp tiền"/);
+    assert.ok(markup.includes('aria-label="Đóng chú giải"'));
     assert.ok(markup.includes('Canh giá'));
     assert.ok(markup.includes('Kích / đang gửi'));
     assert.ok(markup.includes('Đã khớp'));

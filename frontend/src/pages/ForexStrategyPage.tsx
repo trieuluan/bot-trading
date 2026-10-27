@@ -75,22 +75,22 @@ export function ForexCatchupStatus({
     (frame) => frame.remaining_intervals === null || frame.remaining_intervals > 0,
   );
   const paused = dashboard.observation.status === 'data_paused';
-  // Lỗi feed thường giống nhau cho cả 3 khung (vd. rate limit): gộp thành một dòng.
   const failing = frames.find((frame) => frame.error);
   const retryAt = frames
     .map((frame) => frame.retry_at)
     .filter((value): value is string => !!value && new Date(value).getTime() > Date.now())
     .sort()
     .at(-1);
-  const feedError = failing
-    ? `${feedErrorText(failing.error)}${retryAt ? ` · tự thử lại ${relativeTime(retryAt)} (${formatTime(retryAt, true)})` : ''}`
-    : null;
+
+  const errorReason = failing ? feedErrorText(failing.error) : null;
+  const retryCountdown = retryAt ? relativeTime(retryAt) : null;
+
   const title = disconnected
     ? 'Mất kết nối API · dữ liệu lưu gần nhất'
     : !dashboard.market.worker_online
       ? 'Worker nến offline · chờ chạy lại để tải bù'
-      : feedError
-        ? feedError
+      : errorReason
+        ? errorReason
         : downloading
           ? 'Đang tải bù nến Exness'
           : paused
@@ -104,60 +104,182 @@ export function ForexCatchupStatus({
   const healthy =
     !disconnected &&
     dashboard.market.worker_online &&
-    !feedError &&
+    !errorReason &&
     !downloading &&
     !paused &&
     !progress?.pending_bars;
-  const body = (
-    <>
-      <div className="forex-catchup-counts flex min-w-0 flex-wrap items-center gap-2 text-xs">
-        {frames.map((frame) => (
-          <span key={frame.timeframe}>
-            <strong>{frame.timeframe.toUpperCase()}</strong> ·{' '}
-            {frame.remaining_intervals === null
-              ? 'Chưa khởi tạo'
-              : `${frame.remaining_intervals.toLocaleString('vi-VN')} khoảng nến cần kiểm tra`}
-            {frame.error && frame.error !== failing?.error && <> · {feedErrorText(frame.error)}</>}
-          </span>
-        ))}
-        <span>
-          <strong>MTF 15m</strong> ·{' '}
-          {progress
-            ? `${progress.pending_bars.toLocaleString('vi-VN')} nến đã tải chờ phân tích`
-            : 'Chưa có tiến độ'}
-        </span>
+
+  const bodyContent = (
+    <div className="space-y-3 pt-2 text-xs">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {frames.map((frame) => {
+          const count = frame.remaining_intervals;
+          const isErr = !!frame.error;
+          return (
+            <div
+              key={frame.timeframe}
+              className={`rounded-lg border px-2.5 py-1.5 ${
+                isErr
+                  ? 'border-bear/30 bg-bear/5 text-bear'
+                  : count && count > 0
+                    ? 'border-amber-400/25 bg-amber-400/5 text-amber-200'
+                    : 'border-border-subtle bg-surface-2/60 text-text-secondary'
+              }`}
+            >
+              <div className="flex items-center justify-between font-mono font-semibold uppercase">
+                <span>{frame.timeframe}</span>
+                {isErr ? (
+                  <span className="text-[10px] uppercase tracking-wider text-bear">Lỗi</span>
+                ) : count && count > 0 ? (
+                  <span className="text-[10px] text-amber-300">Cần kiểm tra</span>
+                ) : count === null ? (
+                  <span className="text-[10px] text-text-muted">Chờ khởi tạo</span>
+                ) : (
+                  <span className="text-[10px] text-text-muted">Đã kiểm tra</span>
+                )}
+              </div>
+              {frame.error && frame.error !== failing?.error && <p className="mb-0 mt-1 break-words font-sans leading-relaxed">{feedErrorText(frame.error)}</p>}
+              <div className="mt-0.5 font-mono text-[11px] tabular-nums">
+                {count === null
+                  ? 'Chưa khởi tạo'
+                  : `${count.toLocaleString('vi-VN')} khoảng nến`}
+              </div>
+            </div>
+          );
+        })}
+        <div className="rounded-lg border border-border-subtle bg-surface-2/60 px-2.5 py-1.5 text-text-secondary">
+          <div className="flex items-center justify-between font-mono font-semibold">
+            <span>MTF 15m</span>
+            <span className="text-[10px] text-text-muted">Chờ phân tích</span>
+          </div>
+          <div className="mt-0.5 font-mono text-[11px] tabular-nums text-text-primary">
+            {progress
+              ? `${progress.pending_bars.toLocaleString('vi-VN')} nến`
+              : '—'}
+          </div>
+        </div>
       </div>
-      <p className="micro text-xs leading-relaxed text-text-muted">
-        Đã phân tích đến nến:{' '}
-        {progress?.last_processed_candle != null
-          ? `${formatTime(progress.last_processed_candle)} (giờ mở nến)`
-          : 'Chưa có'}
-        . Tính bù chỉ bắt đầu khi cả 3 khung đồng bộ và hợp lệ. Khoảng cần kiểm tra có thể thuộc giờ
-        nghỉ phiên, không đồng nghĩa mất nến.
-      </p>
-      <p className="micro text-xs leading-relaxed text-text-muted">
-        Setup chạy bù mang nhãn “Chạy bù”; không đặt lệnh cho tín hiệu đã bỏ lỡ.
-      </p>
-    </>
+
+      {errorReason && <p className="m-0 break-words leading-relaxed text-bear">{errorReason}{retryAt ? ` · Thử lại ${formatTime(retryAt, true)}` : ''}</p>}
+
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-border-subtle bg-surface-2/30 px-3 py-2 text-[11px] text-text-muted">
+        <div>
+          <span>Đã phân tích đến: </span>
+          <strong className="font-mono text-text-primary">
+            {progress?.last_processed_candle != null
+              ? `${formatTime(progress.last_processed_candle)} (giờ mở)`
+              : 'Chưa có'}
+          </strong>
+        </div>
+        <div>
+          <span>Tính bù khi cả 3 khung đồng bộ và hợp lệ. Khoảng cần kiểm tra có thể trùng giờ nghỉ phiên, không đồng nghĩa mất nến. Setup mang nhãn “Chạy bù”; không đặt lệnh cho tín hiệu đã bỏ lỡ.</span>
+        </div>
+      </div>
+    </div>
   );
-  if (compact)
+
+  if (compact) {
     return (
       <details
-        className={`forex-catchup-compact ${healthy ? 'is-ok' : 'is-warn'} flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 text-xs text-text-muted [&.is-warn]:text-amber-300`}
+        className={`group/catchup my-1.5 overflow-hidden rounded-xl border text-xs transition-colors ${
+          healthy
+            ? 'border-border-base bg-surface-1/90 text-text-secondary'
+            : errorReason
+              ? 'border-bear/30 bg-bear/5 text-text-primary'
+              : 'border-amber-400/25 bg-amber-400/5 text-text-primary'
+        }`}
         role="status"
         aria-live="polite"
       >
-        <summary>
-          <span className="forex-catchup-dot inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400" aria-hidden="true" />
-          {title}
+        <summary className="flex min-h-10 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-2 select-none hover:bg-surface-2/40 transition-colors [&::-webkit-details-marker]:hidden">
+          <div className="flex items-center gap-2 font-medium">
+            <span
+              className={`size-2 shrink-0 rounded-full ${
+                healthy
+                  ? 'bg-bull shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                  : errorReason
+                    ? 'bg-bear shadow-[0_0_8px_rgba(244,63,94,0.4)]'
+                    : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.4)]'
+              }`}
+              aria-hidden="true"
+            />
+            <span className={errorReason ? 'text-bear font-semibold' : !healthy ? 'text-amber-200 font-semibold' : 'text-text-primary'}>
+              {errorReason && !disconnected && dashboard.market.worker_online ? 'Kết nối nến Exness gián đoạn' : title}
+            </span>
+          </div>
+
+          {retryCountdown && (
+            <span className="rounded-md border border-bear/20 bg-bear/10 px-2 py-0.5 font-mono text-[11px] text-bear tabular-nums">
+              Tự thử lại · {retryCountdown}
+            </span>
+          )}
+
+          {!healthy && (frames.length > 0 || progress) && (
+            <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-text-muted" aria-label="Khoảng nến cần kiểm tra và nến MTF chờ phân tích">
+              {frames.map((frame) => (
+                <span
+                  key={frame.timeframe}
+                  className={`rounded px-1.5 py-0.5 uppercase ${
+                    (frame.remaining_intervals ?? 0) > 0
+                      ? 'bg-amber-400/10 text-amber-200'
+                      : 'bg-surface-3 text-text-muted'
+                  }`}
+                >
+                  {frame.timeframe}: {frame.remaining_intervals ?? '—'}
+                </span>
+              ))}
+              {progress?.pending_bars ? (
+                <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">
+                  MTF: {progress.pending_bars}
+                </span>
+              ) : null}
+            </div>
+          )}
+
+          <div className="ml-auto inline-flex items-center gap-1.5 text-xs text-text-muted">
+            <span className="hidden sm:inline">Chi tiết</span>
+            <span aria-hidden="true" className="transition-transform group-open/catchup:rotate-180">
+              ⌄
+            </span>
+          </div>
         </summary>
-        {body}
+
+        <div className="border-t border-border-subtle bg-surface-1/40 px-3.5 pb-3">
+          {bodyContent}
+        </div>
       </details>
     );
+  }
+
   return (
-    <section className="panel forex-catchup min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-2" role="status" aria-live="polite">
-      <strong>{title}</strong>
-      {body}
+    <section
+      className={`panel forex-catchup min-w-0 rounded-xl border p-4 space-y-3 ${
+        healthy
+          ? 'border-border-base bg-surface-1'
+          : errorReason
+            ? 'border-bear/30 bg-surface-1 text-text-primary'
+            : 'border-amber-400/30 bg-surface-1 text-text-primary'
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-2.5">
+        <div className="flex items-center gap-2">
+          <span
+            className={`size-2.5 rounded-full ${
+              healthy ? 'bg-bull' : errorReason ? 'bg-bear' : 'bg-amber-400'
+            }`}
+            aria-hidden="true"
+          />
+          <strong className="text-sm">{title}</strong>
+        </div>
+        {retryCountdown && (
+          <span className="rounded-md border border-bear/20 bg-bear/10 px-2 py-0.5 font-mono text-xs text-bear">
+            Tự thử lại: {retryCountdown}
+          </span>
+        )}
+      </div>
+      {bodyContent}
     </section>
   );
 }
@@ -268,87 +390,136 @@ function BotAnalysisBreakdown({
     : [];
   const note = (row: (typeof rows)[number][1]) => row.chart?.note ?? '';
   return (
-    <div className="bot-breakdown space-y-2 border-t border-border-base pt-2">
-      <div className="bot-breakdown-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
-        <strong>
-          {confirmed.length ? `${confirmed.length} cây có tín hiệu` : 'Chưa cây nào có tín hiệu'}
-        </strong>
+    <div className="bot-breakdown space-y-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-text-primary">
+          {confirmed.length ? `${confirmed.length} cây có tín hiệu` : 'Chưa có cây nào đạt tín hiệu'}
+        </span>
         <input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Tìm ID hoặc setup…"
+          placeholder="Tìm theo ID hoặc tên setup…"
           aria-label="Tìm cây"
+          className="min-h-8 rounded-lg border border-border-base bg-surface-2 px-2.5 text-xs text-text-primary placeholder:text-text-muted focus:border-border-active focus:outline-none"
         />
       </div>
-      {confirmed.map(([name, row]) => (
-        <div key={name} className="bot-breakdown-hit flex min-w-0 flex-wrap items-center gap-2 text-xs">
-          <GenBadge tree={lineage.get(name)} />{' '}
-          <strong title={name}>{treeLabel(row, name).full}</strong> · {row.side?.toUpperCase()} · SL{' '}
-          {row.stop ?? '—'} · mức {row.level ?? '—'}
-          <small>{note(row)}</small>
-        </div>
-      ))}
-      {needle ? (
-        <table>
-          <tbody>
-            {matches.slice(0, 30).map(([name, row]) => (
-              <tr key={name}>
-                <td>
-                  <GenBadge tree={lineage.get(name)} />{' '}
-                  <span title={name}>{treeLabel(row, name).full}</span>
-                </td>
-                <td>{row.status === 'confirmed' ? 'xác nhận' : 'loại'}</td>
-                <td>
-                  {row.status === 'confirmed'
-                    ? note(row)
-                    : (rejectLabels[row.reason ?? '']?.[0] ?? row.reason ?? '—')}
-                </td>
-              </tr>
-            ))}
-            {!matches.length && (
-              <tr>
-                <td colSpan={3}>Không có cây khớp.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      ) : (
-        sorted.map(([code, names]) => {
-          const [title, hint] = rejectLabels[code] ?? [code, 'Mã lý do chưa có mô tả'];
-          const expanded = open === code;
-          return (
-            <div key={code} className="bot-breakdown-group space-y-1">
-              <button
-                type="button"
-                aria-expanded={expanded}
-                onClick={() => setOpen(expanded ? null : code)}
-              >
-                <span>{title}</span>
-                <small>{hint}</small>
-                <b>
-                  {names.length}/{rows.length} cây
-                </b>
-                <i style={{ width: `${(names.length / rows.length) * 100}%` }} />
-              </button>
-              {expanded && (
-                <ul>
-                  {names.map((name) => (
-                    <li key={name}>
-                      <GenBadge tree={lineage.get(name)} /> <code>{name}</code>{' '}
-                      <small>{note(strategies[name])}</small>
-                    </li>
-                  ))}
-                </ul>
-              )}
+
+      {confirmed.length > 0 && (
+        <div className="space-y-1.5">
+          {confirmed.map(([name, row]) => (
+            <div
+              key={name}
+              className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-bull/20 bg-bull/5 px-3 py-2 text-xs text-text-secondary"
+            >
+              <GenBadge tree={lineage.get(name)} />
+              <strong className="text-text-primary" title={name}>
+                {treeLabel(row, name).full}
+              </strong>
+              <span className="font-semibold text-bull">{row.side?.toUpperCase()}</span>
+              <span className="font-mono text-text-muted">·</span>
+              <span className="font-mono tabular-nums">SL: {row.stop ?? '—'}</span>
+              <span className="font-mono tabular-nums">Mức: {row.level ?? '—'}</span>
+              {note(row) && <small className="text-text-muted">({note(row)})</small>}
             </div>
-          );
-        })
+          ))}
+        </div>
+      )}
+
+      {needle ? (
+        <div className="table-wrap max-h-60 overflow-y-auto rounded-lg border border-border-subtle bg-surface-2/40">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead className="sticky top-0 bg-surface-3 text-text-muted">
+              <tr>
+                <th className="px-3 py-2 font-medium">Cây V4</th>
+                <th className="px-3 py-2 font-medium">Trạng thái</th>
+                <th className="px-3 py-2 font-medium">Chi tiết</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-subtle font-mono text-[11px]">
+              {matches.slice(0, 30).map(([name, row]) => (
+                <tr key={name} className="hover:bg-surface-3/50">
+                  <td className="px-3 py-1.5">
+                    <span title={name} className="text-text-primary">
+                      {treeLabel(row, name).full}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <span
+                      className={
+                        row.status === 'confirmed' ? 'text-bull font-semibold' : 'text-text-muted'
+                      }
+                    >
+                      {row.status === 'confirmed' ? 'xác nhận' : 'loại'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-text-secondary">
+                    {row.status === 'confirmed'
+                      ? note(row)
+                      : (rejectLabels[row.reason ?? '']?.[0] ?? row.reason ?? '—')}
+                  </td>
+                </tr>
+              ))}
+              {!matches.length && (
+                <tr>
+                  <td colSpan={3} className="px-3 py-4 text-center text-text-muted">
+                    Không có cây khớp.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {sorted.map(([code, names]) => {
+            const [title, hint] = rejectLabels[code] ?? [code, 'Mã lý do chưa có mô tả'];
+            const expanded = open === code;
+            return (
+              <div
+                key={code}
+                className="rounded-lg border border-border-subtle bg-surface-2/40 p-2.5 text-xs transition-colors hover:border-border-base"
+              >
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between text-left select-none"
+                  onClick={() => setOpen(expanded ? null : code)}
+                  aria-expanded={expanded}
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="flex items-center gap-2">
+                      <strong className="text-text-primary">{title}</strong>
+                      <span className="font-mono text-[10px] text-text-muted">({code})</span>
+                    </div>
+                    <p className="mb-0 mt-0.5 line-clamp-1 text-[11px] text-text-muted">{hint}</p>
+                  </div>
+                  <span className="inline-flex shrink-0 items-center rounded-md bg-surface-3 px-2 py-0.5 font-mono text-[11px] font-semibold text-text-secondary tabular-nums">
+                    {names.length}
+                  </span>
+                </button>
+                {expanded && (
+                  <div className="mt-2.5 border-t border-border-subtle pt-2">
+                    <div className="flex flex-wrap gap-1 font-mono text-[11px]">
+                      {names.map((name) => (
+                        <span
+                          key={name}
+                          className="rounded bg-surface-3 px-1.5 py-0.5 text-text-muted"
+                          title={name}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
-
 const familyLabels: Record<string, string> = {
   channel_breakout: 'Phá kênh',
   channel: 'Phá kênh',
@@ -416,8 +587,14 @@ export function HtfLineage({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'signal' | 'eligible' | 'child'>('all');
   const [groupBy, setGroupBy] = useState<GroupBy>('m15_trigger');
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selected) return;
+    detailRef.current?.focus({ preventScroll: true });
+    detailRef.current?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  }, [selected]);
 
   const needle = query.trim().toLowerCase();
   const visible = trees.filter((tree) => {
@@ -447,7 +624,7 @@ export function HtfLineage({
   const detail = selected ? byId.get(selected) : undefined;
 
   const toggle = (key: string) =>
-    setOpenGroups((prev) => {
+    setClosedGroups((prev) => {
       const next = new Set(prev);
       if (!next.delete(key)) next.add(key);
       return next;
@@ -482,28 +659,29 @@ export function HtfLineage({
   ];
 
   return (
-    <div className="lineage min-w-0 space-y-3">
-      <div className="lineage-gens grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Thế hệ">
+    <div className="lineage min-w-0 space-y-4">
+      <div className="lineage-gens flex flex-wrap items-stretch gap-3" aria-label="Thế hệ">
         {Array.from({ length: maxGen + 1 }, (_, gen) => {
           const count = trees.filter((tree) => (tree.generation ?? 0) === gen).length;
           return (
-            <div key={gen} className={`lineage-gen-card ${count ? '' : 'is-empty'} min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60`}>
+            <div key={gen} className={`lineage-gen-card ${count ? '' : 'is-empty'} flex min-w-36 items-center gap-3 rounded-xl border border-sky-400/20 bg-linear-to-br from-sky-400/10 to-surface-2 px-4 py-3 [&.is-empty]:opacity-60`}>
               <span className={`gen-badge gen-${Math.min(gen, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>G{gen}</span>
-              <strong>{count}</strong>
-              <small>{gen === 0 ? 'hạt giống' : 'cây con'}</small>
+              <div><strong className="block font-mono text-xl tabular-nums text-text-primary">{count}</strong>
+              <small className="text-xs text-text-muted">{gen === 0 ? 'hạt giống' : 'cây con'}</small></div>
             </div>
           );
         })}
         {maxGen === 0 && (
-          <p className="micro lineage-hint text-xs leading-relaxed text-text-muted text-xs text-text-muted">
+          <p className="micro lineage-hint flex min-w-0 flex-1 basis-64 items-center rounded-xl border border-dashed border-border-active bg-surface-2/40 px-4 py-3 text-xs leading-relaxed text-text-muted">
             Chưa có cây con. Cần cây bố mẹ đủ ≥10 mẫu forward đã đóng với R trung bình dương
             {nextEvolutionAt ? ` · chu kỳ kế tiếp ${formatTime(nextEvolutionAt)}` : ''}.
           </p>
         )}
       </div>
 
-      <div className="lineage-toolbar flex min-w-0 flex-wrap items-center gap-2 justify-between">
+      <div className="lineage-toolbar flex min-w-0 flex-wrap items-center gap-3 rounded-xl border border-border-subtle bg-surface-2/40 p-3">
         <input
+          className="min-h-10 w-full min-w-0 rounded-lg border border-border-active bg-surface-1 px-3 text-sm text-text-primary placeholder:text-text-muted focus-visible:outline-2 focus-visible:outline-sky-400 sm:max-w-80"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -530,7 +708,7 @@ export function HtfLineage({
               aria-pressed={groupBy === key}
               onClick={() => {
                 setGroupBy(key);
-                setOpenGroups(new Set());
+                setClosedGroups(new Set());
               }}
             >
               {groupTitles[key]}
@@ -540,7 +718,7 @@ export function HtfLineage({
       </div>
 
       {detail && (
-        <div className="lineage-detail min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-3 p-3" role="region" aria-label="Chi tiết cây">
+        <div ref={detailRef} tabIndex={-1} className="lineage-detail min-w-0 scroll-mt-32 space-y-4 rounded-xl border border-sky-400/30 bg-surface-1 p-4 shadow-lg focus-visible:outline-2 focus-visible:outline-sky-400" role="region" aria-label="Chi tiết cây">
           <div className="lineage-detail-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <span className={`gen-badge gen-${Math.min(detail.generation ?? 0, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
               G{detail.generation ?? 0}
@@ -549,7 +727,7 @@ export function HtfLineage({
             {detail.eligible ? (
               <span className="gen-badge gen-ok inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">✓ Đủ chuẩn đặt lệnh</span>
             ) : (
-              <span className="lineage-status-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">Chờ gom mẫu ({detail.resolved}/10)</span>
+              <span className="lineage-status-tag inline-flex items-center rounded-md bg-amber-400/10 px-2 py-1 text-xs text-amber-300">{detail.resolved < 10 ? `Chờ gom mẫu (${detail.resolved}/10)` : 'Chưa đủ chuẩn fitness'}</span>
             )}
             <button
               type="button"
@@ -588,7 +766,7 @@ export function HtfLineage({
             </div>
           </div>
 
-          <div className="lineage-steps-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="lineage-steps-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-5 [&>div]:space-y-3 [&>div]:border-t-sky-400/40 [&>div:nth-child(2)]:border-t-amber-400/40 [&>div:nth-child(3)]:border-t-teal-400/40 [&>div:nth-child(4)]:border-t-blue-400/40 [&>div:nth-child(5)]:border-t-rose-400/40 [&_.step-content]:space-y-2 [&_strong]:block [&_strong]:text-sm [&_strong]:text-text-primary [&_p]:text-xs [&_p]:leading-relaxed [&_p]:text-text-muted">
             <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
               <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">1</span>
               <div className="step-content min-w-0 flex-1 space-y-1">
@@ -660,7 +838,7 @@ export function HtfLineage({
             </div>
           </div>
 
-          <div className="lineage-stats-strip grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="lineage-stats-strip grid grid-cols-2 gap-2 text-xs text-text-muted sm:grid-cols-3 xl:grid-cols-6">
             <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Tín hiệu</span>
               <strong>{detail.signals}</strong>
@@ -715,43 +893,44 @@ export function HtfLineage({
       {!ordered.length && <p className="micro text-xs leading-relaxed text-text-muted">Không có cây khớp bộ lọc.</p>}
 
       {ordered.map(([key, rows]) => {
-        const open = openGroups.has(key) || !!needle;
+        const open = !closedGroups.has(key) || !!needle;
         return (
-          <div key={key} className="lineage-group min-w-0 border-t border-border-base py-2">
-            <button type="button" aria-expanded={open} onClick={() => toggle(key)}>
+          <div key={key} className="lineage-group min-w-0 overflow-hidden rounded-xl border border-border-base bg-surface-2/20">
+            <button type="button" className="flex min-h-14 w-full flex-wrap items-center gap-2 bg-surface-2/60 px-4 py-3 text-left transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-sky-400" aria-expanded={open} onClick={() => toggle(key)}>
               <span className="lineage-caret">{open ? '▾' : '▸'}</span>
-              <span className="lineage-group-title flex flex-wrap items-center gap-2 text-xs">{label(key)}</span>
+              <span className="lineage-group-title flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">{label(key)}</span>
               <span className="lineage-count-pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">{rows.length} cây</span>
-              <span className="lineage-group-stats flex flex-wrap items-center gap-2 text-xs">
+              <span className="lineage-group-stats ml-auto flex flex-wrap items-center gap-2 text-xs text-text-muted">
                 {sum(rows, 'signals')} tín hiệu · {sum(rows, 'resolved')} đã đóng
               </span>
             </button>
             {open && (
-              <ul className="lineage-rows-list mt-2 space-y-1">
+              <ul className="lineage-rows-list grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {rows.map((row) => (
                   <li key={row.id}>
                     <button
                       type="button"
-                      className={`lineage-row-btn ${selected === row.id ? 'is-selected' : ''} flex w-full min-w-0 flex-wrap items-center gap-2 rounded p-2 text-left text-xs hover:bg-surface-2 [&.is-selected]:bg-surface-3`}
+                      aria-pressed={selected === row.id}
+                      className={`lineage-row-btn ${selected === row.id ? 'is-selected' : ''} flex h-full w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border-base border-t-sky-400/40 bg-surface-1 p-3 text-left text-xs transition-colors hover:border-sky-400/50 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400 [&.is-selected]:border-sky-400 [&.is-selected]:bg-sky-400/5`}
                       onClick={() => setSelected(row.id)}
                     >
                       <span className={`gen-badge gen-${Math.min(row.generation ?? 0, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                         G{row.generation ?? 0}
                       </span>
                       <span
-                        className="lineage-row-id min-w-0 break-all font-mono text-xs text-text-primary"
+                        className="lineage-row-id min-w-0 flex-1 break-words text-sm font-semibold text-text-primary"
                         title={`${treeLabel(row, row.id).full}\n${row.id}`}
                       >
                         {treeLabel(row, row.id).title}
                       </span>
 
-                      <div className="lineage-tags-inline flex flex-wrap items-center gap-2 text-xs">
+                      <div className="lineage-tags-inline flex w-full flex-wrap items-center gap-1.5 text-xs [&_.tag-h1]:bg-amber-400/10 [&_.tag-h1]:text-amber-300 [&_.tag-m15]:bg-sky-400/10 [&_.tag-m15]:text-sky-300 [&_.tag-exit]:bg-teal-400/10 [&_.tag-exit]:text-teal-300">
                         <span className="lineage-tag tag-h1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">H1 {label(row.h1_setup)}</span>
                         <span className="lineage-tag tag-m15 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">M15 {label(row.m15_trigger)}</span>
                         <span className="lineage-tag tag-exit inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(row.exit_policy)}</span>
                       </div>
 
-                      <span className="lineage-row-meta text-xs text-text-muted">
+                      <span className="lineage-row-meta mt-1 min-w-0 flex-1 text-xs text-text-muted">
                         {row.parents?.length ? (
                           <span className="lineage-parents-brief text-xs text-text-muted">
                             từ {row.parents.map(shortTreeId).join(' × ')}
@@ -842,6 +1021,8 @@ export function ForexEntryPilotPanel({
   symbol: string;
 }) {
   const [entrySearch, setEntrySearch] = useState('');
+  const [policyFilter, setPolicyFilter] = useState<'all' | string>('all');
+  const [pilotPage, setPilotPage] = useState(0);
   const digits = priceDigits(symbol);
   const price = (value: number | null) => (value == null ? '—' : value.toFixed(digits));
   const pilot = entryPilot?.pilot;
@@ -875,8 +1056,9 @@ export function ForexEntryPilotPanel({
   // Cột tham số từng cây chỉ cần khi các cây khác nhau.
   const paramsVary = [limitRatio, stopBuffer, waitBars].some((value) => value && !value.same);
   const needle = entrySearch.trim().toLowerCase();
+  const filteredByPolicy = policyFilter === 'all' ? trees : trees.filter((t) => t.entry_policy === policyFilter);
   const shownTrees = needle
-    ? trees.filter((tree) =>
+    ? filteredByPolicy.filter((tree) =>
         [
           tree.id,
           tree.control_tree_id,
@@ -890,7 +1072,11 @@ export function ForexEntryPilotPanel({
           label(tree.exit_policy),
         ].some((value) => value.toLowerCase().includes(needle)),
       )
-    : trees;
+    : filteredByPolicy;
+  const pageSize = 12;
+  const totalPages = Math.max(1, Math.ceil(shownTrees.length / pageSize));
+  const pageIndex = Math.min(pilotPage, totalPages - 1);
+  const pagedTrees = shownTrees.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
   const states = Object.entries(pilot?.counts ?? {});
   return (
     <>
@@ -913,75 +1099,81 @@ export function ForexEntryPilotPanel({
         </div>
       )}
       {entryPilot && pilot?.trees && (
-        <div className="learning-section-card entry-pilot min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3 space-y-3 [&.is-blocked]:border-amber-400/30">
-          <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
+        <div className="learning-section-card entry-pilot min-w-0 space-y-4 rounded-xl border border-sky-400/20 bg-surface-1 p-4 shadow-sm">
+          <div className="card-header flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-3">
             <div>
-              <h4>
+              <h4 className="flex items-center gap-2 text-base font-semibold text-text-primary">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-400/10 text-sky-300">⚡</span>
                 AST V4 Pilot · {pilot.tree_count} cây{' '}
                 {policies.size === 1 ? policyLabel([...policies][0]) : 'đa dạng entry'} đối chiếu
               </h4>
-              <p className="muted-desc text-xs leading-relaxed text-text-muted">
+              <p className="muted-desc mt-1 text-xs leading-relaxed text-text-muted">
                 {pilot.note ||
                   'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
               </p>
             </div>
             <span
-              className={`entry-pilot-state ${entryPilot.enabled ? 'is-on' : 'is-off'} flex min-w-0 flex-wrap items-center gap-2 text-xs`}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                entryPilot.enabled
+                  ? 'border border-bull/30 bg-bull/10 text-bull'
+                  : 'border border-border-base bg-surface-2 text-text-muted'
+              }`}
               title={
                 entryPilot.enabled
                   ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có'
                   : 'Execution nhóm thử đang tắt'
               }
             >
+              <span className={`h-2 w-2 rounded-full ${entryPilot.enabled ? 'bg-bull' : 'bg-text-muted'}`} />
               {entryPilot.enabled ? 'Đang bật' : 'Đang tắt'}
             </span>
           </div>
 
-          <div className="entry-pilot-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div>
-              <small>Đang canh giá</small>
-              <strong className={waiting ? 'is-live' : ''}>{waiting}</strong>
-              <span>{intents.length} setup gần nhất</span>
+          <div className="entry-pilot-kpis grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
+              <small className="block text-xs text-text-muted">Đang canh giá</small>
+              <strong className={`block font-mono text-xl ${waiting ? 'text-amber-300' : 'text-text-primary'}`}>{waiting}</strong>
+              <span className="text-[11px] text-text-muted">{intents.length} setup gần nhất</span>
             </div>
-            <div>
-              <small>Mẫu shadow</small>
-              <strong>{samples}</strong>
-              <span>{resolved} đã đóng</span>
+            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
+              <small className="block text-xs text-text-muted">Mẫu shadow</small>
+              <strong className="block font-mono text-xl text-text-primary">{samples}</strong>
+              <span className="text-[11px] text-text-muted">{resolved} đã đóng</span>
             </div>
-            <div>
-              <small>Mean R</small>
-              <strong>
+            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
+              <small className="block text-xs text-text-muted">Mean R (Hybrid vs Market)</small>
+              <strong className="block font-mono text-xl">
                 <span className={rTone(comparison?.hybrid_mean_r)}>
                   {signedR(comparison?.hybrid_mean_r)}
                 </span>
-                <em> vs {signedR(comparison?.market_mean_r)} Market</em>
+                <em className="text-xs font-normal text-text-muted"> vs {signedR(comparison?.market_mean_r)}</em>
               </strong>
-              <span>
+              <span className="text-[11px] text-text-muted">
                 {comparison?.matched_signals
                   ? `Limit/Stop · ${comparison.matched_signals} tín hiệu, ${comparison.resolved_pairs} cặp đã đóng`
                   : 'Chưa có tín hiệu trùng setup'}
               </span>
             </div>
-            <div>
-              <small>Chênh lệch</small>
-              <strong className={rTone(comparison?.delta_r)}>{signedR(comparison?.delta_r)}</strong>
-              <span>Limit/Stop − Market</span>
+            <div className="rounded-xl border border-border-subtle bg-surface-2/40 p-3">
+              <small className="block text-xs text-text-muted">Chênh lệch delta R</small>
+              <strong className={`block font-mono text-xl ${comparison?.delta_r != null && comparison.delta_r >= 0 ? 'text-bull' : 'text-bear'}`}>{signedR(comparison?.delta_r)}</strong>
+              <span className="text-[11px] text-text-muted">Limit/Stop − Market</span>
             </div>
           </div>
 
-          <div className="entry-pilot-meta flex min-w-0 flex-wrap items-center gap-2 text-xs">
+          <div className="entry-pilot-meta flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
             <div className="entry-pilot-states flex min-w-0 flex-wrap items-center gap-2 text-xs" aria-label="Trạng thái mẫu shadow">
               {states.length ? (
                 states.map(([state, count]) => (
-                  <span key={state} className={`entry-state-chip state-${state} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
-                    {entryStateLabels[state] ?? state} <b>{count}</b>
+                  <span key={state} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-2.5 py-1 text-xs text-text-secondary">
+                    {entryStateLabels[state] ?? state}: <b className="font-mono text-text-primary">{count}</b>
                   </span>
                 ))
               ) : (
                 <span className="muted text-text-muted">Chưa có mẫu shadow</span>
               )}
             </div>
-            <p>
+            <p className="text-xs text-text-muted">
               Shadow, không phải giao dịch broker · R sau chi phí, chưa swap
               {pilot.since
                 ? ` · cutoff ${formatTime(pilot.since, true)}, không nhận fitness từ cây nguồn`
@@ -989,49 +1181,50 @@ export function ForexEntryPilotPanel({
             </p>
           </div>
 
-          <div className="entry-pilot-howto rounded-md border border-border-subtle p-3 text-xs leading-relaxed [&_summary]:cursor-pointer" aria-label="Cách vào lệnh">
-            <h5>Cách vào lệnh</h5>
-            <p>
-              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh
-              qua tick stream, không phải pending trên sàn. Hybrid canh cả hai mức, nhánh chạm trước
-              gửi Market lên Exness Demo, nhánh còn lại huỷ.
+          <details className="group rounded-xl border border-border-subtle bg-surface-2/20 p-3 text-xs leading-relaxed">
+            <summary className="flex cursor-pointer items-center justify-between font-semibold text-text-primary">
+              <span>📖 Hướng dẫn & Cơ chế Limit / Stop ảo của Pilot</span>
+              <span className="text-text-muted transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <p className="mt-2 text-text-muted">
+              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh qua tick stream, không phải pending trên sàn. Hybrid canh cả hai mức, nhánh chạm trước gửi Market lên Exness Demo, nhánh còn lại huỷ.
             </p>
-            <ol>
+            <ol className="mt-3 space-y-2 border-t border-border-subtle pt-3">
               {policies.has('market') ? (
-                <li>
-                  <strong>Market · vào trực tiếp</strong>
-                  <span>
+                <li className="flex flex-col gap-0.5">
+                  <strong className="text-sky-300">Market · vào trực tiếp</strong>
+                  <span className="text-text-muted">
                     Kích hoạt tại quote hợp lệ đầu tiên sau tín hiệu; cửa sổ tối đa 120 giây, vẫn
                     chịu giới hạn tuổi setup H1 và kiểm tra an toàn trước khi gửi lệnh.
                   </span>
                 </li>
               ) : null}
               {policies.has('limit_or_stop') || policies.has('limit_setup_mid') ? (
-                <li>
-                  <strong>Limit · chờ hồi</strong>
-                  <span>
+                <li className="flex flex-col gap-0.5">
+                  <strong className="text-teal-300">Limit · chờ hồi</strong>
+                  <span className="text-text-muted">
                     Giá hồi về{' '}
-                    <b>{showValue(limitRatio, (n) => `${Math.round(n * 100)}%`, 'limit_ratio')}</b>{' '}
+                    <b className="text-text-primary">{showValue(limitRatio, (n) => `${Math.round(n * 100)}%`, 'limit_ratio')}</b>{' '}
                     quãng từ giá đóng M15 tới mức cấu trúc H1 (Mua: dưới giá đóng · Bán: trên giá
                     đóng).
                   </span>
                 </li>
               ) : null}
               {policies.has('limit_or_stop') || policies.has('stop_trigger_break') ? (
-                <li>
-                  <strong>Stop · phá nến</strong>
-                  <span>
+                <li className="flex flex-col gap-0.5">
+                  <strong className="text-amber-300">Stop · phá nến</strong>
+                  <span className="text-text-muted">
                     Giá vượt đỉnh (Mua) hoặc thủng đáy (Bán) nến trigger thêm{' '}
-                    <b>{showValue(stopBuffer, (n) => `${n} ATR`, 'stop_buffer_atr')}</b>.
+                    <b className="text-text-primary">{showValue(stopBuffer, (n) => `${n} ATR`, 'stop_buffer_atr')}</b>.
                   </span>
                 </li>
               ) : null}
               {Array.from(policies).some((policy) => policy !== 'market') && (
-                <li>
-                  <strong>Hết hạn</strong>
-                  <span>
+                <li className="flex flex-col gap-0.5">
+                  <strong className="text-rose-300">Hết hạn</strong>
+                  <span className="text-text-muted">
                     Chờ tối đa{' '}
-                    <b>
+                    <b className="text-text-primary">
                       {showValue(waitBars, (n) => `${n} nến M15 (${n * 15} phút)`, 'wait_bars')}
                     </b>{' '}
                     và không quá 4h15 kể từ setup H1. Hết hạn mà chưa chạm thì bỏ setup.
@@ -1039,19 +1232,22 @@ export function ForexEntryPilotPanel({
                 </li>
               )}
             </ol>
-            <p className="micro text-xs leading-relaxed text-text-muted">
+            <p className="micro mt-3 text-xs leading-relaxed text-text-muted">
               SL/TP vẫn theo cấu trúc H1 như cây V3 gốc; chỉ giá vào lệnh khác.
               {!paramsVary && ' Tất cả cây đang dùng cùng tham số entry.'}
             </p>
-          </div>
+          </details>
 
-          <details className="entry-pilot-intents min-w-0 space-y-2">
-            <summary>
-              <span>Canh giá & kết quả broker</span>
-              <span className="badge-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{intents.length} setup</span>
+          <details className="group rounded-xl border border-border-subtle bg-surface-2/20 p-3 text-xs leading-relaxed">
+            <summary className="flex cursor-pointer items-center justify-between font-semibold text-text-primary">
+              <span className="flex items-center gap-2">
+                <span>Canh giá & kết quả broker</span>
+                <span className="rounded-full bg-surface-3 px-2 py-0.5 font-mono text-[11px] text-text-secondary">{intents.length} setup</span>
+              </span>
+              <span className="text-text-muted transition-transform group-open:rotate-180">▾</span>
             </summary>
             {intents.length ? (
-              <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+              <div className="mt-3 table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-border-subtle bg-surface-1">
                 <table className="learner-clean-table w-full border-collapse whitespace-nowrap text-xs">
                   <thead>
                     <tr>
@@ -1117,81 +1313,131 @@ export function ForexEntryPilotPanel({
             )}
           </details>
 
-          <div className="entry-pilot-toolbar flex min-w-0 flex-wrap items-center gap-2 text-xs">
+          <div className="entry-pilot-toolbar flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-surface-2/40 p-3 text-xs">
             <input
               type="search"
               value={entrySearch}
-              onChange={(e) => setEntrySearch(e.target.value)}
+              onChange={(e) => { setEntrySearch(e.target.value); setPilotPage(0); }}
               placeholder="Lọc theo ID, Market, Limit, Stop, Hybrid, setup…"
               aria-label="Lọc cây đối chiếu"
+              className="min-h-9 w-full min-w-0 rounded-lg border border-border-active bg-surface-1 px-3 text-xs text-text-primary placeholder:text-text-muted focus-visible:outline-2 focus-visible:outline-sky-400 sm:max-w-80"
             />
-            <span className="muted text-text-muted">
-              {needle ? `${shownTrees.length}/${trees.length} cây` : `${trees.length} cây`}
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Lọc chính sách entry">
+              {[
+                ['all', `Tất cả (${trees.length})`],
+                ['limit_or_stop', `Hybrid (${trees.filter((t) => t.entry_policy === 'limit_or_stop').length})`],
+                ['limit_setup_mid', `Limit ảo (${trees.filter((t) => t.entry_policy === 'limit_setup_mid').length})`],
+                ['stop_trigger_break', `Stop ảo (${trees.filter((t) => t.entry_policy === 'stop_trigger_break').length})`],
+                ['market', `Market (${trees.filter((t) => t.entry_policy === 'market').length})`],
+              ].filter(([k, _]) => k === 'all' || trees.some((t) => t.entry_policy === k)).map(([key, labelText]) => (
+                <button
+                  type="button"
+                  key={key}
+                  aria-pressed={policyFilter === key}
+                  onClick={() => { setPolicyFilter(key); setPilotPage(0); }}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                    policyFilter === key
+                      ? 'bg-sky-400/15 text-sky-300 border border-sky-400/30'
+                      : 'bg-surface-2 text-text-muted hover:bg-surface-3 hover:text-text-secondary border border-border-subtle'
+                  }`}
+                >
+                  {labelText}
+                </button>
+              ))}
+            </div>
+            <span aria-live="polite" className="ml-auto text-xs text-text-muted">
+              {shownTrees.length ? `${pageIndex * pageSize + 1}–${Math.min((pageIndex + 1) * pageSize, shownTrees.length)}` : '0'} / {shownTrees.length} cây khớp
             </span>
           </div>
-          <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="learner-clean-table entry-pilot-trees w-full border-collapse whitespace-nowrap text-xs min-w-0 space-y-2">
-              <thead>
-                <tr>
-                  <th>Cây V4 · gốc V3</th>
+          {samples === 0 && <p className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs leading-relaxed text-text-secondary"><strong className="text-amber-300">Chưa có mẫu shadow.</strong> Các cây đã khởi tạo nhưng chưa ghi nhận tín hiệu. Mean R “—” là chưa có kết quả, không phải 0R. Đây không phải lịch sử khớp lệnh broker.</p>}
+          <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border-subtle bg-surface-1 shadow-sm">
+            <table aria-label="Cây pilot V4 và đối chiếu V3" className="learner-clean-table entry-pilot-trees block w-full border-collapse text-xs xl:table">
+              <thead className="hidden xl:table-header-group">
+                <tr className="border-b border-border-base bg-surface-2/60 text-left text-text-muted font-medium [&>th]:px-3.5 [&>th]:py-3">
+                  <th className="min-w-44">Cây V4 · gốc V3</th>
                   <th>Cách vào lệnh</th>
-                  <th>Setup H1 → Trigger M15</th>
-                  <th>Quản lý</th>
-                  <th className="num font-mono tabular-nums text-right">Mẫu</th>
-                  <th className="num font-mono tabular-nums text-right">Đã đóng</th>
-                  <th className="num font-mono tabular-nums text-right">Mean R</th>
+                  <th className="min-w-48">Setup H1 → Trigger M15</th>
+                  <th className="min-w-36">Quản lý lệnh</th>
+                  <th className="num font-mono tabular-nums text-right w-16">Mẫu</th>
+                  <th className="num font-mono tabular-nums text-right w-20">Đã đóng</th>
+                  <th className="num font-mono tabular-nums text-right w-20">Mean R</th>
                 </tr>
               </thead>
-              <tbody>
-                {shownTrees.map((t) => (
-                  <tr key={t.id}>
-                    <td>
-                      <code className="entry-tree-id font-mono text-xs text-text-primary">{t.id}</code>
-                      <small className="entry-tree-parent block text-xs text-text-muted">từ {t.control_tree_id}</small>
+              <tbody className="grid gap-3 p-3 md:grid-cols-2 xl:table-row-group xl:divide-y xl:divide-border-subtle/70 xl:p-0">
+                {pagedTrees.map((t) => (
+                  <tr key={t.id} className="grid min-w-0 grid-cols-3 rounded-lg border border-border-base bg-surface-2/20 transition-colors hover:bg-surface-2/60 xl:table-row xl:rounded-none xl:border-0 xl:bg-transparent [&>td]:px-3.5 [&>td]:py-3">
+                    <td className="col-span-3 min-w-0 align-middle">
+                      <code className="entry-tree-id break-all font-mono text-xs font-semibold text-text-primary">{t.id}</code>
+                      <small className="entry-tree-parent block font-mono text-[11px] text-text-muted">từ {t.control_tree_id}</small>
                     </td>
-                    <td>
-                      <span className="entry-tree-policy block text-xs text-text-muted">{policyLabel(t.entry_policy)}</span>
-                      <span className="entry-tree-params block text-xs text-text-muted">
+                    <td className="col-span-3 align-middle">
+                      <span className="entry-tree-policy inline-flex items-center rounded-md bg-sky-400/10 px-2 py-0.5 text-xs font-medium text-sky-300 border border-sky-400/20">{policyLabel(t.entry_policy)}</span>
+                      <span className="entry-tree-params mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-muted">
                         {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
                           .filter((name) => typeof t.entry_params?.[name] === 'number')
                           .map((name) => (
                             <span
                               key={name}
-                              className={
-                                t.entry_params[name] === entryDefaults[name] ? '' : 'is-tuned'
-                              }
+                              className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-text-secondary border border-border-subtle"
                             >
                               {entryParamText(name, t.entry_params[name])}
                             </span>
                           ))}
                       </span>
                     </td>
-                    <td>
-                      <span className="lineage-tags-inline flex flex-wrap items-center gap-2 text-xs">
-                        <span className="lineage-tag tag-h1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.h1_setup)}</span>
-                        <span className="lineage-tag tag-m15 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.m15_trigger)}</span>
+                    <td className="col-span-3 align-middle">
+                      <span className="lineage-tags-inline flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="lineage-tag tag-h1 inline-flex items-center gap-1 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] font-medium text-amber-300"><b>H1</b> {label(t.h1_setup)}</span>
+                        <span aria-hidden="true" className="text-[10px] text-text-muted">→</span>
+                        <span className="lineage-tag tag-m15 inline-flex items-center gap-1 rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-1 text-[11px] font-medium text-sky-300"><b>M15</b> {label(t.m15_trigger)}</span>
                       </span>
                     </td>
-                    <td>
-                      <span className="lineage-tag tag-exit inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.exit_policy)}</span>
+                    <td className="col-span-3 align-middle">
+                      <span className="mb-1 block text-[10px] text-text-muted xl:hidden">Quản lý lệnh</span>
+                      <span className="lineage-tag tag-exit inline-flex rounded-md border border-teal-400/20 bg-teal-400/10 px-2 py-1 text-[11px] font-medium text-teal-300">{label(t.exit_policy)}</span>
                     </td>
-                    <td className={`num ${t.samples_count ? '' : 'muted'} font-mono tabular-nums text-right`}>{t.samples_count}</td>
-                    <td className={`num ${t.resolved_count ? '' : 'muted'} font-mono tabular-nums text-right`}>{t.resolved_count}</td>
-                    <td className={`num font-mono ${rTone(t.mean_r) || 'muted'} font-mono tabular-nums text-right font-mono tabular-nums`}>
+                    <td className="num border-t border-border-subtle align-middle font-mono text-text-muted tabular-nums xl:border-0 xl:text-right"><span className="mb-1 block font-sans text-[10px] xl:hidden">Mẫu</span>{t.samples_count}</td>
+                    <td className="num border-t border-border-subtle align-middle font-mono text-text-muted tabular-nums xl:border-0 xl:text-right"><span className="mb-1 block font-sans text-[10px] xl:hidden">Đã đóng</span>{t.resolved_count}</td>
+                    <td className={`num border-t border-border-subtle align-middle font-mono font-semibold tabular-nums xl:border-0 xl:text-right ${t.mean_r == null ? 'text-text-muted' : t.mean_r >= 0 ? 'text-bull' : 'text-bear'}`}>
+                      <span className="mb-1 block font-sans text-[10px] font-normal text-text-muted xl:hidden">Mean R</span>
                       {signedR(t.mean_r)}
                     </td>
                   </tr>
                 ))}
                 {!shownTrees.length && (
                   <tr>
-                    <td colSpan={7} className="entry-pilot-empty grid min-h-24 place-content-center gap-2 p-4 text-center text-xs text-text-muted">
+                    <td colSpan={7} className="entry-pilot-empty min-h-24 p-6 text-center text-xs text-text-muted">
                       Không có cây nào khớp “{entrySearch.trim()}”.
+                      <button type="button" className="ml-2 rounded border border-border-active px-2 py-1 text-text-primary hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={() => { setEntrySearch(''); setPolicyFilter('all'); setPilotPage(0); }}>Xóa bộ lọc</button>
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3 text-xs">
+              <span className="text-text-muted">Trang {pageIndex + 1} / {totalPages} ({shownTrees.length} cây)</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={pageIndex === 0}
+                  onClick={() => setPilotPage((p) => Math.max(0, p - 1))}
+                  className="inline-flex min-h-8 items-center rounded-lg border border-border-base bg-surface-2 px-2.5 text-xs text-text-secondary transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ← Trước
+                </button>
+                <button
+                  type="button"
+                  disabled={pageIndex >= totalPages - 1}
+                  onClick={() => setPilotPage((p) => Math.min(totalPages - 1, p + 1))}
+                  className="inline-flex min-h-8 items-center rounded-lg border border-border-base bg-surface-2 px-2.5 text-xs text-text-secondary transition-colors hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Sau →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
@@ -1565,8 +1811,8 @@ export function ForexStrategyPage({
     >
       {executionOnly ? (
         <header className="broker-market-header flex flex-wrap items-center justify-between gap-3 border-b border-border-base bg-none px-3 py-2">
-          <div className="broker-instrument flex flex-wrap items-baseline gap-3">
-            <span className="broker-symbol font-display text-lg font-semibold text-text-primary">{symbol.slice(0, 3)}</span>
+          <div className="broker-instrument flex min-w-0 items-center gap-2">
+            <span className="broker-symbol grid size-8 shrink-0 place-items-center rounded-md bg-surface-3 font-display text-xs font-semibold text-text-primary">{symbol.slice(0, 3)}</span>
             <div>
               <h2>
                 {symbol} <span>Exness</span>
@@ -1576,29 +1822,29 @@ export function ForexStrategyPage({
               </p>
             </div>
           </div>
-          <div className="broker-quote-pair flex flex-wrap items-baseline gap-3" aria-label="Giá Exness trực tiếp">
-            <ForexSessionStatus session={dashboard.market_session} now={clock} />
-            <span>
+          <div className="broker-quote-pair order-3 m-0 grid w-full min-w-0 grid-cols-3 gap-2 text-xs text-text-muted md:order-none md:ml-auto md:flex md:w-auto md:flex-wrap md:items-center md:gap-3 [&_strong]:m-0" aria-label="Giá Exness trực tiếp">
+            <div className="col-span-3 min-w-0"><ForexSessionStatus session={dashboard.market_session} now={clock} /></div>
+            <span className="flex min-w-0 flex-col gap-1 md:flex-row md:items-baseline">
               BID{' '}
-              <strong className="broker-bid flex items-baseline gap-1 font-mono text-lg text-text-primary [&_small]:text-xs [&_small]:text-text-muted">
+              <strong className="broker-bid font-mono text-sm text-text-primary tabular-nums">
                 {visibleQuote ? formatPrice(visibleQuote.bid) : '—'}
               </strong>
             </span>
-            <span>
+            <span className="flex min-w-0 flex-col gap-1 md:flex-row md:items-baseline">
               ASK{' '}
-              <strong className="broker-ask flex items-baseline gap-1 font-mono text-lg text-text-primary [&_small]:text-xs [&_small]:text-text-muted">
+              <strong className="broker-ask font-mono text-sm text-text-primary tabular-nums">
                 {visibleQuote ? formatPrice(visibleQuote.ask) : '—'}
               </strong>
             </span>
-            <span>
+            <span className="flex min-w-0 flex-col gap-1 md:flex-row md:items-baseline">
               SPREAD{' '}
-              <strong>
+              <strong className="font-mono text-sm text-text-primary tabular-nums">
                 {visibleQuote ? formatPrice(visibleQuote.ask - visibleQuote.bid) : '—'}
               </strong>
             </span>
           </div>
           <span
-            className={`broker-stream-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''} text-xs text-bull [&.is-closed]:text-text-muted`}
+            className={`broker-stream-state ${quoteLive ? 'is-live bg-bull/10 text-bull' : closedSession && !streamInterrupted ? 'is-closed bg-surface-3 text-text-muted' : 'bg-tone-uncertain-bg text-tone-uncertain'} shrink-0 px-2 py-1 text-xs`}
             role="status"
           >
             <span aria-hidden="true" />
@@ -1894,7 +2140,7 @@ export function ForexStrategyPage({
         shown={shownStrategies}
         executions={executions}
         positionGroups={executionOnly ? undefined : positionGroups}
-        dark={executionOnly}
+        dark
         onClosePosition={onClosePosition}
         onSelectPosition={onSelectPosition}
         pnlAt={pnlAt}
@@ -1914,66 +2160,120 @@ export function ForexStrategyPage({
         title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
       {executionOnly && (
-        <div className="bot-footer min-w-0 border-t border-border-base">
-          <div className="bot-footer-bar flex min-w-0 flex-wrap items-center gap-2 justify-between px-3 py-2 text-xs">
-            <span>
-              {loading
-                ? 'Đang tải nến…'
-                : `${candles.length.toLocaleString()} nến ${frame.toUpperCase()}`}
-              {' · '}
-              {hasMore ? 'Kéo trái để tải thêm' : 'Hết lịch sử đã lưu'}
-            </span>
-            <span
-              className={
-                quoteLive && selectedPosition?.status !== 'closed'
-                  ? 'is-live'
+        <div className="bot-footer min-w-0 border-t border-border-base bg-surface-1">
+          <div className="bot-footer-bar flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3.5 py-2.5 text-xs text-text-secondary">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono tabular-nums text-text-primary">
+                {loading
+                  ? 'Đang tải nến…'
+                  : `${candles.length.toLocaleString('vi-VN')} nến ${frame.toUpperCase()}`}
+              </span>
+              <span className="text-text-muted">·</span>
+              <span className="text-text-muted">
+                {hasMore ? 'Kéo trái để tải thêm lịch sử' : 'Hết lịch sử đã lưu'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[11px] ${
+                  quoteLive && selectedPosition?.status !== 'closed'
+                    ? 'border border-bull/20 bg-bull/10 text-bull font-medium'
+                    : 'border border-border-subtle bg-surface-2 text-text-muted'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`size-1.5 rounded-full ${
+                    quoteLive && selectedPosition?.status !== 'closed'
+                      ? 'bg-bull'
+                      : 'bg-text-muted'
+                  }`}
+                />
+                {selectedPosition?.status === 'closed'
+                  ? 'Xem lịch sử vị thế · không ghép tick'
                   : closedSession && !streamInterrupted
-                    ? 'is-closed'
-                    : ''
-              }
-            >
-              {selectedPosition?.status === 'closed'
-                ? 'Xem lịch sử vị thế · không ghép tick'
-                : closedSession && !streamInterrupted
-                  ? `${session.label} · ${session.transition}`
-                  : quoteLive
-                    ? 'OHLC tạm thời từ tick · REST xác nhận khi đóng nến'
-                    : 'Tick tạm dừng · không dùng giá cũ'}
-            </span>
+                    ? `${session.label} · ${session.transition}`
+                    : quoteLive
+                      ? 'OHLC từ tick sàn · REST chốt khi đóng nến'
+                      : 'Tick tạm dừng · không dùng giá cũ'}
+              </span>
+            </div>
           </div>
+
           {analysis && (
-            <details className="bot-analysis border-t border-border-base p-3">
-              <summary>
-                <strong>Bot quan sát</strong>
-                <span>nến {clockTime(analysis.candle_time)}</span>
-                <span className={analysis.selected_signal ? 'is-pick' : ''}>
-                  {analysis.selected_signal
-                    ? `Chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side} · dự kiến, chưa vào lệnh`
-                    : `Chưa chọn tín hiệu · ${analysis.policy_mode}`}
-                </span>
-                <span className="bot-analysis-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">
-                  {
-                    Object.values(analysis.strategies).filter((row) => row.status === 'confirmed')
-                      .length
-                  }{' '}
-                  xác nhận ·{' '}
-                  {
-                    Object.values(analysis.strategies).filter((row) => row.status !== 'confirmed')
-                      .length
-                  }{' '}
-                  cây bị loại
+            <details className="bot-analysis group/analysis border-t border-border-subtle bg-surface-1/60 px-3.5 py-2.5 text-xs transition-colors">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-2 text-text-muted select-none hover:text-text-primary [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-surface-3 text-text-secondary font-mono text-[11px] font-bold">
+                    AI
+                  </span>
+                  <strong className="text-xs font-semibold text-text-primary">Bot quan sát</strong>
+                  <span className="font-mono text-text-muted tabular-nums">
+                    nến {clockTime(analysis.candle_time)}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${
+                      analysis.selected_signal
+                        ? 'border-bull/25 bg-bull/10 font-semibold text-bull'
+                        : 'border-border-subtle bg-surface-2 text-text-secondary'
+                    }`}
+                  >
+                    {analysis.selected_signal
+                      ? `Chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side.toUpperCase()}`
+                      : `Chưa chọn tín hiệu · ${analysis.policy_mode}`}
+                  </span>
+
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-text-muted tabular-nums">
+                    <span className="font-semibold text-text-secondary">
+                      {
+                        Object.values(analysis.strategies).filter(
+                          (row) => row.status === 'confirmed',
+                        ).length
+                      }
+                    </span>{' '}
+                    xác nhận ·{' '}
+                    <span className="font-semibold text-text-muted">
+                      {
+                        Object.values(analysis.strategies).filter(
+                          (row) => row.status !== 'confirmed',
+                        ).length
+                      }
+                    </span>{' '}
+                    loại
+                  </span>
+                </div>
+
+                <span className="ml-auto inline-flex items-center gap-1 text-xs text-text-muted">
+                  <span className="hidden sm:inline">Xem phân tích</span>
+                  <span
+                    aria-hidden="true"
+                    className="transition-transform group-open/analysis:rotate-180"
+                  >
+                    ⌄
+                  </span>
                 </span>
               </summary>
-              <BotAnalysisBreakdown
-                strategies={analysis.strategies}
-                lineage={new Map((htf2Shadow?.trees ?? []).map((tree) => [tree.id, tree]))}
-              />
-              <p>Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.</p>
+
+              <div className="mt-3 space-y-2 border-t border-border-subtle pt-3">
+                <BotAnalysisBreakdown
+                  strategies={analysis.strategies}
+                  lineage={new Map((htf2Shadow?.trees ?? []).map((tree) => [tree.id, tree]))}
+                />
+                <p className="m-0 text-[11px] text-text-muted">
+                  Đường nét đứt BOT/DỰ KIẾN là kết quả phân tích theo nến, không phải lệnh đã gửi sàn.
+                </p>
+              </div>
             </details>
           )}
-          <p className="bot-footer-note text-xs text-text-muted">
-            Tín hiệu và canh giá không đồng nghĩa đã vào lệnh. Mũi tên, SL/TP của vị thế mở theo dữ liệu broker; lịch sử lệnh ở tab Lệnh trên sàn.
-          </p>
+
+          <div className="border-t border-border-subtle bg-surface-2/20 px-3.5 py-2">
+            <p className="m-0 text-[11px] leading-relaxed text-text-muted">
+              Tín hiệu và canh giá không đồng nghĩa đã vào lệnh. Mũi tên, SL/TP của vị thế mở theo dữ liệu broker; lịch sử lệnh ở tab Lệnh trên sàn.
+            </p>
+          </div>
         </div>
       )}
       {!executionOnly && (

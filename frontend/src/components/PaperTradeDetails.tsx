@@ -32,95 +32,92 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
   const partial = tradePartialProgress(trade);
   const qty = (v: number) => `${v.toLocaleString('en-US')}${unit ? ` ${unit}` : ''}`;
   return (
-    <div className="paper-trade-details">
-      <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
-        <strong>
+    <div className="paper-trade-details space-y-4 text-xs text-text-secondary">
+      <div className="section-head flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border-base pb-3">
+        <strong className="text-sm font-semibold text-text-primary">
           #{trade.id} {trade.side.toUpperCase()} · {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
         </strong>
-        <span className={`pill ${closed ? 'amber' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
+        <span className={`pill ${closed ? 'amber bg-amber-400/10 text-amber-300 border border-amber-400/20' : 'bg-bull/10 text-bull border border-bull/20'} inline-flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium`}>
           {closed ? 'LỊCH SỬ · ĐÃ ĐÓNG' : 'VỊ THẾ ĐANG MỞ'}
         </span>
       </div>
-      <dl className="paper-trade-facts">
+      <dl className="paper-trade-facts grid grid-cols-2 gap-3 [&>div]:rounded-md [&>div]:border [&>div]:border-border-subtle [&>div]:bg-surface-2/60 [&>div]:p-3">
         <div>
-          <dt>Entry · đã khớp mô phỏng</dt>
-          <dd>{formatQuote(trade.entry)}</dd>
-          <small>{utcTime(trade.entry_time)}</small>
+          <dt className="text-[11px] text-text-muted">Entry · đã khớp</dt>
+          <dd className="my-1 font-mono text-base font-semibold text-text-primary">{formatQuote(trade.entry)}</dd>
+          <small className="block text-[11px] text-text-muted">{utcTime(trade.entry_time)}</small>
         </div>
         <div>
-          <dt>Exit · giá đóng thực tế</dt>
-          <dd>{trade.exit === null ? 'Chưa thoát' : formatQuote(trade.exit)}</dd>
-          <small>
+          <dt className="text-[11px] text-text-muted">Exit · giá đóng</dt>
+          <dd className="my-1 font-mono text-base font-semibold text-text-primary">{trade.exit === null ? 'Chưa thoát' : formatQuote(trade.exit)}</dd>
+          <small className="block text-[11px] text-text-muted">
             {closed
               ? `${exitLabels[trade.exit_reason ?? ''] ?? trade.exit_reason ?? 'Không rõ lý do'} · ${utcTime(trade.exit_time!)}`
               : 'SL/TP tiếp tục được worker theo dõi'}
           </small>
         </div>
         <div>
-          <dt>SL · {atStop >= 0 ? 'mức khoá lời (trailing)' : 'mức kích hoạt cắt lỗ'}</dt>
-          <dd className={atStop >= 0 ? "positive text-bull" : "negative text-bear"}>{formatQuote(trade.stop)}</dd>
-          <small>
+          <dt className="text-[11px] text-text-muted">SL · {atStop >= 0 ? 'khoá lời (trailing)' : 'cắt lỗ'}</dt>
+          <dd className={`my-1 font-mono text-base font-semibold ${atStop >= 0 ? "text-bull" : "text-bear"}`}>{formatQuote(trade.stop)}</dd>
+          <small className="block text-[11px] text-text-muted">
             {atStop >= 0 ? 'Khớp SL vẫn lời' : 'Khớp SL lỗ'}:{' '}
-            <b className={tone(atStop)}>{signed(atStop)} USDT</b>
+            <b className={atStop >= 0 ? "text-bull tabular-nums" : "text-bear tabular-nums"}>{signed(atStop)} USDT</b>
             {atStop >= 0 && <> · SL đã dời qua entry</>}
           </small>
         </div>
         <div>
-          <dt>TP · mức kích hoạt chốt lời</dt>
-          <dd className="positive text-bull">{formatQuote(trade.target)}</dd>
-          <small>
-            Khớp TP: <b className={tone(atTarget)}>{signed(atTarget)} USDT</b>
+          <dt className="text-[11px] text-text-muted">TP · chốt lời</dt>
+          <dd className="my-1 font-mono text-base font-semibold text-bull">{formatQuote(trade.target)}</dd>
+          <small className="block text-[11px] text-text-muted">
+            Khớp TP: <b className="text-bull tabular-nums">{signed(atTarget)} USDT</b>
             {atStop < 0 && <> · {(atTarget / -atStop).toFixed(2)}R</>}
           </small>
         </div>
       </dl>
-      <p className="paper-trade-note">
+      <p className="paper-trade-note text-[11px] text-text-muted leading-relaxed">
         PnL ở SL/TP tính trên {closed ? 'khối lượng lúc đóng' : 'phần còn giữ'} (
         {qty(trade.quantity)}
         ), trước phí, funding và trượt giá.
       </p>
       {partial && (
-        <section className="paper-trade-partials" aria-label="Các lần chốt một phần">
-          <div className="paper-trade-partials-head">
-            <strong>
+        <section className="paper-trade-partials rounded-md border border-border-subtle bg-surface-2/40 p-3 space-y-2" aria-label="Các lần chốt một phần">
+          <div className="paper-trade-partials-head flex items-baseline justify-between text-xs">
+            <strong className="text-text-primary">
               Đã đóng {partial.closedPercent}% · {partial.count} lần chốt
             </strong>
-            <b className={tone(partial.realizedNet)}>{signed(partial.realizedNet)} USDT</b>
+            <b className={`font-mono tabular-nums ${partial.realizedNet >= 0 ? "text-bull" : "text-bear"}`}>{signed(partial.realizedNet)} USDT</b>
           </div>
-          <progress value={partial.closedPercent} max={100} />
-          <p className="paper-trade-note">
+          <progress className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3 accent-bull [&::-webkit-progress-bar]:bg-surface-3 [&::-webkit-progress-value]:bg-bull" value={partial.closedPercent} max={100} />
+          <p className="paper-trade-note text-[11px] text-text-muted">
             Ban đầu {qty(partial.originalQuantity)} · đã đóng {qty(partial.closedQuantity)} ·{' '}
             {closed ? 'phần cuối' : 'còn giữ'} {qty(trade.quantity)} ({partial.remainingPercent}%).
             Không mở thêm lệnh.
           </p>
-          <ol>
+          <ol className="divide-y divide-border-subtle pt-1 text-xs">
             {trade.monitoring!.partial_exits!.map((leg, index) => {
               const realized = leg.gross - leg.entry_fee - leg.exit_fee;
               return (
-                <li key={`${leg.time}-${index}`}>
-                  <span>
+                <li key={`${leg.time}-${index}`} className="flex items-center justify-between py-1.5">
+                  <span className="text-text-muted">
                     <strong>Lần {index + 1}</strong> · {utcTime(leg.time)}
                   </span>
-                  <span>
+                  <span className="text-text-muted">
                     {qty(leg.quantity)} (
                     {((leg.quantity / partial.originalQuantity) * 100).toLocaleString('vi-VN', {
                       maximumFractionDigits: 1,
                     })}
                     %) tại {formatQuote(leg.price)}
                   </span>
-                  <b className={tone(realized)}>{signed(realized)} USDT</b>
+                  <b className={`font-mono tabular-nums ${realized >= 0 ? "text-bull" : "text-bear"}`}>{signed(realized)} USDT</b>
                 </li>
               );
             })}
           </ol>
-          <p className="paper-trade-note">
-            PnL mỗi lần đã trừ phí mở phân bổ và phí chốt; chưa trừ funding. Đã cộng vào số dư.
-          </p>
         </section>
       )}
       {closed && (
-        <p>
-          <strong>
+        <div className="rounded-md border border-border-subtle bg-surface-2/40 p-3 text-xs leading-relaxed">
+          <strong className="text-text-primary">
             PnL ròng:{' '}
             <span className={(trade.net_pnl ?? 0) >= 0 ? "positive text-bull" : "negative text-bear"}>
               {trade.net_pnl === null ? '—' : formatPrice(trade.net_pnl)} USDT
@@ -136,10 +133,10 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
               ),
           )}{' '}
           · Funding {formatPrice(trade.funding_cost)} USDT
-        </p>
+        </div>
       )}
-      <section className="paper-trade-reason">
-        <h3>Lý do vào lệnh</h3>
+      <section className="paper-trade-reason space-y-1.5 border-t border-border-base pt-3 text-xs leading-relaxed">
+        <h3 className="text-xs uppercase tracking-wider text-text-muted font-semibold">Lý do vào lệnh</h3>
         {trade.monitoring?.status === 'recovered' && (
           <p className="negative text-bear">
             {trade.monitoring.execution_model === 'historical_levels_v1'
@@ -148,19 +145,19 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
             {trade.monitoring.ambiguous ? ' Cùng nến chạm cả hai: ưu tiên SL.' : ''}
           </p>
         )}
-        <p>
+        <p className="text-text-primary">
           {trade.origin === 'manual'
             ? 'Bạn mở lệnh Market thủ công; lệnh này không có tín hiệu của bot.'
             : (trade.entry_reason ?? 'Lệnh auto cũ chưa lưu lý do vào lệnh.')}
         </p>
         {trade.signal_time !== null && (
-          <p className="paper-trade-note">
+          <p className="paper-trade-note text-[11px] text-text-muted">
             Nến tín hiệu mở {utcTime(trade.signal_time)}, đóng {utcTime(trade.signal_time + 900)}.
             Bot vào sau khi nến đóng.
           </p>
         )}
         {audit ? (
-          <p className="paper-trade-note">
+          <p className="paper-trade-note text-[11px] text-text-muted">
             Chiến thuật: {strategy?.title} {strategy?.generation && `(${strategy.generation})`}.{' '}
             {strategy?.detail} Nến tín hiệu đóng tại {formatQuote(audit.signal_close)}. Ngân sách SL
             lúc vào: {formatPrice(audit.risk_budget)} USDT (cấu hình {audit.risk_percent}% equity,
@@ -168,19 +165,19 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
           </p>
         ) : (
           trade.origin === 'auto' && (
-            <p className="paper-trade-note">
+            <p className="paper-trade-note text-[11px] text-text-muted">
               Lệnh cũ chưa có bản lưu chiến thuật và ngân sách rủi ro tại thời điểm vào.
             </p>
           )
         )}
         {trade.monitoring?.exit_policy && (
-          <p className="paper-trade-note">
+          <p className="paper-trade-note text-[11px] text-text-muted">
             Quản lý lệnh: {exitLabel(trade.monitoring.exit_policy)}
           </p>
         )}
         {strategy && (
-          <p className="paper-trade-note">
-            {strategy.source} · <code>{audit?.strategy}</code>
+          <p className="paper-trade-note text-[11px] text-text-muted font-mono">
+            {strategy.source} · <code className="rounded bg-surface-3 px-1 py-0.5">{audit?.strategy}</code>
             {audit?.parents?.length ? ` · Cha mẹ: ${audit.parents.join(', ')}` : ''}
             {audit?.initial_stop != null && audit.initial_target != null
               ? ` · SL/TP ban đầu: ${formatQuote(audit.initial_stop)} / ${formatQuote(audit.initial_target)}`
@@ -188,7 +185,7 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
           </p>
         )}
       </section>
-      <p className="paper-trade-note">
+      <p className="paper-trade-note text-[11px] text-text-muted border-t border-border-subtle pt-2">
         Entry là giá đã vào, không phải lệnh chờ. Exit là giá đã thoát; chỉ là thoát do SL khi lý do
         ghi Stop-loss.{' '}
         {closed && 'Các mức giá trên chart thuộc lệnh lịch sử này, không phải lệnh đang chờ.'}

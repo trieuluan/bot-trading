@@ -1,3 +1,4 @@
+import { Activity, ArrowUpRight, ChartNoAxesCombined, GitBranch, History, Layers, Radio, Server, TrendingUp, Wallet } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import { ForexSessionStatus } from '../components/ForexSessionStatus';
 import { ForexMarkets, feedText, feedTone } from '../components/ForexMarkets';
@@ -9,7 +10,14 @@ import { setRoute } from '../lib/router';
 const amount = (value: number | string | null | undefined) =>
   value == null ? '—' : Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
 const signClass = (value: number | null) =>
-  value == null || value === 0 ? '' : value > 0 ? 'positive' : 'negative';
+  value == null || value === 0 ? 'text-text-primary' : value > 0 ? 'text-bull' : 'text-bear';
+
+const toneClass = {
+  ok: 'border-bull/20 bg-bull/5 text-bull',
+  warn: 'border-amber-400/20 bg-amber-400/5 text-amber-200',
+  bad: 'border-bear/20 bg-bear/5 text-bear',
+  idle: 'border-border-base bg-surface-2/60 text-text-muted',
+};
 
 export function ForexOverviewPage({
   dashboard,
@@ -25,7 +33,7 @@ export function ForexOverviewPage({
   const status = botStatus(data, !verified || !execution);
   const ast = data?.learning?.htf_ast3_shadow;
   const v2 = data?.learning?.execution_v2;
-  const treeCount = ast?.tree_count ?? 56;
+  const treeCount = ast?.tree_count ?? '—';
   const balance = data?.account_state?.balance;
   const equity = data?.account_state?.equity;
   const floating = balance != null && equity != null ? Number(equity) - Number(balance) : null;
@@ -35,77 +43,71 @@ export function ForexOverviewPage({
   const lastProcessed = dashboard.observation.catch_up?.last_processed_candle;
   const executor = executorState(data);
   const nextEvolution = ast?.next_evolution_at;
+  const workerTone = disconnected ? 'idle' : dashboard.market.worker_online ? 'ok' : 'bad';
+  const feedState = disconnected || !frames.length ? 'idle' : feedIssue ? feedTone(feedIssue) : 'ok';
 
   return (
-    <div className="forex-overview-desk">
-      <section className={`ov-status tone-${status.tone} min-w-0 rounded-lg border border-border-base bg-surface-1 flex flex-wrap items-center justify-between gap-3 p-3`} aria-label="Trạng thái vận hành">
-        <div className="ov-status-main [&>p]:m-0 [&>p]:text-text-secondary flex flex-wrap items-center gap-2 text-xs">
-          <span className="execution-eyebrow text-xs font-semibold uppercase tracking-widest text-bull">{symbol} · Exness demo</span>
-          <h2>
-            <span className="ov-status-dot inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400" aria-hidden="true" />
-            {status.title}
-          </h2>
-          <p>{status.reason}</p>
-          {status.hint && <p className="ov-status-hint basis-full text-xs text-text-muted">{status.hint}</p>}
-          <ForexSessionStatus session={dashboard.market_session} />
-          <div className="ov-health flex flex-wrap items-center gap-2 text-xs" aria-label="Sức khỏe hệ thống">
-            <span className={`dot-label tone-${executor.tone} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}>
-              Worker thực thi: {executor.text.toLowerCase()}
-            </span>
-            <span
-              className={`dot-label tone-${disconnected ? 'idle' : dashboard.market.worker_online ? 'ok' : 'bad'} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}
-            >
-              Worker nến: {dashboard.market.worker_online ? 'online' : 'offline'}
-            </span>
-            <button
-              type="button"
-              className={`dot-label link-chip tone-${feedIssue ? feedTone(feedIssue) : 'ok'} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300 inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline`}
-              onClick={() => setRoute({ page: 'Kết nối sàn' })}
-            >
-              Feed {symbol}:{' '}
-              {feedIssue
-                ? `${feedIssue.timeframe.toUpperCase()} ${feedText(feedIssue)}`
-                : 'đã đồng bộ'}
+    <div className="forex-overview-desk min-w-0 space-y-5">
+      <section className="overflow-hidden rounded-2xl border border-border-base bg-linear-to-br from-surface-2 via-surface-1 to-canvas" aria-label="Trạng thái vận hành">
+        <div className="flex flex-wrap items-start justify-between gap-5 p-4 sm:p-5">
+          <div className="min-w-0 flex-1 basis-80 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 font-mono text-xs font-semibold text-amber-200">{symbol}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Exness · Tài khoản demo</span>
+            </div>
+            <h2 className="flex items-center gap-2.5 text-lg font-bold sm:text-xl">
+              <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg border ${toneClass[status.tone]}`}><Activity size={16} aria-hidden="true" /></span>
+              {status.title}
+            </h2>
+            <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{status.reason}</p>
+            {status.hint && <details className="max-w-2xl text-xs text-text-muted"><summary className="w-fit py-1 underline decoration-border-active underline-offset-4 hover:text-text-primary">Hướng dẫn xử lý</summary><p className="mt-2 break-words rounded-lg border border-border-base bg-canvas/60 p-3 leading-relaxed">{status.hint}</p></details>}
+          </div>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-col sm:items-stretch">
+            <button type="button" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-bull px-4 py-2 text-xs font-semibold text-canvas transition-colors hover:bg-emerald-300" onClick={() => setRoute({ page: 'Bot' })}>
+              <ChartNoAxesCombined size={16} aria-hidden="true" /> Mở chart & Bot <ArrowUpRight size={14} aria-hidden="true" />
+            </button>
+            <button type="button" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border-active bg-surface-2 px-4 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3" onClick={() => setRoute({ page: 'Kết nối sàn' })}>
+              <Radio size={14} aria-hidden="true" /> Kiểm tra kết nối
             </button>
           </div>
         </div>
-        <div className="ov-status-actions flex flex-wrap items-center gap-2 text-xs">
-          <button type="button" className="primary inline-flex items-center justify-center gap-2 rounded-md bg-bull px-3 py-2 text-xs font-semibold text-canvas hover:bg-emerald-300" onClick={() => setRoute({ page: 'Bot' })}>
-            Mở chart & Bot
-          </button>
-          <button
-            type="button"
-            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
-            onClick={() => setRoute({ page: 'Kết nối sàn' })}
-          >
-            Kiểm tra kết nối
+        <div className="grid gap-2 border-t border-border-base bg-canvas/30 p-3 text-xs sm:grid-cols-3 sm:p-4" aria-label="Sức khỏe hệ thống">
+          <div className={`flex items-start gap-2.5 rounded-xl border p-3 ${toneClass[executor.tone]}`}>
+            <Server size={16} className="mt-0.5 shrink-0" aria-hidden="true" /><div><span className="block text-[11px] text-text-muted">Worker thực thi</span><strong className="mt-1 block font-medium">{executor.text}</strong></div>
+          </div>
+          <div className={`flex items-start gap-2.5 rounded-xl border p-3 ${toneClass[workerTone]}`}>
+            <Layers size={16} className="mt-0.5 shrink-0" aria-hidden="true" /><div><span className="block text-[11px] text-text-muted">Worker nến</span><strong className="mt-1 block font-medium">{disconnected ? 'Chưa xác minh' : dashboard.market.worker_online ? 'Đang kết nối' : 'Offline'}</strong></div>
+          </div>
+          <button type="button" className={`flex min-w-0 items-start gap-2.5 rounded-xl border p-3 text-left transition-colors hover:border-border-active ${toneClass[feedState]}`} onClick={() => setRoute({ page: 'Kết nối sàn' })}>
+            <Radio size={16} className="mt-0.5 shrink-0" aria-hidden="true" /><span className="min-w-0"><span className="block text-[11px] text-text-muted">Feed {symbol} · Xem kết nối</span><strong className="mt-1 block break-words font-medium">{feedState === 'idle' ? 'Chưa xác minh' : feedIssue ? `${feedIssue.timeframe.toUpperCase()} · ${feedText(feedIssue)}` : 'Đã đồng bộ'}</strong></span>
           </button>
         </div>
+        <div className="border-t border-border-subtle px-4 py-3 text-text-muted sm:px-5"><ForexSessionStatus session={dashboard.market_session} /></div>
       </section>
 
-      <div className="ov-kpis grid grid-cols-2 gap-3 lg:grid-cols-4 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-1 [&>div]:rounded-lg [&>div]:border [&>div]:border-border-base [&>div]:bg-surface-1 [&>div]:p-3 [&_small]:text-xs [&_small]:text-text-muted [&_strong]:text-xl [&_strong]:tabular-nums [&_strong]:text-text-primary [&_span]:text-xs [&_span]:text-text-muted [&_em]:text-sm [&_em]:not-italic [&_em]:text-text-muted" aria-label="Tài khoản Exness demo">
+      <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-2 [&>div]:rounded-xl [&>div]:border [&>div]:border-border-base [&>div]:bg-surface-1 [&>div]:p-4 [&_small]:flex [&_small]:items-center [&_small]:justify-between [&_small]:gap-2 [&_small]:text-xs [&_small]:text-text-muted [&_strong]:break-words [&_strong]:font-mono [&_strong]:text-2xl [&_strong]:font-semibold [&_strong]:tabular-nums [&_span]:text-xs [&_span]:text-text-muted [&_em]:text-sm [&_em]:not-italic [&_em]:text-text-muted" aria-label="Tài khoản Exness demo">
         <div>
-          <small>Balance · USD</small>
+          <small>Số dư · USD <Wallet size={15} className="text-sky-300" aria-hidden="true" /></small>
           <strong>{amount(balance)}</strong>
           <span>Margin đã dùng {amount(data?.account_state?.used_margin)}</span>
         </div>
         <div>
-          <small>Equity · USD</small>
+          <small>Equity · USD <Activity size={15} className="text-sky-300" aria-hidden="true" /></small>
           <strong>{amount(equity)}</strong>
-          <span className={signClass(floating)}>
+          <p className={`text-xs ${signClass(floating)}`}>
             Thả nổi {floating != null && floating > 0 ? '+' : ''}
             {amount(floating)}
-          </span>
+          </p>
         </div>
         <div>
-          <small>Profit đã chốt · USD</small>
+          <small>Lợi nhuận đã chốt · USD <TrendingUp size={15} className="text-amber-200" aria-hidden="true" /></small>
           <strong className={signClass(data?.broker_profit ?? null)}>
             {amount(data?.broker_profit)}
           </strong>
           <span>{amount(data?.closed_count)} lệnh đóng · chưa gồm swap</span>
         </div>
         <div>
-          <small>Vị thế đang mở</small>
+          <small>Vị thế đang mở <Layers size={15} className="text-bull" aria-hidden="true" /></small>
           <strong>
             {data?.open_count ?? '—'}
             <em> / {data?.max_concurrent ?? '—'}</em>
@@ -116,23 +118,20 @@ export function ForexOverviewPage({
         </div>
       </div>
 
-      <div className="forex-overview-grid mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-        <section className="forex-overview-panel [&>h2]:m-0 [&>h2]:text-base min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
-          <span className="execution-eyebrow text-xs font-semibold uppercase tracking-widest text-bull">Quần thể HTF AST V3 · {symbol}</span>
-          <h2>
-            Thế hệ G{ast?.generation ?? '—'} · {treeCount} cây
-          </h2>
-          <div className="ov-tree-meters [&>div]:flex [&>div]:flex-col [&>div]:gap-1 [&_strong]:text-xl [&_strong]:tabular-nums [&_strong]:text-text-primary [&_span]:text-sm [&_span]:text-text-secondary [&_small]:text-xs [&_small]:text-text-muted [&_em]:text-sm [&_em]:not-italic [&_em]:text-text-muted grid grid-cols-1 gap-2 sm:grid-cols-2 [&>div]:rounded [&>div]:bg-surface-2 [&>div]:p-2">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <section className="min-w-0 space-y-4 rounded-2xl border border-border-base bg-surface-1 p-4 sm:p-5" aria-label="Quần thể chiến thuật">
+          <header className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-xl border border-sky-400/20 bg-sky-400/10 text-sky-300"><GitBranch size={18} aria-hidden="true" /></span><div><h2 className="text-sm font-semibold">Quần thể chiến thuật</h2><p className="mt-0.5 text-xs text-text-muted">HTF AST V3 · {symbol}</p></div></div><span className="rounded-md border border-border-base bg-surface-2 px-2 py-1 font-mono text-xs text-sky-300">G{ast?.generation ?? '—'} · {treeCount} cây</span></header>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 [&>div]:flex [&>div]:flex-col [&>div]:gap-2 [&>div]:rounded-xl [&>div]:border [&>div]:border-border-subtle [&>div]:bg-surface-2/60 [&>div]:p-4 [&_strong]:font-mono [&_strong]:text-2xl [&_strong]:tabular-nums [&_span]:text-xs [&_span]:font-medium [&_span]:text-text-secondary [&_small]:text-[11px] [&_small]:leading-relaxed [&_small]:text-text-muted [&_em]:text-sm [&_em]:not-italic [&_em]:text-text-muted">
             <div>
-              <strong>
+              <strong className="text-bull">
                 {v2?.entry_allowed_count ?? '—'}
                 <em>/{treeCount}</em>
               </strong>
               <span>Cây được phép vào lệnh</span>
-              <small>Ungated: cây nào có tín hiệu cũng được vào lệnh ngay.</small>
+              <small>Cây có tín hiệu vẫn phải qua kiểm tra thực thi và giới hạn rủi ro.</small>
             </div>
             <div>
-              <strong>
+              <strong className="text-sky-300">
                 {v2?.evolution_ready_count ?? '—'}
                 <em>/{treeCount}</em>
               </strong>
@@ -140,7 +139,7 @@ export function ForexOverviewPage({
               <small>Cần ≥10 mẫu forward và R trung bình &gt; 0 để làm bố mẹ.</small>
             </div>
           </div>
-          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
+          <dl className="grid grid-cols-1 gap-x-5 sm:grid-cols-2 [&>div]:min-w-0 [&>div]:border-t [&>div]:border-border-subtle [&>div]:py-3 [&>div:last-child]:col-span-full [&_dt]:mb-1.5 [&_dt]:text-[11px] [&_dt]:text-text-muted [&_dd]:break-words [&_dd]:text-xs [&_dd]:leading-relaxed">
             <div>
               <dt>Mẫu forward (đóng / chờ / loại)</dt>
               <dd>{ast ? `${ast.resolved} / ${ast.pending} / ${ast.excluded}` : '—'}</dd>
@@ -164,16 +163,16 @@ export function ForexOverviewPage({
           </dl>
           <button
             type="button"
-            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
+            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-400/10"
             onClick={() => setRoute({ page: 'Bot', tab: 'learning' })}
           >
-            Xem cây & dòng dõi
+            Xem cây & dòng dõi <ArrowUpRight size={14} aria-hidden="true" />
           </button>
         </section>
-        <section className="forex-overview-panel min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
-          <span className="execution-eyebrow text-xs font-semibold uppercase tracking-widest text-bull">Quyết định gần nhất · {symbol}</span>
-          <h2>{data?.decision ?? 'Chưa có quyết định'}</h2>
-          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
+        <section className="min-w-0 space-y-4 rounded-2xl border border-border-base bg-surface-1 p-4 sm:p-5" aria-label="Quyết định gần nhất">
+          <header className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10 text-amber-200"><History size={18} aria-hidden="true" /></span><div><h2 className="text-sm font-semibold">Quyết định gần nhất</h2><p className="mt-0.5 text-xs text-text-muted">Nhật ký bot · {symbol}</p></div></header>
+          <p className="break-words rounded-xl border border-border-base bg-surface-2/60 p-3 text-sm font-medium leading-relaxed text-text-primary">{data?.decision ?? 'Chưa có quyết định'}</p>
+          <dl className="space-y-3 border-l border-border-active pl-4 [&>div]:min-w-0 [&_dt]:mb-1 [&_dt]:text-[11px] [&_dt]:text-text-muted [&_dd]:break-words [&_dd]:text-xs [&_dd]:leading-relaxed [&_dd]:text-text-secondary">
             <div>
               <dt>Cây được chọn</dt>
               <dd>{data?.learning?.latest?.selected ?? v2?.selected ?? 'Chưa có'}</dd>
@@ -193,10 +192,10 @@ export function ForexOverviewPage({
           </dl>
           <button
             type="button"
-            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
+            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border-active bg-surface-2 px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3"
             onClick={() => setRoute({ page: 'Bot', tab: 'learning' })}
           >
-            Xem nhật ký quyết định
+            Xem nhật ký quyết định <ArrowUpRight size={14} aria-hidden="true" />
           </button>
         </section>
       </div>

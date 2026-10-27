@@ -218,13 +218,13 @@ export function PaperChart({
     chart.current = createChart(container.current, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#fcfdf9' },
-        textColor: '#63746a',
+        background: { type: ColorType.Solid, color: '#11161f' },
+        textColor: '#8d9db2',
         attributionLogo: true,
       },
       grid: {
-        vertLines: { color: '#eef1e9' },
-        horzLines: { color: '#eef1e9' },
+        vertLines: { color: '#19261f' },
+        horzLines: { color: '#19261f' },
       },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_SPACE },
       rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.15 } },
@@ -602,10 +602,10 @@ export function PaperChart({
     markers.current?.setMarkers(sorted);
   }, [trade, observations, candles, positions, pendingOrders, step]);
   return (
-    <div className="trade-chart-wrap">
-      <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs">
+    <div className="trade-chart-wrap relative w-full min-w-0">
+      <div className="chart-ohlc flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 font-mono text-xs text-text-muted">
         <button
-          className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
+          className="inline-flex h-8 items-center gap-1 rounded border border-border-base px-2.5 text-xs text-text-secondary hover:bg-surface-3"
           onClick={() => {
             const timestamp = trade?.signal_time ?? trade?.entry_time;
             const anchor = timestamp == null ? null : Math.floor(timestamp / step) * step;
@@ -622,7 +622,7 @@ export function PaperChart({
         >
           {trade ? 'Tập trung vào lệnh' : `${RECENT_CHART_BARS} nến gần nhất`}
         </button>
-        <div className="chart-timeframes" role="group" aria-label="Khung thời gian">
+        <div className="chart-timeframes flex items-center gap-1 rounded-md border border-border-base bg-surface-2 p-1 [&>button]:min-h-8 [&>button]:min-w-9 [&>button]:rounded [&>button]:px-2 [&>button:hover]:bg-surface-3" role="group" aria-label="Khung thời gian">
           {(Object.keys(TIMEFRAMES) as ChartTimeframe[]).map((frame) => (
             <button
               key={frame}
@@ -635,17 +635,17 @@ export function PaperChart({
             </button>
           ))}
         </div>
-        {getFuturesSymbol()} perpetual · {timeframe} · {timeZoneLabel()} · kéo để di chuyển, cuộn để
-        zoom
+        <span className="ml-auto text-[10px]">{getFuturesSymbol()} · {timeframe} · {timeZoneLabel()}</span>
+        <span className="hidden text-[10px] 2xl:inline">Kéo để di chuyển, cuộn để zoom</span>
       </div>
-      <div className="paper-chart-stage">
+      <div className="paper-chart-stage relative overflow-hidden">
         <div
           ref={container}
-          className="trade-candlestick-chart"
+          className="trade-candlestick-chart h-[440px] w-full md:h-[540px]"
           role="img"
           aria-label="Chart MEXC realtime, lệnh chờ và mức entry SL TP của lệnh mô phỏng"
         />
-        <div className="position-tag-layer">
+        <div className="position-tag-layer pointer-events-none absolute inset-0 z-20 overflow-hidden [&>*]:pointer-events-auto">
           {tags.map((tag) => {
             const members = tag.ids
               .map((id) => openTrades.find((p) => p.id === id))
@@ -841,7 +841,7 @@ export function PaperChart({
               </div>
             );
           })}
-          <svg className="position-tag-leaders" aria-hidden="true">
+          <svg className="position-tag-leaders pointer-events-none absolute inset-0 h-full w-full stroke-text-muted opacity-60 [stroke-dasharray:2_3]" aria-hidden="true">
             {tags
               .filter((tag) => tag.y !== tag.displayY)
               .map((tag) => (
