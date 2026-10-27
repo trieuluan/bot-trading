@@ -89,34 +89,34 @@ export function FuturesDraftsPanel({
   const stalled = (d: Draft) => d.status === 'running' && now - d.updated_at > 90;
   return (
     <>
-      <p className="evo-note">
+      <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
         Con mới: Con nháp → Replay 90 ngày (70/30) → Đạt/chờ slot → Forward. Replay chỉ sàng lọc,
         không cộng vào mẫu forward. Thiếu mẫu tự thử lại sau 7 ngày; không đạt thì dừng.
       </p>
       {worker?.consumer_enabled === false && !worker.stale && (
-        <p className="evo-warn" role="status">
+        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker replay đang tắt; con nháp chờ cho đến khi bật.
         </p>
       )}
       {worker?.stale !== false && (
-        <p className="evo-warn" role="status">
+        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker replay chậm hoặc mất kết nối; con nháp sẽ chờ.
         </p>
       )}
       {rows.some(stalled) && (
-        <p className="evo-warn" role="status">
+        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker chậm: có job không cập nhật quá 90 giây.
         </p>
       )}
-      <div className="evo-filters" role="group" aria-label="Lọc con nháp">
+      <div className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs" role="group" aria-label="Lọc con nháp">
         {FILTERS.map(([key, label, test]) => (
           <button key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-            {label} <span className="evo-count">{drafts.filter(test).length}</span>
+            {label} <span className="evo-count ml-auto text-xs text-text-muted">{drafts.filter(test).length}</span>
           </button>
         ))}
       </div>
-      {rows.length === 0 && <p className="evo-empty">Không có con nháp trong bộ lọc này.</p>}
-      <div className="evo-grid">
+      {rows.length === 0 && <p className="evo-empty text-center text-text-muted">Không có con nháp trong bộ lọc này.</p>}
+      <div className="evo-grid grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3">
         {rows.map((draft) => {
           const pct =
             draft.total && draft.completed !== null
@@ -124,28 +124,28 @@ export function FuturesDraftsPanel({
               : null;
           const result = draft.replay;
           return (
-            <article key={draft.id} className={`evo-card draft-${draft.status}`}>
-              <div className="evo-card-top">
+            <article key={draft.id} className={`evo-card draft-${draft.status} min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-3 p-3 [&.selected]:border-bull [&.holding]:border-bull/50 [&.signaling]:border-amber-300/50`}>
+              <div className="evo-card-top flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
                   <strong title={draft.strategy}>
                     {strategyShortTitle(draft.genome, draft.strategy)}
                   </strong>
                   <code>{draft.strategy.split(':')[1]}</code>
                 </div>
-                <span className="pill">G{draft.generation}</span>
+                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">G{draft.generation}</span>
               </div>
-              <p className="evo-pills">
-                <span className={`pill ${draft.status === 'waiting_slot' ? 'green' : ''}`}>
+              <p className="evo-pills flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                <span className={`pill ${draft.status === 'waiting_slot' ? 'green' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                   {STATUS[draft.status]}
                 </span>
-                <span className="pill">{draft.genome.entry_policy ?? 'market'}</span>
-                <span className="pill blue">{exitLabel(draft.genome.exit_policy)}</span>
+                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{draft.genome.entry_policy ?? 'market'}</span>
+                <span className="pill blue inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-sky-300">{exitLabel(draft.genome.exit_policy)}</span>
               </p>
-              <p className="evo-rule">
+              <p className="evo-rule border-y border-border-subtle py-2 text-text-secondary">
                 Bố mẹ: {draft.parents.map((p) => p.split(':')[1]).join(' × ')}
               </p>
               {draft.status === 'running' && (
-                <div className="draft-progress" role="progressbar" aria-valuenow={pct ?? undefined}>
+                <div className="draft-progress relative h-1.5 overflow-hidden rounded-full bg-surface-3 [&>i]:block [&>i]:h-full [&>i]:bg-bull" role="progressbar" aria-valuenow={pct ?? undefined}>
                   <span>
                     {phaseText(draft.phase)}
                     {pct === null
@@ -164,7 +164,7 @@ export function FuturesDraftsPanel({
                     {result.validation_drawdown_r.toFixed(2)}R
                   </li>
                   {Object.entries(result.checks).map(([key, ok]) => (
-                    <li key={key} className={ok ? 'positive' : 'negative'}>
+                    <li key={key} className={ok ? "positive text-bull" : "negative text-bear"}>
                       {ok ? '✓' : '✗'} {CHECKS[key] ?? key}
                     </li>
                   ))}
@@ -189,8 +189,8 @@ export function FuturesDraftsPanel({
                   {draft.reason ? ` · ${draft.reason}` : ''}
                 </small>
               )}
-              {draft.status === 'error' && <small className="negative">{draft.reason}</small>}
-              {stalled(draft) && <small className="negative">Worker chậm hoặc mất kết nối</small>}
+              {draft.status === 'error' && <small className="negative text-bear">{draft.reason}</small>}
+              {stalled(draft) && <small className="negative text-bear">Worker chậm hoặc mất kết nối</small>}
               {draft.status === 'admitted' && draft.admitted_strategy && (
                 <button type="button" onClick={() => onViewTree(draft.admitted_strategy!)}>
                   Xem cây forward

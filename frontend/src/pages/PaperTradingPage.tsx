@@ -391,34 +391,34 @@ export function PaperTradingPage({
   const nextCloseSeconds = 900 - (Math.floor(clock / 1000) % 900);
   return (
     <div className="futures-desk">
-      <div className="desk-sticky-header">
+      <div className="desk-sticky-header relative min-w-0 border-b border-border-base bg-surface-1 p-3">
         <PairStrip board={board} symbol={symbol} onSelect={onSelect} />
-        <div className="mexc-top-dock">
-          <div className="mexc-ticker-left">
-            <span className="desk-paper-label" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
+        <div className="mexc-top-dock relative min-w-0 border-b border-border-base bg-surface-1 p-3">
+          <div className="mexc-ticker-left flex flex-wrap items-center gap-x-4 gap-y-2 text-xs [&_small]:text-xs [&_small]:text-text-muted">
+            <span className="desk-paper-label text-xs uppercase tracking-wider text-amber-300" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
               <ShieldCheck size={13} /> PAPER · 1×
             </span>
-            <span className="mexc-pair-title">
+            <span className="mexc-pair-title font-display text-lg font-semibold text-text-primary">
               {symbol.replace('_', ' / ')} <small>Perp</small>
             </span>
-            <strong className="mexc-last-price">
+            <strong className="mexc-last-price font-mono text-xl font-semibold text-text-primary">
               {stream.candle
                 ? formatQuote(stream.candle.close)
                 : quote
                   ? formatQuote(quote.lastPrice)
                   : '—'}
             </strong>
-            <span className="mexc-fair-price">
+            <span className="mexc-fair-price flex items-baseline gap-1 font-mono text-xs text-text-muted">
               Fair {quote ? formatQuote(quote.fairPrice) : '—'}
             </span>
             {quote?.fundingRate !== undefined && (
               <span
-                className="mexc-stat"
+                className="mexc-stat flex items-baseline gap-1 font-mono text-xs text-text-muted"
                 title={`${quote.fundingRate >= 0 ? 'Long trả Short' : 'Short trả Long'} · đếm ngược tới kỳ thanh toán funding`}
               >
-                <span className="muted">Funding / Còn lại</span>
+                <span className="muted text-text-muted">Funding / Còn lại</span>
                 <strong>
-                  <span className={quote.fundingRate >= 0 ? 'negative' : 'positive'}>
+                  <span className={quote.fundingRate >= 0 ? "negative text-bear" : "positive text-bull"}>
                     {quote.fundingRate >= 0 ? '+' : ''}
                     {(quote.fundingRate * 100).toFixed(4)}%
                   </span>
@@ -429,10 +429,10 @@ export function PaperTradingPage({
               </span>
             )}
             <span
-              className="mexc-stat"
+              className="mexc-stat flex items-baseline gap-1 font-mono text-xs text-text-muted"
               title="Open Interest: số hợp đồng còn mở trên MEXC. Chỉ tham khảo bối cảnh, không kích hoạt lệnh."
             >
-              <span className="muted">OI (hợp đồng) / 24h</span>
+              <span className="muted text-text-muted">OI (hợp đồng) / 24h</span>
               <strong>
                 {wallet?.open_interest
                   ? wallet.open_interest.contracts.toLocaleString('en-US', {
@@ -448,7 +448,7 @@ export function PaperTradingPage({
               </strong>
             </span>
             <span
-              className={`pill ${stream.live ? 'green' : 'amber'}`}
+              className={`pill ${stream.live ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
               title="Độ trễ ước tính từ timestamp MEXC đến trình duyệt; phụ thuộc đồng hồ máy (đồng hồ lệch thì ẩn ms). Tuổi dữ liệu tính từ timestamp MEXC."
             >
               {stream.live ? 'LIVE 15m' : 'REST'}
@@ -464,7 +464,7 @@ export function PaperTradingPage({
                 clock - wallet.quote.time * 1000 < 5000
                   ? 'green'
                   : 'amber'
-              }`}
+              } inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
               title="Nguồn giá backend dùng kiểm tra SL/TP Paper. WebSocket ticker khoảng 1 giây/lần; REST dự phòng khoảng 5 giây/lần."
             >
               SL/TP:{' '}
@@ -477,32 +477,32 @@ export function PaperTradingPage({
             </span>
             <button
               type="button"
-              className={`pill-btn ${auto?.enabled ? 'on' : ''}`}
+              className={`pill-btn ${auto?.enabled ? 'on' : ''} inline-flex items-center gap-2 rounded px-2 py-1 text-xs [&.is-on]:text-bull [&.on]:text-bull`}
               onClick={() => setOrderMode('auto')}
             >
               <Bot size={13} /> {auto?.enabled ? 'Auto ON' : 'Auto OFF'}
             </button>
           </div>
-          <div className="mexc-wallet-strip" aria-label="Ví Paper">
+          <div className="mexc-wallet-strip mt-3 border-t border-border-subtle pt-2" aria-label="Ví Paper">
             <div>
-              <span className="muted">Số dư ví chung</span>
+              <span className="muted text-text-muted">Số dư ví chung</span>
               <strong>{wallet ? formatPrice(wallet.balance) : '—'}</strong>
             </div>
             <div>
-              <span className="muted">Equity chung</span>
+              <span className="muted text-text-muted">Equity chung</span>
               <strong>{wallet ? formatPrice(wallet.equity) : '—'}</strong>
             </div>
             <div>
-              <span className="muted" title="PnL chưa chốt của toàn ví / của cặp đang xem">
+              <span className="muted text-text-muted" title="PnL chưa chốt của toàn ví / của cặp đang xem">
                 PnL mở · tổng / cặp
               </span>
               {typeof wallet?.unrealized_pnl === 'number' ? (
                 <strong>
-                  <span className={wallet.unrealized_pnl < 0 ? 'negative' : 'positive'}>
+                  <span className={wallet.unrealized_pnl < 0 ? "negative text-bear" : "positive text-bull"}>
                     {formatPrice(wallet.unrealized_pnl)}
                   </span>
                   {' / '}
-                  <span className={(wallet.pair_unrealized_pnl ?? 0) < 0 ? 'negative' : 'positive'}>
+                  <span className={(wallet.pair_unrealized_pnl ?? 0) < 0 ? "negative text-bear" : "positive text-bull"}>
                     {formatPrice(wallet.pair_unrealized_pnl ?? 0)}
                   </span>{' '}
                   <small>USDT</small>
@@ -512,39 +512,39 @@ export function PaperTradingPage({
               )}
             </div>
             <div>
-              <span className="muted">Khả dụng chung</span>
+              <span className="muted text-text-muted">Khả dụng chung</span>
               <strong>{wallet ? formatPrice(wallet.available) : '—'}</strong>
             </div>
           </div>
         </div>
         {((stale && !connecting) || wallet?.funding_error || error || message) && (
-          <div className="mexc-dock-alert" role="status">
+          <div className="mexc-dock-alert mt-2 rounded border border-amber-400/30 p-2 text-xs text-amber-200" role="status">
             {stale && !connecting && (
-              <span className="negative">
+              <span className="negative text-bear">
                 Giá khớp chậm / mất kết nối. {mexcErrorText(wallet?.error)}
               </span>
             )}
             {wallet?.funding_error && (
-              <span className="negative">Funding chờ đồng bộ: {wallet.funding_error}.</span>
+              <span className="negative text-bear">Funding chờ đồng bộ: {wallet.funding_error}.</span>
             )}
             {Boolean(wallet?.portfolio_stale_symbols?.length) && (
-              <span className="negative">
+              <span className="negative text-bear">
                 Vị thế chưa có giá mark mới: {wallet?.portfolio_stale_symbols?.join(', ')}. Tạm dừng
                 mở thêm lệnh.
               </span>
             )}
-            {error && <span className="negative">{error}</span>}
-            {message && <span className="positive">{message}</span>}
+            {error && <span className="negative text-bear">{error}</span>}
+            {message && <span className="positive text-bull">{message}</span>}
           </div>
         )}
       </div>
-      <div className="paper-terminal">
-        <section ref={chartSection} className="panel prose paper-market">
-          <div className="desk-chart-toolbar">
-            <div className="desk-toolbar-lead">
+      <div className="paper-terminal relative min-w-0 overflow-clip bg-canvas">
+        <section ref={chartSection} className="panel prose paper-market min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="desk-chart-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-base px-3 py-2 text-xs">
+            <div className="desk-toolbar-lead flex min-w-0 flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"
-                className="text-button"
+                className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
                 onClick={() =>
                   activitySection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                 }
@@ -553,7 +553,7 @@ export function PaperTradingPage({
               </button>
               {historicalId === null && (
                 <span
-                  className="desk-strategy-count"
+                  className="desk-strategy-count text-xs text-text-muted"
                   title="Chiến thuật bot học đang theo dõi ở nến vừa đóng: số có tín hiệu và số đang chờ setup. Menu Chiến thuật chỉ đổi lớp vẽ trên chart, không đổi chiến thuật bot; vùng chờ không phải lệnh vào."
                 >
                   {strategyRows.length} chiến thuật · {signalNames.length} tín hiệu ·{' '}
@@ -561,14 +561,14 @@ export function PaperTradingPage({
                 </span>
               )}
               {historicalId === null && !botFresh && (
-                <span className="desk-strategy-stale" role="status">
+                <span className="desk-strategy-stale text-xs text-text-muted" role="status">
                   Chờ nến đánh giá mới
                 </span>
               )}
             </div>
-            <div className="chart-mode-tabs" role="group" aria-label="Chế độ chart">
+            <div className="chart-mode-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chế độ chart">
               <button
-                className={`secondary ${!selected ? 'selected' : ''}`}
+                className={`secondary ${!selected ? 'selected' : ''} inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3`}
                 aria-pressed={!selected}
                 onClick={() => setSelectedId(-1)}
                 title="Xem chart giá thị trường, không gắn vào vị thế nào"
@@ -578,7 +578,7 @@ export function PaperTradingPage({
               {positions.map((position) => (
                 <button
                   key={position.id}
-                  className={`secondary ${selected?.id === position.id ? 'selected' : ''}`}
+                  className={`secondary ${selected?.id === position.id ? 'selected' : ''} inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3`}
                   aria-pressed={selected?.id === position.id}
                   onClick={() => setSelectedId(position.id)}
                 >
@@ -586,13 +586,13 @@ export function PaperTradingPage({
                 </button>
               ))}
               {historicalId !== null && (
-                <span className="pill amber">ĐANG XEM LỊCH SỬ #{historicalId} · ĐÃ ĐÓNG</span>
+                <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">ĐANG XEM LỊCH SỬ #{historicalId} · ĐÃ ĐÓNG</span>
               )}
             </div>
             {historicalId === null && (
-              <div className="paper-strategy-toolbar">
+              <div className="paper-strategy-toolbar min-w-0 border-b border-border-base">
                 <label
-                  className="chart-follow"
+                  className="chart-follow ml-auto text-xs text-bull"
                   title="Tự hiện trên chart các cây bot đang giữ lệnh, hoặc cây bot vừa chọn"
                 >
                   <input
@@ -632,24 +632,24 @@ export function PaperTradingPage({
                 onLoadOlder={historicalId === null ? (bars) => void loadOlder(bars) : undefined}
               />
               {chartKey && (chartLayers.key !== chartKey || chartLayers.error) && (
-                <p className="muted" role="status">
+                <p className="muted text-text-muted" role="status">
                   {chartLayers.key === chartKey && chartLayers.error
                     ? `Chưa tải được lớp chiến thuật (${chartLayers.error}); đang thử lại. Không ảnh hưởng bot.`
                     : 'Đang tải lớp chiến thuật đã chọn…'}
                 </p>
               )}
               {olderError && (
-                <p className="negative" role="alert">
+                <p className="negative text-bear" role="alert">
                   {olderError}
                 </p>
               )}
             </>
           )}
           {historicalId === null && (
-            <div className="desk-bot-line" role="status" aria-label="Trạng thái bot Futures">
+            <div className="desk-bot-line flex min-w-0 flex-wrap items-center gap-2 justify-between border-y border-border-base px-3 py-2 text-xs" role="status" aria-label="Trạng thái bot Futures">
               <Bot size={14} />
               <span
-                className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'}`}
+                className={`pill ${online && auto?.enabled && auto.worker_online && !auto.learner_error ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
               >
                 {connecting
                   ? 'Đang kết nối'
@@ -665,7 +665,7 @@ export function PaperTradingPage({
                             ? 'Lỗi bộ học'
                             : 'Auto ON'}
               </span>
-              <span className="desk-bot-message">
+              <span className="desk-bot-message text-amber-200">
                 {connecting
                   ? 'Đang tải trạng thái bot…'
                   : !online
@@ -682,7 +682,7 @@ export function PaperTradingPage({
                               ? 'Bộ học đã tạm dừng'
                               : auto.status}
               </span>
-              <span className="desk-bot-next">
+              <span className="desk-bot-next text-text-muted">
                 <Clock3 size={13} /> Nến kế tiếp đóng sau{' '}
                 <strong>
                   {Math.floor(nextCloseSeconds / 60)}:
@@ -691,7 +691,7 @@ export function PaperTradingPage({
               </span>
             </div>
           )}
-          <div className="paper-book">
+          <div className="paper-book min-w-0 border-t border-border-base p-3 xl:border-t-0 xl:border-l">
             <span>
               Bid (worker) <strong>{quote ? formatQuote(quote.bid1) : '—'}</strong>
             </span>
@@ -699,7 +699,7 @@ export function PaperTradingPage({
               Ask (worker) <strong>{quote ? formatQuote(quote.ask1) : '—'}</strong>
             </span>
           </div>
-          <p className="chart-attribution">
+          <p className="chart-attribution px-3 py-2 text-right text-xs text-text-muted">
             TradingView Lightweight Charts™ · Copyright (с) 2025 TradingView, Inc. ·{' '}
             <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
               TradingView
@@ -707,16 +707,16 @@ export function PaperTradingPage({
           </p>
         </section>
         {detailOpen && selected && (
-          <div className="trade-drawer-backdrop" onClick={() => setDetailOpen(false)}>
+          <div className="trade-drawer-backdrop fixed inset-0 z-[70] bg-black/65 backdrop-blur-sm" onClick={() => setDetailOpen(false)}>
             <aside
-              className="trade-drawer"
+              className="trade-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-4 shadow-lg"
               role="dialog"
               aria-modal="true"
               aria-label={`Chi tiết lệnh #${selected.id}`}
               onClick={(event) => event.stopPropagation()}
             >
               <button
-                className="icon-button close"
+                className="icon-button close inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary absolute right-3 top-3"
                 aria-label="Đóng chi tiết lệnh"
                 onClick={() => setDetailOpen(false)}
               >
@@ -726,8 +726,8 @@ export function PaperTradingPage({
             </aside>
           </div>
         )}
-        <aside className="desk-controls" aria-label="Điều khiển giao dịch Paper">
-          <div className="desk-mode-switch" role="group" aria-label="Chế độ đặt lệnh">
+        <aside className="desk-controls min-w-0 space-y-3 p-3" aria-label="Điều khiển giao dịch Paper">
+          <div className="desk-mode-switch flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chế độ đặt lệnh">
             <button
               type="button"
               aria-pressed={orderMode === 'manual'}
@@ -740,23 +740,23 @@ export function PaperTradingPage({
               aria-pressed={orderMode === 'auto'}
               onClick={() => setOrderMode('auto')}
             >
-              Auto Paper <span className={`status-dot ${auto?.enabled ? '' : 'stale-dot'}`} />
+              Auto Paper <span className={`status-dot ${auto?.enabled ? '' : 'stale-dot'} inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400`} />
             </button>
           </div>
-          <section hidden={orderMode !== 'manual'} className="panel prose paper-order">
-            <div className="section-head">
+          <section hidden={orderMode !== 'manual'} className="panel prose paper-order min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0 space-y-3 p-3">
+            <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
               <h2>Đặt lệnh thủ công</h2>
-              <span className="pill">MARKET</span>
+              <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">MARKET</span>
             </div>
             {auto?.enabled && (
-              <div className="auto-lock-card" role="status">
+              <div className="auto-lock-card min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-2 p-3" role="status">
                 <div>
                   <strong>Auto đang chạy</strong>
-                  <span className="micro">
+                  <span className="micro text-xs leading-relaxed text-text-muted">
                     {auto.daily_trades}/{auto.max_daily_trades} lệnh hôm nay · Lỗ ngày{' '}
                     {auto.daily_loss_used_percent.toFixed(1)}%
                   </span>
-                  <span className="micro">
+                  <span className="micro text-xs leading-relaxed text-text-muted">
                     {wallet?.position?.audit?.strategy
                       ? `Đang giữ ${tradeStrategy(wallet.position.audit)?.title}`
                       : auto.learner_decision?.selected
@@ -766,7 +766,7 @@ export function PaperTradingPage({
                 </div>
                 <button
                   type="button"
-                  className="secondary"
+                  className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                   disabled={busy}
                   onClick={() => {
                     setBusy(true);
@@ -780,13 +780,13 @@ export function PaperTradingPage({
                 </button>
               </div>
             )}
-            <details className="desk-manual-form" open={!auto?.enabled}>
+            <details className="desk-manual-form grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full" open={!auto?.enabled}>
               <summary>Thông số lệnh thủ công</summary>
               <form onSubmit={(event) => void submit(event)}>
-                <div className="period-tabs" role="group" aria-label="Chiều lệnh">
+                <div className="period-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chiều lệnh">
                   <button
                     type="button"
-                    className={side === 'long' ? 'secondary selected' : 'secondary'}
+                    className={side === 'long' ? "secondary selected inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 bg-bull/10 text-bull" : "secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"}
                     aria-pressed={side === 'long'}
                     onClick={() => {
                       setSide('long');
@@ -797,7 +797,7 @@ export function PaperTradingPage({
                   </button>
                   <button
                     type="button"
-                    className={side === 'short' ? 'secondary selected' : 'secondary'}
+                    className={side === 'short' ? "secondary selected inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 bg-bull/10 text-bull" : "secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"}
                     aria-pressed={side === 'short'}
                     onClick={() => {
                       setSide('short');
@@ -843,7 +843,7 @@ export function PaperTradingPage({
                 </label>
                 <button
                   type="button"
-                  className="text-button"
+                  className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
                   disabled={stale || busy}
                   onClick={() => suggestLevels()}
                 >
@@ -851,12 +851,12 @@ export function PaperTradingPage({
                 </button>
                 <button
                   type="submit"
-                  className="primary"
+                  className="primary inline-flex items-center justify-center gap-2 rounded-md bg-bull px-3 py-2 text-xs font-semibold text-canvas hover:bg-emerald-300"
                   disabled={stale || busy || !!auto?.enabled}
                 >
                   {busy ? 'Đang xử lý…' : `Mở ${side.toUpperCase()} mô phỏng`}
                 </button>
-                <p className="micro">
+                <p className="micro text-xs leading-relaxed text-text-muted">
                   Khối lượng làm tròn xuống theo hợp đồng MEXC. Phí {wallet?.fee_bps ?? 8} bps và
                   trượt giá {wallet?.slippage_bps ?? 2} bps mỗi chiều là giả định, chưa gồm độ sâu
                   sổ lệnh.
@@ -878,7 +878,7 @@ export function PaperTradingPage({
       </div>
       <div
         ref={activitySection}
-        className="desk-activity-tabs"
+        className="desk-activity-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-base"
         role="group"
         aria-label="Theo dõi giao dịch"
       >
@@ -911,19 +911,19 @@ export function PaperTradingPage({
           </button>
         ))}
       </div>
-      <div className="desk-scope" role="group" aria-label="Phạm vi bảng theo dõi">
-        <button className="secondary" aria-pressed={!allPairs} onClick={() => setAllPairs(false)}>
+      <div className="desk-scope ml-auto flex flex-wrap items-center gap-2 text-xs text-text-muted" role="group" aria-label="Phạm vi bảng theo dõi">
+        <button className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3" aria-pressed={!allPairs} onClick={() => setAllPairs(false)}>
           {base} / USDT
         </button>
-        <button className="secondary" aria-pressed={allPairs} onClick={() => setAllPairs(true)}>
+        <button className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3" aria-pressed={allPairs} onClick={() => setAllPairs(true)}>
           Tất cả 10 cặp
         </button>
-        <span className="micro">Phạm vi bảng độc lập với chart · bấm lệnh để xem chart</span>
+        <span className="micro text-xs leading-relaxed text-text-muted">Phạm vi bảng độc lập với chart · bấm lệnh để xem chart</span>
       </div>
       {allPairs && <AllPairsPanel board={board} tab={activityTab} onSelect={onSelect} />}
       <div hidden={allPairs}>
         {activityTab === 'pending' && (
-          <section className="panel prose desk-activity-panel">
+          <section className="panel prose desk-activity-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0">
             <PaperPendingOrders
               orders={pendingOrders}
               onView={(order) => {
@@ -934,12 +934,12 @@ export function PaperTradingPage({
             />
           </section>
         )}
-        <section hidden={activityTab !== 'position'} className="panel prose desk-activity-panel">
-          <div className="section-head">
+        <section hidden={activityTab !== 'position'} className="panel prose desk-activity-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0">
+          <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <h2>Vị thế đang mở ({positions.length})</h2>
           </div>
           {positions.some((position) => position.monitoring?.status === 'history_pending') && (
-            <p className="negative" role="status">
+            <p className="negative text-bear" role="status">
               Thiếu nến đối soát SL/TP; đang chờ đồng bộ. Auto Paper và SL/TP theo quote hiện tại
               vẫn chạy.
             </p>
@@ -958,7 +958,7 @@ export function PaperTradingPage({
               actions={({ p }) => (
                 <>
                   <button
-                    className="secondary"
+                    className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                     disabled={busy || stale}
                     onClick={() => void close(false, p.id)}
                   >
@@ -966,7 +966,7 @@ export function PaperTradingPage({
                   </button>
                   {auto?.enabled && (
                     <button
-                      className="secondary"
+                      className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                       disabled={busy || stale}
                       onClick={() => void close(true, p.id)}
                     >
@@ -979,17 +979,17 @@ export function PaperTradingPage({
           ) : (
             <p>Chưa có vị thế. Bật Auto Paper hoặc đặt lệnh thủ công bằng USDT ảo.</p>
           )}
-          <p className="micro">
+          <p className="micro text-xs leading-relaxed text-text-muted">
             Số dư = vốn ban đầu + PnL đã chốt − phí − funding. Equity cộng PnL chưa chốt theo fair
             price, chưa trừ phí đóng dự kiến. Funding thực tế được tính trễ khi nến fair-price tại
             kỳ quyết toán đã đóng.
           </p>
         </section>
         {activityTab === 'evolution' && <FuturesLearningPage onViewTrade={viewTrade} />}
-        <section hidden={activityTab !== 'history'} className="panel prose desk-activity-panel">
-          <div className="section-head">
+        <section hidden={activityTab !== 'history'} className="panel prose desk-activity-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0">
+          <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <h2>Lịch sử lệnh mô phỏng</h2>
-            <span className="muted">100 lệnh gần nhất · click để xem mức giá</span>
+            <span className="muted text-text-muted">100 lệnh gần nhất · click để xem mức giá</span>
           </div>
           <TradeHistoryTable
             showPair={false}

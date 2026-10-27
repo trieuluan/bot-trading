@@ -110,7 +110,7 @@ export function ForexCatchupStatus({
     !progress?.pending_bars;
   const body = (
     <>
-      <div className="forex-catchup-counts">
+      <div className="forex-catchup-counts flex min-w-0 flex-wrap items-center gap-2 text-xs">
         {frames.map((frame) => (
           <span key={frame.timeframe}>
             <strong>{frame.timeframe.toUpperCase()}</strong> ·{' '}
@@ -127,7 +127,7 @@ export function ForexCatchupStatus({
             : 'Chưa có tiến độ'}
         </span>
       </div>
-      <p className="micro">
+      <p className="micro text-xs leading-relaxed text-text-muted">
         Đã phân tích đến nến:{' '}
         {progress?.last_processed_candle != null
           ? `${formatTime(progress.last_processed_candle)} (giờ mở nến)`
@@ -135,7 +135,7 @@ export function ForexCatchupStatus({
         . Tính bù chỉ bắt đầu khi cả 3 khung đồng bộ và hợp lệ. Khoảng cần kiểm tra có thể thuộc giờ
         nghỉ phiên, không đồng nghĩa mất nến.
       </p>
-      <p className="micro">
+      <p className="micro text-xs leading-relaxed text-text-muted">
         Setup chạy bù mang nhãn “Chạy bù”; không đặt lệnh cho tín hiệu đã bỏ lỡ.
       </p>
     </>
@@ -143,19 +143,19 @@ export function ForexCatchupStatus({
   if (compact)
     return (
       <details
-        className={`forex-catchup-compact ${healthy ? 'is-ok' : 'is-warn'}`}
+        className={`forex-catchup-compact ${healthy ? 'is-ok' : 'is-warn'} flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 text-xs text-text-muted [&.is-warn]:text-amber-300`}
         role="status"
         aria-live="polite"
       >
         <summary>
-          <span className="forex-catchup-dot" aria-hidden="true" />
+          <span className="forex-catchup-dot inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400" aria-hidden="true" />
           {title}
         </summary>
         {body}
       </details>
     );
   return (
-    <section className="panel forex-catchup" role="status" aria-live="polite">
+    <section className="panel forex-catchup min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-2" role="status" aria-live="polite">
       <strong>{title}</strong>
       {body}
     </section>
@@ -233,7 +233,7 @@ type Tree2 = NonNullable<
 
 function GenBadge({ tree }: { tree?: Tree2 }) {
   return tree ? (
-    <span className={`gen-badge gen-${Math.min(tree.generation ?? 0, 3)}`}>
+    <span className={`gen-badge gen-${Math.min(tree.generation ?? 0, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
       G{tree.generation ?? 0}
     </span>
   ) : null;
@@ -268,8 +268,8 @@ function BotAnalysisBreakdown({
     : [];
   const note = (row: (typeof rows)[number][1]) => row.chart?.note ?? '';
   return (
-    <div className="bot-breakdown">
-      <div className="bot-breakdown-head">
+    <div className="bot-breakdown space-y-2 border-t border-border-base pt-2">
+      <div className="bot-breakdown-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
         <strong>
           {confirmed.length ? `${confirmed.length} cây có tín hiệu` : 'Chưa cây nào có tín hiệu'}
         </strong>
@@ -282,7 +282,7 @@ function BotAnalysisBreakdown({
         />
       </div>
       {confirmed.map(([name, row]) => (
-        <div key={name} className="bot-breakdown-hit">
+        <div key={name} className="bot-breakdown-hit flex min-w-0 flex-wrap items-center gap-2 text-xs">
           <GenBadge tree={lineage.get(name)} />{' '}
           <strong title={name}>{treeLabel(row, name).full}</strong> · {row.side?.toUpperCase()} · SL{' '}
           {row.stop ?? '—'} · mức {row.level ?? '—'}
@@ -318,7 +318,7 @@ function BotAnalysisBreakdown({
           const [title, hint] = rejectLabels[code] ?? [code, 'Mã lý do chưa có mô tả'];
           const expanded = open === code;
           return (
-            <div key={code} className="bot-breakdown-group">
+            <div key={code} className="bot-breakdown-group space-y-1">
               <button
                 type="button"
                 aria-expanded={expanded}
@@ -462,7 +462,7 @@ export function HtfLineage({
       <button
         type="button"
         key={key}
-        className={`parent-chip ${found ? '' : 'is-gone'}`}
+        className={`parent-chip ${found ? '' : 'is-gone'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
         disabled={!found}
         title={found ? `Xem cây ${id}` : 'Cây đã nghỉ, không còn trong quần thể'}
         onClick={() => found && setSelected(id)}
@@ -482,27 +482,27 @@ export function HtfLineage({
   ];
 
   return (
-    <div className="lineage">
-      <div className="lineage-gens" aria-label="Thế hệ">
+    <div className="lineage min-w-0 space-y-3">
+      <div className="lineage-gens grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Thế hệ">
         {Array.from({ length: maxGen + 1 }, (_, gen) => {
           const count = trees.filter((tree) => (tree.generation ?? 0) === gen).length;
           return (
-            <div key={gen} className={`lineage-gen-card ${count ? '' : 'is-empty'}`}>
-              <span className={`gen-badge gen-${Math.min(gen, 3)}`}>G{gen}</span>
+            <div key={gen} className={`lineage-gen-card ${count ? '' : 'is-empty'} min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60`}>
+              <span className={`gen-badge gen-${Math.min(gen, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>G{gen}</span>
               <strong>{count}</strong>
               <small>{gen === 0 ? 'hạt giống' : 'cây con'}</small>
             </div>
           );
         })}
         {maxGen === 0 && (
-          <p className="micro lineage-hint">
+          <p className="micro lineage-hint text-xs leading-relaxed text-text-muted text-xs text-text-muted">
             Chưa có cây con. Cần cây bố mẹ đủ ≥10 mẫu forward đã đóng với R trung bình dương
             {nextEvolutionAt ? ` · chu kỳ kế tiếp ${formatTime(nextEvolutionAt)}` : ''}.
           </p>
         )}
       </div>
 
-      <div className="lineage-toolbar">
+      <div className="lineage-toolbar flex min-w-0 flex-wrap items-center gap-2 justify-between">
         <input
           type="search"
           value={query}
@@ -510,7 +510,7 @@ export function HtfLineage({
           placeholder="Tìm ID, setup H1, trigger M15…"
           aria-label="Tìm cây"
         />
-        <div className="lineage-seg" role="group" aria-label="Lọc">
+        <div className="lineage-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Lọc">
           {options.map(([key, text]) => (
             <button
               type="button"
@@ -522,7 +522,7 @@ export function HtfLineage({
             </button>
           ))}
         </div>
-        <div className="lineage-seg" role="group" aria-label="Nhóm theo">
+        <div className="lineage-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Nhóm theo">
           {(Object.keys(groupTitles) as GroupBy[]).map((key) => (
             <button
               type="button"
@@ -540,60 +540,60 @@ export function HtfLineage({
       </div>
 
       {detail && (
-        <div className="lineage-detail" role="region" aria-label="Chi tiết cây">
-          <div className="lineage-detail-head">
-            <span className={`gen-badge gen-${Math.min(detail.generation ?? 0, 3)}`}>
+        <div className="lineage-detail min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-3 p-3" role="region" aria-label="Chi tiết cây">
+          <div className="lineage-detail-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
+            <span className={`gen-badge gen-${Math.min(detail.generation ?? 0, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
               G{detail.generation ?? 0}
             </span>
-            <code className="lineage-detail-id">{detail.id}</code>
+            <code className="lineage-detail-id min-w-0 break-all font-mono text-xs text-text-primary">{detail.id}</code>
             {detail.eligible ? (
-              <span className="gen-badge gen-ok">✓ Đủ chuẩn đặt lệnh</span>
+              <span className="gen-badge gen-ok inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">✓ Đủ chuẩn đặt lệnh</span>
             ) : (
-              <span className="lineage-status-tag">Chờ gom mẫu ({detail.resolved}/10)</span>
+              <span className="lineage-status-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">Chờ gom mẫu ({detail.resolved}/10)</span>
             )}
             <button
               type="button"
-              className="secondary lineage-close-btn"
+              className="secondary lineage-close-btn inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 text-xs text-text-muted hover:text-text-primary"
               onClick={() => setSelected(null)}
             >
               ✕ Đóng
             </button>
           </div>
 
-          <div className="lineage-path">
-            <span className="lineage-path-label">Dòng dõi:</span>
-            <div className="lineage-path-flow">
-              <span className="lineage-path-node">
+          <div className="lineage-path min-w-0 space-y-2 rounded-md bg-surface-2 p-3">
+            <span className="lineage-path-label text-xs text-text-muted">Dòng dõi:</span>
+            <div className="lineage-path-flow flex min-w-0 flex-wrap items-center gap-2 overflow-x-auto">
+              <span className="lineage-path-node inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border border-border-base [&.is-self]:border-bull">
                 <small>Bố mẹ</small>
                 {detail.parents?.length ? (
                   detail.parents.map((id) => chip(id, `p-${id}`))
                 ) : (
-                  <span className="muted">Gốc (khởi nguyên)</span>
+                  <span className="muted text-text-muted">Gốc (khởi nguyên)</span>
                 )}
               </span>
               <span className="lineage-path-arrow">→</span>
-              <span className="lineage-path-node is-self">
+              <span className="lineage-path-node is-self inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border border-border-base [&.is-self]:border-bull">
                 <small>Cây này</small>
                 <strong>{treeLabel(detail, detail.id).full}</strong>
               </span>
               <span className="lineage-path-arrow">→</span>
-              <span className="lineage-path-node">
+              <span className="lineage-path-node inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border border-border-base [&.is-self]:border-bull">
                 <small>Thế hệ con</small>
                 {children.get(detail.id)?.length ? (
                   children.get(detail.id)!.map((child) => chip(child.id, `c-${child.id}`))
                 ) : (
-                  <span className="muted">Chưa sinh con</span>
+                  <span className="muted text-text-muted">Chưa sinh con</span>
                 )}
               </span>
             </div>
           </div>
 
-          <div className="lineage-steps-grid">
-            <div className="lineage-step-card">
-              <span className="step-num">1</span>
-              <div className="step-content">
+          <div className="lineage-steps-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
+              <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">1</span>
+              <div className="step-content min-w-0 flex-1 space-y-1">
                 <strong>Bối cảnh H4</strong>
-                <span className="step-tag">Xu hướng EMA50</span>
+                <span className="step-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">Xu hướng EMA50</span>
                 <p>
                   Nến H4 đóng thuận chiều EMA50 (trên EMA50 chỉ Buy, dưới EMA50 chỉ Sell). Ngược
                   trend thì bỏ qua.
@@ -601,11 +601,11 @@ export function HtfLineage({
               </div>
             </div>
 
-            <div className="lineage-step-card">
-              <span className="step-num">2</span>
-              <div className="step-content">
+            <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
+              <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">2</span>
+              <div className="step-content min-w-0 flex-1 space-y-1">
                 <strong>Setup H1</strong>
-                <span className="step-tag">{label(detail.h1_setup)}</span>
+                <span className="step-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">{label(detail.h1_setup)}</span>
                 <p>
                   {forexSetupGuides[detail.h1_setup] ??
                     'Cấu trúc hình thành trên khung H1 đã đóng.'}{' '}
@@ -614,11 +614,11 @@ export function HtfLineage({
               </div>
             </div>
 
-            <div className="lineage-step-card">
-              <span className="step-num">3</span>
-              <div className="step-content">
+            <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
+              <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">3</span>
+              <div className="step-content min-w-0 flex-1 space-y-1">
                 <strong>Trigger M15</strong>
-                <span className="step-tag">{label(detail.m15_trigger)}</span>
+                <span className="step-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">{label(detail.m15_trigger)}</span>
                 <p>
                   {forexTriggerGuides[detail.m15_trigger] ??
                     'Xác nhận thời điểm vào lệnh tại nến M15 đóng.'}{' '}
@@ -627,11 +627,11 @@ export function HtfLineage({
               </div>
             </div>
 
-            <div className="lineage-step-card">
-              <span className="step-num">4</span>
-              <div className="step-content">
+            <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
+              <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">4</span>
+              <div className="step-content min-w-0 flex-1 space-y-1">
                 <strong>Vào lệnh</strong>
-                <span className="step-tag">Market</span>
+                <span className="step-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">Market</span>
                 <p>
                   Gửi lệnh Market ngay khi nến M15 trigger đóng. Tín hiệu chỉ có hiệu lực 2 phút sau
                   khi nến đóng; quá hạn thì bỏ, không đuổi giá.
@@ -639,17 +639,17 @@ export function HtfLineage({
               </div>
             </div>
 
-            <div className="lineage-step-card">
-              <span className="step-num">5</span>
-              <div className="step-content">
+            <div className="lineage-step-card min-w-0 rounded-lg border border-border-base bg-surface-1 p-3 [&.is-empty]:opacity-60">
+              <span className="step-num inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">5</span>
+              <div className="step-content min-w-0 flex-1 space-y-1">
                 <strong>Quản lý lệnh</strong>
-                <span className="step-tag">{label(detail.exit_policy)}</span>
+                <span className="step-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">{label(detail.exit_policy)}</span>
                 <p>
                   {forexExitGuides[detail.exit_policy] ?? 'Quản lý rủi ro theo cấu trúc HTF.'} TP
                   runner bám theo cản H1/H4 gần nhất (R/R tối thiểu 1.5R).
                 </p>
                 {!!Object.keys(detail.exit_params ?? {}).length && (
-                  <p className="micro">
+                  <p className="micro text-xs leading-relaxed text-text-muted">
                     Tham số tiến hoá:{' '}
                     {Object.entries(detail.exit_params ?? {})
                       .map(([name, value]) => `${paramLabels[name] ?? name} ${value}`)
@@ -660,28 +660,28 @@ export function HtfLineage({
             </div>
           </div>
 
-          <div className="lineage-stats-strip">
-            <div className="lineage-stat-box">
+          <div className="lineage-stats-strip grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Tín hiệu</span>
               <strong>{detail.signals}</strong>
             </div>
-            <div className="lineage-stat-box">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Đang chạy</span>
               <strong>{detail.pending}</strong>
             </div>
-            <div className="lineage-stat-box">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Đã đóng</span>
               <strong>{detail.resolved}</strong>
             </div>
-            <div className="lineage-stat-box">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Bị loại</span>
               <strong>{detail.excluded}</strong>
             </div>
-            <div className="lineage-stat-box">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>R trung bình</span>
               <strong
                 className={
-                  detail.mean_r == null ? '' : detail.mean_r >= 0 ? 'positive' : 'negative'
+                  detail.mean_r == null ? '' : detail.mean_r >= 0 ? "positive text-bull" : "negative text-bear"
                 }
               >
                 {detail.mean_r == null
@@ -689,11 +689,11 @@ export function HtfLineage({
                   : `${detail.mean_r >= 0 ? '+' : ''}${detail.mean_r.toFixed(2)}R`}
               </strong>
             </div>
-            <div className="lineage-stat-box">
+            <div className="lineage-stat-box min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
               <span>Cận dưới 95%</span>
               <strong
                 className={
-                  detail.lower_r == null ? '' : detail.lower_r >= 0 ? 'positive' : 'negative'
+                  detail.lower_r == null ? '' : detail.lower_r >= 0 ? "positive text-bull" : "negative text-bear"
                 }
               >
                 {detail.lower_r == null
@@ -703,7 +703,7 @@ export function HtfLineage({
             </div>
           </div>
           {detail.sides && (
-            <p className="micro">
+            <p className="micro text-xs leading-relaxed text-text-muted">
               Long: {detail.sides.long.resolved} mẫu · {detail.sides.long.mean_r?.toFixed(2) ?? '—'}
               R{' · '}Short: {detail.sides.short.resolved} mẫu ·{' '}
               {detail.sides.short.mean_r?.toFixed(2) ?? '—'}R
@@ -712,73 +712,73 @@ export function HtfLineage({
         </div>
       )}
 
-      {!ordered.length && <p className="micro">Không có cây khớp bộ lọc.</p>}
+      {!ordered.length && <p className="micro text-xs leading-relaxed text-text-muted">Không có cây khớp bộ lọc.</p>}
 
       {ordered.map(([key, rows]) => {
         const open = openGroups.has(key) || !!needle;
         return (
-          <div key={key} className="lineage-group">
+          <div key={key} className="lineage-group min-w-0 border-t border-border-base py-2">
             <button type="button" aria-expanded={open} onClick={() => toggle(key)}>
               <span className="lineage-caret">{open ? '▾' : '▸'}</span>
-              <span className="lineage-group-title">{label(key)}</span>
-              <span className="lineage-count-pill">{rows.length} cây</span>
-              <span className="lineage-group-stats">
+              <span className="lineage-group-title flex flex-wrap items-center gap-2 text-xs">{label(key)}</span>
+              <span className="lineage-count-pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">{rows.length} cây</span>
+              <span className="lineage-group-stats flex flex-wrap items-center gap-2 text-xs">
                 {sum(rows, 'signals')} tín hiệu · {sum(rows, 'resolved')} đã đóng
               </span>
             </button>
             {open && (
-              <ul className="lineage-rows-list">
+              <ul className="lineage-rows-list mt-2 space-y-1">
                 {rows.map((row) => (
                   <li key={row.id}>
                     <button
                       type="button"
-                      className={`lineage-row-btn ${selected === row.id ? 'is-selected' : ''}`}
+                      className={`lineage-row-btn ${selected === row.id ? 'is-selected' : ''} flex w-full min-w-0 flex-wrap items-center gap-2 rounded p-2 text-left text-xs hover:bg-surface-2 [&.is-selected]:bg-surface-3`}
                       onClick={() => setSelected(row.id)}
                     >
-                      <span className={`gen-badge gen-${Math.min(row.generation ?? 0, 3)}`}>
+                      <span className={`gen-badge gen-${Math.min(row.generation ?? 0, 3)} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                         G{row.generation ?? 0}
                       </span>
                       <span
-                        className="lineage-row-id"
+                        className="lineage-row-id min-w-0 break-all font-mono text-xs text-text-primary"
                         title={`${treeLabel(row, row.id).full}\n${row.id}`}
                       >
                         {treeLabel(row, row.id).title}
                       </span>
 
-                      <div className="lineage-tags-inline">
-                        <span className="lineage-tag tag-h1">H1 {label(row.h1_setup)}</span>
-                        <span className="lineage-tag tag-m15">M15 {label(row.m15_trigger)}</span>
-                        <span className="lineage-tag tag-exit">{label(row.exit_policy)}</span>
+                      <div className="lineage-tags-inline flex flex-wrap items-center gap-2 text-xs">
+                        <span className="lineage-tag tag-h1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">H1 {label(row.h1_setup)}</span>
+                        <span className="lineage-tag tag-m15 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">M15 {label(row.m15_trigger)}</span>
+                        <span className="lineage-tag tag-exit inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(row.exit_policy)}</span>
                       </div>
 
-                      <span className="lineage-row-meta">
+                      <span className="lineage-row-meta text-xs text-text-muted">
                         {row.parents?.length ? (
-                          <span className="lineage-parents-brief">
+                          <span className="lineage-parents-brief text-xs text-text-muted">
                             từ {row.parents.map(shortTreeId).join(' × ')}
                           </span>
                         ) : (
-                          <span className="muted">hạt giống gốc</span>
+                          <span className="muted text-text-muted">hạt giống gốc</span>
                         )}
                         {children.get(row.id)?.length ? (
-                          <span className="lineage-child-badge">
+                          <span className="lineage-child-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull">
                             {' '}
                             · {children.get(row.id)!.length} con
                           </span>
                         ) : null}
                       </span>
 
-                      <span className="lineage-row-metric font-mono">
+                      <span className="lineage-row-metric font-mono font-mono tabular-nums">
                         {row.resolved ? (
                           <span
                             className={
-                              row.mean_r != null && row.mean_r >= 0 ? 'positive' : 'negative'
+                              row.mean_r != null && row.mean_r >= 0 ? "positive text-bull" : "negative text-bear"
                             }
                           >
                             {row.mean_r != null && row.mean_r >= 0 ? '+' : ''}
                             {row.mean_r?.toFixed(2)}R
                           </span>
                         ) : (
-                          <span className="muted">{row.signals} tín hiệu</span>
+                          <span className="muted text-text-muted">{row.signals} tín hiệu</span>
                         )}
                       </span>
                     </button>
@@ -895,38 +895,38 @@ export function ForexEntryPilotPanel({
   return (
     <>
       {entryPilot && pilot && pilot.status !== 'ready' && (
-        <div className="learning-section-card entry-pilot is-blocked" role="status">
-          <div className="card-header">
+        <div className="learning-section-card entry-pilot is-blocked min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3 space-y-3 [&.is-blocked]:border-amber-400/30" role="status">
+          <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
               <h4>AST V4 Pilot · Limit/Stop ảo</h4>
-              <p className="muted-desc">
+              <p className="muted-desc text-xs leading-relaxed text-text-muted">
                 {pilot.status === 'not_initialized'
                   ? 'Chờ worker khởi tạo nhóm đối chiếu. Không dùng dữ liệu Market thay thế.'
                   : 'Nhóm đối chiếu chưa sẵn sàng. Entry thử nghiệm bị chặn.'}
               </p>
             </div>
-            <span className="entry-pilot-state is-off">Chưa sẵn sàng</span>
+            <span className="entry-pilot-state is-off flex min-w-0 flex-wrap items-center gap-2 text-xs">Chưa sẵn sàng</span>
           </div>
           {(entryPilot.error || pilot.error) && (
-            <p className="entry-pilot-error">{entryPilot.error || pilot.error}</p>
+            <p className="entry-pilot-error rounded border border-bear/30 bg-bear/10 p-3 text-xs text-bear">{entryPilot.error || pilot.error}</p>
           )}
         </div>
       )}
       {entryPilot && pilot?.trees && (
-        <div className="learning-section-card entry-pilot">
-          <div className="card-header">
+        <div className="learning-section-card entry-pilot min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3 space-y-3 [&.is-blocked]:border-amber-400/30">
+          <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
               <h4>
                 AST V4 Pilot · {pilot.tree_count} cây{' '}
                 {policies.size === 1 ? policyLabel([...policies][0]) : 'đa dạng entry'} đối chiếu
               </h4>
-              <p className="muted-desc">
+              <p className="muted-desc text-xs leading-relaxed text-text-muted">
                 {pilot.note ||
                   'Bot tự canh giá qua tick stream, nhánh nào chạm trước gửi Market trên Exness Demo'}
               </p>
             </div>
             <span
-              className={`entry-pilot-state ${entryPilot.enabled ? 'is-on' : 'is-off'}`}
+              className={`entry-pilot-state ${entryPilot.enabled ? 'is-on' : 'is-off'} flex min-w-0 flex-wrap items-center gap-2 text-xs`}
               title={
                 entryPilot.enabled
                   ? 'Nhóm thử được bật; vẫn cần quyền execution demo hiện có'
@@ -937,7 +937,7 @@ export function ForexEntryPilotPanel({
             </span>
           </div>
 
-          <div className="entry-pilot-kpis">
+          <div className="entry-pilot-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div>
               <small>Đang canh giá</small>
               <strong className={waiting ? 'is-live' : ''}>{waiting}</strong>
@@ -969,16 +969,16 @@ export function ForexEntryPilotPanel({
             </div>
           </div>
 
-          <div className="entry-pilot-meta">
-            <div className="entry-pilot-states" aria-label="Trạng thái mẫu shadow">
+          <div className="entry-pilot-meta flex min-w-0 flex-wrap items-center gap-2 text-xs">
+            <div className="entry-pilot-states flex min-w-0 flex-wrap items-center gap-2 text-xs" aria-label="Trạng thái mẫu shadow">
               {states.length ? (
                 states.map(([state, count]) => (
-                  <span key={state} className={`entry-state-chip state-${state}`}>
+                  <span key={state} className={`entry-state-chip state-${state} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                     {entryStateLabels[state] ?? state} <b>{count}</b>
                   </span>
                 ))
               ) : (
-                <span className="muted">Chưa có mẫu shadow</span>
+                <span className="muted text-text-muted">Chưa có mẫu shadow</span>
               )}
             </div>
             <p>
@@ -989,7 +989,7 @@ export function ForexEntryPilotPanel({
             </p>
           </div>
 
-          <div className="entry-pilot-howto" aria-label="Cách vào lệnh">
+          <div className="entry-pilot-howto rounded-md border border-border-subtle p-3 text-xs leading-relaxed [&_summary]:cursor-pointer" aria-label="Cách vào lệnh">
             <h5>Cách vào lệnh</h5>
             <p>
               Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh
@@ -1039,25 +1039,25 @@ export function ForexEntryPilotPanel({
                 </li>
               )}
             </ol>
-            <p className="micro">
+            <p className="micro text-xs leading-relaxed text-text-muted">
               SL/TP vẫn theo cấu trúc H1 như cây V3 gốc; chỉ giá vào lệnh khác.
               {!paramsVary && ' Tất cả cây đang dùng cùng tham số entry.'}
             </p>
           </div>
 
-          <details className="entry-pilot-intents">
+          <details className="entry-pilot-intents min-w-0 space-y-2">
             <summary>
               <span>Canh giá & kết quả broker</span>
-              <span className="badge-count">{intents.length} setup</span>
+              <span className="badge-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{intents.length} setup</span>
             </summary>
             {intents.length ? (
-              <div className="table-wrap">
-                <table className="learner-clean-table">
+              <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+                <table className="learner-clean-table w-full border-collapse whitespace-nowrap text-xs">
                   <thead>
                     <tr>
                       <th>Cây / hướng</th>
                       <th>Trạng thái</th>
-                      <th className="num">Limit / Stop ảo</th>
+                      <th className="num font-mono tabular-nums text-right">Limit / Stop ảo</th>
                       <th>Hết hạn</th>
                       <th>Nhánh thắng</th>
                       <th>Khớp broker / lệch mức</th>
@@ -1069,25 +1069,25 @@ export function ForexEntryPilotPanel({
                       <tr key={intent.id}>
                         <td>
                           <code>{intent.strategy}</code>{' '}
-                          <span className={`side-chip ${intent.side}`}>
+                          <span className={`side-chip ${intent.side} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                             {intent.side === 'long' ? 'Mua' : 'Bán'}
                           </span>
                         </td>
                         <td>
                           <span
-                            className={`entry-state-chip state-${intent.broker_fills?.length ? 'completed' : intent.status}`}
+                            className={`entry-state-chip state-${intent.broker_fills?.length ? 'completed' : intent.status} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
                           >
                             {intent.broker_fills?.length
                               ? 'Broker đã xác nhận khớp'
                               : (entryStateLabels[intent.status] ?? intent.status)}
                           </span>
                         </td>
-                        <td className="num font-mono">
+                        <td className="num font-mono font-mono tabular-nums text-right font-mono tabular-nums">
                           {price(intent.limit_price)} / {price(intent.stop_price)}
                         </td>
                         <td>{formatTime(intent.expires_at, true)}</td>
                         <td>{winnerLabels[intent.winner ?? ''] ?? '—'}</td>
-                        <td className="font-mono">
+                        <td className="font-mono font-mono tabular-nums">
                           {intent.broker_fills?.length ? (
                             intent.broker_fills.map((fill) => (
                               <div key={fill.position_id}>
@@ -1098,7 +1098,7 @@ export function ForexEntryPilotPanel({
                               </div>
                             ))
                           ) : (
-                            <span className="muted">Chưa xác nhận</span>
+                            <span className="muted text-text-muted">Chưa xác nhận</span>
                           )}
                         </td>
                         <td title={intent.reason}>
@@ -1110,14 +1110,14 @@ export function ForexEntryPilotPanel({
                 </table>
               </div>
             ) : (
-              <p className="entry-pilot-empty">
+              <p className="entry-pilot-empty grid min-h-24 place-content-center gap-2 p-4 text-center text-xs text-text-muted">
                 Chưa có setup nào được canh giá. Bot sẽ ghi lại ở đây khi một cây V4 bắt được tín
                 hiệu M15.
               </p>
             )}
           </details>
 
-          <div className="entry-pilot-toolbar">
+          <div className="entry-pilot-toolbar flex min-w-0 flex-wrap items-center gap-2 text-xs">
             <input
               type="search"
               value={entrySearch}
@@ -1125,33 +1125,33 @@ export function ForexEntryPilotPanel({
               placeholder="Lọc theo ID, Market, Limit, Stop, Hybrid, setup…"
               aria-label="Lọc cây đối chiếu"
             />
-            <span className="muted">
+            <span className="muted text-text-muted">
               {needle ? `${shownTrees.length}/${trees.length} cây` : `${trees.length} cây`}
             </span>
           </div>
-          <div className="table-wrap">
-            <table className="learner-clean-table entry-pilot-trees">
+          <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+            <table className="learner-clean-table entry-pilot-trees w-full border-collapse whitespace-nowrap text-xs min-w-0 space-y-2">
               <thead>
                 <tr>
                   <th>Cây V4 · gốc V3</th>
                   <th>Cách vào lệnh</th>
                   <th>Setup H1 → Trigger M15</th>
                   <th>Quản lý</th>
-                  <th className="num">Mẫu</th>
-                  <th className="num">Đã đóng</th>
-                  <th className="num">Mean R</th>
+                  <th className="num font-mono tabular-nums text-right">Mẫu</th>
+                  <th className="num font-mono tabular-nums text-right">Đã đóng</th>
+                  <th className="num font-mono tabular-nums text-right">Mean R</th>
                 </tr>
               </thead>
               <tbody>
                 {shownTrees.map((t) => (
                   <tr key={t.id}>
                     <td>
-                      <code className="entry-tree-id">{t.id}</code>
-                      <small className="entry-tree-parent">từ {t.control_tree_id}</small>
+                      <code className="entry-tree-id font-mono text-xs text-text-primary">{t.id}</code>
+                      <small className="entry-tree-parent block text-xs text-text-muted">từ {t.control_tree_id}</small>
                     </td>
                     <td>
-                      <span className="entry-tree-policy">{policyLabel(t.entry_policy)}</span>
-                      <span className="entry-tree-params">
+                      <span className="entry-tree-policy block text-xs text-text-muted">{policyLabel(t.entry_policy)}</span>
+                      <span className="entry-tree-params block text-xs text-text-muted">
                         {(entryPolicyParams[t.entry_policy] ?? Object.keys(t.entry_params ?? {}))
                           .filter((name) => typeof t.entry_params?.[name] === 'number')
                           .map((name) => (
@@ -1167,24 +1167,24 @@ export function ForexEntryPilotPanel({
                       </span>
                     </td>
                     <td>
-                      <span className="lineage-tags-inline">
-                        <span className="lineage-tag tag-h1">{label(t.h1_setup)}</span>
-                        <span className="lineage-tag tag-m15">{label(t.m15_trigger)}</span>
+                      <span className="lineage-tags-inline flex flex-wrap items-center gap-2 text-xs">
+                        <span className="lineage-tag tag-h1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.h1_setup)}</span>
+                        <span className="lineage-tag tag-m15 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.m15_trigger)}</span>
                       </span>
                     </td>
                     <td>
-                      <span className="lineage-tag tag-exit">{label(t.exit_policy)}</span>
+                      <span className="lineage-tag tag-exit inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{label(t.exit_policy)}</span>
                     </td>
-                    <td className={`num ${t.samples_count ? '' : 'muted'}`}>{t.samples_count}</td>
-                    <td className={`num ${t.resolved_count ? '' : 'muted'}`}>{t.resolved_count}</td>
-                    <td className={`num font-mono ${rTone(t.mean_r) || 'muted'}`}>
+                    <td className={`num ${t.samples_count ? '' : 'muted'} font-mono tabular-nums text-right`}>{t.samples_count}</td>
+                    <td className={`num ${t.resolved_count ? '' : 'muted'} font-mono tabular-nums text-right`}>{t.resolved_count}</td>
+                    <td className={`num font-mono ${rTone(t.mean_r) || 'muted'} font-mono tabular-nums text-right font-mono tabular-nums`}>
                       {signedR(t.mean_r)}
                     </td>
                   </tr>
                 ))}
                 {!shownTrees.length && (
                   <tr>
-                    <td colSpan={7} className="entry-pilot-empty">
+                    <td colSpan={7} className="entry-pilot-empty grid min-h-24 place-content-center gap-2 p-4 text-center text-xs text-text-muted">
                       Không có cây nào khớp “{entrySearch.trim()}”.
                     </td>
                   </tr>
@@ -1561,12 +1561,12 @@ export function ForexStrategyPage({
 
   return (
     <section
-      className={`panel prose mtf-observation ${executionOnly ? 'broker-chart-terminal' : ''}`}
+      className={`panel prose mtf-observation ${executionOnly ? 'broker-chart-terminal' : ''} relative min-w-0 space-y-2 overflow-clip rounded-lg border border-border-base bg-canvas p-0 text-sm leading-relaxed text-text-secondary`}
     >
       {executionOnly ? (
-        <header className="broker-market-header">
-          <div className="broker-instrument">
-            <span className="broker-symbol">{symbol.slice(0, 3)}</span>
+        <header className="broker-market-header flex flex-wrap items-center justify-between gap-3 border-b border-border-base bg-none px-3 py-2">
+          <div className="broker-instrument flex flex-wrap items-baseline gap-3">
+            <span className="broker-symbol font-display text-lg font-semibold text-text-primary">{symbol.slice(0, 3)}</span>
             <div>
               <h2>
                 {symbol} <span>Exness</span>
@@ -1576,17 +1576,17 @@ export function ForexStrategyPage({
               </p>
             </div>
           </div>
-          <div className="broker-quote-pair" aria-label="Giá Exness trực tiếp">
+          <div className="broker-quote-pair flex flex-wrap items-baseline gap-3" aria-label="Giá Exness trực tiếp">
             <ForexSessionStatus session={dashboard.market_session} now={clock} />
             <span>
               BID{' '}
-              <strong className="broker-bid">
+              <strong className="broker-bid flex items-baseline gap-1 font-mono text-lg text-text-primary [&_small]:text-xs [&_small]:text-text-muted">
                 {visibleQuote ? formatPrice(visibleQuote.bid) : '—'}
               </strong>
             </span>
             <span>
               ASK{' '}
-              <strong className="broker-ask">
+              <strong className="broker-ask flex items-baseline gap-1 font-mono text-lg text-text-primary [&_small]:text-xs [&_small]:text-text-muted">
                 {visibleQuote ? formatPrice(visibleQuote.ask) : '—'}
               </strong>
             </span>
@@ -1598,7 +1598,7 @@ export function ForexStrategyPage({
             </span>
           </div>
           <span
-            className={`broker-stream-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''}`}
+            className={`broker-stream-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''} text-xs text-bull [&.is-closed]:text-text-muted`}
             role="status"
           >
             <span aria-hidden="true" />
@@ -1612,7 +1612,7 @@ export function ForexStrategyPage({
           </span>
         </header>
       ) : (
-        <div className="section-head">
+        <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
           <div>
             <h2>
               {executionOnly ? 'Chart khớp lệnh sàn' : 'Quan sát MTF'} · {symbol}
@@ -1623,7 +1623,7 @@ export function ForexStrategyPage({
                 : '4h EMA50 xu hướng → 1h breakout vùng 20 nến → 15m retest và nến xác nhận giữ vùng. Chỉ để quan sát, không phải tín hiệu đặt lệnh.'}
             </p>
           </div>
-          <span className="pill amber">
+          <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">
             <Eye size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
             {executionOnly
               ? 'Lệnh demo trên sàn · Bid/Ask Exness'
@@ -1631,22 +1631,22 @@ export function ForexStrategyPage({
           </span>
         </div>
       )}
-      <div className="mtf-source-strip">
+      <div className="mtf-source-strip flex flex-wrap items-center gap-3 border-b border-border-subtle px-3 py-2 text-xs text-text-muted">
         <span>Nến M15/H1/H4 Exness Demo</span>
         {snap?.['available_at'] && <span>Snapshot {formatTime(snap.available_at)}</span>}
-        {disconnected && <span className="negative">Mất kết nối API · dữ liệu lưu gần nhất</span>}
+        {disconnected && <span className="negative text-bear">Mất kết nối API · dữ liệu lưu gần nhất</span>}
       </div>
       {(!dashboard.market.worker_online || currentStatus === 'data_paused') && (
-        <p role="status" className="negative">
+        <p role="status" className="negative text-bear">
           Worker hoặc dữ liệu chưa sẵn sàng. Chart và setup là dữ liệu đã lưu, không phải tín hiệu
           mới.
         </p>
       )}
 
       {!executionOnly && (
-        <div className="research-metrics">
+        <div className="research-metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div>
-            <span className="muted">Xu hướng 4h</span>
+            <span className="muted text-text-muted">Xu hướng 4h</span>
             <strong>
               {snap?.trend === 'up'
                 ? 'TĂNG (chỉ Long)'
@@ -1658,11 +1658,11 @@ export function ForexStrategyPage({
             </strong>
           </div>
           <div>
-            <span className="muted">Trạng thái MTF</span>
+            <span className="muted text-text-muted">Trạng thái MTF</span>
             <strong>{observationStatusLabels[currentStatus] ?? currentStatus}</strong>
           </div>
           <div>
-            <span className="muted">Vùng 20 nến 1h</span>
+            <span className="muted text-text-muted">Vùng 20 nến 1h</span>
             <strong>
               {snap?.range_low && snap?.range_high
                 ? `${formatPrice(snap.range_low)} – ${formatPrice(snap.range_high)}`
@@ -1670,7 +1670,7 @@ export function ForexStrategyPage({
             </strong>
           </div>
           <div>
-            <span className="muted">SL / TP tham chiếu</span>
+            <span className="muted text-text-muted">SL / TP tham chiếu</span>
             <strong>
               {snap?.stop && snap?.target
                 ? `${formatPrice(snap.stop)} / ${formatPrice(snap.target)}`
@@ -1685,7 +1685,7 @@ export function ForexStrategyPage({
           <p>
             <strong>Chi tiết quan sát:</strong> {dashboard.observation.message}
             {snap?.['provenance'] && (
-              <span className="pill" style={{ marginLeft: 8 }}>
+              <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary" style={{ marginLeft: 8 }}>
                 {snap.provenance}
               </span>
             )}
@@ -1693,10 +1693,10 @@ export function ForexStrategyPage({
         </div>
       )}
 
-      {loading && <p className="micro">Đang tải nến {frame.toUpperCase()} Exness...</p>}
+      {loading && <p className="micro text-xs leading-relaxed text-text-muted">Đang tải nến {frame.toUpperCase()} Exness...</p>}
       {executionOnly ? (
-        <div className="broker-chart-toolbar">
-          <div className="broker-segments" role="group" aria-label="Khung thời gian chart">
+        <div className="broker-chart-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-base px-3 py-2 text-xs">
+          <div className="broker-segments flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Khung thời gian chart">
             {['15m', '1h', '4h'].map((value) => (
               <button
                 type="button"
@@ -1708,8 +1708,8 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
-          <span className="broker-toolbar-divider" aria-hidden="true" />
-          <div className="broker-segments" role="group" aria-label="Phía giá chart">
+          <span className="broker-toolbar-divider h-4 w-px bg-border-base" aria-hidden="true" />
+          <div className="broker-segments flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Phía giá chart">
             {['bid', 'ask'].map((value) => (
               <button
                 type="button"
@@ -1730,7 +1730,7 @@ export function ForexStrategyPage({
           />
           {(hasMore || chartError) && (
             <button
-              className="secondary broker-history-button"
+              className="secondary broker-history-button inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 ml-auto rounded border border-border-active px-2 py-1 text-xs text-text-secondary"
               type="button"
               disabled={loading || loadingOlder}
               onClick={() =>
@@ -1742,8 +1742,8 @@ export function ForexStrategyPage({
           )}
         </div>
       ) : (
-        <div className="mtf-toolbar">
-          <div className="mtf-seg" role="group" aria-label="Khung nến">
+        <div className="mtf-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-base px-3 py-2 text-xs">
+          <div className="mtf-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Khung nến">
             {[
               ['15m', '15m · Xác nhận'],
               ['1h', '1h · Breakout'],
@@ -1759,7 +1759,7 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
-          <div className="mtf-seg" role="group" aria-label="Phía giá">
+          <div className="mtf-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Phía giá">
             {['bid', 'ask'].map((value) => (
               <button
                 type="button"
@@ -1771,7 +1771,7 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
-          <span role="status" className="mtf-toolbar-note">
+          <span role="status" className="mtf-toolbar-note text-xs text-text-muted">
             {candles.length.toLocaleString()} nến ·{' '}
             {loadingOlder
               ? 'Đang tải lịch sử...'
@@ -1782,7 +1782,7 @@ export function ForexStrategyPage({
           {(hasMore || chartError) && (
             <button
               type="button"
-              className="mtf-toolbar-action"
+              className="mtf-toolbar-action ml-auto rounded border border-border-active px-2 py-1 text-xs text-text-secondary"
               disabled={loading || loadingOlder}
               onClick={() =>
                 hasMore ? historyActions.current.older() : historyActions.current.refresh()
@@ -1795,7 +1795,7 @@ export function ForexStrategyPage({
       )}
       {chartError && <p role="alert">{chartError}</p>}
       {!executionOnly && (
-        <div className="mtf-quote-strip" aria-label="Giá Exness trực tiếp">
+        <div className="mtf-quote-strip flex flex-wrap items-center gap-3 border-b border-border-subtle px-3 py-2 text-xs text-text-muted" aria-label="Giá Exness trực tiếp">
           <ForexSessionStatus session={dashboard.market_session} now={clock} />
           <span
             className={`mtf-quote-state ${quoteLive ? 'is-live' : closedSession && !streamInterrupted ? 'is-closed' : ''}`}
@@ -1821,7 +1821,7 @@ export function ForexStrategyPage({
         </div>
       )}
       {!executionOnly && (
-        <p className="micro">
+        <p className="micro text-xs leading-relaxed text-text-muted">
           Nến đang chạy ghép từ tick {side.toUpperCase()} Exness theo thời gian thực. Nến live chỉ
           để theo dõi; nến đóng từ REST thay thế khi đồng bộ, MTF và paper không đổi.{' '}
           {!quoteLive
@@ -1835,36 +1835,36 @@ export function ForexStrategyPage({
       {!loading && !chartError && candles.length === 0 && (
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
-      {executionOnly && pickerPositions.length > 0 && <div className="broker-position-picker" role="group" aria-label="Chọn ticket đã khớp">
-        <span className="broker-position-count">{openGroups.length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket</span>
+      {executionOnly && pickerPositions.length > 0 && <div className="broker-position-picker flex max-h-28 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2" role="group" aria-label="Chọn ticket đã khớp">
+        <span className="broker-position-count text-xs text-text-muted">{openGroups.length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket</span>
         {pickerPositions.map((position) => {
           const selected = position.position_id === selectedPosition?.position_id;
           const pnl = position.status === 'closed' ? position.pnl : pnlOf(position);
-          return <button key={position.position_id} type="button" className="broker-position-chip" aria-pressed={selected}
+          return <button key={position.position_id} type="button" className="broker-position-chip inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border border-border-base bg-surface-2 [&.buy]:text-bull [&.sell]:text-bear [&.is-selected]:border-bull" aria-pressed={selected}
             title={`${ticketStatus(position)} · ${position.status === 'closed' ? 'Profit đã chốt' : 'Thả nổi ước tính'} · chưa xác minh phí/swap`}
             onClick={() => onSelectPosition?.(selected ? undefined : position.position_id)}>
-            <span className={position.side === 'buy' ? 'positive' : 'negative'}>{position.side?.toUpperCase() ?? '—'}</span>
+            <span className={position.side === 'buy' ? "positive text-bull" : "negative text-bear"}>{position.side?.toUpperCase() ?? '—'}</span>
             <span>#{position.position_id}{position.role === 'tp1' ? ' · TP1' : position.role === 'runner' ? ' · Runner' : ''}</span>
             <span>{position.remaining_volume ?? position.volume ?? '—'} lot · {ticketStatus(position)}</span>
-            <strong className={pnl == null ? '' : pnl >= 0 ? 'positive' : 'negative'}>{pnl == null ? '— USD' : pnl.toFixed(2) + ' USD'}</strong>
+            <strong className={pnl == null ? '' : pnl >= 0 ? "positive text-bull" : "negative text-bear"}>{pnl == null ? '— USD' : pnl.toFixed(2) + ' USD'}</strong>
           </button>;
         })}
       </div>}
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
-      {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection">
-        <div className="forex-v4-snapshot-heading">
-        <label><span>Snapshot V4 <small>H4 / H1 / M15</small></span>
-          <select value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
+      {v4Strategy && selectedSetup && <div className="forex-v4-chart-selection space-y-2 border-y border-border-base bg-surface-2 px-3 py-2 text-xs">
+        <div className="forex-v4-snapshot-heading flex min-w-0 flex-wrap items-center gap-2 justify-between">
+        <label className="flex min-w-0 flex-1 flex-wrap items-center gap-2"><span className="shrink-0 text-text-primary">Snapshot V4 <small className="text-xs text-text-muted">H4 / H1 / M15</small></span>
+          <select className="min-w-0 max-w-full flex-1 rounded-md border border-border-active bg-surface-1 px-2 py-1.5 text-xs text-text-primary" value={v4Strategy} onChange={(event) => setV4Selection({ setup: selectedSetup.id, strategy: event.target.value })}>
             {v4Signals.map((signal) => <option key={signal.strategy} value={signal.strategy}>{signal.strategy} · {entryStateLabels[signal.status] ?? signal.status}</option>)}
           </select>
         </label>
-        <span className="forex-v4-simulation-badge">Mô phỏng · BID</span>
+        <span className="forex-v4-simulation-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-sky-400/10 text-sky-300">Mô phỏng · BID</span>
         </div>
         <p role="status">{v4Chart
           ? `Chụp ${formatTime(v4Chart.available_at, true)} · Hạn canh ${formatTime(v4Chart.expires_at, true)} · Mức giá dự kiến, không phải lệnh broker.`
           : signalSnapshot.key === signalKey && signalSnapshot.error ? signalSnapshot.error : 'Đang tải snapshot tín hiệu đã chọn…'}</p>
-        {v4Chart && <ul className="forex-v4-levels" aria-label="Mức giá dự kiến V4">
+        {v4Chart && <ul className="forex-v4-levels flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs" aria-label="Mức giá dự kiến V4">
           {v4Chart.row.chart?.levels.map((level) => <li key={level.label} title={level.label}>
             <span>{level.label.split(' · ')[0]}</span><strong>{level.price.toFixed(priceDigits(symbol))}</strong>
           </li>)}
@@ -1872,7 +1872,7 @@ export function ForexStrategyPage({
       </div>}
       {selectedSetup && ![...candles, ...liveCandles].some((candle) => candle.time ===
         Math.floor(selectedSetup.time / chartFrameSeconds) * chartFrameSeconds) && (
-        <div className="signal-setup-notice" role="status">
+        <div className="signal-setup-notice space-y-2 border-y border-border-base bg-surface-2 px-3 py-2 text-xs" role="status">
           Nến của setup đã chọn chưa có trong dữ liệu chart. {hasMore ? 'Thêm lịch sử để xem đúng vị trí.' : 'Không có thêm nến trong lịch sử hiện tại.'}
           {hasMore && <button type="button" disabled={loadingOlder} onClick={() => historyActions.current.older()}>Thêm lịch sử</button>}
         </div>
@@ -1914,8 +1914,8 @@ export function ForexStrategyPage({
         title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
       {executionOnly && (
-        <div className="bot-footer">
-          <div className="bot-footer-bar">
+        <div className="bot-footer min-w-0 border-t border-border-base">
+          <div className="bot-footer-bar flex min-w-0 flex-wrap items-center gap-2 justify-between px-3 py-2 text-xs">
             <span>
               {loading
                 ? 'Đang tải nến…'
@@ -1942,7 +1942,7 @@ export function ForexStrategyPage({
             </span>
           </div>
           {analysis && (
-            <details className="bot-analysis">
+            <details className="bot-analysis border-t border-border-base p-3">
               <summary>
                 <strong>Bot quan sát</strong>
                 <span>nến {clockTime(analysis.candle_time)}</span>
@@ -1951,7 +1951,7 @@ export function ForexStrategyPage({
                     ? `Chọn ${analysis.selected_signal.strategy} ${analysis.selected_signal.side} · dự kiến, chưa vào lệnh`
                     : `Chưa chọn tín hiệu · ${analysis.policy_mode}`}
                 </span>
-                <span className="bot-analysis-count">
+                <span className="bot-analysis-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">
                   {
                     Object.values(analysis.strategies).filter((row) => row.status === 'confirmed')
                       .length
@@ -1971,7 +1971,7 @@ export function ForexStrategyPage({
               <p>Đường BOT/DỰ KIẾN là phân tích, không phải lệnh trên sàn.</p>
             </details>
           )}
-          <p className="bot-footer-note">
+          <p className="bot-footer-note text-xs text-text-muted">
             Tín hiệu và canh giá không đồng nghĩa đã vào lệnh. Mũi tên, SL/TP của vị thế mở theo dữ liệu broker; lịch sử lệnh ở tab Lệnh trên sàn.
           </p>
         </div>
@@ -1980,15 +1980,15 @@ export function ForexStrategyPage({
         <ForexEntryPilotPanel key={symbol} symbol={symbol} entryPilot={entryPilot} />
       )}
       {!executionOnly && htf2Shadow && (
-        <div className="learning-section-card">
-          <div className="card-header">
+        <div className="learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
+          <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
               <h4>AST HTF V3 — Hai chiều · thuận H4</h4>
-              <p className="muted-desc">
+              <p className="muted-desc text-xs leading-relaxed text-text-muted">
                 {htf2Shadow.note}. Thế hệ {htf2Shadow.generation}, {htf2Shadow.tree_count} cây.
               </p>
             </div>
-            <span className="badge-count">
+            <span className="badge-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
               {htf2Shadow.status} · {htf2Shadow.resolved} đã đóng · {htf2Shadow.pending} đang chạy
             </span>
           </div>

@@ -39,14 +39,14 @@ export function ForexConnectionPage({
   const candleWorker = !disconnected && dashboard.market.worker_online;
 
   return (
-    <div className="forex-connection">
-      <div className="conn-cards">
-        <section className={`conn-card tone-${status.tone}`}>
+    <div className="forex-connection flex min-w-0 flex-col gap-4">
+      <div className="conn-cards grid min-w-0 gap-3 xl:grid-cols-3">
+        <section className={`conn-card flex min-w-0 flex-col gap-3 rounded-lg border border-border-base bg-surface-1 p-3 [&>header]:flex [&>header]:flex-wrap [&>header]:items-start [&>header]:justify-between [&>header]:gap-2 [&_h2]:m-0 [&_h2]:text-sm tone-${status.tone}`}>
           <header>
             <h2>Tài khoản Exness demo</h2>
-            <span className={`status-chip tone-${status.tone}`}>{status.title}</span>
+            <span className={`status-chip tone-${status.tone} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{status.title}</span>
           </header>
-          <dl className="forex-summary-list">
+          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
             <Row label="Tài khoản">{data?.account || '—'}</Row>
             <Row label="Thực thi">
               {!data
@@ -65,15 +65,15 @@ export function ForexConnectionPage({
             </Row>
             <Row label="Lịch sử nhập từ">{formatTime(data?.history_from)}</Row>
           </dl>
-          {status.hint && <p className="conn-hint">{status.hint}</p>}
+          {status.hint && <p className="conn-hint m-0 rounded bg-surface-2 p-2 text-xs text-text-secondary">{status.hint}</p>}
         </section>
 
-        <section className={`conn-card tone-${executor.tone}`}>
+        <section className={`conn-card flex min-w-0 flex-col gap-3 rounded-lg border border-border-base bg-surface-1 p-3 [&>header]:flex [&>header]:flex-wrap [&>header]:items-start [&>header]:justify-between [&>header]:gap-2 [&_h2]:m-0 [&_h2]:text-sm tone-${executor.tone}`}>
           <header>
             <h2>Worker thực thi</h2>
-            <span className={`status-chip tone-${executor.tone}`}>{executor.text}</span>
+            <span className={`status-chip tone-${executor.tone} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{executor.text}</span>
           </header>
-          <dl className="forex-summary-list">
+          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
             <Row label="Heartbeat">
               {data?.heartbeat
                 ? `${formatTime(data.heartbeat, true)} · ${relativeTime(data.heartbeat)}`
@@ -86,18 +86,18 @@ export function ForexConnectionPage({
             </Row>
             <Row label="Quyết định gần nhất">{data?.decision ?? '—'}</Row>
           </dl>
-          {data?.error && <p className="conn-hint negative">Lỗi: {data.error}</p>}
-          <p className="conn-note">Mở/đóng lệnh, dời SL/TP và đối soát deal với Exness.</p>
+          {data?.error && <p className="conn-hint m-0 rounded bg-surface-2 p-2 text-xs text-text-secondary negative text-bear">Lỗi: {data.error}</p>}
+          <p className="conn-note m-0 mt-auto text-xs text-text-muted">Mở/đóng lệnh, dời SL/TP và đối soát deal với Exness.</p>
         </section>
 
-        <section className={`conn-card tone-${candleWorker ? 'ok' : 'bad'}`}>
+        <section className={`conn-card flex min-w-0 flex-col gap-3 rounded-lg border border-border-base bg-surface-1 p-3 [&>header]:flex [&>header]:flex-wrap [&>header]:items-start [&>header]:justify-between [&>header]:gap-2 [&_h2]:m-0 [&_h2]:text-sm tone-${candleWorker ? 'ok' : 'bad'}`}>
           <header>
             <h2>Worker nến · {symbol}</h2>
-            <span className={`status-chip tone-${candleWorker ? 'ok' : 'bad'}`}>
+            <span className={`status-chip tone-${candleWorker ? 'ok' : 'bad'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
               {disconnected ? 'Mất kết nối API' : candleWorker ? 'Online' : 'Offline'}
             </span>
           </header>
-          <dl className="forex-summary-list">
+          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
             <Row label="Đồng bộ gần nhất">
               {dashboard.market.last_sync
                 ? `${formatTime(dashboard.market.last_sync, true)} · ${relativeTime(dashboard.market.last_sync)}`
@@ -105,28 +105,28 @@ export function ForexConnectionPage({
             </Row>
             <Row label="Dữ liệu">{dashboard.market.message}</Row>
           </dl>
-          <p className="conn-note">Tải nến bid/ask M15/H1/H4 và giá tick cho chart.</p>
+          <p className="conn-note m-0 mt-auto text-xs text-text-muted">Tải nến bid/ask M15/H1/H4 và giá tick cho chart.</p>
         </section>
       </div>
 
-      <section className="panel conn-feed">
-        <div className="forex-pairs-head">
+      <section className="panel conn-feed space-y-3 min-w-0 rounded-lg border border-border-base bg-surface-1 p-4">
+        <div className="forex-pairs-head flex min-w-0 flex-wrap items-center gap-2 mb-3 justify-between">
           <h2>Feed nến {symbol}</h2>
           {quality && (
-            <span className={`status-chip tone-${quality.status === 'checked' ? 'ok' : 'warn'}`}>
+            <span className={`status-chip tone-${quality.status === 'checked' ? 'ok' : 'warn'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
               Chất lượng: {qualityText[quality.status] ?? quality.status}
             </span>
           )}
         </div>
-        <div className="conn-frames">
+        <div className="conn-frames grid min-w-0 gap-3 lg:grid-cols-3">
           {(dashboard.frames ?? []).map((frame) => {
             const report = quality?.frames.find((row) => row.timeframe === frame.timeframe);
             const tone = feedTone(frame);
             return (
-              <div key={frame.timeframe} className={`conn-frame tone-${tone}`}>
+              <div key={frame.timeframe} className={`conn-frame min-w-0 rounded-md border border-border-base bg-surface-2 p-3 [&>header]:flex [&>header]:flex-wrap [&>header]:justify-between [&>header]:gap-2 [&_strong]:text-text-primary [&_dl]:mb-0 [&_dl]:mt-3 [&_dl]:grid [&_dl]:gap-2 [&_dl>div]:flex [&_dl>div]:min-w-0 [&_dl>div]:flex-col [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere] tone-${tone}`}>
                 <header>
                   <strong>{frame.timeframe.toUpperCase()}</strong>
-                  <span className={`dot-label tone-${tone}`}>{feedText(frame)}</span>
+                  <span className={`dot-label tone-${tone} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}>{feedText(frame)}</span>
                 </header>
                 <dl>
                   <Row label="Số nến mỗi phía">{frame.bars_per_side.toLocaleString('vi-VN')}</Row>
@@ -148,8 +148,8 @@ export function ForexConnectionPage({
             );
           })}
         </div>
-        {quality && <p className="micro">{quality.message}</p>}
-        <p className="micro">
+        {quality && <p className="micro text-xs leading-relaxed text-text-muted">{quality.message}</p>}
+        <p className="micro text-xs leading-relaxed text-text-muted">
           Nến bid/ask lưu riêng theo workspace, cặp và khung thời gian. Không ghép nến MEXC hoặc tự
           tạo giá. Không lấp khoảng trống.
         </p>
@@ -160,9 +160,9 @@ export function ForexConnectionPage({
       <ForexMarkets symbol={symbol} variant="health" />
 
       {snapshot && (
-        <details className="panel conn-legacy">
+        <details className="panel conn-legacy [&>summary]:cursor-pointer [&>summary]:text-text-secondary min-w-0 rounded-lg border border-border-base bg-surface-1 p-4">
           <summary>Quan sát MTF Breakout + Retest (chiến lược cũ, chỉ tham khảo)</summary>
-          <dl className="forex-summary-list">
+          <dl className="forex-summary-list m-0 grid min-w-0 grid-cols-1 gap-2 p-0 sm:grid-cols-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:items-start [&>div]:gap-1 [&>div]:rounded [&>div]:border-0 [&>div]:bg-surface-2 [&>div]:p-2 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:max-w-full [&_dd]:text-left [&_dd]:text-sm [&_dd]:text-text-primary [&_dd]:[overflow-wrap:anywhere]">
             <Row label="Trạng thái">
               {observationStatusLabels[dashboard.observation.status] ??
                 dashboard.observation.status}
@@ -182,12 +182,12 @@ export function ForexConnectionPage({
               {formatLevel(snapshot.stop, symbol)} / {formatLevel(snapshot.target, symbol)}
             </Row>
           </dl>
-          <p className="micro">
+          <p className="micro text-xs leading-relaxed text-text-muted">
             {dashboard.observation.message}. Chỉ HTF AST V2 sinh tín hiệu và lệnh mới; SL/TP ở đây
             chưa tính spread/khớp lệnh.
           </p>
           {!!dashboard.observation.recent?.length && (
-            <ul className="conn-log">
+            <ul className="conn-log m-0 list-none space-y-2 p-0 [&>li]:grid [&>li]:gap-1 [&>li]:border-t [&>li]:border-border-base [&>li]:py-2 [&_small]:text-text-muted">
               {dashboard.observation.recent.map((event) => (
                 <li key={event.candle_time}>
                   <time>{formatTime(event.candle_time)}</time>

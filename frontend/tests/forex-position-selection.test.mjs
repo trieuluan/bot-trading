@@ -87,9 +87,9 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     const render = () => renderToStaticMarkup(React.createElement(ForexStrategyPage, props));
     const markup = render();
     assert.ok(markup.includes('1 setup mở · 2 ticket'));
-    assert.equal((markup.match(/class="broker-position-chip"/g) ?? []).length, 2);
+    assert.equal((markup.match(/class="[^"]*broker-position-chip[^"]*"/g) ?? []).length, 2);
     assert.match(markup, /aria-pressed="false"[^>]*>[\s\S]*?#123 · TP1/);
-    assert.match(markup, /class="broker-position-chip" aria-pressed="true"[^>]*>[\s\S]*?#124 · Runner/);
+    assert.match(markup, /class="[^"]*broker-position-chip[^"]*" aria-pressed="true"[^>]*>[\s\S]*?#124 · Runner/);
     assert.ok(!markup.includes('Đóng cả setup'));
     assert.ok(!markup.includes('Chi tiết 2 ticket'));
     assert.equal(chart.chartProps.selectedPositionId, '124');
@@ -98,7 +98,7 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     Object.assign(legs[0], { status: 'closed', remaining_volume: 0, pnl: 3.49, take_profit_filled: true });
     const partial = render();
     assert.ok(partial.includes('1 setup mở · 1 ticket'));
-    assert.equal((partial.match(/class="broker-position-chip"/g) ?? []).length, 2);
+    assert.equal((partial.match(/class="[^"]*\bbroker-position-chip\b[^"]*"/g) ?? []).length, 2);
     assert.ok(partial.includes('Đã chốt TP1'));
     assert.ok(partial.includes('3.49 USD'));
 

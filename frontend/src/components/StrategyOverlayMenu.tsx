@@ -126,10 +126,10 @@ export function StrategyOverlayMenu({
   const hasLiveAlert = holdingCount > 0 || confirmedCount > 0;
 
   return (
-    <div className="strategy-menu-wrapper" ref={wrapperRef}>
+    <div className="strategy-menu-wrapper relative inline-flex min-w-0" ref={wrapperRef}>
       <button
         type="button"
-        className={`strategy-menu-trigger ${activeCount > 0 ? 'is-active' : ''}`}
+        className={`strategy-menu-trigger ${activeCount > 0 ? 'is-active' : ''} inline-flex items-center gap-2 rounded border border-border-base px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-2`}
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -138,7 +138,7 @@ export function StrategyOverlayMenu({
         <Layers size={13} className="menu-icon" />
         <span>Chiến thuật</span>
         {activeCount > 0 ? (
-          <span className="strategy-badge">{activeCount}</span>
+          <span className="strategy-badge inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{activeCount}</span>
         ) : (
           <span className="strategy-badge-off">Tắt</span>
         )}
@@ -152,12 +152,12 @@ export function StrategyOverlayMenu({
 
       {open && (
         <div
-          className="strategy-popover-dropdown"
+          className="strategy-popover-dropdown absolute left-0 top-full z-40 mt-2 flex max-h-[70dvh] w-[min(440px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-border-active bg-surface-2 shadow-lg"
           role="dialog"
           aria-label="Lựa chọn cây V3 hiển thị trên chart"
         >
-          <div className="strategy-popover-header">
-            <div className="popover-title-row">
+          <div className="strategy-popover-header shrink-0 space-y-2 border-b border-border-base p-3">
+            <div className="popover-title-row flex items-center justify-between gap-2 text-xs">
               <span className="popover-title">Lớp chiến thuật trên chart</span>
               <div className="popover-actions">
                 {bestTree && (
@@ -171,14 +171,14 @@ export function StrategyOverlayMenu({
                   </button>
                 )}
                 {activeCount > 0 && (
-                  <button type="button" className="popover-clear-btn" onClick={() => onChange([])}>
+                  <button type="button" className="popover-clear-btn text-xs text-text-muted hover:text-text-primary" onClick={() => onChange([])}>
                     Bỏ chọn ({activeCount})
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="strategy-search-bar">
+            <div className="strategy-search-bar flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
               <Search size={13} className="search-icon" />
               <input
                 type="text"
@@ -188,13 +188,13 @@ export function StrategyOverlayMenu({
                 autoFocus
               />
               {query && (
-                <button type="button" className="search-clear-btn" onClick={() => setQuery('')}>
+                <button type="button" className="search-clear-btn text-xs text-text-muted hover:text-text-primary" onClick={() => setQuery('')}>
                   <X size={12} />
                 </button>
               )}
             </div>
 
-            <div className="strategy-filter-tabs">
+            <div className="strategy-filter-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1">
               {(
                 [
                   ['all', `Tất cả (${allNames.length})`],
@@ -211,7 +211,7 @@ export function StrategyOverlayMenu({
                 <button
                   type="button"
                   key={key}
-                  className={tab === key ? 'active' : ''}
+                  className={tab === key ? "active bg-bull/10 text-bull" : ''}
                   onClick={() => setTab(key as TabType)}
                 >
                   {label}
@@ -220,22 +220,22 @@ export function StrategyOverlayMenu({
             </div>
           </div>
 
-          <div className="strategy-popover-body">
+          <div className="strategy-popover-body min-h-0 overflow-y-auto overscroll-y-contain">
             {tab !== 'live' && tab !== 'holding' && tab !== 'confirmed' && (
               <div className="strategy-group">
-                <div className="group-heading">Tham khảo thêm (tuỳ chọn)</div>
+                <div className="group-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted">Tham khảo thêm (tuỳ chọn)</div>
                 {TECHNICAL_OVERLAYS.filter(
                   (item) => !q || `${item.title} ${item.sub}`.toLowerCase().includes(q),
                 ).map((item) => (
-                  <label key={item.id} className="strategy-item-row">
+                  <label key={item.id} className="strategy-item-row flex min-w-0 items-start gap-2 border-b border-border-subtle p-3 text-xs hover:bg-surface-3 [&.is-selected]:bg-bull/5 [&_input]:mt-1">
                     <input
                       type="checkbox"
                       checked={selected.includes(item.id)}
                       onChange={() => toggle(item.id)}
                     />
-                    <div className="strategy-item-meta">
-                      <div className="strategy-item-name">{item.title}</div>
-                      <div className="strategy-item-sub">{item.sub}</div>
+                    <div className="strategy-item-meta min-w-0 flex-1 space-y-1">
+                      <div className="strategy-item-name text-xs font-semibold text-text-primary">{item.title}</div>
+                      <div className="strategy-item-sub text-xs leading-relaxed text-text-muted">{item.sub}</div>
                     </div>
                   </label>
                 ))}
@@ -245,7 +245,7 @@ export function StrategyOverlayMenu({
             {/* Mục ghim lên đầu: Cây đang giữ lệnh hoặc có tín hiệu kích hoạt */}
             {pinnedNames.filter(visible).length > 0 && (
               <div className="strategy-group strategy-group-pinned">
-                <div className="group-heading pinned-heading">
+                <div className="group-heading pinned-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted text-bull">
                   Ưu tiên: Đang giữ lệnh & Có tín hiệu ({pinnedNames.filter(visible).length})
                 </div>
                 {pinnedNames.filter(visible).map((name) => renderRow(name))}
@@ -255,7 +255,7 @@ export function StrategyOverlayMenu({
             {/* Các cây còn lại */}
             {remainingNames.filter(visible).length > 0 && (
               <div className="strategy-group">
-                <div className="group-heading">
+                <div className="group-heading border-b border-border-base px-3 py-2 text-xs font-semibold text-text-muted">
                   Các cây khác ({remainingNames.filter(visible).length})
                 </div>
                 {remainingNames.filter(visible).map((name) => renderRow(name))}
@@ -264,17 +264,17 @@ export function StrategyOverlayMenu({
           </div>
 
           {tip && strategies[tip.name] !== undefined && (
-            <div className="strategy-tooltip" style={{ top: tip.top, left: tip.left }}>
-              <div className="evo-tooltip-title">
+            <div className="strategy-tooltip fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg" style={{ top: tip.top, left: tip.left }}>
+              <div className="evo-tooltip-title mb-2 font-semibold text-text-primary">
                 {treeLabel(strategies[tip.name], tip.name).full}
               </div>
               {strategies[tip.name]?.description && (
-                <div className="evo-tooltip-body">{strategies[tip.name]?.description}</div>
+                <div className="evo-tooltip-body text-xs leading-relaxed text-text-secondary">{strategies[tip.name]?.description}</div>
               )}
-              <div className="evo-tooltip-code">{tip.name}</div>
+              <div className="evo-tooltip-code mt-2 break-all font-mono text-xs text-text-muted">{tip.name}</div>
             </div>
           )}
-          <div className="strategy-popover-footer">
+          <div className="strategy-popover-footer shrink-0 border-t border-border-base p-3 text-xs text-text-muted">
             <span>
               {activeCount === 0
                 ? holdingCount > 0
@@ -297,7 +297,7 @@ export function StrategyOverlayMenu({
     return (
       <label
         key={name}
-        className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''}`}
+        className={`strategy-item-row ${selected.includes(name) || isHolding ? 'is-selected' : ''} flex min-w-0 items-start gap-2 border-b border-border-subtle p-3 text-xs hover:bg-surface-3 [&.is-selected]:bg-bull/5 [&_input]:mt-1`}
         onMouseEnter={(e) => showTip(name, e.currentTarget)}
         onMouseLeave={() => setTip(null)}
       >
@@ -307,18 +307,18 @@ export function StrategyOverlayMenu({
           disabled={isHolding}
           onChange={() => toggle(name)}
         />
-        <div className="strategy-item-meta">
-          <div className="strategy-item-title-line">
-            <span className="strategy-item-name">{compactTreeTitle(label.title)}</span>
-            {isHolding && <span className="status-pill-sub status-holding">ĐANG GIỮ LỆNH</span>}
-            {isConfirmed && <span className="status-pill-sub status-confirmed">TÍN HIỆU M15</span>}
+        <div className="strategy-item-meta min-w-0 flex-1 space-y-1">
+          <div className="strategy-item-title-line flex flex-wrap items-center gap-2">
+            <span className="strategy-item-name text-xs font-semibold text-text-primary">{compactTreeTitle(label.title)}</span>
+            {isHolding && <span className="status-pill-sub status-holding inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">ĐANG GIỮ LỆNH</span>}
+            {isConfirmed && <span className="status-pill-sub status-confirmed inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">TÍN HIỆU M15</span>}
             {zone && !isHolding && !isConfirmed && (
-              <span className="strategy-chart-indicator">Vùng H1 {zone.side.toUpperCase()}</span>
+              <span className="strategy-chart-indicator inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3">Vùng H1 {zone.side.toUpperCase()}</span>
             )}
           </div>
-          <div className="strategy-item-reason">
+          <div className="strategy-item-reason text-xs leading-relaxed text-text-muted">
             {label.policy} · G{label.generation} · #{label.short}
-            {label.params && <span className="strategy-label-params">{label.params}</span>}
+            {label.params && <span className="strategy-label-params text-xs leading-relaxed text-text-muted">{label.params}</span>}
           </div>
         </div>
       </label>

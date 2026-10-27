@@ -823,7 +823,7 @@ export function MtfObservationChart({
 
   return (
     <div className="trade-chart-wrap forex-observation-chart">
-      <div className="chart-ohlc">{title}</div>
+      <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs">{title}</div>
       {analysis && shown.some((name) => analysis.strategies[name]) && (
         <div className="forex-overlay-readout">
           {shown
@@ -910,7 +910,7 @@ export function MtfObservationChart({
                   return (
                     <div
                       key={key}
-                      className={`position-tag ${value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : 'is-faded'}`}
+                      className={`position-tag ${value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                       style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
                       title={`#${row.position_id} · ${price} · P/L dự kiến, chưa trừ phí/swap`}
                     >
@@ -929,18 +929,18 @@ export function MtfObservationChart({
                 return (
                   <div
                     key={key}
-                    className={`position-tag ${tone} ${isSelected ? 'is-selected' : 'is-faded'}`}
+                    className={`position-tag ${tone} ${isSelected ? 'is-selected' : 'is-faded'} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                     style={{ top: tag.displayY, left: 12 + tag.column * 300 }}
                     title={`#${row.position_id} · Giá vào ${row.open_price} · P/L ước tính, chưa trừ phí/swap`}
                   >
                     <button
                       type="button"
-                      className="position-tag-select"
+                      className="position-tag-select flex items-center gap-2"
                       aria-label={`Chọn vị thế #${row.position_id}`}
                       aria-pressed={isSelected}
                       onClick={() => onSelectPosition?.(row.position_id)}
                     >
-                      <span className="tag-vol">
+                      <span className="tag-vol flex flex-col text-xs [&>small]:text-text-muted">
                         {group?.remaining_volume ?? row.remaining_volume ?? row.volume} <small>{group?.ownership_verified ? 'Setup' : 'Ticket'} #{group?.legs[0].position_id ?? row.position_id}</small>
                       </span>
                       <strong>
@@ -999,7 +999,7 @@ export function MtfObservationChart({
         </div>
       )}
       {snapshot && (
-        <div className="chart-legend">
+        <div className="chart-legend flex flex-wrap gap-3 px-3 py-2 text-xs text-text-muted">
           {snapshot && (
             <strong>
               {trendLabel}:{' '}

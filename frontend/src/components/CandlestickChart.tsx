@@ -15,7 +15,7 @@ export function CandlestickChart({
   const priceToY = (price: number) => 25 + ((high - price) / (high - low)) * 240;
   const candleSpacing = 720 / visibleCandles.length;
   return (
-    <svg viewBox="0 0 840 350" role="img" aria-label={label} className="candle-chart">
+    <svg viewBox="0 0 840 350" role="img" aria-label={label} className="candle-chart relative min-h-48 min-w-0 [&_svg]:w-full [&_.axis]:fill-text-muted">
       {[0, 1, 2, 3, 4].map((index) => (
         <g key={index}>
           <line
@@ -26,7 +26,7 @@ export function CandlestickChart({
             stroke="#e7e9e2"
             strokeDasharray="3 5"
           />
-          <text x="765" y={29 + index * 60} className="axis">
+          <text x="765" y={29 + index * 60} className="axis fill-text-muted text-xs">
             {formatPrice(high - ((high - low) * index) / 4)}
           </text>
         </g>
@@ -74,7 +74,7 @@ export function CandlestickChart({
         strokeDasharray="5 4"
       />
       {[0, 1, 2, 3, 4].map((index) => (
-        <text key={index} x={15 + index * 175} y="342" className="axis">
+        <text key={index} x={15 + index * 175} y="342" className="axis fill-text-muted text-xs">
           {clockTime(
             visibleCandles[
               Math.min(

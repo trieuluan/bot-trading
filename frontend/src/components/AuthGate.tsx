@@ -49,16 +49,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (ok === null) return null;
   if (ok) return <>{children}</>;
   return (
-    <main className="auth-screen">
-      <form className="auth-card" onSubmit={submit}>
-        <div className="auth-brand">
+    <main className="auth-screen grid min-h-dvh place-items-center px-4 py-10">
+      <form className="auth-card min-w-0 rounded-lg border border-border-base bg-surface-1 w-full max-w-sm space-y-4 p-6 [&_input]:w-full [&_label]:block" onSubmit={submit}>
+        <div className="auth-brand mb-6 flex items-center gap-2 font-display text-2xl text-bull">
           <Activity size={24} aria-hidden="true" />
           <span>
-            signal<span className="brand-light">desk</span>
+            signal<span className="brand-light font-normal text-text-muted">desk</span>
           </span>
         </div>
         <h1>Đăng nhập</h1>
-        <p className="auth-sub">Workspace giao dịch nội bộ · nhập mật khẩu ứng dụng.</p>
+        <p className="auth-sub text-xs leading-relaxed text-text-muted">Workspace giao dịch nội bộ · nhập mật khẩu ứng dụng.</p>
         <label htmlFor="auth-password">Mật khẩu</label>
         <input
           id="auth-password"
@@ -73,11 +73,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
           onChange={(e) => setPassword(e.target.value)}
         />
         {error && (
-          <p id="auth-error" role="alert" className="auth-error">
+          <p id="auth-error" role="alert" className="auth-error rounded border border-bear/30 bg-bear/10 p-3 text-xs text-bear">
             {error}
           </p>
         )}
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className="primary inline-flex items-center justify-center gap-2 rounded-md bg-bull px-3 py-2 text-xs font-semibold text-canvas hover:bg-emerald-300" disabled={busy}>
           {busy ? 'Đang kiểm tra…' : 'Vào workspace'}
         </button>
       </form>

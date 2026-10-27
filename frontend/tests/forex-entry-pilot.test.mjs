@@ -57,7 +57,8 @@ test('ForexEntryPilotPanel always renders entry policy column and labels', async
         limit_or_stop: 'Hybrid · Limit/Stop ảo',
       }[policy];
       assert.ok(
-        html.includes(`<span class="entry-tree-policy">${expectedLabel}</span>`),
+        [...html.matchAll(/<span class="[^"]*\bentry-tree-policy\b[^"]*">([^<]*)<\/span>/g)]
+          .some((match) => match[1] === expectedLabel),
         `Expected ${expectedLabel} in table cell for ${policy}`,
       );
       if (policy === 'market') {

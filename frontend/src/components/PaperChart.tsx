@@ -603,9 +603,9 @@ export function PaperChart({
   }, [trade, observations, candles, positions, pendingOrders, step]);
   return (
     <div className="trade-chart-wrap">
-      <div className="chart-ohlc">
+      <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs">
         <button
-          className="text-button"
+          className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
           onClick={() => {
             const timestamp = trade?.signal_time ?? trade?.entry_time;
             const anchor = timestamp == null ? null : Math.floor(timestamp / step) * step;
@@ -627,7 +627,7 @@ export function PaperChart({
             <button
               key={frame}
               type="button"
-              className={frame === timeframe ? 'active' : ''}
+              className={frame === timeframe ? "active bg-bull/10 text-bull" : ''}
               aria-pressed={frame === timeframe}
               onClick={() => setTimeframe(frame)}
             >
@@ -678,7 +678,7 @@ export function PaperChart({
                 }}
               >
                 <div
-                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''}`}
+                  className={`position-tag ${value === null ? 'flat' : value >= 0 ? 'win' : 'loss'} ${isSelected ? 'is-selected' : ''} pointer-events-auto absolute flex items-center gap-2 rounded border border-border-active bg-surface-2 px-2 py-1 text-xs [&.profit]:border-bull/50 [&.loss]:border-bear/50 [&.is-faded]:opacity-60`}
                   style={{ top: tag.displayY, left }}
                   onMouseEnter={() => setHover(tagKey)}
                   tabIndex={0}
@@ -857,11 +857,11 @@ export function PaperChart({
         </div>
       </div>
       {trade && !candles.some((c) => c.time === Math.floor(trade.entry_time / step) * step) && (
-        <p className="micro">
+        <p className="micro text-xs leading-relaxed text-text-muted">
           Chưa có nến tại thời điểm vào lệnh trong dữ liệu đã lưu; không thể hiển thị marker Entry.
         </p>
       )}
-      <div className="chart-legend">
+      <div className="chart-legend flex flex-wrap gap-3 px-3 py-2 text-xs text-text-muted">
         {openTrades.length > 0 && (
           <strong>
             {openTrades.length} vị thế

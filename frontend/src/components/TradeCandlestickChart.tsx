@@ -180,7 +180,7 @@ export function TradeCandlestickChart({
 
   return (
     <div className="trade-chart-wrap">
-      <div className="chart-ohlc" aria-live="off">
+      <div className="chart-ohlc pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded bg-canvas/85 px-2 py-1 font-mono text-xs" aria-live="off">
         {hover ? (
           <>
             <time>
@@ -201,7 +201,7 @@ export function TradeCandlestickChart({
         role="img"
         aria-label="Chart nến MEXC Futures với điểm vào, thoát và mức SL TP của lệnh backtest"
       />
-      <div className="chart-legend">
+      <div className="chart-legend flex flex-wrap gap-3 px-3 py-2 text-xs text-text-muted">
         <span className="entry-legend">— Entry</span>
         <span className="stop-legend">— Stop-loss</span>
         <span className="target-legend">— Take-profit</span>

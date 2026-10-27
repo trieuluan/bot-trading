@@ -9,21 +9,24 @@
   import { createRoot } from 'react-dom/client';
   import { ForexSignalLifecycle } from '/src/components/ForexSignalLifecycle.tsx';
   import { ForexStripLegend } from '/src/components/ForexMarkets.tsx';
-  import '/src/styles.css';
+  import '/src/tailwind.css';
 
   const setups = Array.from({ length: 12 }, (_, index) => {
     const time = 1793030400 - index * 900;
-    const status = ['waiting', 'submitting', 'uncertain', 'submitted', 'cancelled', 'expired'][index % 6];
+    const status = ['waiting', 'waiting', 'triggered', 'submitting', 'submitted', 'submitted',
+      'uncertain', 'completed', 'completed', 'cancelled', 'expired', 'recorded'][index];
+    const strategy = index === 6 ? `hast4_${'long_strategy_identifier_'.repeat(12)}` : index === 11 ? 'hast3_fixture' : 'hast4_fixture';
+    const side = index % 2 ? 'long' : 'short';
     return {
-      id: `fixture-${index}`, time, side: 'short',
-      signals: [{ strategy: 'hast4_fixture', side: 'short', available_at: time,
-        status: index % 4 === 0 ? 'waiting' : 'recorded' }],
-      intents: index % 4 === 0 ? [] : [{
-        id: `intent-${index}`, strategy: 'hast4_fixture', side: 'short', status,
+      id: `fixture-${index}`, time, side,
+      signals: [{ strategy, side, available_at: time,
+        status: index === 0 ? 'waiting' : 'recorded' }],
+      intents: index === 0 || index === 11 ? [] : [{
+        id: `intent-${index}`, strategy, side, status,
         limit_price: 157.45, stop_price: 157.65, available_at: time,
         reason: 'trigger_preflight_failed', winner: 'limit', triggered_at: time + 60,
         ended_at: status === 'cancelled' || status === 'expired' ? time + 120 : null,
-        broker_fills: status === 'submitted' ? [{ position_id: '123456789', price: 157.45 }] : [],
+        broker_fills: index === 5 || index === 8 ? [{ position_id: '123456789', price: 157.45 }] : [],
       }],
     };
   });
@@ -38,17 +41,18 @@
         const button = row.querySelector('button');
         return row.clientHeight < button.offsetHeight || row.scrollWidth > row.clientWidth;
       });
-      const passed = rows.length > 0 && !clipped && list.clientHeight <= 360 &&
+      const selected = document.querySelectorAll('.signal-lifecycle-row.is-selected');
+      const passed = rows.length > 0 && !clipped && selected.length <= 1 && list.clientHeight <= 250 &&
         (rows.length < 9 || list.scrollHeight > list.clientHeight) &&
         document.documentElement.scrollWidth <= innerWidth;
       setResult(passed ? `PASS: ${rows.length} rows, no clipped content or horizontal overflow` : 'FAIL: layout regression');
       console.assert(passed, 'Lifecycle rows must retain their content height inside the scrolling list');
     }
-    return React.createElement('main', { style: { margin: '24px auto', maxWidth: 1100 } },
-      React.createElement('h1', null, 'Local fixture: 12 setups'),
+    return React.createElement('main', { style: { margin: '24px auto', padding: '0 12px', maxWidth: 1100 } },
+      React.createElement('h1', { className: 'text-lg' }, 'Local fixture: 12 setups'),
       React.createElement('p', null, 'Synthetic data only. No API requests or broker actions.'),
       React.createElement('section', { className: 'forex-markets is-compact', style: { display: 'flex', justifyContent: 'flex-end' } }, React.createElement(ForexStripLegend)),
-      React.createElement('button', { type: 'button', onClick: checkLayout }, 'Check layout'),
+      React.createElement('button', { type: 'button', className: 'rounded border border-border-active bg-surface-2 px-3 py-2 text-xs text-text-primary', onClick: checkLayout }, 'Check layout'),
       React.createElement('output', { role: 'status' }, result),
       React.createElement(ForexSignalLifecycle, {
         setups, symbol: 'USDJPY', selectedId, onSelect: select,

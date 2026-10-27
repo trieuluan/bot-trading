@@ -13,8 +13,8 @@ export function SignalsTable({
   setFilter: (v: string) => void;
 }) {
   return (
-    <section className="panel signals-panel">
-      <div className="section-head">
+    <section className="panel signals-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4">
+      <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
         <div className="heading-with-count">
           <h2>Tín hiệu gần nhất</h2>
           <span className="count">{entries.length}</span>
@@ -32,7 +32,7 @@ export function SignalsTable({
           </select>
         </label>
       </div>
-      <div className="table-scroll">
+      <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
         <table>
           <thead>
             <tr>
@@ -52,7 +52,7 @@ export function SignalsTable({
                   <small>{formatTime(signal.time, true)}</small>
                 </td>
                 <td>
-                  <span className={`pill ${signal.side === 'long' ? 'green' : 'amber'}`}>
+                  <span className={`pill ${signal.side === 'long' ? 'green' : 'amber'} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                     <ArrowUpRight size={12} />
                     {signal.side.toUpperCase()}
                   </span>
@@ -61,7 +61,7 @@ export function SignalsTable({
                 <td>{formatPrice(signal.stop)}</td>
                 <td>{formatPrice(signal.target)}</td>
                 <td>
-                  <span className="pill">
+                  <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
                     {signal.source === 'mexc_futures' ? 'MEXC Futures' : 'Demo replay'}
                   </span>
                 </td>

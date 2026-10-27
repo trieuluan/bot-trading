@@ -14,10 +14,10 @@ export function BotsPage({
   return (
     <div className="detail-grid">
       {botPanel}
-      <section className="panel prose">
+      <section className="panel prose min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary">
         <h2>Tiến trình bot độc lập</h2>
         <p>Auto Paper tự vào lệnh trong ví mô phỏng, dùng nút bật/dừng riêng.</p>
-        <button className="secondary" onClick={onOpenPaper}>
+        <button className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3" onClick={onOpenPaper}>
           Mở Auto Paper và chart
         </button>
         <p>Worker đọc trạng thái từ database mỗi 5 giây. Đóng trình duyệt không dừng worker.</p>

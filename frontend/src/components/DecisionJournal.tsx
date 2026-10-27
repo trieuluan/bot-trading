@@ -90,7 +90,7 @@ const sideText = (side?: string) =>
   side === 'long' || side === 'buy' ? 'BUY' : side === 'short' || side === 'sell' ? 'SELL' : null;
 
 function Signals({ row }: { row: Journal[number] }) {
-  if (!row.confirmed.length && !row.selected) return <span className="muted">—</span>;
+  if (!row.confirmed.length && !row.selected) return <span className="muted text-text-muted">—</span>;
   const ordered = [...row.confirmed].sort(
     (left, right) =>
       Number(right.strategy === row.selected) - Number(left.strategy === row.selected) ||
@@ -101,22 +101,22 @@ function Signals({ row }: { row: Journal[number] }) {
   const side = sideText(ordered[0]?.side);
   return (
     <div
-      className="journal-signals"
+      className="journal-signals space-y-3"
       title={ordered.map((c) => `${c.strategy}${c.shadow ? ' (shadow)' : ''}`).join('\n')}
     >
-      {side && <span className={`side-badge side-${side.toLowerCase()}`}>{side}</span>}
+      {side && <span className={`side-badge side-${side.toLowerCase()} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{side}</span>}
       {row.selected && !ordered.some((c) => c.strategy === row.selected) && (
-        <span className="journal-chip is-picked">{row.selected}</span>
+        <span className="journal-chip is-picked inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary bg-bull/10 text-bull">{row.selected}</span>
       )}
       {shown.map((c) => (
         <span
           key={c.strategy}
-          className={`journal-chip ${c.strategy === row.selected ? 'is-picked' : ''} ${c.shadow ? 'is-shadow' : ''}`}
+          className={`journal-chip ${c.strategy === row.selected ? 'is-picked' : ''} ${c.shadow ? 'is-shadow' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
         >
           {c.strategy}
         </span>
       ))}
-      {rest > 0 && <span className="journal-more">+{rest}</span>}
+      {rest > 0 && <span className="journal-more text-xs text-text-muted">+{rest}</span>}
     </div>
   );
 }
@@ -159,9 +159,9 @@ export function DecisionJournal({
     : [];
 
   return (
-    <div className="journal">
+    <div className="journal min-w-0">
       {funnel && total > 0 && (
-        <ol className="journal-funnel" aria-label="Phễu quyết định">
+        <ol className="journal-funnel flex flex-wrap items-center gap-2 text-xs text-text-muted" aria-label="Phễu quyết định">
           {steps.map(([name, value, base]) => (
             <li key={name}>
               <strong>{value.toLocaleString('vi-VN')}</strong>
@@ -185,11 +185,11 @@ export function DecisionJournal({
       )}
 
       {reasons.length > 0 && (
-        <div className="journal-reasons" role="group" aria-label="Lọc theo kết quả">
-          <span className="journal-reasons-label">Kết quả theo nến</span>
+        <div className="journal-reasons flex flex-wrap items-center gap-2 text-xs text-text-muted" role="group" aria-label="Lọc theo kết quả">
+          <span className="journal-reasons-label text-xs">Kết quả theo nến</span>
           <button
             type="button"
-            className="journal-reason"
+            className="journal-reason text-xs"
             aria-pressed={filter === null}
             onClick={() => {
               setFilter(null);
@@ -202,7 +202,7 @@ export function DecisionJournal({
             <button
               type="button"
               key={outcome}
-              className={`journal-reason tone-${outcomeTone(outcome)}`}
+              className={`journal-reason tone-${outcomeTone(outcome)} text-xs`}
               aria-pressed={filter === outcome}
               onClick={() => {
                 setFilter(filter === outcome ? null : outcome);
@@ -217,8 +217,8 @@ export function DecisionJournal({
 
       {groups.length ? (
         <>
-          <div className="table-wrap">
-            <table className="learner-clean-table journal-table">
+          <div className="table-wrap min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+            <table className="learner-clean-table journal-table w-full border-collapse whitespace-nowrap text-xs w-full border-collapse whitespace-nowrap text-xs">
               <thead>
                 <tr>
                   <th>Nến đóng · {timeZoneLabel()}</th>
@@ -233,7 +233,7 @@ export function DecisionJournal({
                   const checks = row.events?.length ?? 0;
                   return (
                     <tr key={group.key + group.to} className={`tone-${outcomeTone(row.outcome)}`}>
-                      <td className="journal-time">
+                      <td className="journal-time whitespace-nowrap font-mono text-xs text-text-muted">
                         {group.count > 1 ? (
                           <>
                             {rangeText(group.from + 900, group.to + 900)}
@@ -250,10 +250,10 @@ export function DecisionJournal({
                         )}
                       </td>
                       <td>
-                        <span className={`dot-label tone-${outcomeTone(row.outcome)}`}>
+                        <span className={`dot-label tone-${outcomeTone(row.outcome)} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}>
                           {outcomeText(row.outcome)}
                         </span>
-                        {reason && <small className="journal-reason-text">{reason}</small>}
+                        {reason && <small className="journal-reason-text max-w-xs whitespace-normal text-xs text-text-secondary">{reason}</small>}
                       </td>
                       <td>
                         <Signals row={row} />
@@ -267,7 +267,7 @@ export function DecisionJournal({
           {groups.length > limit && (
             <button
               type="button"
-              className="secondary journal-more-button"
+              className="secondary journal-more-button inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 mx-auto my-3 flex"
               onClick={() => setLimit(limit + PAGE * 2)}
             >
               Xem thêm {Math.min(PAGE * 2, groups.length - limit)} dòng · còn{' '}
@@ -276,7 +276,7 @@ export function DecisionJournal({
           )}
         </>
       ) : (
-        <p className="journal-empty">
+        <p className="journal-empty grid min-h-24 place-content-center gap-2 p-4 text-center text-xs text-text-muted">
           {filter
             ? 'Không có nến nào khớp bộ lọc.'
             : 'Chưa có nến nào được ghi nhật ký. Bot ghi lại sau mỗi nến M15 đóng.'}

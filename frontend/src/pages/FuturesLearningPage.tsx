@@ -176,13 +176,13 @@ function ParentChip({
   tag?: string;
 }) {
   return (
-    <span className="evo-chip-wrap">
-      <code className="evo-parent-chip" tabIndex={0} aria-describedby={id}>
+    <span className="evo-chip-wrap inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
+      <code className="evo-parent-chip flex min-w-0 flex-wrap items-center gap-2 text-xs" tabIndex={0} aria-describedby={id}>
         {tag && <b>{tag}</b>} {label}
       </code>
-      <span id={id} className="evo-tooltip" role="tooltip">
-        <span className="evo-tooltip-title">{label}</span>
-        <span className="evo-tooltip-body">{title}</span>
+      <span id={id} className="evo-tooltip fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg" role="tooltip">
+        <span className="evo-tooltip-title mb-2 font-semibold text-text-primary">{label}</span>
+        <span className="evo-tooltip-body text-xs leading-relaxed text-text-secondary">{title}</span>
       </span>
     </span>
   );
@@ -209,7 +209,7 @@ function Pager({
   if (total <= size) return null;
   const from = (page - 1) * size + 1;
   return (
-    <nav className="evo-pager" aria-label={`Phân trang ${unit}`}>
+    <nav className="evo-pager flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs" aria-label={`Phân trang ${unit}`}>
       <span>
         {from}–{Math.min(page * size, total)} / {total} {unit}
       </span>
@@ -387,8 +387,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
     : [];
 
   return (
-    <section className="panel evo">
-      <header className="evo-head">
+    <section className="panel evo min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3">
+      <header className="evo-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
         <div>
           <h2>
             <Brain size={17} /> Bot học Futures · Tiến hóa
@@ -398,16 +398,16 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             trigger đóng nến. Cây luật tự sinh biến đổi cấu trúc và điều kiện.
           </p>
         </div>
-        <span className="pill amber">Paper · không gửi lệnh sàn</span>
+        <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">Paper · không gửi lệnh sàn</span>
       </header>
       {error && (
-        <p className="negative" role="alert">
+        <p className="negative text-bear" role="alert">
           {error}
         </p>
       )}
       {data && (
         <>
-          <div className="evo-kpis">
+          <div className="evo-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
             {kpis.map(([label, value]) => (
               <div key={label}>
                 <span>{label}</span>
@@ -427,13 +427,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             </p>
           )}
           {(data.stale || data.error) && (
-            <p className="evo-warn" role="status">
+            <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
               {data.stale && 'Dữ liệu học đang chậm hoặc chưa chạy. '}
               {data.error}
             </p>
           )}
-          <div className="evo-controls">
-            <div className="evo-seg" role="group" aria-label="Chế độ chọn chiến thuật">
+          <div className="evo-controls flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="evo-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chế độ chọn chiến thuật">
               {modes.map(([key, label, body]) => (
                 <button
                   key={key}
@@ -446,7 +446,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               ))}
             </div>
             <button
-              className="evo-power"
+              className="evo-power inline-flex items-center gap-2 text-xs"
               disabled={busy}
               aria-pressed={data.enabled}
               onClick={() =>
@@ -459,7 +459,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               <Power size={13} /> {data.enabled ? 'Đang học · tắt' : 'Đã tắt · bật học'}
             </button>
           </div>
-          <p className="evo-note">
+          <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
             {data.auto_mode === 'paper_learning'
               ? 'Học thử Paper: bot thử cả chiến thuật chưa kiểm chứng và cập nhật điểm từ mẫu đã đóng. Không có tín hiệu thì đứng ngoài.'
               : data.auto_mode === 'learner'
@@ -467,13 +467,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 : ''}{' '}
             Đổi chế độ khi Auto Paper đang dừng.
           </p>
-          <div className="evo-tabs" role="tablist" aria-label="Bảng tiến hóa">
+          <div className="evo-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="tablist" aria-label="Bảng tiến hóa">
             <button role="tab" aria-selected={tab === 'forward'} onClick={() => setTab('forward')}>
-              Đang forward <span className="evo-count">{data.population}</span>
+              Đang forward <span className="evo-count ml-auto text-xs text-text-muted">{data.population}</span>
             </button>
             <button role="tab" aria-selected={tab === 'drafts'} onClick={() => setTab('drafts')}>
               Con nháp{' '}
-              <span className="evo-count">
+              <span className="evo-count ml-auto text-xs text-text-muted">
                 {(data.drafts ?? []).filter((d) => d.status !== 'admitted').length}
               </span>
             </button>
@@ -494,7 +494,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           )}
           {tab === 'forward' && (
             <>
-              <div className="evo-filters" role="group" aria-label="Lọc theo trạng thái">
+              <div className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs" role="group" aria-label="Lọc theo trạng thái">
                 {statuses.map(([key, label, match]) => {
                   const count = scoped.filter(match).length;
                   return (
@@ -504,12 +504,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       disabled={count === 0 && status !== key}
                       onClick={() => setStatus(key)}
                     >
-                      {label} <span className="evo-count">{count}</span>
+                      {label} <span className="evo-count ml-auto text-xs text-text-muted">{count}</span>
                     </button>
                   );
                 })}
                 {(pausedCount > 0 || showPaused) && (
-                  <label className="evo-paused-toggle">
+                  <label className="evo-paused-toggle inline-flex items-center gap-2 text-xs">
                     <input
                       type="checkbox"
                       checked={showPaused}
@@ -519,7 +519,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   </label>
                 )}
               </div>
-              <div className="evo-tools">
+              <div className="evo-tools flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                 <label>
                   Họ chiến thuật
                   <select
@@ -536,7 +536,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     ))}
                   </select>
                 </label>
-                <label className="evo-search">
+                <label className="evo-search min-w-0 flex-1 sm:max-w-xs">
                   Tìm kiếm
                   <input
                     type="search"
@@ -573,7 +573,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   </select>
                 </label>
               </div>
-              <div className="evo-result" role="status" aria-live="polite">
+              <div className="evo-result rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary" role="status" aria-live="polite">
                 <span>
                   Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
                 </span>
@@ -598,13 +598,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 )}
               </div>
               {sorted.length === 0 && (
-                <p className="evo-empty">
+                <p className="evo-empty text-center text-text-muted">
                   Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
                 </p>
               )}
               <dialog
                 ref={dialog}
-                className="evo-drawer"
+                className="evo-drawer fixed inset-y-0 right-0 z-[80] w-[min(560px,100vw)] overflow-y-auto border-l border-border-active bg-surface-1 p-4 shadow-lg"
                 aria-label="Cách đánh"
                 onClose={() => setDetail(null)}
                 onClick={(event) => event.target === event.currentTarget && dialog.current?.close()}
@@ -614,7 +614,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   if (!row) return null;
                   const info = strategyInfo(row.genome);
                   return (
-                    <div className="evo-drawer-body">
+                    <div className="evo-drawer-body space-y-3 pt-8">
                       <header>
                         <div>
                           <strong>{strategyShortTitle(row.genome, row.strategy)}</strong>
@@ -630,7 +630,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           ✕
                         </button>
                       </header>
-                      <ol className="evo-steps">
+                      <ol className="evo-steps space-y-3 [&>li]:rounded [&>li]:border [&>li]:border-border-base [&>li]:p-3">
                         {howToPlay(row.genome, info.stop).map((step, index) => (
                           <li key={index}>
                             <b data-k={stepKind(step.label)}>{step.label}</b>
@@ -647,7 +647,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </li>
                         ))}
                       </ol>
-                      <p className="evo-drawer-src">
+                      <p className="evo-drawer-src rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
                         <b>Nguồn:</b>{' '}
                         {row.generation === 0
                           ? 'Chiến thuật gốc, tham số mặc định.'
@@ -657,7 +657,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   );
                 })()}
               </dialog>
-              <div className="evo-grid">
+              <div className="evo-grid grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3">
                 {sorted.slice((cardPage - 1) * PAGE.cards, cardPage * PAGE.cards).map((row) => {
                   const learned = row.learned_mean_r;
                   const tone = learned === null ? '' : learned > 0 ? 'good' : 'bad';
@@ -666,23 +666,23 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   return (
                     <article
                       key={row.strategy}
-                      className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''} ${signalSet.has(row.strategy) ? 'signaling' : ''}`}
+                      className={`evo-card ${tone} ${row.strategy === selected ? 'selected' : ''} ${openTrades.length ? 'holding' : ''} ${signalSet.has(row.strategy) ? 'signaling' : ''} min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-3 p-3 [&.selected]:border-bull [&.holding]:border-bull/50 [&.signaling]:border-amber-300/50`}
                     >
-                      <div className="evo-card-top">
+                      <div className="evo-card-top flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                         <div>
                           <strong title={strategyName(row.genome)}>
                             {strategyShortTitle(row.genome, row.strategy)}
                           </strong>
                           <code title={row.strategy}>{row.strategy.split(':')[1]}</code>
                         </div>
-                        <span className={`pill ${row.generation ? 'green' : ''}`}>
+                        <span className={`pill ${row.generation ? 'green' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                           <Dna size={11} /> G{row.generation}
                         </span>
                       </div>
-                      <p className="evo-basis">
+                      <p className="evo-basis flex min-w-0 flex-wrap items-center gap-2 text-xs">
                         {openTrades.length > 0 && (
                           <span
-                            className="pill evo-open-trades"
+                            className="pill evo-open-trades inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary flex min-w-0 flex-wrap items-center gap-2 text-xs"
                             title={openTrades
                               .map((position) => `#${position.id} ${position.side.toUpperCase()}`)
                               .join(' · ')}
@@ -693,7 +693,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         )}
                         {signalSet.has(row.strategy) && (
                           <span
-                            className="pill evo-signal"
+                            className="pill evo-signal inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary flex min-w-0 flex-wrap items-center gap-2 text-xs"
                             title="Có tín hiệu ở nến 15m vừa đóng. Chưa chắc đã vào lệnh: cần được bộ chọn ưu tiên và qua kiểm tra rủi ro."
                           >
                             ⚡ Tín hiệu {signalSides.get(row.strategy)?.toUpperCase() ?? ''}
@@ -702,7 +702,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         )}
                         {row.strategy === selected && (
                           <span
-                            className="pill green"
+                            className="pill green inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-bull"
                             title="Được bộ chọn ưu tiên ở nến gần nhất; không xác nhận đã mở lệnh."
                           >
                             Được chọn gần nhất
@@ -710,28 +710,28 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         )}
                         {row.paused && (
                           <span
-                            className="pill"
+                            className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary"
                             title="Chiến thuật không bị loại; chính sách thoát này chưa được bật nên không mở lệnh mới. Mẫu cũ vẫn được giữ."
                           >
                             Ngừng thử · thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
                           </span>
                         )}
-                        <span className="pill">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
-                        <span className="pill blue">{exitLabel(row.genome.exit_policy)}</span>
+                        <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
+                        <span className="pill blue inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-sky-300">{exitLabel(row.genome.exit_policy)}</span>
                       </p>
                       {row.rule_text && (
-                        <p className="evo-rule" title={row.rule_text}>
+                        <p className="evo-rule border-y border-border-subtle py-2 text-text-secondary" title={row.rule_text}>
                           {row.rule_text}
                         </p>
                       )}
                       {row.parents.length > 0 && (
-                        <div className="evo-origin">
-                          <div className="evo-origin-head">
+                        <div className="evo-origin flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                          <div className="evo-origin-head flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                             <span>{row.parents.length === 1 ? 'Đột biến từ' : 'Lai'}</span>
                             {row.parents.map((parent, idx) => {
                               const pRow = all.find((r) => r.strategy === parent);
                               return (
-                                <span key={`${parent}-${idx}`} className="evo-origin-parent">
+                                <span key={`${parent}-${idx}`} className="evo-origin-parent text-xs text-text-muted">
                                   {idx > 0 && <span aria-hidden="true">×</span>}
                                   <ParentChip
                                     id={`parent-tooltip-${row.strategy}-${idx}`}
@@ -749,7 +749,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </div>
                           {row.lineage?.from_mate.length ? (
                             <p>
-                              <span className="evo-origin-tag">Lấy từ B</span>
+                              <span className="evo-origin-tag text-xs text-text-muted">Lấy từ B</span>
                               {row.lineage.from_mate
                                 .map(
                                   (item) =>
@@ -760,7 +760,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           ) : null}
                           {row.lineage?.mutated.map((item) => (
                             <p key={item.gene}>
-                              <span className="evo-origin-tag mutated">✦ Đột biến</span>
+                              <span className="evo-origin-tag mutated text-xs text-text-muted">✦ Đột biến</span>
                               {GENE_LABELS[item.gene] ?? item.gene}:{' '}
                               {geneText(item.gene, item.before)} →{' '}
                               <b>{geneText(item.gene, item.after)}</b>
@@ -773,7 +773,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                             )}
                         </div>
                       )}
-                      <div className="evo-score">
+                      <div className="evo-score flex min-w-0 flex-wrap items-center gap-2 text-xs">
                         {row.learned_samples > 0 ? (
                           <b className={tone}>{`${learned! > 0 ? '+' : ''}${fmt(learned)}R`}</b>
                         ) : (
@@ -788,16 +788,16 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         </span>
                       </div>
                       <div
-                        className={`evo-paper ${openTrades.length || row.paper?.closed ? 'active' : ''}`}
+                        className={`evo-paper ${openTrades.length || row.paper?.closed ? 'active' : ''} flex min-w-0 flex-wrap items-center gap-2 text-xs`}
                       >
                         <span>Auto Paper</span>
                         {row.paper?.closed ? (
-                          <b className={row.paper.net_pnl >= 0 ? 'good' : 'bad'}>
+                          <b className={row.paper.net_pnl >= 0 ? "good text-bull" : "bad text-bear"}>
                             {usdt(row.paper.net_pnl)}
                           </b>
                         ) : null}
                         {openTrades.length || row.paper?.closed ? (
-                          <span className="evo-paper-detail">
+                          <span className="evo-paper-detail space-y-2 border-t border-border-subtle pt-2 text-xs">
                             {openTrades.length > 0 && (
                               <>
                                 Đang mở{' '}
@@ -806,7 +806,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                     <button
                                       key={trade.id}
                                       type="button"
-                                      className="text-button"
+                                      className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
                                       onClick={() => onViewTrade(trade.id)}
                                     >
                                       #{trade.id}
@@ -827,7 +827,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                             )}
                           </span>
                         ) : (
-                          <span className="muted">Chưa vào lệnh</span>
+                          <span className="muted text-text-muted">Chưa vào lệnh</span>
                         )}
                       </div>
                       <dl>
@@ -839,7 +839,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </dd>
                         </div>
                         {(row.qualification.windows > 0 || row.qualification.trades > 0) && (
-                          <div className="evo-gate">
+                          <div className="evo-gate flex min-w-0 flex-wrap items-center gap-2 text-xs">
                             <dt>Cổng duyệt</dt>
                             <dd>
                               <progress
@@ -855,7 +855,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       </dl>
                       <button
                         type="button"
-                        className="evo-more-btn"
+                        className="evo-more-btn w-full rounded border border-border-base py-1 text-xs text-text-muted hover:text-text-primary"
                         onClick={() => setDetail(row.strategy)}
                       >
                         Cách đánh chi tiết →
@@ -893,20 +893,20 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 unit="chiến thuật"
               />
               {(data.retired_strategies?.length ?? 0) > 0 && (
-                <details className="evo-retired">
+                <details className="evo-retired border-t border-border-base pt-3 [&>summary]:cursor-pointer [&>summary]:text-text-muted">
                   <summary>
-                    Cây đã loại <span className="evo-count">{data.retired_strategies!.length}</span>
+                    Cây đã loại <span className="evo-count ml-auto text-xs text-text-muted">{data.retired_strategies!.length}</span>
                   </summary>
-                  <div className="evo-retired-body">
-                    <div className="table-scroll">
+                  <div className="evo-retired-body mt-3 space-y-3">
+                    <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
                       <table>
                         <thead>
                           <tr>
                             <th>Cây · thế hệ</th>
                             <th>Lý do · thời điểm</th>
-                            <th className="num">Mẫu đóng</th>
-                            <th className="num">R TB</th>
-                            <th className="num">DD</th>
+                            <th className="num font-mono tabular-nums text-right">Mẫu đóng</th>
+                            <th className="num font-mono tabular-nums text-right">R TB</th>
+                            <th className="num font-mono tabular-nums text-right">DD</th>
                             <th>Cây giữ lại</th>
                           </tr>
                         </thead>
@@ -930,20 +930,20 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                   <td>
                                     {r ? (
                                       <>
-                                        <span className={`evo-pill ${tone}`}>{label}</span>
+                                        <span className={`evo-pill ${tone} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{label}</span>
                                         <small>{formatTime(r.at)}</small>
                                       </>
                                     ) : (
-                                      <span className="evo-pill">Lịch sử cũ · chưa ghi lý do</span>
+                                      <span className="evo-pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">Lịch sử cũ · chưa ghi lý do</span>
                                     )}
                                   </td>
-                                  <td className="num">{r?.samples ?? '—'}</td>
+                                  <td className="num font-mono tabular-nums text-right">{r?.samples ?? '—'}</td>
                                   <td
-                                    className={`num ${r ? (r.mean_r >= 0 ? 'positive' : 'negative') : ''}`}
+                                    className={`num ${r ? (r.mean_r >= 0 ? 'positive' : 'negative') : ''} font-mono tabular-nums text-right`}
                                   >
                                     {r ? `${r.mean_r.toFixed(2)}R` : '—'}
                                   </td>
-                                  <td className="num">
+                                  <td className="num font-mono tabular-nums text-right">
                                     {r ? `${r.max_drawdown_r.toFixed(2)}R` : '—'}
                                   </td>
                                   <td>
@@ -974,20 +974,20 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 </details>
               )}
               {(data.retired_paper?.length ?? 0) > 0 && (
-                <details className="evo-retired">
+                <details className="evo-retired border-t border-border-base pt-3 [&>summary]:cursor-pointer [&>summary]:text-text-muted">
                   <summary>
                     Đã loại nhưng từng chạy Auto Paper{' '}
-                    <span className="evo-count">{data.retired_paper!.length}</span>
+                    <span className="evo-count ml-auto text-xs text-text-muted">{data.retired_paper!.length}</span>
                   </summary>
-                  <div className="evo-retired-body">
-                    <div className="table-scroll">
+                  <div className="evo-retired-body mt-3 space-y-3">
+                    <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
                       <table>
                         <thead>
                           <tr>
                             <th>Chiến thuật</th>
-                            <th className="num">Lệnh đóng</th>
-                            <th className="num">Thắng</th>
-                            <th className="num">PnL ròng</th>
+                            <th className="num font-mono tabular-nums text-right">Lệnh đóng</th>
+                            <th className="num font-mono tabular-nums text-right">Thắng</th>
+                            <th className="num font-mono tabular-nums text-right">PnL ròng</th>
                             <th>Lệnh gần nhất</th>
                           </tr>
                         </thead>
@@ -1005,9 +1005,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                     : row.strategy}
                                   {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
                                 </td>
-                                <td className="num">{row.closed}</td>
-                                <td className="num">{row.wins}</td>
-                                <td className={`num ${row.net_pnl >= 0 ? 'positive' : 'negative'}`}>
+                                <td className="num font-mono tabular-nums text-right">{row.closed}</td>
+                                <td className="num font-mono tabular-nums text-right">{row.wins}</td>
+                                <td className={`num ${row.net_pnl >= 0 ? 'positive' : 'negative'} font-mono tabular-nums text-right`}>
                                   {usdt(row.net_pnl)}
                                 </td>
                                 <td>
@@ -1016,7 +1016,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                   ) : onViewTrade ? (
                                     <button
                                       type="button"
-                                      className="text-button"
+                                      className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
                                       onClick={() => onViewTrade(row.last_trade_id!)}
                                     >
                                       #{row.last_trade_id}
@@ -1042,13 +1042,13 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               )}
             </>
           )}
-          <p className="evo-note">
+          <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
             Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay thế:
             ≥50 mẫu forward đã khớp và đóng, R ròng âm, drawdown ≥10R hoặc trùng mẫu forward với cây
             tốt hơn đã đủ bằng chứng. 10R không phải 10% tài khoản. Replay không dùng để quyết định
             loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ được bảo vệ.
           </p>
-          <p className="evo-note">
+          <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
             Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không
             vào). Kết quả Auto Paper chỉ để đối chiếu, chưa được tính vào điểm học. Họ gốc đổi tham
             số; cây luật có thể đổi điều kiện và cách ghép. Họ gốc chọn cha mẹ có ≥10 mẫu và R

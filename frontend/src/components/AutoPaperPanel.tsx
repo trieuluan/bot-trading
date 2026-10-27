@@ -103,20 +103,20 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
       ? ((state.portfolio_used_risk ?? 0) / state.portfolio_capital) * 100
       : null;
   return (
-    <section className="panel prose auto-paper-panel">
-      <header className="ap-head">
-        <div className="auto-title">
+    <section className="panel prose auto-paper-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary">
+      <header className="ap-head flex flex-wrap items-center gap-2 text-xs">
+        <div className="auto-title font-semibold text-text-primary">
           <Bot size={22} />
           <div>
             <h2>Auto Paper</h2>
             <p>
-              <strong className="auto-strategy">{modeLabel}</strong>
+              <strong className="auto-strategy break-all font-mono text-xs text-text-muted">{modeLabel}</strong>
               <span>{getFuturesSymbol()} · H4/H1 · vào M15 · Cross</span>
             </p>
           </div>
         </div>
         <button
-          className={`ap-toggle ${state?.enabled ? 'on' : ''}`}
+          className={`ap-toggle ${state?.enabled ? 'on' : ''} rounded border border-border-base px-3 py-1 text-xs [&.on]:border-bull [&.on]:text-bull`}
           type="button"
           onClick={() => void toggle()}
           disabled={
@@ -130,12 +130,12 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           {busy ? 'Đang xử lý…' : state?.enabled ? 'Dừng Auto' : 'Bật Auto'}
         </button>
       </header>
-      <div className="auto-status" role="status">
-        <span className={`status-dot ${!state?.worker_online ? 'stale-dot' : ''}`} />
+      <div className="auto-status text-text-muted" role="status">
+        <span className={`status-dot ${!state?.worker_online ? 'stale-dot' : ''} inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400`} />
         <strong>{state?.worker_online ? 'Worker online' : 'Worker offline'}</strong>
         <span title={state?.status}>{state?.status ?? 'Đang tải trạng thái…'}</span>
       </div>
-      <div className="ap-kpis">
+      <div className="ap-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div>
           <span>Nến đóng sau</span>
           <strong>{state ? countdown : '—'}</strong>
@@ -144,7 +144,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           <span>Lệnh hôm nay</span>
           <strong>{state ? `${state.daily_trades}/${state.max_daily_trades}` : '—'}</strong>
         </div>
-        <div className={state && state.daily_loss > 0 ? 'bad' : ''}>
+        <div className={state && state.daily_loss > 0 ? "bad text-bear" : ''}>
           <span>Lỗ ngày</span>
           <strong>
             {state ? `${state.daily_loss_used_percent.toFixed(2)}%` : '—'}
@@ -164,7 +164,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
         </div>
       </div>
       <AutoJournal state={state} onViewTrade={onViewTrade} />
-      <div className="ap-chips" aria-label="Thông số đang áp dụng">
+      <div className="ap-chips flex flex-wrap items-center gap-2 text-xs" aria-label="Thông số đang áp dụng">
         <span>
           Đòn bẩy <b>{state?.leverage ?? '—'}x</b>
         </span>
@@ -186,12 +186,12 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           </b>
         </span>
       </div>
-      <details className="ap-config" open={!state?.enabled || undefined}>
+      <details className="ap-config flex flex-wrap items-center gap-2 text-xs" open={!state?.enabled || undefined}>
         <summary>{state?.enabled ? 'Thông số (khoá khi Auto chạy)' : 'Chỉnh thông số'}</summary>
-        <form className="auto-paper-form ap-form" onSubmit={(event) => void save(event)}>
-          <section className="ap-card">
+        <form className="auto-paper-form ap-form grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full" onSubmit={(event) => void save(event)}>
+          <section className="ap-card min-w-0 space-y-3 rounded border border-border-subtle p-3">
             <h3>Kích thước lệnh</h3>
-            <div className="ap-grid">
+            <div className="ap-grid grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label>
                 Rủi ro / lệnh (%)
                 <input
@@ -219,11 +219,11 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 />
               </label>
             </div>
-            <fieldset className="leverage-box" disabled={locked || !state?.max_leverage}>
+            <fieldset className="leverage-box rounded border border-border-base bg-surface-2 p-3" disabled={locked || !state?.max_leverage}>
               <legend>
-                Đòn bẩy <span className="leverage-mode">Cross</span>
+                Đòn bẩy <span className="leverage-mode flex flex-wrap items-center gap-2 text-xs [&>button]:rounded [&>button]:border [&>button]:border-border-base [&>button]:px-2 [&>button]:py-1">Cross</span>
               </legend>
-              <div className="leverage-stepper">
+              <div className="leverage-stepper flex flex-wrap items-center gap-2 text-xs [&>button]:rounded [&>button]:border [&>button]:border-border-base [&>button]:px-2 [&>button]:py-1">
                 <button
                   type="button"
                   aria-label="Giảm đòn bẩy"
@@ -231,7 +231,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 >
                   −
                 </button>
-                <label className="leverage-input">
+                <label className="leverage-input w-20 font-mono">
                   <input
                     type="number"
                     aria-label="Đòn bẩy"
@@ -252,7 +252,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 </button>
               </div>
               <input
-                className="leverage-slider"
+                className="leverage-slider w-full accent-bull"
                 type="range"
                 aria-label="Thanh trượt đòn bẩy"
                 min={minLeverage}
@@ -266,7 +266,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 }
                 onChange={(e) => setClamped(Number(e.target.value))}
               />
-              <div className="leverage-presets" role="group" aria-label="Mức đòn bẩy nhanh">
+              <div className="leverage-presets flex flex-wrap items-center gap-2 text-xs [&>button]:rounded [&>button]:border [&>button]:border-border-base [&>button]:px-2 [&>button]:py-1" role="group" aria-label="Mức đòn bẩy nhanh">
                 {[...new Set([10, 20, 50, 100, 200, maxLeverage])]
                   .filter((value) => value >= minLeverage && value <= maxLeverage)
                   .map((value) => (
@@ -281,16 +281,16 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                     </button>
                   ))}
               </div>
-              <p className={`leverage-note ${leverage >= 100 ? 'high' : ''}`}>
+              <p className={`leverage-note ${leverage >= 100 ? 'high' : ''} mt-2 text-xs leading-relaxed text-text-muted [&.high]:text-amber-300`}>
                 {state?.max_leverage
                   ? `Ký quỹ = giá trị lệnh ÷ ${leverage}. Giá đi ngược ~${(100 / leverage).toFixed(2)}% là mất hết ký quỹ của lệnh. Tối đa ${state.max_leverage}x theo MEXC cho ${getFuturesSymbol()}.`
                   : 'Chờ MEXC trả thông số đòn bẩy của cặp này.'}
               </p>
             </fieldset>
           </section>
-          <section className="ap-card">
+          <section className="ap-card min-w-0 space-y-3 rounded border border-border-subtle p-3">
             <h3>Giới hạn ví chung · 10 cặp</h3>
-            <div className="ap-grid">
+            <div className="ap-grid grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label>
                 Ngưỡng lỗ ngày (%)
                 <input
@@ -319,7 +319,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 />
               </label>
             </div>
-            <label className="ap-switch">
+            <label className="ap-switch flex flex-row items-center gap-2 text-xs">
               <input
                 type="checkbox"
                 checked={capEnabled}
@@ -328,41 +328,41 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
               />
               Giới hạn tổng rủi ro SL của mọi lệnh đang mở
             </label>
-            <p className="micro">
+            <p className="micro text-xs leading-relaxed text-text-muted">
               Đang dùng {formatPrice(state?.portfolio_used_risk ?? 0)} USDT. Ký quỹ một lệnh luôn ≤
               10% vốn. Đổi giới hạn ví chung cần dừng Auto trên mọi cặp.
             </p>
           </section>
-          <div className="ap-actions">
+          <div className="ap-actions flex flex-wrap items-center gap-2 text-xs">
             <button
-              className="secondary"
+              className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
               type="submit"
               disabled={!state || !online || busy || state.enabled || !dirty}
             >
               <Save size={15} /> Lưu thông số
             </button>
-            {dirty && <span className="micro">Lưu trước khi bật Auto.</span>}
+            {dirty && <span className="micro text-xs leading-relaxed text-text-muted">Lưu trước khi bật Auto.</span>}
           </div>
         </form>
       </details>
       {error && (
-        <p className="negative" role="alert">
+        <p className="negative text-bear" role="alert">
           {error}
         </p>
       )}
       {message && (
-        <p className="positive" role="status">
+        <p className="positive text-bull" role="status">
           {message}
         </p>
       )}
-      <details className="auto-paper-guide">
+      <details className="auto-paper-guide mt-2 text-xs leading-relaxed text-text-muted [&.high]:text-amber-300">
         <summary>Cách vận hành & giới hạn</summary>
-        <p className="micro">
+        <p className="micro text-xs leading-relaxed text-text-muted">
           Mốc equity ngày {state?.day || 'đang chờ'} (UTC):{' '}
           {state ? formatPrice(state.day_start_equity) : '—'} USDT. Lỗ tính trên toàn bộ ví, số lệnh
           chỉ tính lệnh auto.
         </p>
-        <p className="micro">
+        <p className="micro text-xs leading-relaxed text-text-muted">
           Bật auto sẽ chờ nến mới, không đặt bù tín hiệu cũ. Dừng auto chỉ ngừng vào lệnh mới; SL/TP
           vẫn được worker quản lý. Tắt nút theo dõi tín hiệu ở Tổng quan không dừng Auto Paper.
         </p>

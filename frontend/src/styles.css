@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;800&display=swap');
 /* Design tokens and base elements */
 :root {
   font-family: 'DM Sans', sans-serif;
@@ -6751,25 +6750,6 @@ button.parent-chip {
 .forex-markets {
   margin-bottom: 20px;
 }
-.forex-market-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 10px;
-}
-.forex-market-strip button {
-  display: grid;
-  gap: 5px;
-  min-width: 155px;
-  text-align: left;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel, #fff);
-}
-.forex-market-strip button[aria-pressed='true'] {
-  border-color: currentColor;
-}
 .forex-markets summary {
   cursor: pointer;
   padding: 8px 0;
@@ -6786,71 +6766,6 @@ main.forex-terminal-main {
 }
 .forex-terminal-main .header-actions {
   gap: 10px;
-}
-.forex-markets.is-compact {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-.forex-markets.is-compact .forex-market-strip {
-  flex: 1;
-  min-width: 0;
-  gap: 4px;
-  padding-bottom: 0;
-  scrollbar-width: none;
-}
-.forex-markets.is-compact .forex-market-strip button {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-shrink: 0;
-  min-width: max-content;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border-color: transparent;
-  background: transparent;
-  white-space: nowrap;
-  font-size: 12px;
-}
-.forex-markets.is-compact .forex-market-strip button:hover {
-  background: #eef1ea;
-}
-.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] {
-  border-color: #cfd8c8;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-.forex-markets.is-compact .forex-market-strip button span {
-  font:
-    600 12px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-.forex-markets.is-compact .forex-market-strip button small {
-  font-size: 10px;
-}
-.forex-markets.is-compact > details {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-.forex-markets.is-compact > details[open] {
-  position: absolute;
-  z-index: 20;
-  top: 0;
-  right: 0;
-  max-width: min(760px, calc(100vw - 32px));
-  padding: 4px 12px 12px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
-.forex-markets.is-compact summary {
-  padding: 6px 0;
 }
 .forex-catchup-compact {
   margin: 0 0 6px;
@@ -6884,66 +6799,6 @@ main.forex-terminal-main {
 }
 .trade-terminal {
   gap: 8px;
-}
-.terminal-account-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 22px;
-  padding: 8px 14px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.terminal-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.terminal-stat small {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.terminal-stat strong {
-  font:
-    700 13px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  color: #263d35;
-  white-space: nowrap;
-}
-.terminal-stat strong.positive {
-  color: #137333;
-}
-.terminal-stat strong.negative {
-  color: #c5221f;
-}
-.terminal-stat em {
-  font-style: normal;
-  font-weight: 500;
-  color: var(--muted);
-}
-.terminal-toggle {
-  margin-left: auto;
-  padding: 7px 14px;
-  border-radius: 6px;
-  border: 1px solid #245b46;
-  background: #245b46;
-  color: #f6f8ee;
-  font-size: 12px;
-  font-weight: 650;
-}
-.terminal-toggle.is-on {
-  background: #fff;
-  color: #9a3b2f;
-  border-color: #e4c3bd;
-}
-.terminal-toggle:disabled {
-  opacity: 0.5;
 }
 .terminal-decision {
   display: flex;
@@ -7075,12 +6930,6 @@ main.forex-terminal-main {
   main.forex-terminal-main {
     padding: 6px 8px 24px;
   }
-  .terminal-account-bar {
-    gap: 6px 14px;
-  }
-  .terminal-toggle {
-    width: 100%;
-  }
   .terminal-decision {
     flex-wrap: wrap;
   }
@@ -7123,29 +6972,6 @@ main.forex-terminal-main {
   color: #899b91;
 }
 @media (max-width: 700px) {
-  .forex-markets.is-compact {
-    flex-wrap: wrap;
-    gap: 2px;
-  }
-  .forex-markets.is-compact .forex-market-strip {
-    flex-basis: 100%;
-  }
-  .forex-markets.is-compact .forex-market-strip button small {
-    display: none;
-  }
-  .terminal-account-bar {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px 10px;
-    padding: 8px 10px;
-  }
-  .terminal-account-bar .badge-status {
-    justify-self: start;
-  }
-  .terminal-toggle {
-    grid-column: 1 / -1;
-    margin-left: 0;
-  }
   .trade-terminal .broker-market-header {
     flex-direction: row;
     flex-wrap: wrap;
@@ -7158,64 +6984,6 @@ main.forex-terminal-main {
 }
 /* Exness Bot: dải cặp + thanh tài khoản dính mép trên khi cuộn.
    --forex-strip-h do useStickyBar đo, để thanh tài khoản dừng ngay dưới dải cặp. */
-.forex-markets.is-compact {
-  position: sticky;
-  top: 0;
-  z-index: 16;
-  margin: -8px -16px 6px;
-  padding: 6px 16px;
-  background: rgba(245, 246, 241, 0.92);
-  backdrop-filter: saturate(1.4) blur(8px);
-  -webkit-backdrop-filter: saturate(1.4) blur(8px);
-  border-bottom: 1px solid transparent;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.forex-markets.is-compact.is-stuck {
-  border-bottom-color: var(--border);
-}
-.forex-markets.is-compact .forex-market-strip {
-  scroll-behavior: smooth;
-  scroll-padding-inline: 32px;
-}
-.forex-markets.is-compact .forex-market-strip::-webkit-scrollbar {
-  display: none;
-}
-.forex-market-strip.fade-left {
-  mask-image: linear-gradient(to right, transparent, #000 32px);
-}
-.forex-market-strip.fade-right {
-  mask-image: linear-gradient(to left, transparent, #000 32px);
-}
-.forex-market-strip.fade-left.fade-right {
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 32px,
-    #000 calc(100% - 32px),
-    transparent
-  );
-}
-.forex-markets.is-compact .forex-market-strip button {
-  position: relative;
-  align-items: center;
-  color: #4d5f55;
-  transition:
-    background 0.12s,
-    border-color 0.12s,
-    color 0.12s;
-}
-.forex-markets.is-compact .forex-market-strip button {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-width: max-content;
-  min-height: 42px;
-  align-items: center;
-  gap: 2px 8px;
-  padding: 5px 10px;
-  line-height: 1.2;
-}
 .forex-strip-heading {
   grid-area: 1 / 1;
   display: flex;
@@ -7230,41 +6998,6 @@ main.forex-terminal-main {
 }
 .forex-strip-session.is-open { background: #23826b; }
 .forex-strip-session.is-closed { background: #929b93; }
-.forex-markets.is-compact .forex-market-strip button strong {
-  grid-area: 1 / 1;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-}
-.forex-markets.is-compact .forex-market-strip button > span:not([class]) {
-  grid-area: 2 / 1;
-}
-.forex-markets.is-compact .forex-market-strip .pair-signal,
-.forex-markets.is-compact .forex-market-strip .forex-strip-positions {
-  justify-self: end;
-  font-size: 10px;
-  line-height: 14px;
-}
-.forex-markets.is-compact .forex-market-strip .forex-strip-side {
-  grid-area: 1 / 2 / 3 / 3;
-  display: grid;
-  grid-template-columns: repeat(2, max-content);
-  align-items: center;
-  justify-content: end;
-  gap: 2px;
-}
-.forex-markets.is-compact .forex-strip-side > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 3px;
-  font-size: 10px;
-  line-height: 15px;
-  border-radius: 4px;
-  font-variant-numeric: tabular-nums;
-  animation: none;
-}
 .pair-intent {
   display: inline-flex;
   align-items: center;
@@ -7290,39 +7023,6 @@ main.forex-terminal-main {
   color: #9e5147;
   background: #f5e5e0;
 }
-.forex-signal-lifecycle {
-  padding: 0 14px;
-  border-block: 1px solid #2a3931;
-  background: #111a16;
-  color: #adbbb2;
-  font-size: 11px;
-}
-.forex-signal-lifecycle summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 10px 0;
-  cursor: pointer;
-}
-.forex-signal-lifecycle summary strong { color: #e1e9e2; }
-.signal-lifecycle-disclosure { margin-left: auto; color: #88b8a3; }
-.signal-lifecycle-disclosure::after { content: ' +'; }
-.forex-signal-lifecycle[open] .signal-lifecycle-disclosure::after { content: ' −'; }
-.forex-signal-lifecycle p { margin: 0 0 10px; line-height: 1.6; color: #adbbb2; }
-.signal-lifecycle-list { max-height: 240px; overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 4px; padding: 0 4px 8px 0; }
-.signal-lifecycle-row { flex-shrink: 0; border: 1px solid #2a3d32; border-radius: 6px; background: #121c17; overflow: hidden; padding: 0; }
-.signal-lifecycle-row.is-selected { border-color: #55876d; background: #16261e; box-shadow: inset 3px 0 #8ed4b3; }
-.signal-lifecycle-select { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 40px; box-sizing: border-box; padding: 8px 10px; border: none; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.signal-lifecycle-help { margin-bottom: 6px; }
-.signal-lifecycle-help summary { width: fit-content; padding: 4px 0; color: #88b8a3; }
-.signal-lifecycle-help summary::before { content: '+'; }
-.signal-lifecycle-help[open] summary::before { content: '−'; }
-.signal-lifecycle-meta { overflow-wrap: anywhere; }
-.signal-lifecycle-select:hover { background: rgba(255,255,255,0.03); }
-.signal-lifecycle-details { border-top: 1px solid #24352b; padding: 0 10px; background: #0e1612; font-size: 11px; }
-.signal-lifecycle-details summary { cursor: pointer; color: #88b8a3; font-weight: 500; padding: 8px 0; }
-.signal-lifecycle-details[open] { padding-bottom: 8px; }
 .forex-v4-chart-selection { margin: 6px 0; padding: 8px 12px; border: 1px solid #334d3f; border-radius: 6px; background: #121c17; }
 .forex-v4-snapshot-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .forex-v4-snapshot-heading label { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 320px; font-weight: 600; color: #d0ded6; }
@@ -7334,135 +7034,16 @@ main.forex-terminal-main {
 .forex-v4-levels li { display: inline-flex; gap: 5px; align-items: baseline; background: #182720; border: 1px solid #273d31; padding: 2px 7px; border-radius: 4px; }
 .forex-v4-levels li span { color: #8fa99c; text-transform: uppercase; font-size: 9px; letter-spacing: 0.3px; }
 .forex-v4-levels li strong { color: #d7ede1; font-family: monospace; font-size: 12px; }
-.signal-lifecycle-list:focus-visible, .forex-signal-lifecycle summary:focus-visible {
-  outline: 2px solid #88b8a3;
-  outline-offset: 2px;
-}
 /* removed legacy conflicting .signal-lifecycle-row */
-.forex-signal-lifecycle { scroll-margin-top: 160px; }
-.signal-lifecycle-toolbar, .signal-lifecycle-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.signal-lifecycle-toolbar { margin-bottom: 4px; justify-content: space-between; }
-.signal-lifecycle-filters button, .signal-lifecycle-clear-btn {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 9px;
-  border: 1px solid #34483b; border-radius: 5px; color: #adbbb2; background: transparent; font: inherit; cursor: pointer;
-}
-.signal-lifecycle-filters button[aria-pressed='true'] { background: #253c30; color: #c8ecdb; border-color: #61977b; }
-.signal-lifecycle-select:focus-visible, .signal-lifecycle-toolbar button:focus-visible { outline: 2px solid #88b8a3; outline-offset: -2px; }
-.signal-lifecycle-select-action { color: #88b8a3; }
-.signal-lifecycle-select-action .is-active { display: inline-flex; gap: 4px; align-items: center; }
 .signal-setup-selected { color: #b9dec9; }
 .signal-setup-tags { color: #adc5d4; }
 .signal-setup-strategies { flex-basis: 100%; overflow-wrap: anywhere; font-family: monospace; font-size: 10px; }
 .signal-setup-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 14px; color: #d6c59c; background: #29271c; font-size: 11px; }
-.signal-lifecycle-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: 100%; }
-.signal-lifecycle-heading .font-mono { overflow-wrap: anywhere; }
-.signal-lifecycle-heading time { margin-left: auto; color: #9aaea1; }
-.signal-lifecycle-steps { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0; padding: 0; list-style: none; }
-.signal-lifecycle-steps li { color: #83938a; }
-.signal-lifecycle-steps li::before { content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 5px 1px 0; border: 1px solid currentColor; border-radius: 50%; }
-.signal-lifecycle-steps .is-done { color: #8ed4b3; }
-.signal-lifecycle-steps .is-done::before { background: currentColor; }
-.signal-lifecycle-steps .is-terminal { color: #b6c5bc; }
-.signal-lifecycle-steps .is-cancelled { color: #e2a79b; }
-.signal-lifecycle-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #b1c4b8; font-size: 11px; line-height: 1.5; min-height: 18px; }
-.forex-markets.is-compact .forex-market-strip button > span:not([class]) {
-  color: #6c7a70;
-  font-variant-numeric: tabular-nums;
-}
-.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] {
-  color: var(--green);
-  border-color: #b9cdbf;
-}
-.forex-markets.is-compact .forex-market-strip button[aria-pressed='true'] > span:not([class]) {
-  color: #263d35;
-}
-.forex-markets.is-compact .forex-market-strip button[aria-pressed='true']::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--green);
-}
-.forex-markets.is-compact .forex-market-strip button:focus-visible,
-.terminal-toggle:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 1px;
-}
-.terminal-account-bar {
-  position: sticky;
-  top: var(--forex-strip-h, 44px);
-  z-index: 15;
-  gap: 6px 0;
-  transition:
-    box-shadow 0.15s,
-    border-radius 0.15s;
-}
-.terminal-account-bar.is-stuck {
-  border-top-color: transparent;
-  border-radius: 0 0 8px 8px;
-  box-shadow: 0 6px 16px -8px rgba(30, 50, 40, 0.28);
-}
-.terminal-account-bar > .badge-status {
-  margin-right: 18px;
-}
-.terminal-account-bar > .terminal-stat {
-  padding: 0 18px;
-  border-left: 1px solid var(--border);
-}
-.terminal-stat strong {
-  font-variant-numeric: tabular-nums;
-}
-.terminal-toggle {
-  transition:
-    background 0.12s,
-    filter 0.12s;
-}
-.terminal-toggle:not(:disabled):hover {
-  filter: brightness(1.08);
-}
-.terminal-toggle.is-on:not(:disabled):hover {
-  background: #fbf1ef;
-  filter: none;
-}
 .trade-terminal .execution-chart-panel {
   scroll-margin-top: calc(var(--forex-strip-h, 44px) + var(--forex-account-h, 52px) + 8px);
 }
 @media (max-width: 700px) {
-  .forex-markets.is-compact {
-    margin: -6px -8px 6px;
-    padding: 4px 8px;
-  }
   /* Mobile: một hàng cuộn ngang thay vì lưới 3 cột, để thanh dính không chiếm nửa màn hình. */
-  .terminal-account-bar {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0;
-    padding: 6px 10px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .terminal-account-bar::-webkit-scrollbar {
-    display: none;
-  }
-  .terminal-account-bar > * {
-    flex-shrink: 0;
-  }
-  .terminal-account-bar > .badge-status {
-    order: -2;
-    margin-right: 8px;
-  }
-  .terminal-account-bar > .terminal-toggle {
-    order: -1;
-    width: auto;
-    margin: 0 4px 0 0;
-    padding: 6px 10px;
-  }
-  .terminal-account-bar > .terminal-stat {
-    padding: 0 12px;
-  }
 }
 
 .topbar {
@@ -7562,159 +7143,33 @@ main.forex-terminal-main {
 }
 
 /* Overview */
-.ov-status {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
-  padding: 18px 20px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--tone);
-  border-radius: 10px;
-}
-.ov-status-main {
-  min-width: 0;
-}
-.ov-status h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0 4px;
-  font:
-    700 20px 'Manrope',
-    sans-serif;
-  color: #1f342c;
-}
-.ov-status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--tone);
-  box-shadow: 0 0 0 4px var(--tone-bg);
-}
-.ov-status p {
-  margin: 0;
-  font-size: 13px;
-  color: #4f5f55;
-}
-.ov-status .ov-status-hint {
-  margin-top: 6px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--tone-bg);
-  color: var(--tone-ink);
-  font-size: 12px;
-}
-.ov-health {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 12px;
-}
-.ov-status-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.ov-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.ov-kpis > div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.ov-kpis small {
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.ov-kpis strong {
-  font:
-    700 20px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  color: #1f342c;
-}
-.ov-kpis strong em,
-.ov-tree-meters strong em {
-  font-style: normal;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-}
-.ov-kpis span {
-  font-size: 11px;
-  color: var(--muted);
-}
-.ov-kpis .positive,
-.ov-kpis strong.positive {
-  color: #137333;
-}
-.ov-kpis .negative,
-.ov-kpis strong.negative {
-  color: #c5221f;
-}
-.forex-overview-panel h2 {
-  margin: 0;
-  font:
-    700 16px 'Manrope',
-    sans-serif;
-  color: #1f342c;
-}
-.forex-overview-panel .forex-summary-list {
-  margin: 0;
-}
-.forex-overview-panel > .secondary {
-  margin-top: auto;
-  align-self: flex-start;
-}
-.ov-tree-meters {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.ov-tree-meters > div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f6f8f2;
-}
-.ov-tree-meters strong {
-  font:
-    700 22px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-  color: #1e5b47;
-}
-.ov-tree-meters span {
-  font-size: 12px;
-  font-weight: 650;
-  color: #263d35;
-}
-.ov-tree-meters small {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--muted);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* Pair tables (overview + connection) */
-.forex-pairs-panel {
-  background: #fff;
-}
+
 .forex-pairs-head {
   display: flex;
   flex-wrap: wrap;
@@ -7803,132 +7258,30 @@ main.forex-terminal-main {
   flex-direction: column;
   gap: 16px;
 }
-.conn-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-}
-.conn-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--tone);
-  border-radius: 10px;
-}
-.conn-card header,
-.conn-frame header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-.conn-card h2 {
-  margin: 0;
-  font:
-    700 15px 'Manrope',
-    sans-serif;
-  color: #1f342c;
-}
-.conn-card .forex-summary-list {
-  margin: 0;
-}
-.conn-card .forex-summary-list dd {
-  text-align: right;
-}
-.conn-hint {
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--tone-bg);
-  color: var(--tone-ink);
-  font-size: 12px;
-}
-.conn-note {
-  margin: auto 0 0;
-  font-size: 11px;
-  color: var(--muted);
-}
-.conn-feed {
-  background: #fff;
-  padding-bottom: 12px;
-}
-.conn-feed .micro {
-  margin: 8px 16px 0;
-}
-.conn-frames {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-  padding: 0 16px;
-}
-.conn-frame {
-  padding: 12px;
-  border: 1px solid #edf0e8;
-  border-left: 3px solid var(--tone);
-  border-radius: 8px;
-  background: #fbfcf9;
-}
-.conn-frame header strong {
-  font:
-    700 15px 'Manrope',
-    sans-serif;
-  color: #1e5b47;
-}
-.conn-frame header .dot-label {
-  white-space: normal;
-  text-align: right;
-}
-.conn-frame dl {
-  display: grid;
-  gap: 6px;
-  margin: 10px 0 0;
-}
-.conn-frame dl div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-}
-.conn-frame dt {
-  color: var(--muted);
-}
-.conn-frame dd {
-  margin: 0;
-  font-weight: 600;
-}
-.conn-legacy {
-  padding: 0 16px;
-  background: #fff;
-}
-.conn-legacy summary {
-  padding: 12px 0;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: #4f5f55;
-}
-.conn-legacy .forex-summary-list {
-  margin: 0 0 8px;
-}
-.conn-log {
-  margin: 8px 0 14px;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-}
-.conn-log li {
-  display: grid;
-  grid-template-columns: 130px 220px 1fr;
-  gap: 10px;
-  padding: 5px 0;
-  border-top: 1px solid #f0f2eb;
-}
-.conn-log small {
-  color: var(--muted);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* Sidebar badge */
 .forex-shell .sidebar .nav-count:not(.is-on) {
@@ -8060,28 +7413,17 @@ main.forex-terminal-main {
   }
 }
 @media (max-width: 640px) {
-  .ov-status {
-    flex-direction: column;
-    padding: 14px;
-  }
-  .ov-status-actions {
-    flex-direction: row;
-    width: 100%;
-  }
+
+
   .ov-status-actions button {
     flex: 1;
   }
-  .ov-tree-meters {
-    grid-template-columns: 1fr;
-  }
+
   .forex-pairs-table th,
   .forex-pairs-table td {
     padding: 8px 10px;
   }
-  .conn-log li {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
+
   .forex-page-heading h1 {
     font-size: 24px;
   }
@@ -8096,9 +7438,7 @@ main.forex-terminal-main {
 .forex-pairs-table tbody th .forex-pair-link {
   font-size: 13px;
 }
-.conn-card header {
-  flex-wrap: wrap;
-}
+
 
 /* Decision journal: "Vì sao bot vào / không vào lệnh" */
 .journal {
@@ -9502,11 +8842,6 @@ button.ap-cell:focus-visible {
 
 /* Đổi cặp: vạch tiến trình dưới dải cặp (sticky nên luôn thấy), spinner trên cặp vừa chọn,
    dữ liệu cặp cũ mờ đi và không bấm được cho tới khi dashboard cặp mới về. */
-.forex-markets.is-compact .route-progress {
-  bottom: 0;
-  width: 30%;
-  animation-name: strip-progress;
-}
 @keyframes strip-progress {
   from {
     left: -30%;
@@ -9514,12 +8849,6 @@ button.ap-cell:focus-visible {
   to {
     left: 100%;
   }
-}
-.forex-markets.is-compact.is-loading {
-  overflow: hidden;
-}
-.forex-markets.is-compact .forex-market-strip button[aria-busy='true'] {
-  padding-right: 24px;
 }
 .pair-loading,
 .switching-spinner {
@@ -9529,12 +8858,6 @@ button.ap-cell:focus-visible {
   border-top-color: var(--green);
   border-radius: 50%;
   animation: pair-loading-spin 0.7s linear infinite;
-}
-.forex-markets.is-compact .forex-market-strip .pair-loading {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  margin-top: -5px;
 }
 .switching-spinner {
   flex: none;
@@ -9566,15 +8889,9 @@ button.ap-cell:focus-visible {
   white-space: nowrap;
   color: var(--muted);
 }
-.trade-terminal .terminal-account-bar > *,
 .trade-terminal .execution-chart-panel,
 .trade-terminal .terminal-bottom {
   transition: opacity 0.15s;
-}
-.trade-terminal.is-stale .terminal-account-bar > :not(.badge-status),
-.trade-terminal.is-stale .execution-chart-panel,
-.trade-terminal.is-stale .terminal-bottom {
-  opacity: 0.45;
 }
 .terminal-decision.is-failed {
   color: #9a3b2f;
@@ -9764,189 +9081,4 @@ button.ap-cell:focus-visible {
   .position-group-details { padding: 10px 12px; }
   .forex-position-groups { max-height: 75vh; }
   .position-leg-table { min-width: 650px; }
-}
-.forex-markets.is-compact > .forex-strip-legend,
-.forex-markets.is-compact > .forex-strip-legend[open] {
-  position: relative;
-  margin-left: auto;
-  align-self: center;
-  padding: 0 4px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-.forex-strip-legend summary {
-  list-style: none;
-  cursor: pointer;
-  color: #5d7568;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: 0;
-  background: transparent;
-  line-height: 1;
-  transition: color 0.15s ease;
-}
-.forex-strip-legend summary::-webkit-details-marker { display: none; }
-.forex-strip-legend summary:hover {
-  color: #34d399;
-  background: transparent;
-}
-.forex-strip-legend[open] summary {
-  color: #34d399;
-  background: transparent;
-}
-.forex-strip-legend-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 50;
-  width: min(360px, calc(100vw - 24px));
-  box-sizing: border-box;
-  padding: 10px 12px;
-  background: #0d1511;
-  border: 1px solid #1e3328;
-  border-radius: 8px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
-  font-size: 11px;
-  color: #b7cbbf;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 72vh;
-  overflow-y: auto;
-}
-.forex-strip-legend-popover header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #16241d;
-}
-.forex-strip-legend-popover header strong {
-  font-size: 12px;
-  color: #e6f3ec;
-  letter-spacing: 0.01em;
-}
-.forex-strip-legend-popover header span {
-  font-size: 10px;
-  color: #637b6f;
-}
-.forex-strip-legend-popover h4 {
-  margin: 2px 0 -2px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #728b7e;
-}
-.forex-strip-legend-popover .legend-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  line-height: 1.35;
-}
-.forex-strip-legend-popover .legend-row span:last-child {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.forex-strip-legend-popover .legend-row strong {
-  color: #dceae2;
-  font-size: 11px;
-}
-.forex-strip-legend-popover .legend-row small,
-.forex-strip-legend-popover .legend-state small {
-  font-size: 10.5px;
-  color: #7f978b;
-  line-height: 1.25;
-}
-.forex-strip-legend-popover .legend-sessions {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding-top: 4px;
-}
-.forex-strip-legend-popover .dot {
-  flex: 0 0 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.forex-strip-legend-popover .dot-open { background: #10b981; }
-.forex-strip-legend-popover .dot-closed { background: #475569; }
-.forex-strip-legend-popover .dot-unknown { background: #d97706; }
-.forex-strip-legend-popover .badge-sample {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.forex-strip-legend-popover .badge-sample.is-signal { background: #0f2d22; color: #34d399; border: 1px solid #1a4f3c; }
-.forex-strip-legend-popover .badge-sample.is-position { background: #2b1d0c; color: #fbbf24; border: 1px solid #4a3416; }
-.forex-strip-legend-popover .legend-states {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 4px;
-  padding: 5px 6px;
-  background: #080d0a;
-  border: 1px solid #142119;
-  border-radius: 6px;
-}
-.forex-strip-legend-popover .legend-state {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.forex-strip-legend-popover .pair-intent {
-  min-width: 92px;
-  justify-content: flex-start;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.forex-strip-legend-popover .pair-intent.is-waiting {
-  color: #34d399;
-  background: #0d281e;
-  border: 1px solid #174734;
-}
-.forex-strip-legend-popover .pair-intent.is-triggered {
-  color: #fbbf24;
-  background: #281d09;
-  border: 1px solid #473210;
-}
-.forex-strip-legend-popover .pair-intent.is-filled {
-  color: #34d399;
-  background: #0d281e;
-  border: 1px solid #174734;
-}
-.forex-strip-legend-popover .pair-intent.is-uncertain {
-  color: #fca5a5;
-  background: #2b1111;
-  border: 1px solid #4a1c1c;
-}
-.forex-strip-legend-popover .pair-intent.is-cancelled {
-  color: #f87171;
-  background: #2b1111;
-  border: 1px solid #4a1c1c;
-}
-.forex-strip-legend-popover .pair-intent.is-ended {
-  color: #94a3b8;
-  background: #141c26;
-  border: 1px solid #233142;
-}
-.forex-strip-legend-popover footer {
-  padding-top: 4px;
-  border-top: 1px solid #16241d;
-  font-size: 10px;
-  line-height: 1.3;
-  color: #5c7467;
 }

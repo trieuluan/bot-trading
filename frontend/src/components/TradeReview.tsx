@@ -24,12 +24,12 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
   );
   return (
     <section className="trade-review" aria-labelledby="trade-review-title">
-      <div className="section-head">
+      <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
         <div>
           <h3 id="trade-review-title">Quan sát lệnh trên chart</h3>
           <p>Nến MEXC thật · khớp lệnh backtest mô phỏng · không phải lệnh trên sàn</p>
         </div>
-        <span className="pill amber">BACKTEST FILLS</span>
+        <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">BACKTEST FILLS</span>
       </div>
       <div className="trade-review-controls">
         <label>
@@ -55,7 +55,7 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
         </label>
         <div className="trade-review-buttons">
           <button
-            className="secondary"
+            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
             aria-label="Lệnh trước"
             disabled={selectedIndex <= 0 || !selected}
             onClick={() => setSelectedIndex(selectedIndex - 1)}
@@ -63,7 +63,7 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
             <ChevronLeft size={16} />
           </button>
           <button
-            className="secondary"
+            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
             aria-label="Lệnh tiếp theo"
             disabled={selectedIndex >= result.trades.length - 1 || !selected}
             onClick={() => setSelectedIndex(selectedIndex + 1)}
@@ -71,7 +71,7 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
             <ChevronRight size={16} />
           </button>
           <button
-            className="secondary"
+            className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
             disabled={!selected}
             onClick={() => setFocusRevision((revision) => revision + 1)}
           >
@@ -84,7 +84,7 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
           <strong>
             Lệnh #{selectedIndex + 1} · {selected.side.toUpperCase()}
           </strong>
-          <span className={selected.net_pnl >= 0 ? 'positive' : 'negative'}>
+          <span className={selected.net_pnl >= 0 ? "positive text-bull" : "negative text-bear"}>
             {formatPrice(selected.net_pnl)} USDT ròng
           </span>
           <span>{exitLabels[selected.exit_reason] ?? selected.exit_reason}</span>
@@ -117,12 +117,12 @@ export function TradeReview({ candles, result }: { candles: Candle[]; result: Ba
           </span>
         </div>
       )}
-      <p className="micro">
+      <p className="micro text-xs leading-relaxed text-text-muted">
         SL/TP hiển thị là kế hoạch của lệnh đã chọn; entry/exit bao gồm trượt giá. Đường mức giá kéo
         ngang để tham chiếu. Khi cùng nến chạm cả SL và TP, backtest xử lý SL trước; không thể xác
         định thứ tự intrabar từ nến 15m.
       </p>
-      <p className="chart-attribution">
+      <p className="chart-attribution px-3 py-2 text-right text-xs text-text-muted">
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           TradingView Lightweight Charts™
         </a>{' '}

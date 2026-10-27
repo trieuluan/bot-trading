@@ -35,19 +35,20 @@ test('ForexSignalLifecycle marks V4 shadow setups as simulation and renders guid
     assert.ok(markup.includes('1 mô phỏng'));
     assert.ok(markup.includes('Hướng dẫn · trạng thái'));
     assert.ok(markup.includes('Xem trên chart'));
+    assert.match(markup, /<article class="[^\"]*\bshrink-0\b/);
+    assert.match(markup, /class="signal-lifecycle-list [^\"]*max-h-\[250px\][^\"]*overflow-y-auto/);
+    assert.ok(!markup.includes('Chi tiết thực thi'));
+    const selectedMarkup = renderToStaticMarkup(
+      React.createElement(ForexSignalLifecycle, {
+        setups, symbol: 'EURUSD', selectedId: 'setup:1', onSelect: () => {},
+      }),
+    );
+    assert.equal((selectedMarkup.match(/aria-pressed="true"/g) ?? []).length, 2);
+    assert.ok(selectedMarkup.includes('Chi tiết thực thi'));
+    assert.ok(selectedMarkup.includes('aria-label="Vòng đời tín hiệu EURUSD"'));
   } finally {
     await server.close();
   }
-});
-
-test('styles.css keeps .signal-lifecycle-row uncompressed in flex container', async () => {
-  const fs = await import('node:fs/promises');
-  const css = await fs.readFile(fileURLToPath(new URL('../src/styles.css', import.meta.url)), 'utf8');
-  assert.match(
-    css,
-    /\.signal-lifecycle-row\s*\{[^}]*flex-shrink:\s*0[^}]*\}/,
-    'Expected .signal-lifecycle-row to set flex-shrink: 0 to prevent row height crushing',
-  );
 });
 
 test('ForexStripLegend renders all entry branch states without default browser title tooltip', async () => {

@@ -123,7 +123,7 @@ export default function App() {
     };
   }, []);
   const picker = (
-    <div className="workspace workspace-picker">
+    <div className="workspace workspace-picker flex min-w-0 items-center gap-2 rounded-md border border-border-base p-2 text-xs [&_small]:block [&_small]:text-text-muted md:in-[[data-sidebar=collapsed]]:hidden w-full min-w-0 bg-surface-2 text-text-secondary">
       <label htmlFor="venue-workspace">Workspace / Sàn</label>
       <select
         id="venue-workspace"
@@ -153,24 +153,24 @@ export default function App() {
 /** Khung xương giữ bố cục trang trong lúc tải dashboard lần đầu. */
 function ForexSkeleton({ page }: { page: string }) {
   return (
-    <div className="forex-skeleton" role="status" aria-label="Đang tải workspace Exness">
+    <div className="forex-skeleton space-y-3 p-4" role="status" aria-label="Đang tải workspace Exness">
       {page === 'Bot' ? (
         <>
-          <span className="skeleton-block" style={{ height: 56 }} />
+          <span className="skeleton-block min-h-5 animate-pulse rounded bg-surface-3 bg-none" style={{ height: 56 }} />
           <span
-            className="skeleton-block"
+            className="skeleton-block min-h-5 animate-pulse rounded bg-surface-3 bg-none"
             style={{ height: 'clamp(420px, calc(100vh - 260px), 940px)' }}
           />
         </>
       ) : (
         <>
-          <span className="skeleton-block" style={{ height: 150 }} />
-          <div className="forex-skeleton-row">
+          <span className="skeleton-block min-h-5 animate-pulse rounded bg-surface-3 bg-none" style={{ height: 150 }} />
+          <div className="forex-skeleton-row grid grid-cols-2 gap-3 sm:grid-cols-4">
             {Array.from({ length: 4 }, (_, index) => (
-              <span key={index} className="skeleton-block" style={{ height: 92 }} />
+              <span key={index} className="skeleton-block min-h-5 animate-pulse rounded bg-surface-3 bg-none" style={{ height: 92 }} />
             ))}
           </div>
-          <span className="skeleton-block" style={{ height: 260 }} />
+          <span className="skeleton-block min-h-5 animate-pulse rounded bg-surface-3 bg-none" style={{ height: 260 }} />
         </>
       )}
     </div>
@@ -208,8 +208,8 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   // Dữ liệu đang hiển thị là của cặp cũ: chờ dashboard cặp mới.
   const switching = !!dashboard && dashboard.workspace.symbol !== symbol;
   return (
-    <div className="shell forex-shell">
-      {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
+    <div className="shell forex-shell min-h-dvh bg-canvas text-text-secondary">
+      {menu && <button className="scrim fixed inset-0 z-50 bg-black/60 md:hidden" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
       <Sidebar
         page={page}
         menu={menu}
@@ -223,14 +223,14 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         }}
         onOpenHelp={() => setHelp(true)}
       />
-      <div className="main">
-        <header className="topbar">
+      <div className="main min-w-0 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
+        <header className="topbar relative flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border-base bg-canvas px-3 py-2 lg:px-5">
           {switching && page !== 'Bot' && (
-            <span className="route-progress" role="status" aria-label={`Đang tải ${symbol}`} />
+            <span className="route-progress pointer-events-none absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-bull" role="status" aria-label={`Đang tải ${symbol}`} />
           )}
-          <div className="breadcrumb">
+          <div className="breadcrumb flex min-w-0 flex-wrap items-center gap-2 text-xs [&>strong]:text-text-primary">
             <button
-              className="icon-button mobile-menu"
+              className="icon-button mobile-menu inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary md:hidden"
               aria-label="Mở menu"
               onClick={() => setMenu(true)}
             >
@@ -240,11 +240,11 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <span>/</span>
             <strong>{page}</strong>
           </div>
-          <div className="header-actions">
+          <div className="header-actions flex min-w-0 flex-wrap items-center gap-2 text-xs [&>strong]:text-text-primary">
             <TimeZoneToggle />
             {page === 'Bot' && (
               <button
-                className="icon-button"
+                className="icon-button inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary"
                 aria-label="Làm mới"
                 title="Làm mới"
                 onClick={() => setRevision((value) => value + 1)}
@@ -252,14 +252,14 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                 <RefreshCw size={15} />
               </button>
             )}
-            <span className="pill amber">
+            <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">
               {dashboard?.execution_enabled ? 'DEMO · LỆNH SÀN' : 'DEMO · READ ONLY'}
             </span>
           </div>
         </header>
         <main className={page === 'Bot' ? 'forex-terminal-main' : undefined}>
           {page !== 'Bot' && (
-            <div className="page-heading forex-page-heading">
+            <div className="page-heading forex-page-heading mb-4 flex flex-wrap items-start justify-between gap-3 [&_p]:mt-1 [&_p]:text-xs [&_p]:text-text-muted">
               <div>
                 <h1>{page === 'Kết nối sàn' ? 'Kết nối sàn' : 'Tổng quan'}</h1>
                 <p>
@@ -269,14 +269,14 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                     : 'trạng thái bot, tài khoản và các cặp'}
                 </p>
               </div>
-              <button className="secondary" onClick={() => setRevision((value) => value + 1)}>
+              <button className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3" onClick={() => setRevision((value) => value + 1)}>
                 <RefreshCw size={15} /> Làm mới
               </button>
             </div>
           )}
           {page === 'Bot' && <ForexMarkets symbol={symbol} loading={switching && !error} />}
           {error && (
-            <div className="feedback" role="alert">
+            <div className="feedback my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full" role="alert">
               {error}
             </div>
           )}
@@ -342,8 +342,8 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
     <BotControlPanel snapshot={snapshot} connected={connected} busy={busy} onToggle={toggle} />
   );
   return (
-    <div className="shell">
-      {menu && <button className="scrim" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
+    <div className="shell min-h-dvh bg-canvas text-text-secondary">
+      {menu && <button className="scrim fixed inset-0 z-50 bg-black/60 md:hidden" aria-label="Đóng menu" onClick={() => setMenu(false)} />}
       <Sidebar
         page={page}
         menu={menu}
@@ -351,11 +351,11 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
         onNavigate={navigate}
         onOpenHelp={() => setHelp(true)}
       />
-      <div className="main">
-        <header className="topbar">
-          <div className="breadcrumb">
+      <div className="main min-w-0 transition-[margin] duration-150 md:ml-52 md:in-[[data-sidebar=collapsed]]:ml-16 [&>main]:min-w-0 [&>main]:p-3 lg:[&>main]:p-5 [&>main.forex-terminal-main]:p-0 [&>main>footer]:flex [&>main>footer]:flex-wrap [&>main>footer]:gap-3 [&>main>footer]:py-6 [&>main>footer]:text-xs [&>main>footer]:text-text-muted">
+        <header className="topbar relative flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border-base bg-canvas px-3 py-2 lg:px-5">
+          <div className="breadcrumb flex min-w-0 flex-wrap items-center gap-2 text-xs [&>strong]:text-text-primary">
             <button
-              className="icon-button mobile-menu"
+              className="icon-button mobile-menu inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary md:hidden"
               onClick={() => setMenu(true)}
               aria-label="Mở menu"
             >
@@ -365,19 +365,19 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
             <span>/</span>
             <strong>{page}</strong>
           </div>
-          <div className="header-actions">
+          <div className="header-actions flex min-w-0 flex-wrap items-center gap-2 text-xs [&>strong]:text-text-primary">
             <TimeZoneToggle />
-            <span className={`connection ${connected || connecting ? '' : 'offline'}`}>
-              <span className="status-dot" />
+            <span className={`connection ${connected || connecting ? '' : 'offline'} inline-flex items-center gap-1.5 text-xs text-text-muted [&.offline]:text-bear [&.ok]:text-bull [&.bad]:text-bear [&.warn]:text-amber-300`}>
+              <span className="status-dot inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400" />
               {connected
                 ? 'API kết nối'
                 : connecting
                   ? 'Đang kết nối…'
                   : 'Mất kết nối · dữ liệu xem trước'}
             </span>
-            <span className="pill amber">PAPER MODE</span>
+            <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">PAPER MODE</span>
             <button
-              className="icon-button"
+              className="icon-button inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary"
               aria-label="Thông báo"
               onClick={() => setNotice(!notice)}
             >
@@ -386,7 +386,7 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           </div>
         </header>
         {notice && (
-          <div className="notification">
+          <div className="notification my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full">
             <strong>Trạng thái hệ thống</strong>
             <p>
               {connected
@@ -397,11 +397,11 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           </div>
         )}
         <main>
-          <div className="page-heading">
+          <div className="page-heading mb-4 flex flex-wrap items-start justify-between gap-3 [&_p]:mt-1 [&_p]:text-xs [&_p]:text-text-muted">
             <div>
               <h1>
                 {page}{' '}
-                <span className="banner-tag">
+                <span className="banner-tag inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
                   {snapshot.data_source === 'mexc_futures' ? 'MEXC LIVE DATA' : 'DEMO DATA'}
                 </span>
               </h1>
@@ -411,23 +411,23 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                   : 'Nguồn dữ liệu, trạng thái worker và nhật ký hệ thống.'}
               </p>
             </div>
-            <button className="secondary" onClick={() => void refresh()}>
+            <button className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3" onClick={() => void refresh()}>
               <RefreshCw size={15} /> Làm mới
             </button>
           </div>
           {snapshot.data_source === 'mexc_futures' &&
             (snapshot.market.stale || snapshot.market.error || !connected) && (
-              <div className="feedback" role="status">
+              <div className="feedback my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full" role="status">
                 Dữ liệu đang chậm hoặc mất kết nối.{' '}
                 {snapshot.market.error ?? 'Đang chờ lần đồng bộ kế tiếp.'} Biểu đồ giữ nến đã lưu;
                 không thay bằng dữ liệu mẫu.
               </div>
             )}
           {message && (
-            <div role="status" className="feedback">
+            <div role="status" className="feedback my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full">
               {message}
               <button
-                className="icon-button"
+                className="icon-button inline-flex size-8 shrink-0 items-center justify-center rounded text-text-muted hover:text-text-primary"
                 aria-label="Đóng thông báo"
                 onClick={() => setMessage('')}
               >
@@ -462,11 +462,11 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
           )}
           <footer>
             <span>
-              <span className="footer-logo">✳</span> SIGNAL DESK{' '}
-              <span className="footer-divider">/</span> Built for deliberate trading.
+              <span className="footer-logo font-display font-semibold text-text-secondary">✳</span> SIGNAL DESK{' '}
+              <span className="footer-divider hidden sm:inline">/</span> Built for deliberate trading.
             </span>
             <span>
-              v0.2.0 <span className="footer-divider">·</span> Local workspace
+              v0.2.0 <span className="footer-divider hidden sm:inline">·</span> Local workspace
             </span>
           </footer>
         </main>

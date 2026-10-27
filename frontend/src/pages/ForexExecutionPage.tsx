@@ -140,56 +140,56 @@ export function ForexExecutionPage({
     <div className={`execution-desk trade-terminal${stale ? ' is-stale' : ''}`} aria-busy={stale}>
       <div
         ref={accountRef}
-        className={`terminal-account-bar${accountStuck ? ' is-stuck' : ''}`}
+        className={`terminal-account-bar${accountStuck ? ' is-stuck' : ''} sticky top-[var(--forex-strip-h,56px)] z-20 flex min-w-0 flex-nowrap items-center gap-4 overflow-x-auto border-b border-border-base bg-surface-1 px-3 py-2 [&>*]:shrink-0`}
         aria-label="Tài khoản Exness Demo"
       >
         <span
-          className={`badge-status badge-${state}`}
+          className={`badge-status badge-${state} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
           title={`Đồng bộ sàn: ${date(data?.synced_at ?? null)}`}
         >
-          <span className="pulse-dot" />
+          <span className="pulse-dot inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400" />
           {data ? label : 'Đang tải…'}
         </span>
-        <span className="terminal-stat">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted">
           <small>Balance</small>
           <strong>{amount(balance)}</strong>
         </span>
-        <span className="terminal-stat">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted">
           <small>Equity</small>
           <strong>{amount(equity)}</strong>
         </span>
         <span
-          className="terminal-stat"
+          className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted"
           title="Ngân sách rủi ro tới SL cho cả setup, chia giữa các ticket. Chưa bao gồm phí, swap và trượt giá; không phải tiền ký quỹ."
         >
           <small>Rủi ro / setup</small>
           <strong>{data?.risk_percent ?? '—'}% · ${amount(data?.planned_risk_ceiling_usd)}</strong>
         </span>
         <span
-          className="terminal-stat"
+          className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted"
           title={`Đòn bẩy cấu hình ${symbol} từ thông số broker; chưa xác minh thay đổi HMR theo tin tức/phiên. Không dùng đòn bẩy để nhân ngân sách rủi ro.`}
         >
           <small>Đòn bẩy {symbol} · cấu hình</small>
           <strong>{formatForexLeverage(dashboard.instrument?.profile)}</strong>
         </span>
-        <span className="terminal-stat">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted">
           <small>P&amp;L thả nổi</small>
-          <strong className={floating == null ? '' : floating >= 0 ? 'positive' : 'negative'}>
+          <strong className={floating == null ? '' : floating >= 0 ? "positive text-bull" : "negative text-bear"}>
             {floating != null && floating > 0 ? '+' : ''}
             {amount(floating)}
           </strong>
         </span>
-        <span className="terminal-stat">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted">
           <small>Margin</small>
           <strong>{amount(data?.account_state?.used_margin)}</strong>
         </span>
-        <span className="terminal-stat" title="Profit deal sàn · chưa xác minh phí/swap">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted" title="Profit deal sàn · chưa xác minh phí/swap">
           <small>Profit đã chốt</small>
-          <strong className={(data?.broker_profit ?? 0) >= 0 ? 'positive' : 'negative'}>
+          <strong className={(data?.broker_profit ?? 0) >= 0 ? "positive text-bull" : "negative text-bear"}>
             {amount(data?.broker_profit)}
           </strong>
         </span>
-        <span className="terminal-stat">
+        <span className="terminal-stat flex min-w-max flex-col gap-0.5 border-l border-border-subtle pl-3 text-xs [&_small]:text-xs [&_small]:text-text-muted [&_strong]:font-mono [&_strong]:text-text-primary [&_strong]:tabular-nums [&_strong.positive]:text-bull [&_strong.negative]:text-bear [&_em]:font-normal [&_em]:not-italic [&_em]:text-text-muted">
           <small>Vị thế {symbol}</small>
           <strong>
             {data?.symbol_open_count ?? '—'}/{data?.max_concurrent_per_symbol ?? '—'}
@@ -200,7 +200,7 @@ export function ForexExecutionPage({
           </strong>
         </span>
         <button
-          className={`terminal-toggle ${data?.enabled ? 'is-on' : ''}`}
+          className={`terminal-toggle ${data?.enabled ? 'is-on' : ''} ml-auto inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-3 [&.is-on]:text-bear`}
           disabled={busy || stale || !data?.configured || !!error}
           onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
           title={`Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? 'Chưa có dữ liệu sizing'}`}
@@ -209,35 +209,35 @@ export function ForexExecutionPage({
         </button>
       </div>
       {error && (
-        <p role="alert" className="feedback">
+        <p role="alert" className="feedback my-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-xs text-amber-200 [&_p]:basis-full">
           {error}
         </p>
       )}
       {stale ? (
         <div
-          className={`terminal-decision is-switching${pendingFailed ? ' is-failed' : ''}`}
+          className={`terminal-decision is-switching${pendingFailed ? ' is-failed' : ''} border-b border-border-base px-3 py-2 text-xs text-amber-200 [&.is-failed]:text-bear`}
           role={pendingFailed ? 'alert' : 'status'}
         >
-          {!pendingFailed && <span className="switching-spinner" aria-hidden="true" />}
+          {!pendingFailed && <span className="switching-spinner inline-block size-3 animate-spin rounded-full border border-bull border-t-transparent" aria-hidden="true" />}
           <strong>
             {pendingFailed ? `Chưa tải được ${pendingSymbol}` : `Đang tải ${pendingSymbol}…`}
           </strong>
           <span>Số liệu bên dưới vẫn là {symbol}; bật/tắt bot và đóng lệnh tạm khoá.</span>
           {pendingFailed && onRetry && (
-            <button type="button" className="switching-retry" onClick={onRetry}>
+            <button type="button" className="switching-retry inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline" onClick={onRetry}>
               Thử lại
             </button>
           )}
         </div>
       ) : (
         data && (
-          <div className="terminal-decision" role="status">
+          <div className="terminal-decision flex flex-wrap items-baseline gap-2 border-b border-border-base px-3 py-2 text-xs text-amber-200 [&.is-failed]:text-bear [&>strong]:text-text-secondary [&>span:first-of-type]:overflow-visible [&>span:first-of-type]:whitespace-normal [&>span:first-of-type]:break-words" role="status">
             <strong>Bot:</strong>
             <span>
               {data.decision ?? 'Chờ worker xác minh demo và đồng bộ sàn'}
               {data.error ? ` · Lỗi: ${data.error}` : ''}
             </span>
-            <span className="muted">
+            <span className="muted text-text-muted">
               {data.learning?.latest?.mode ?? '—'} · {picked ?? 'không có tín hiệu chọn'}
             </span>
           </div>
@@ -245,7 +245,7 @@ export function ForexExecutionPage({
       )}
       <section
         id="execution-chart"
-        className="execution-chart-panel"
+        className="execution-chart-panel relative min-w-0 overflow-clip bg-canvas"
         aria-label={`Chart ${symbol}`}
       >
         <ForexStrategyPage
@@ -263,8 +263,8 @@ export function ForexExecutionPage({
       </section>
       {!data && !error && <p role="status">Đang tải lệnh thật từ tài khoản demo...</p>}
       {data && (
-        <section className="panel terminal-bottom">
-          <nav className="terminal-tabs" role="tablist" aria-label="Không gian bot">
+        <section className="panel terminal-bottom min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 min-w-0 border-t border-border-base bg-surface-1">
+          <nav className="terminal-tabs flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="tablist" aria-label="Không gian bot">
             {panels.map(([key, title], index) => (
               <button
                 key={key}
@@ -290,11 +290,11 @@ export function ForexExecutionPage({
               >
                 {title}
                 {key === 'orders' && (
-                  <span className="terminal-tab-count">{data.open_count} mở</span>
+                  <span className="terminal-tab-count ml-1 rounded bg-surface-3 px-1 text-xs text-text-secondary">{data.open_count} mở</span>
                 )}
               </button>
             ))}
-            <span className="terminal-tabs-note">
+            <span className="terminal-tabs-note ml-auto text-xs text-text-muted">
               {closedRows.length
                 ? `Thắng ${wins}/${closedRows.length} (${Math.round((wins / closedRows.length) * 100)}%) trang này`
                 : 'Chưa có lệnh đóng'}{' '}
@@ -307,11 +307,11 @@ export function ForexExecutionPage({
             role="tabpanel"
             aria-labelledby="execution-tab-orders"
             tabIndex={0}
-            className="execution-tab-content orders-tab-view"
+            className="execution-tab-content orders-tab-view min-w-0 space-y-3 p-3 min-w-0 space-y-3 p-3"
           >
-            <div className="orders-section-card">
-              <div className="orders-card-header">
-                <div className="filter-pills" role="group" aria-label="Lọc lệnh">
+            <div className="orders-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
+              <div className="orders-card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
+                <div className="filter-pills flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull" role="group" aria-label="Lọc lệnh">
                   {(
                     [
                       ['all', 'Tất cả'],
@@ -322,7 +322,7 @@ export function ForexExecutionPage({
                   ).map(([key, text]) => (
                     <button
                       key={key}
-                      className={filter === key ? 'selected' : ''}
+                      className={filter === key ? "selected bg-bull/10 text-bull" : ''}
                       aria-pressed={filter === key}
                       onClick={() => { setFilter(key); setOffset(0); }}
                     >
@@ -330,7 +330,7 @@ export function ForexExecutionPage({
                     </button>
                   ))}
                 </div>
-                <div className="orders-header-note">
+                <div className="orders-header-note ml-auto text-xs text-text-muted">
                   <a href={`${url}/trades.csv?symbol=${symbol}`} download>
                     Xuất CSV {symbol}
                   </a>
@@ -344,19 +344,19 @@ export function ForexExecutionPage({
                 onSelect={(id) => { setSelectedId(id); document.getElementById('execution-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                 onCloseTicket={closeTicket} onCloseSetup={closeSetup} closeDisabled={closeDisabled} pnlOf={pnlOf} />
 
-              <div className="orders-pagination-bar">
+              <div className="orders-pagination-bar flex min-w-0 flex-wrap items-center gap-2 justify-between border-t border-border-base py-2 text-xs">
                 <button
-                  className="secondary"
+                  className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                   disabled={offset === 0}
                   onClick={() => setOffset(Math.max(0, offset - 50))}
                 >
                   ← Trang trước
                 </button>
-                <span className="muted">
+                <span className="muted text-text-muted">
                   Trang {Math.floor(offset / 50) + 1} ({data.total} setup tổng cộng)
                 </span>
                 <button
-                  className="secondary"
+                  className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                   disabled={!data.has_more}
                   onClick={() => setOffset(offset + 50)}
                 >
@@ -364,7 +364,7 @@ export function ForexExecutionPage({
                 </button>
               </div>
             </div>
-            <p className="micro">
+            <p className="micro text-xs leading-relaxed text-text-muted">
               SL theo vô hiệu H1 + ATR buffer; TP theo barrier cấu trúc H1/H4 (tối thiểu 1.5R). Tạm
               dừng không đóng vị thế đang mở. Mac ngủ thì bot không mở/đóng chủ động, SL/TP trên sàn
               vẫn có hiệu lực; khi mở lại sẽ đối soát fill thật.
@@ -387,7 +387,7 @@ export function ForexExecutionPage({
                 </p>
               ))}
             </details>
-            <p className="micro">
+            <p className="micro text-xs leading-relaxed text-text-muted">
               Lịch sử nhập từ {date(data.history_from)}, sau đó đồng bộ tăng dần; không trộn ví
               paper/replay.
             </p>
@@ -398,52 +398,52 @@ export function ForexExecutionPage({
             role="tabpanel"
             aria-labelledby="execution-tab-learning"
             tabIndex={0}
-            className="execution-tab-content learning-tab-view"
+            className="execution-tab-content learning-tab-view min-w-0 space-y-3 p-3 min-w-0 space-y-3 p-3"
             aria-label="Bộ học chiến lược"
           >
-            <div className="learning-overview-grid">
-              <div className="learning-stat-card">
-                <span className="card-label">Execution V3</span>
-                <div className="card-value" style={{ fontSize: '18px' }}>
+            <div className="learning-overview-grid grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="learning-stat-card min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
+                <span className="card-label mb-1 flex items-center gap-1.5 text-xs text-text-muted">Execution V3</span>
+                <div className="card-value font-mono text-xl font-semibold text-text-primary" style={{ fontSize: '18px' }}>
                   {data.learning?.execution_v2?.enabled ? 'Đang gửi lệnh' : 'Chỉ shadow'}
                 </div>
-                <div className="card-sub">
+                <div className="card-sub text-xs leading-relaxed text-text-muted">
                   {blockLabel(data.learning?.execution_v2?.blocked_reason) ?? 'Sẵn sàng'}
                 </div>
               </div>
-              <div className="learning-stat-card">
-                <span className="card-label">Cây được phép vào lệnh</span>
-                <div className="card-value">
+              <div className="learning-stat-card min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
+                <span className="card-label mb-1 flex items-center gap-1.5 text-xs text-text-muted">Cây được phép vào lệnh</span>
+                <div className="card-value font-mono text-xl font-semibold text-text-primary">
                   {data.learning?.execution_v2?.entry_allowed_count ?? 0}
-                  <small className="muted"> / {treeCount}</small>
+                  <small className="muted text-text-muted"> / {treeCount}</small>
                 </div>
-                <div className="card-sub">
+                <div className="card-sub text-xs leading-relaxed text-text-muted">
                   Ungated · chọn: {data.learning?.execution_v2?.selected ?? 'không có'}
                 </div>
               </div>
-              <div className="learning-stat-card">
-                <span className="card-label">Đủ chuẩn tiến hoá</span>
-                <div className="card-value">
+              <div className="learning-stat-card min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
+                <span className="card-label mb-1 flex items-center gap-1.5 text-xs text-text-muted">Đủ chuẩn tiến hoá</span>
+                <div className="card-value font-mono text-xl font-semibold text-text-primary">
                   {data.learning?.execution_v2?.evolution_ready_count ?? 0}
-                  <small className="muted"> / {treeCount}</small>
+                  <small className="muted text-text-muted"> / {treeCount}</small>
                 </div>
-                <div className="card-sub">Cần ≥10 mẫu forward và R trung bình &gt; 0</div>
+                <div className="card-sub text-xs leading-relaxed text-text-muted">Cần ≥10 mẫu forward và R trung bình &gt; 0</div>
               </div>
-              <div className="learning-stat-card">
-                <span className="card-label">Mẫu forward V3</span>
-                <div className="card-value">{data.learning?.htf_ast3_shadow?.resolved ?? 0}</div>
-                <div className="card-sub">
+              <div className="learning-stat-card min-w-0 rounded-md border border-border-subtle bg-surface-1 p-3 [&_strong]:block [&_strong]:font-mono [&_strong]:text-lg [&_strong]:text-text-primary">
+                <span className="card-label mb-1 flex items-center gap-1.5 text-xs text-text-muted">Mẫu forward V3</span>
+                <div className="card-value font-mono text-xl font-semibold text-text-primary">{data.learning?.htf_ast3_shadow?.resolved ?? 0}</div>
+                <div className="card-sub text-xs leading-relaxed text-text-muted">
                   {data.learning?.htf_ast3_shadow?.pending ?? 0} đang chạy · thế hệ G
                   {data.learning?.htf_ast3_shadow?.generation ?? 0}
                 </div>
               </div>
             </div>
 
-            <div className="learning-section-card">
-              <div className="card-header">
+            <div className="learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
+              <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
                 <div>
                   <h4>Vì sao bot vào / không vào lệnh</h4>
-                  <span className="muted-desc">
+                  <span className="muted-desc text-xs leading-relaxed text-text-muted">
                     Mỗi nến M15 đóng: bot thấy gì và dừng ở bước nào
                     {data.funnel ? ` · ${data.funnel.candles} nến gần nhất` : ''}
                   </span>
@@ -457,18 +457,18 @@ export function ForexExecutionPage({
               entryPilot={data.learning?.entry_pilot}
             />
             {data.learning?.htf_ast3_shadow && (
-              <div className="learning-section-card">
-                <div className="card-header">
+              <div className="learning-section-card min-w-0 space-y-3 rounded-md border border-border-subtle bg-surface-1 p-3">
+                <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
                   <div>
                     <h4>Quần thể HTF V3 · dòng dõi G0 → G1…</h4>
-                    <span className="muted-desc">
+                    <span className="muted-desc text-xs leading-relaxed text-text-muted">
                       Thế hệ {data.learning.htf_ast3_shadow.generation} ·{' '}
                       {data.learning.htf_ast3_shadow.tree_count} cây ·{' '}
                       {data.learning.htf_ast3_shadow.excluded} mẫu bị loại · R sau chi phí, chưa
                       swap
                     </span>
                   </div>
-                  <span className="badge-count">
+                  <span className="badge-count inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
                     {data.learning.htf_ast3_shadow.resolved} đã đóng ·{' '}
                     {data.learning.htf_ast3_shadow.pending} đang chạy
                   </span>

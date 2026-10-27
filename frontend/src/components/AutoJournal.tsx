@@ -65,7 +65,7 @@ export function AutoJournal({
     if (entry.action === 'missed') reasons.set(entry.reason, (reasons.get(entry.reason) ?? 0) + 1);
   if (coverage.unrecorded) reasons.set(UNRECORDED, coverage.unrecorded);
   return (
-    <section className="ap-journal" aria-label="Nhật ký Auto Paper 24 giờ">
+    <section className="ap-journal min-w-0 space-y-2 py-2" aria-label="Nhật ký Auto Paper 24 giờ">
       <header>
         <strong>Nhật ký · 24 giờ qua</strong>
         <span className={missedTotal ? 'ap-journal-missed' : undefined}>
@@ -75,7 +75,7 @@ export function AutoJournal({
         </span>
       </header>
       <div
-        className="ap-strip"
+        className="ap-strip flex min-w-0 gap-px overflow-x-auto"
         role="group"
         onMouseLeave={hideTip}
         onBlur={(event) => {
@@ -99,7 +99,7 @@ export function AutoJournal({
             <button
               key={candle}
               type="button"
-              className={`ap-cell ${action}`}
+              className={`ap-cell ${action} min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear`}
               aria-label={title}
               onMouseEnter={(e) => showTip(e, title)}
               onFocus={(e) => showTip(e, title)}
@@ -108,7 +108,7 @@ export function AutoJournal({
           ) : (
             <span
               key={candle}
-              className={`ap-cell ${action}`}
+              className={`ap-cell ${action} min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear`}
               onMouseEnter={(e) => showTip(e, title)}
             />
           );
@@ -117,7 +117,7 @@ export function AutoJournal({
       {typeof document !== 'undefined' &&
         createPortal(
           <div
-            className={`ap-portal-tooltip${tip.below ? ' below' : ''}${tip.visible ? ' is-visible' : ''}`}
+            className={`ap-portal-tooltip${tip.below ? ' below' : ''}${tip.visible ? ' is-visible' : ''} fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg`}
             style={{ top: `${tip.top}px`, left: `${tip.left}px` }}
             role="tooltip"
             aria-hidden={!tip.visible}
@@ -126,38 +126,38 @@ export function AutoJournal({
           </div>,
           document.body,
         )}
-      <div className="ap-strip-axis" aria-hidden="true">
+      <div className="ap-strip-axis flex justify-between text-xs text-text-muted" aria-hidden="true">
         <span>{time(cells[0].candle)}</span>
         <span>{time(coverage.end_time)}</span>
       </div>
       {!!coverage.pending && <p>{coverage.pending} tín hiệu đang có lệnh chờ.</p>}
-      <div className="ap-legend" aria-hidden="true">
+      <div className="ap-legend flex flex-wrap gap-3 text-xs text-text-muted [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1 [&_i]:inline-block [&_i]:size-2 [&_i]:rounded-sm [&_i]:bg-surface-3" aria-hidden="true">
         <span>
-          <i className="ap-cell no_setup" /> không tín hiệu
+          <i className="ap-cell no_setup min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> không tín hiệu
         </span>
         <span>
-          <i className="ap-cell opened" /> mở lệnh
+          <i className="ap-cell opened min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> mở lệnh
         </span>
         <span>
-          <i className="ap-cell pending" /> lệnh chờ
+          <i className="ap-cell pending min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> lệnh chờ
         </span>
         <span>
-          <i className="ap-cell skipped" /> bỏ qua
+          <i className="ap-cell skipped min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> bỏ qua
         </span>
         <span>
-          <i className="ap-cell missed" /> lỡ có lý do
+          <i className="ap-cell missed min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> lỡ có lý do
         </span>
         <span>
-          <i className="ap-cell none" /> không bản ghi
+          <i className="ap-cell none min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> không bản ghi
         </span>
         {coverage.tracked_candles < coverage.window_candles && (
           <span>
-            <i className="ap-cell untracked" /> chưa theo dõi
+            <i className="ap-cell untracked min-h-4 min-w-1 flex-1 rounded-sm bg-surface-3 [&.opened]:bg-bull [&.pending]:bg-amber-400 [&.skipped]:bg-slate-600 [&.missed]:bg-bear" /> chưa theo dõi
           </span>
         )}
       </div>
       {reasons.size > 0 && (
-        <p className="ap-journal-reasons">
+        <p className="ap-journal-reasons flex flex-wrap items-center gap-2 text-xs text-text-muted">
           Lỡ:{' '}
           {[...reasons.entries()]
             .sort((a, b) => b[1] - a[1])
@@ -176,7 +176,7 @@ export function AutoJournal({
                   {row.trade_id && onViewTrade ? (
                     <button
                       type="button"
-                      className="text-button"
+                      className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
                       onClick={() => onViewTrade(row.trade_id!)}
                     >
                       #{row.trade_id}

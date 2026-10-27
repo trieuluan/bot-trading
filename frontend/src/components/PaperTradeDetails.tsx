@@ -33,11 +33,11 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
   const qty = (v: number) => `${v.toLocaleString('en-US')}${unit ? ` ${unit}` : ''}`;
   return (
     <div className="paper-trade-details">
-      <div className="section-head">
+      <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
         <strong>
           #{trade.id} {trade.side.toUpperCase()} · {trade.origin === 'auto' ? 'AUTO' : 'THỦ CÔNG'}
         </strong>
-        <span className={`pill ${closed ? 'amber' : ''}`}>
+        <span className={`pill ${closed ? 'amber' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
           {closed ? 'LỊCH SỬ · ĐÃ ĐÓNG' : 'VỊ THẾ ĐANG MỞ'}
         </span>
       </div>
@@ -58,7 +58,7 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
         </div>
         <div>
           <dt>SL · {atStop >= 0 ? 'mức khoá lời (trailing)' : 'mức kích hoạt cắt lỗ'}</dt>
-          <dd className={atStop >= 0 ? 'positive' : 'negative'}>{formatQuote(trade.stop)}</dd>
+          <dd className={atStop >= 0 ? "positive text-bull" : "negative text-bear"}>{formatQuote(trade.stop)}</dd>
           <small>
             {atStop >= 0 ? 'Khớp SL vẫn lời' : 'Khớp SL lỗ'}:{' '}
             <b className={tone(atStop)}>{signed(atStop)} USDT</b>
@@ -67,7 +67,7 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
         </div>
         <div>
           <dt>TP · mức kích hoạt chốt lời</dt>
-          <dd className="positive">{formatQuote(trade.target)}</dd>
+          <dd className="positive text-bull">{formatQuote(trade.target)}</dd>
           <small>
             Khớp TP: <b className={tone(atTarget)}>{signed(atTarget)} USDT</b>
             {atStop < 0 && <> · {(atTarget / -atStop).toFixed(2)}R</>}
@@ -122,7 +122,7 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
         <p>
           <strong>
             PnL ròng:{' '}
-            <span className={(trade.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>
+            <span className={(trade.net_pnl ?? 0) >= 0 ? "positive text-bull" : "negative text-bear"}>
               {trade.net_pnl === null ? '—' : formatPrice(trade.net_pnl)} USDT
             </span>
           </strong>{' '}
@@ -141,7 +141,7 @@ export function PaperTradeDetails({ trade, symbol }: { trade: PaperTrade; symbol
       <section className="paper-trade-reason">
         <h3>Lý do vào lệnh</h3>
         {trade.monitoring?.status === 'recovered' && (
-          <p className="negative">
+          <p className="negative text-bear">
             {trade.monitoring.execution_model === 'historical_levels_v1'
               ? `Khớp giả lập lịch sử: ${trade.monitoring.fill_basis === 'gap_open' ? 'giá mở nến vượt SL' : 'mức SL/TP'}, kèm trượt giá bất lợi. Thời gian đóng trong nến là ước lượng, không phải tick thật.`
               : 'Bản đối soát cũ: đóng theo bid/ask khi phục hồi, không khớp tại SL/TP lịch sử.'}

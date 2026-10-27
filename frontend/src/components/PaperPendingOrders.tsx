@@ -43,20 +43,20 @@ export function PaperPendingOrders({
         }
         )
       </h3>
-      <p className="micro">
+      <p className="micro text-xs leading-relaxed text-text-muted">
         Paper · xét nến M15 đóng · tối đa 4 nến (60 phút). Chưa giữ ký quỹ; kiểm tra lại rủi ro khi
         khớp. Tắt Auto sẽ hủy lệnh chờ.
       </p>
       {error && (
-        <p role="alert" className="negative">
+        <p role="alert" className="negative text-bear">
           {error}
         </p>
       )}
       {!orders.length ? (
         <p>Chưa có lệnh chờ.</p>
       ) : (
-        <div className="table-scroll">
-          <table className="positions-table">
+        <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
+          <table className="positions-table w-full border-collapse whitespace-nowrap text-xs">
             <thead>
               <tr>
                 <th>Lệnh / Cặp</th>
@@ -80,7 +80,7 @@ export function PaperPendingOrders({
                   <tr key={order.id}>
                     <td>
                       {status === 'pending' || order.trade_id ? (
-                        <button className="text-button" onClick={() => onView(order)}>
+                        <button className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline" onClick={() => onView(order)}>
                           #{order.id} {order.symbol.replace('_', ' / ')} ·{' '}
                           {order.side.toUpperCase()}
                         </button>
@@ -94,8 +94,8 @@ export function PaperPendingOrders({
                     </td>
                     <td>{formatQuote(order.level)}</td>
                     <td>
-                      <span className="negative">{formatQuote(order.stop)}</span> /{' '}
-                      <span className="positive">{formatQuote(order.target)}</span>
+                      <span className="negative text-bear">{formatQuote(order.stop)}</span> /{' '}
+                      <span className="positive text-bull">{formatQuote(order.target)}</span>
                     </td>
                     <td>{rr.toFixed(2)}R</td>
                     <td>
@@ -110,7 +110,7 @@ export function PaperPendingOrders({
                     <td>
                       {status === 'pending' && (
                         <button
-                          className="secondary"
+                          className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
                           disabled={busy !== null}
                           onClick={() => void cancel(order)}
                           aria-label={`Hủy lệnh chờ ${order.symbol} #${order.id}`}
