@@ -1,5 +1,5 @@
 import type { BrokerPosition } from '../types/exness-execution';
-import { closeSetupPath, closeTicketPath, groupStatusInfo, strategyBadge, sumFloating, ticketStatus, type PositionGroup } from '../lib/forex-position-groups';
+import { closeSetupPath, closeTicketPath, groupStatusInfo, strategyBadge, sumFloating, ticketRole, ticketStatus, type PositionGroup } from '../lib/forex-position-groups';
 import { formatForexPrice } from '../lib/format';
 import { formatTime } from '../lib/time-format';
 import { Eye, Tag, XCircle } from 'lucide-react';
@@ -228,7 +228,7 @@ export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, 
                                       : 'border border-purple-400/25 bg-purple-400/10 text-purple-300'
                                   }`}
                                 >
-                                  {isTp1 ? 'TP1' : leg.role === 'runner' ? 'Runner' : 'Ticket'}
+                                  {ticketRole(leg)}
                                 </span>
                               </div>
                               <details className="mt-1 text-[11px]">

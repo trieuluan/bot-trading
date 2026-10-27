@@ -37,11 +37,23 @@ export function groupStatusInfo(group: PositionGroup): { label: string; sub: str
   };
 }
 
+export function ticketRole(position: BrokerPosition): string {
+  switch (position.role) {
+    case 'tp1': return 'TP1';
+    case 'runner': return 'Runner';
+    case 'partial1': return 'Chốt phần 1';
+    case 'partial2': return 'Chốt phần 2';
+    default: return 'Chưa rõ vai trò';
+  }
+}
+
 export function ticketStatus(position: BrokerPosition): string {
   if (position.status === 'open') return position.close_requested ? 'Đang yêu cầu đóng' : 'Đang mở';
   if (position.status !== 'closed') return 'Lịch sử chưa đủ';
   if (position.take_profit_filled) return position.role === 'tp1' ? 'Đã chốt TP1' : 'Đã chốt TP';
   if (position.close_reason === 'stop_loss') return 'Đã cắt SL';
+  if (position.close_reason === 'weak_close') return 'Đã đóng · tín hiệu suy yếu';
+  if (position.close_reason === 'scale_out') return 'Đã chốt từng phần';
   if (position.close_requested || position.close_reason === 'manual') return 'Đóng thủ công';
   return position.close_reason ? `Đã đóng · ${position.close_reason}` : 'Đã đóng · chưa rõ lý do';
 }

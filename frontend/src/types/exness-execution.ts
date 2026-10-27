@@ -29,7 +29,7 @@ export interface BrokerPosition {
   sl_buffer_k?: number;
   close_requested?: boolean;
   pnl: number | null;
-  role?: 'tp1' | 'runner';
+  role?: 'tp1' | 'runner' | 'partial1' | 'partial2';
   management_stage?: string;
   management_status?: string;
   management_error?: string;

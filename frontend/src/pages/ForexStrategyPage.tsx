@@ -19,7 +19,7 @@ import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
 import type { BrokerPosition, ExnessExecution, LearnerAnalysis } from '../types/exness-execution';
 import type { ForexEntryPilot, ForexSignalChart } from '../types/forex-entry';
-import { estimatedPnl, ticketStatus, type PositionGroup } from '../lib/forex-position-groups';
+import { estimatedPnl, ticketRole, ticketStatus, type PositionGroup } from '../lib/forex-position-groups';
 
 interface ForexCandle {
   time: number;
@@ -2086,13 +2086,17 @@ export function ForexStrategyPage({
         {pickerPositions.map((position) => {
           const selected = position.position_id === selectedPosition?.position_id;
           const pnl = position.status === 'closed' ? position.pnl : pnlOf(position);
-          return <button key={position.position_id} type="button" className={`broker-position-chip min-w-56 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${selected ? 'border-bull/60 bg-bull/5 ring-1 ring-bull/20' : 'border-border-base bg-surface-1 hover:border-border-active hover:bg-surface-2'}`} aria-pressed={selected}
-            aria-label={`Chọn ticket #${position.position_id} · ${position.role === 'tp1' ? 'TP1' : position.role === 'runner' ? 'Runner' : 'Ticket'}`}
-            title={`${ticketStatus(position)} · ${position.status === 'closed' ? 'Profit đã chốt' : 'Thả nổi ước tính'} · chưa xác minh phí/swap`}
+          const closed = position.status === 'closed';
+          const roleLabel = ticketRole(position);
+          const tone = !closed ? 'border-border-base bg-surface-1' : position.take_profit_filled ? 'border-bull/40 bg-bull/10' : position.close_reason === 'stop_loss' ? 'border-bear/40 bg-bear/5' : 'border-amber-400/40 bg-amber-400/5';
+          return <button key={position.position_id} type="button" className={`broker-position-chip min-w-64 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors hover:border-border-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${tone} ${selected ? 'ring-2 ring-sky-400/60' : ''}`} aria-pressed={selected}
+            aria-label={`Chọn ticket #${position.position_id} · ${roleLabel}`}
+            title={`${ticketStatus(position)} · ${closed ? 'Profit đã chốt' : 'Thả nổi ước tính'} · chưa xác minh phí/swap`}
             onClick={() => onSelectPosition?.(selected ? undefined : position.position_id)}>
-            <span className="flex items-center gap-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${position.side === 'buy' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'}`}>{position.side?.toUpperCase() ?? '—'}</span><span className="font-mono text-text-primary">#{position.position_id}</span><span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-secondary">{position.role === 'tp1' ? 'TP1' : position.role === 'runner' ? 'Runner' : 'Ticket'}</span></span>
-            <span className="mt-2 flex items-baseline justify-between gap-3"><span className="text-text-muted">{position.remaining_volume ?? position.volume ?? '—'} lot</span><strong className={`font-mono tabular-nums ${pnl == null ? 'text-text-muted' : pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{pnl == null ? '— USD' : `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`}</strong></span>
-            <span className="mt-1 flex items-center justify-between gap-3 text-[10px] text-text-muted"><span>{ticketStatus(position)}</span><span>{position.status === 'closed' ? 'Đã chốt · chưa phí/swap' : 'Thả nổi ước tính'}{selected ? ' · Đang xem' : ''}</span></span>
+            <span className="flex items-center gap-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${position.side === 'buy' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'}`}>{position.side?.toUpperCase() ?? '—'}</span><span className="font-mono text-text-primary">#{position.position_id}</span><span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-secondary">{roleLabel}</span></span>
+            <span className="mt-2 flex items-baseline justify-between gap-3"><span className="text-text-muted">{closed ? 'Đã đóng hết' : `${position.remaining_volume ?? position.volume ?? '—'} lot`}</span><strong className={`font-mono tabular-nums ${pnl == null ? 'text-text-muted' : pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{pnl == null ? '— USD' : `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`}</strong></span>
+            <span className="mt-1 flex items-center justify-between gap-3 text-[10px]"><span className={`rounded px-1.5 py-0.5 font-medium ${closed ? (position.take_profit_filled ? 'bg-bull/15 text-bull' : position.close_reason === 'stop_loss' ? 'bg-bear/10 text-bear' : 'bg-amber-400/10 text-amber-300') : 'bg-surface-3 text-text-secondary'}`}>{ticketStatus(position)}</span>{selected && <span className="text-sky-300">Đang xem</span>}</span>
+            <span className="mt-1 block text-[10px] text-text-muted">{closed ? 'P&L đã chốt · chưa phí/swap' : 'P&L thả nổi ước tính'}</span>
           </button>;
         })}
         </div>
