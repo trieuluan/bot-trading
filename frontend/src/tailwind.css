@@ -1,0 +1,162 @@
+@layer theme, legacy, base, components, utilities;
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;800&display=swap');
+@import "tailwindcss/theme.css" layer(theme);
+@import "./styles.css" layer(legacy);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./";
+@source "../tests/forex-lifecycle.html";
+
+@theme {
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Manrope', 'DM Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Trading desk dark theme palette */
+  --color-canvas: #090e0b;
+  --color-surface-1: #0f1612;
+  --color-surface-2: #151e19;
+  --color-surface-3: #1c2822;
+
+  --color-border-subtle: #19261f;
+  --color-border-base: #24352b;
+  --color-border-active: #385344;
+
+  --color-text-primary: #ecfdf5;
+  --color-text-secondary: #b5c9bd;
+  --color-text-muted: #93a89c;
+
+  /* Trading signal actions */
+  --color-bull: #10b981;
+  --color-bull-bg: #0d281e;
+  --color-bull-border: #174734;
+
+  --color-bear: #f43f5e;
+  --color-bear-bg: #2d1017;
+  --color-bear-border: #4d1a27;
+
+  /* Intent lifecycle states */
+  --color-tone-waiting: #fbbf24;
+  --color-tone-waiting-bg: #281d09;
+  --color-tone-waiting-border: #473210;
+
+  --color-tone-triggered: #fbbf24;
+  --color-tone-triggered-bg: #281d09;
+  --color-tone-triggered-border: #473210;
+
+  --color-tone-filled: #10b981;
+  --color-tone-filled-bg: #0c2b20;
+  --color-tone-filled-border: #18523c;
+
+  --color-tone-uncertain: #f87171;
+  --color-tone-uncertain-bg: #2b1111;
+  --color-tone-uncertain-border: #4a1c1c;
+
+  --color-tone-cancelled: #ef4444;
+  --color-tone-cancelled-bg: #260e0e;
+  --color-tone-cancelled-border: #3d1515;
+
+  --color-tone-ended: #94a3b8;
+  --color-tone-ended-bg: #141c26;
+  --color-tone-ended-border: #233142;
+}
+@layer base {
+  :root {
+    color-scheme: dark;
+    background: var(--color-canvas);
+    color: var(--color-text-primary);
+    font-size: 16px;
+    --green: var(--color-bull);
+    --muted: var(--color-text-muted);
+    --border: var(--color-border-base);
+  }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  button, input, select, textarea { font: inherit; }
+  h1, h2, h3 {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+  }
+  button, summary { touch-action: manipulation; }
+  :where(button, summary, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-bull);
+    outline-offset: 3px;
+  }
+  button:hover:not(:disabled) { filter: none; }
+}
+
+
+/* Legacy bridge for non-utility properties: charts, keyframes, scrollbars */
+@layer components {
+  /* Lightweight-charts container sizing */
+  .trade-chart-wrap {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+  }
+  .trade-candlestick-chart {
+    width: 100%;
+    height: 440px;
+  }
+  @media (min-width: 768px) {
+    .trade-candlestick-chart {
+      height: 540px;
+    }
+  }
+
+  /* Thin dark scrollbars across panels */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #24352b transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #24352b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #385344;
+  }
+
+  /* Interactive position tags on charts */
+  .position-tag-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 20;
+  }
+  .position-tag-leaders {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 15;
+  }
+  .forex-setup-zones {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* Native details reset marker */
+  details > summary {
+    list-style: none;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+}
