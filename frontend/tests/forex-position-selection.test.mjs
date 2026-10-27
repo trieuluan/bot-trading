@@ -88,8 +88,8 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     const markup = render();
     assert.ok(markup.includes('1 setup mở · 2 ticket'));
     assert.equal((markup.match(/class="[^"]*broker-position-chip[^"]*"/g) ?? []).length, 2);
-    assert.match(markup, /aria-pressed="false"[^>]*>[\s\S]*?#123 · TP1/);
-    assert.match(markup, /class="[^"]*broker-position-chip[^"]*" aria-pressed="true"[^>]*>[\s\S]*?#124 · Runner/);
+    assert.match(markup, /aria-pressed="false" aria-label="Chọn ticket #123 · TP1"/);
+    assert.match(markup, /class="[^"]*broker-position-chip[^"]*" aria-pressed="true" aria-label="Chọn ticket #124 · Runner"/);
     assert.ok(!markup.includes('Đóng cả setup'));
     assert.ok(!markup.includes('Chi tiết 2 ticket'));
     assert.equal(chart.chartProps.selectedPositionId, '124');
@@ -107,7 +107,7 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     assert.equal(chart.chartProps.selectedPositionId, '123');
 
     props.selectedPosition = undefined;
-    assert.equal((render().match(/class="broker-position-chip" aria-pressed="true"/g) ?? []).length, 0);
+    assert.equal((render().match(/class="[^"]*broker-position-chip[^"]*" aria-pressed="true"/g) ?? []).length, 0);
     const source = readFileSync(new URL('../src/pages/ForexStrategyPage.tsx', import.meta.url), 'utf8');
     assert.ok(source.includes('onSelectPosition?.(selected ? undefined : position.position_id)'));
     assert.ok(source.includes('positionGroups={executionOnly ? undefined : positionGroups}'));

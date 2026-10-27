@@ -1941,8 +1941,8 @@ export function ForexStrategyPage({
 
       {loading && <p className="micro text-xs leading-relaxed text-text-muted">Đang tải nến {frame.toUpperCase()} Exness...</p>}
       {executionOnly ? (
-        <div className="broker-chart-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-base px-3 py-2 text-xs">
-          <div className="broker-segments flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Khung thời gian chart">
+        <div className="broker-chart-toolbar flex min-w-0 flex-wrap items-center gap-2 border-b border-border-subtle bg-surface-1 px-3 py-2 text-xs sm:gap-3">
+          <div className="broker-segments flex items-center gap-0.5 rounded-lg border border-border-subtle bg-canvas p-0.5 [&>button]:min-h-8 [&>button]:rounded-md [&>button]:px-3 [&>button]:text-xs [&>button]:font-semibold [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary" role="group" aria-label="Khung thời gian chart">
             {['15m', '1h', '4h'].map((value) => (
               <button
                 type="button"
@@ -1954,8 +1954,7 @@ export function ForexStrategyPage({
               </button>
             ))}
           </div>
-          <span className="broker-toolbar-divider h-4 w-px bg-border-base" aria-hidden="true" />
-          <div className="broker-segments flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Phía giá chart">
+          <div className="broker-segments flex items-center gap-0.5 rounded-lg border border-border-subtle bg-canvas p-0.5 [&>button]:min-h-8 [&>button]:rounded-md [&>button]:px-3 [&>button]:text-xs [&>button]:font-medium [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-pressed=true]]:bg-bull/10 [&>button[aria-pressed=true]]:text-bull" role="group" aria-label="Phía giá chart">
             {['bid', 'ask'].map((value) => (
               <button
                 type="button"
@@ -1976,7 +1975,7 @@ export function ForexStrategyPage({
           />
           {(hasMore || chartError) && (
             <button
-              className="secondary broker-history-button inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3 ml-auto rounded border border-border-active px-2 py-1 text-xs text-text-secondary"
+              className="broker-history-button ml-auto inline-flex min-h-8 items-center justify-center rounded-lg border border-border-base px-3 text-xs text-text-secondary transition-colors hover:bg-surface-3"
               type="button"
               disabled={loading || loadingOlder}
               onClick={() =>
@@ -2081,20 +2080,22 @@ export function ForexStrategyPage({
       {!loading && !chartError && candles.length === 0 && (
         <p role="status">Chưa có nến đã đóng cho lựa chọn này.</p>
       )}
-      {executionOnly && pickerPositions.length > 0 && <div className="broker-position-picker flex max-h-28 flex-wrap items-center gap-2 overflow-y-auto px-3 py-2" role="group" aria-label="Chọn ticket đã khớp">
-        <span className="broker-position-count text-xs text-text-muted">{openGroups.length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket</span>
+      {executionOnly && pickerPositions.length > 0 && <div className="broker-position-picker min-w-0 border-b border-border-subtle bg-canvas/40 px-3 py-2.5" role="group" aria-label="Chọn ticket đã khớp">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-1 text-[11px] text-text-muted"><span className="broker-position-count"><strong className="font-medium text-text-secondary">Vị thế broker</strong> · {openGroups.length} setup mở · {executions.filter((leg) => leg.status === 'open').length} ticket mở</span><span>Chọn ticket để định vị trên chart</span></div>
+        <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 overscroll-x-contain">
         {pickerPositions.map((position) => {
           const selected = position.position_id === selectedPosition?.position_id;
           const pnl = position.status === 'closed' ? position.pnl : pnlOf(position);
-          return <button key={position.position_id} type="button" className="broker-position-chip inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border border-border-base bg-surface-2 [&.buy]:text-bull [&.sell]:text-bear [&.is-selected]:border-bull" aria-pressed={selected}
+          return <button key={position.position_id} type="button" className={`broker-position-chip min-w-56 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${selected ? 'border-bull/60 bg-bull/5 ring-1 ring-bull/20' : 'border-border-base bg-surface-1 hover:border-border-active hover:bg-surface-2'}`} aria-pressed={selected}
+            aria-label={`Chọn ticket #${position.position_id} · ${position.role === 'tp1' ? 'TP1' : position.role === 'runner' ? 'Runner' : 'Ticket'}`}
             title={`${ticketStatus(position)} · ${position.status === 'closed' ? 'Profit đã chốt' : 'Thả nổi ước tính'} · chưa xác minh phí/swap`}
             onClick={() => onSelectPosition?.(selected ? undefined : position.position_id)}>
-            <span className={position.side === 'buy' ? "positive text-bull" : "negative text-bear"}>{position.side?.toUpperCase() ?? '—'}</span>
-            <span>#{position.position_id}{position.role === 'tp1' ? ' · TP1' : position.role === 'runner' ? ' · Runner' : ''}</span>
-            <span>{position.remaining_volume ?? position.volume ?? '—'} lot · {ticketStatus(position)}</span>
-            <strong className={pnl == null ? '' : pnl >= 0 ? "positive text-bull" : "negative text-bear"}>{pnl == null ? '— USD' : pnl.toFixed(2) + ' USD'}</strong>
+            <span className="flex items-center gap-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${position.side === 'buy' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'}`}>{position.side?.toUpperCase() ?? '—'}</span><span className="font-mono text-text-primary">#{position.position_id}</span><span className="ml-auto rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-secondary">{position.role === 'tp1' ? 'TP1' : position.role === 'runner' ? 'Runner' : 'Ticket'}</span></span>
+            <span className="mt-2 flex items-baseline justify-between gap-3"><span className="text-text-muted">{position.remaining_volume ?? position.volume ?? '—'} lot</span><strong className={`font-mono tabular-nums ${pnl == null ? 'text-text-muted' : pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{pnl == null ? '— USD' : `${pnl > 0 ? '+' : ''}${pnl.toFixed(2)} USD`}</strong></span>
+            <span className="mt-1 flex items-center justify-between gap-3 text-[10px] text-text-muted"><span>{ticketStatus(position)}</span><span>{position.status === 'closed' ? 'Đã chốt · chưa phí/swap' : 'Thả nổi ước tính'}{selected ? ' · Đang xem' : ''}</span></span>
           </button>;
         })}
+        </div>
       </div>}
       <ForexSignalLifecycle setups={setups} symbol={symbol} selectedId={selectedSetup?.id}
         onSelect={(id) => setSetupSelection(id ? { symbol, id } : null)} />
