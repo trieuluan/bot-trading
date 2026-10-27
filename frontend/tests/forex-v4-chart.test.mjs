@@ -142,6 +142,10 @@ test('ForexStripLegend renders all entry branch states without default browser t
     assert.ok(markup.includes('aria-label="Chú giải biểu tượng"'));
     assert.match(markup, /popover="auto" role="dialog" aria-label="Chú giải dải cặp tiền"/);
     assert.ok(markup.includes('aria-label="Đóng chú giải"'));
+    assert.match(markup, /badge-sample is-signal[^\"]*bg-bull\/10 text-bull/);
+    assert.match(markup, /N là số cây còn tín hiệu/);
+    assert.match(markup, /không phải số liệu trực tiếp/);
+    assert.doesNotMatch(markup, /<\/svg>[14]<\/span>/);
     assert.ok(markup.includes('Canh giá'));
     assert.ok(markup.includes('Kích / đang gửi'));
     assert.ok(markup.includes('Đã khớp'));

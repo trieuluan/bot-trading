@@ -176,7 +176,7 @@ export function useFuturesBoard(active: boolean): Board {
 const sign = (v: number) => (v < 0 ? 'negative' : 'positive');
 const short = (s: string) => s.replace('_USDT', '');
 
-export type PositionRow = { s: string; p: PaperTrade; mark: number | null; feeBps: number };
+export type PositionRow = { s: string; p: PaperTrade; mark: number | null; feeBps: number; stale?: boolean };
 
 const fmtTime = (t: number) => formatTime(t, false, false);
 const span = (a: number, b: number) => {
@@ -454,7 +454,7 @@ function PositionPnlDetails({ row }: { row: PositionRow }) {
     <>
       <button
         type="button"
-        className="position-pnl-detail-button inline-flex items-center gap-1 text-xs hover:text-bull"
+        className="position-pnl-detail-button mt-2 inline-flex min-h-8 items-center gap-1 rounded-md border border-border-subtle px-2 text-[11px] text-text-secondary hover:border-border-active hover:text-bull focus-visible:outline-2 focus-visible:outline-sky-400"
         popoverTarget={id}
         aria-haspopup="dialog"
         onClick={(event) => {
@@ -474,16 +474,16 @@ function PositionPnlDetails({ row }: { row: PositionRow }) {
         popover="auto"
         role="dialog"
         aria-label={`PnL và các lần chốt ${unit} #${trade.id}`}
-        className="tsp position-pnl-popover fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg w-[min(420px,calc(100vw-24px))] fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg"
+        className="tsp position-pnl-popover fixed inset-auto z-[80] m-0 max-h-[70dvh] w-[min(420px,calc(100vw-24px))] overflow-auto whitespace-normal rounded-xl border border-border-active bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary shadow-xl [&_.positive]:text-bull [&_.negative]:text-bear [&_section]:space-y-2 [&_section]:rounded-lg [&_section]:bg-canvas/50 [&_section]:p-3 [&_li]:mt-2 [&_li]:border-t [&_li]:border-border-subtle [&_li]:pt-2 [&_dl]:grid [&_dl]:grid-cols-2 [&_dl]:gap-2 [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-right [&_dd]:font-mono"
         style={position}
       >
         <header className="tsp-head flex flex-wrap items-center justify-between gap-2 border-b border-border-base py-2">
-          <strong className="tsp-title flex flex-wrap items-center justify-between gap-2 border-b border-border-base py-2">
+          <strong className="min-w-0 flex-1 text-text-primary">
             {unit} #{trade.id} · Phí & lần chốt
           </strong>
           <button
             type="button"
-            className="tsp-close ml-auto text-text-muted hover:text-text-primary"
+            className="tsp-close ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-md text-lg text-text-muted hover:bg-surface-3 hover:text-text-primary"
             popoverTarget={id}
             popoverTargetAction="hide"
             aria-label="Đóng chi tiết PnL"
@@ -567,18 +567,19 @@ export function PositionsTable({
   actions?: (row: PositionRow) => React.ReactNode;
 }) {
   return (
-    <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-      <table className="positions-table open-positions-table w-full border-collapse whitespace-nowrap text-xs">
-        <thead>
+    <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border-subtle focus-visible:outline-2 focus-visible:outline-sky-400" tabIndex={0} role="region" aria-label="Vị thế Paper đang mở, cuộn ngang để xem đầy đủ">
+      <table className="positions-table open-positions-table w-full min-w-[1120px] border-collapse text-left text-xs leading-relaxed [&_th]:whitespace-nowrap [&_th]:px-4 [&_th]:py-3 [&_th]:text-[11px] [&_th]:font-medium [&_th]:text-text-muted [&_td]:border-t [&_td]:border-border-subtle [&_td]:px-4 [&_td]:py-4 [&_td]:align-top [&_small]:mt-1 [&_small]:block [&_small]:text-[11px] [&_small]:text-text-muted [&_.positive]:text-bull [&_.negative]:text-bear [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-sky-400">
+        <caption className="sr-only">Lệnh mô phỏng, PnL phần còn mở, chiến thuật, giá và tiến độ chốt phần. Không phải vị thế trên sàn.</caption>
+        <thead className="bg-surface-2/80">
           <tr>
-            <th>Lệnh</th>
-            <th className="num font-mono tabular-nums text-right">PnL · USDT</th>
-            <th>Chiến thuật</th>
-            <th>Entry → Hiện tại</th>
-            <th>SL / TP · nếu khớp</th>
-            <th>Khối lượng</th>
-            <th>Giữ</th>
-            {actions && <th />}
+            <th scope="col">Vị thế</th>
+            <th scope="col" className="num text-right">PnL ròng dự kiến · USDT</th>
+            <th scope="col">Chiến thuật</th>
+            <th scope="col">Giá vào / Fair price</th>
+            <th scope="col">SL / TP · PnL gộp dự kiến</th>
+            <th scope="col">Khối lượng còn mở</th>
+            <th scope="col">Thời gian giữ</th>
+            {actions && <th scope="col">Thao tác</th>}
           </tr>
         </thead>
         <tbody>
@@ -603,18 +604,21 @@ export function PositionsTable({
               pnl: estimatedPaperPnl(p, price, feeBps, false),
             }));
             return (
-              <tr key={`${s}${p.id}`}>
+              <tr key={`${s}${p.id}`} className="transition-colors hover:bg-surface-2/50">
                 <td>
-                  <button className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline" onClick={() => onView(row)}>
+                  <button type="button" className="inline-flex min-h-8 items-center gap-1 whitespace-nowrap rounded-md text-xs font-semibold text-text-primary underline-offset-4 hover:text-bull hover:underline" onClick={() => onView(row)} aria-label={`Xem trên chart ${short(s)} #${p.id}`}>
                     {showPair ? `${short(s)} ` : ''}#{p.id}
                   </button>
-                  <span className={`side-tag ${p.side} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{p.side.toUpperCase()}</span>
-                  <small className="trade-origin inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5"><span className={`side-tag ${p.side} inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${p.side === 'long' ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'}`}>{p.side.toUpperCase()}</span>
+                  <span className="rounded-md bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-muted">PAPER</span></div>
+                  <small className="trade-origin whitespace-nowrap">
                     {p.origin === 'auto' ? 'Auto' : 'Thủ công'} · {fmtTime(p.entry_time)}
                   </small>
+                  {row.stale && <span className="mt-1 inline-flex rounded-md bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">Giá có thể đã cũ</span>}
+                  {p.monitoring?.status === 'history_pending' && <span className="mt-1 block max-w-40 text-[11px] text-amber-300">Chờ nến đối soát SL/TP</span>}
                 </td>
-                <td className="num position-pnl-cell font-mono tabular-nums text-right relative font-mono tabular-nums">
-                  <strong className={`position-pnl-main ${net === null ? '' : sign(net)} font-semibold`}>
+                <td className="num position-pnl-cell text-right tabular-nums">
+                  <strong className={`position-pnl-main block whitespace-nowrap font-mono text-base ${net === null ? 'text-text-muted' : sign(net)} font-semibold`}>
                     {net === null ? '—' : `${net > 0 ? '+' : ''}${formatPrice(net)}`}
                   </strong>
                   <small title="ROE = PnL còn mở ÷ ký quỹ của phần còn giữ. Đòn bẩy cao làm ký quỹ nhỏ nên % lớn; margin Cross dùng ví chung, không chỉ phần ký quỹ này.">
@@ -626,7 +630,7 @@ export function PositionsTable({
                   {partial && (
                     <small>
                       Đã chốt{' '}
-                      <b className={sign(partial.realizedNet)}>
+                      <b className={`${sign(partial.realizedNet)} font-mono`}>
                         {partial.realizedNet > 0 ? '+' : ''}
                         {formatPrice(partial.realizedNet)}
                       </b>
@@ -634,44 +638,46 @@ export function PositionsTable({
                   )}
                   <PositionPnlDetails row={row} />
                 </td>
-                <td>
+                <td className="min-w-48 max-w-60 whitespace-normal break-words">
                   <StrategyCell trade={p} />
                 </td>
                 <td>
-                  {formatQuote(p.entry)} → {mark ? formatQuote(mark) : '—'}
+                  <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1 whitespace-nowrap font-mono tabular-nums"><span className="text-[10px] text-text-muted">Entry</span><span className="text-right text-text-primary">{formatQuote(p.entry)}</span><span className="text-[10px] text-text-muted">Fair</span><span className="text-right text-text-primary">{mark ? formatQuote(mark) : '—'}</span></div>
                   <small>
                     {mark
                       ? `giá ${mark >= p.entry ? '+' : ''}${(((mark - p.entry) / p.entry) * 100).toFixed(2)}% từ entry`
                       : 'Chưa có fair price'}
                   </small>
                 </td>
-                <td className="position-levels flex flex-col gap-1">
+                <td className="position-levels">
+                  <div className="space-y-2">
                   {levels.map(({ label, price, move, pnl }) => (
-                    <div key={label} className="position-level flex items-baseline gap-2 font-mono text-xs">
-                      <span className={`position-level-tag ${label.toLowerCase()} text-text-muted`}>{label}</span>
-                      <span>{formatQuote(price)}</span>
-                      <small title="Giá phải đi bao nhiêu % từ fair price hiện tại để chạm mức này">
+                    <div key={label} className="position-level grid grid-cols-[auto_1fr] items-baseline gap-x-3 font-mono text-xs tabular-nums">
+                      <span className={`position-level-tag ${label.toLowerCase()} rounded px-1 py-0.5 text-[10px] ${label === 'SL' ? 'bg-bear/10 text-bear' : 'bg-bull/10 text-bull'}`}>{label}</span>
+                      <span className="text-right text-text-primary">{formatQuote(price)}</span>
+                      <small className="whitespace-nowrap" title="Giá phải đi bao nhiêu % từ fair price hiện tại để chạm mức này">
                         {move === null ? '—' : `giá ${move > 0 ? '+' : ''}${move.toFixed(2)}%`}
                       </small>
                       <b
-                        className={pnl === null || pnl === 0 ? undefined : sign(pnl)}
+                        className={`whitespace-nowrap text-right text-[11px] ${pnl === null || pnl === 0 ? 'text-text-muted' : sign(pnl)}`}
                         title="PnL phần còn mở nếu khớp đúng mức này · chưa trừ phí, funding, trượt giá"
                       >
                         {pnl === null ? '—' : `${pnl > 0 ? '+' : ''}${formatPrice(pnl)}`}
                       </b>
                     </div>
                   ))}
+                  </div>
                 </td>
                 <td
                   title={`Ký quỹ ${formatPrice(margin)} × ${lev}x = ${formatPrice(notional)} USDT\nKhối lượng = ${formatPrice(notional)} ÷ ${formatQuote(p.entry)} = ${p.quantity} ${unit} (${p.contracts} hợp đồng)\nPhí mở ${formatPrice(p.entry_fee)} USDT · Cross: ví chung chịu rủi ro, không giới hạn ở ký quỹ lệnh`}
                 >
-                  {p.quantity.toLocaleString('en-US')} {unit}
+                  <span className="whitespace-nowrap font-mono tabular-nums text-text-primary">{p.quantity.toLocaleString('en-US')} {unit}</span>
                   <small>
                     {formatPrice(margin)} × {lev}x · {p.contracts} hợp đồng · Cross
                   </small>
                   {partial ? (
-                    <div className="position-partial-progress relative h-1.5 overflow-hidden rounded-full bg-surface-3 [&>i]:block [&>i]:h-full [&>i]:bg-bull">
-                      <div className="position-partial-caption mt-1 text-xs text-text-muted">
+                    <div className="position-partial-progress mt-2 space-y-1.5">
+                      <div className="position-partial-caption flex flex-wrap justify-between gap-x-3 gap-y-1 text-[11px] text-text-muted">
                         <button
                           type="button"
                           className="text-button inline-flex items-center gap-1 text-xs text-bull underline-offset-4 hover:underline"
@@ -683,6 +689,7 @@ export function PositionsTable({
                         <span>Còn {partial.remainingPercent}%</span>
                       </div>
                       <progress
+                        className="block h-1.5 w-full overflow-hidden rounded-full border-0 bg-surface-3 accent-bull [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-surface-3 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-bull [&::-moz-progress-bar]:bg-bull"
                         value={partial.closedPercent}
                         max={100}
                         aria-label={`Đã đóng ${partial.closedPercent}% khối lượng ban đầu`}
@@ -692,8 +699,8 @@ export function PositionsTable({
                     <small>Chưa chốt phần</small>
                   )}
                 </td>
-                <td>{hold(p.entry_time)}</td>
-                {actions && <td className="row-actions flex flex-wrap items-center gap-2">{actions(row)}</td>}
+                <td className="whitespace-nowrap font-mono text-text-muted">{hold(p.entry_time)}</td>
+                {actions && <td><div className="row-actions flex min-w-28 flex-col items-stretch gap-2 [&>button]:min-h-9 [&>button]:whitespace-normal [&>button]:disabled:cursor-not-allowed [&>button]:disabled:opacity-50">{actions(row)}</div></td>}
               </tr>
             );
           })}
@@ -772,6 +779,7 @@ export function AllPairsPanel({
       p,
       mark: board[s].wallet?.quote?.fairPrice ?? null,
       feeBps: board[s].wallet?.fee_bps ?? 0,
+      stale: !!board[s].wallet?.stale,
     })),
   );
   const trades = FUTURES_SYMBOLS.flatMap((s) =>

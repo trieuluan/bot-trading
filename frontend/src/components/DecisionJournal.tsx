@@ -26,7 +26,7 @@ const outcomeLabels: Record<string, string> = {
   history_catching_up: 'Đang đồng bộ lịch sử',
   paused: 'Bot tạm dừng',
   feed_not_ready: 'Dữ liệu nến chưa sẵn sàng',
-  outside_signal_window: 'Quá cửa sổ 300s sau nến đóng',
+  outside_signal_window: 'Ngoài cửa sổ đánh giá M15 (5 phút)',
   ask_candle_missing: 'Thiếu nến ask',
   policy_missing: 'Chưa có policy học',
   preflight_failed: 'Kiểm tra trước lệnh thất bại',
@@ -275,9 +275,11 @@ export function DecisionJournal({
                     )}
                     {(row.reason || !!row.events?.length) && (
                       <details className="group min-w-0 text-[11px] text-text-muted">
-                        <summary className="inline-flex cursor-pointer items-center gap-1 rounded py-1 focus-visible:outline-2 focus-visible:outline-sky-400">Chi tiết xử lý{group.count === 1 && !!row.events?.length && ` · ${row.events.length} lần kiểm tra`}<ChevronDown size={12} className="group-open:rotate-180" aria-hidden="true" /></summary>
+                        <summary className="inline-flex cursor-pointer items-center gap-1 rounded py-1 focus-visible:outline-2 focus-visible:outline-sky-400">Chi tiết xử lý{group.count === 1 && !!row.events?.length && ` · ${row.events.length} mốc ghi nhận`}<ChevronDown size={12} className="group-open:rotate-180" aria-hidden="true" /></summary>
                         <div className="mt-1 space-y-2 rounded-lg border border-border-subtle bg-canvas/50 p-2.5">
                           <p>Mã kết quả: <code className="break-all text-text-secondary">{row.outcome}</code></p>
+                          {(outcomeKey(row.outcome) === 'outside_signal_window' || row.events?.some((event) => outcomeKey(event.outcome) === 'outside_signal_window')) && <p className="leading-relaxed">Luồng đánh giá tín hiệu M15 chỉ nhận tín hiệu trong 5 phút sau nến đóng. Nhánh Limit/Stop ảo dùng thời hạn riêng trong chi tiết setup; đây không phải lỗi từ chối lệnh của sàn.</p>}
+                          {!!row.events?.length && <p className="leading-relaxed">Các mốc bên dưới là diễn biến được lưu, không phải tổng số lần kiểm tra. Kết quả trên thẻ được giữ lại khi vòng sau không đánh giá được tín hiệu.</p>}
                           {row.reason && <p>Mã / lý do gốc: <code className="break-all text-text-secondary">{row.reason}</code></p>}
                           {group.count === 1 && !!row.events?.length && <ul className="max-h-40 space-y-2 overflow-y-auto">{row.events.map((event, index) => <li key={`${event.at}-${index}`} className="flex flex-wrap gap-x-2 gap-y-1"><span className="font-mono">{formatTime(event.at, true)}</span><span>{outcomeText(event.outcome)}</span></li>)}</ul>}
                         </div>

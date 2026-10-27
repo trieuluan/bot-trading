@@ -14,6 +14,17 @@ for (const component of ['MtfObservationChart', 'PaperChart']) {
   });
 }
 
+test('PaperChart position tooltip retains bounded Tailwind layout after legacy CSS removal', async () => {
+  const source = await readFile(new URL('../src/components/PaperChart.tsx', import.meta.url), 'utf8');
+  const tip = source.match(/className="position-tip [^"]*"/)?.[0];
+  for (const utility of ['pointer-events-auto', 'absolute', 'z-30', 'flex-col', 'overflow-hidden', 'bg-surface-2', 'w-[360px]', 'max-w-[calc(100%-16px)]']) {
+    assert.ok(tip?.includes(utility), `Tooltip needs ${utility}`);
+  }
+  assert.match(source, /position-tip-list min-h-0 overflow-y-auto overscroll-contain/);
+  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_minmax\(0,2fr\)\]/);
+  assert.match(source, /event.key === 'Escape'\) setHover\(null\)/);
+});
+
 test('Forex chart keeps indicator readout in setup details, not over the canvas', async () => {
   const chart = await readFile(new URL('../src/components/MtfObservationChart.tsx', import.meta.url), 'utf8');
   const drawer = await readFile(new URL('../src/components/ForexSignalLifecycle.tsx', import.meta.url), 'utf8');
@@ -85,4 +96,15 @@ test('ChartPositionCluster UI component contract matches DOM accessibility requi
   assert.match(source, /popover="auto"/);
   assert.match(source, /role="dialog"/);
   assert.match(source, /onDetails/);
+});
+
+test('AutoJournal tooltip never intercepts hover and stays anchored above or below the candle', async () => {
+  const source = await readFile(new URL('../src/components/AutoJournal.tsx', import.meta.url), 'utf8');
+  const tooltip = source.match(/className=\{`ap-portal-tooltip[^`]*`\}/)?.[0];
+  assert.ok(tooltip?.includes('pointer-events-none'));
+  assert.ok(tooltip?.includes('-translate-x-1/2'));
+  assert.ok(tooltip?.includes("tip.below ? 'translate-y-0' : '-translate-y-full'"));
+  assert.ok(tooltip?.includes('w-[min(280px,calc(100vw-20px))]'));
+  assert.match(source, /onMouseLeave=\{hideTip\}/);
+  assert.match(source, /event.key === 'Escape'\) hideTip\(\)/);
 });

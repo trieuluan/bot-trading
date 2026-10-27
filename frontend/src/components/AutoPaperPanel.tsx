@@ -103,20 +103,20 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
       ? ((state.portfolio_used_risk ?? 0) / state.portfolio_capital) * 100
       : null;
   return (
-    <section className="panel prose auto-paper-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary">
-      <header className="ap-head flex flex-wrap items-center gap-2 text-xs">
-        <div className="auto-title font-semibold text-text-primary">
-          <Bot size={22} />
-          <div>
-            <h2>Auto Paper</h2>
-            <p>
+    <section className="auto-paper-panel min-w-0 space-y-3 text-sm leading-relaxed text-text-secondary">
+      <header className="ap-head flex min-w-0 flex-col gap-3 text-xs">
+        <div className="auto-title flex min-w-0 items-start gap-2.5 font-semibold text-text-primary">
+          <Bot size={22} className="mt-0.5 shrink-0 text-bull" aria-hidden="true" />
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-semibold">Auto Paper</h2>
+            <p className="m-0 mt-1 flex flex-col gap-1 break-words text-xs font-normal text-text-muted">
               <strong className="auto-strategy break-all font-mono text-xs text-text-muted">{modeLabel}</strong>
               <span>{getFuturesSymbol()} · H4/H1 · vào M15 · Cross</span>
             </p>
           </div>
         </div>
         <button
-          className={`ap-toggle ${state?.enabled ? 'on' : ''} rounded border border-border-base px-3 py-1 text-xs [&.on]:border-bull [&.on]:text-bull`}
+          className={`ap-toggle inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${state?.enabled ? 'border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20' : 'border-bull/40 bg-bull/10 text-bull hover:bg-bull/20'}`}
           type="button"
           onClick={() => void toggle()}
           disabled={
@@ -130,12 +130,12 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           {busy ? 'Đang xử lý…' : state?.enabled ? 'Dừng Auto' : 'Bật Auto'}
         </button>
       </header>
-      <div className="auto-status text-text-muted" role="status">
+      <div className="auto-status flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border-subtle bg-canvas px-3 py-2 text-xs text-text-muted [&>span:last-child]:basis-full [&>span:last-child]:break-words" role="status">
         <span className={`status-dot ${!state?.worker_online ? 'stale-dot' : ''} inline-block size-1.5 shrink-0 rounded-full bg-bull [&.stale-dot]:bg-amber-400`} />
         <strong>{state?.worker_online ? 'Worker online' : 'Worker offline'}</strong>
         <span title={state?.status}>{state?.status ?? 'Đang tải trạng thái…'}</span>
       </div>
-      <div className="ap-kpis grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="ap-kpis grid min-w-0 grid-cols-2 gap-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div]:gap-1 [&>div]:rounded-lg [&>div]:border [&>div]:border-border-subtle [&>div]:bg-surface-2 [&>div]:p-2.5 [&_span]:text-[11px] [&_span]:text-text-muted [&_strong]:break-words [&_strong]:font-mono [&_strong]:text-sm [&_strong]:tabular-nums [&_small]:text-[10px] [&_small]:font-normal [&_small]:text-text-muted">
         <div>
           <span>Nến đóng sau</span>
           <strong>{state ? countdown : '—'}</strong>
@@ -163,8 +163,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           </strong>
         </div>
       </div>
-      <AutoJournal state={state} onViewTrade={onViewTrade} />
-      <div className="ap-chips flex flex-wrap items-center gap-2 text-xs" aria-label="Thông số đang áp dụng">
+      <div className="ap-chips flex flex-wrap items-center gap-1.5 text-[11px] [&>span]:rounded-md [&>span]:bg-surface-2 [&>span]:px-2 [&>span]:py-1 [&_b]:font-mono [&_b]:text-text-primary" aria-label="Thông số đang áp dụng">
         <span>
           Đòn bẩy <b>{state?.leverage ?? '—'}x</b>
         </span>
@@ -186,12 +185,12 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           </b>
         </span>
       </div>
-      <details className="ap-config flex flex-wrap items-center gap-2 text-xs" open={!state?.enabled || undefined}>
-        <summary>{state?.enabled ? 'Thông số (khoá khi Auto chạy)' : 'Chỉnh thông số'}</summary>
-        <form className="auto-paper-form ap-form grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full grid min-w-0 gap-3 [&_label]:flex [&_label]:flex-col [&_label]:gap-1 [&_label]:text-xs [&_label]:text-text-muted [&_input]:w-full [&_select]:w-full" onSubmit={(event) => void save(event)}>
+      <details className="ap-config min-w-0 rounded-lg border border-border-subtle text-xs" open={!state?.enabled || undefined}>
+        <summary className="cursor-pointer px-3 py-2.5 font-medium text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">{state?.enabled ? 'Thông số (khoá khi Auto chạy)' : 'Chỉnh thông số'}</summary>
+        <form className="auto-paper-form ap-form grid min-w-0 gap-3 border-t border-border-subtle p-3 [&_label:not(.ap-switch)]:flex [&_label:not(.ap-switch)]:min-w-0 [&_label:not(.ap-switch)]:flex-col [&_label]:gap-1.5 [&_label]:text-xs [&_label]:text-text-muted [&_input[type=number]]:min-h-10 [&_input[type=number]]:w-full [&_input[type=number]]:min-w-0 [&_input[type=number]]:rounded-md [&_input[type=number]]:border [&_input[type=number]]:border-border-active [&_input[type=number]]:bg-canvas [&_input[type=number]]:px-2.5 [&_input[type=number]]:font-mono [&_input[type=number]]:text-text-primary [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-sky-400 [&_input]:disabled:opacity-50 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-text-primary" onSubmit={(event) => void save(event)}>
           <section className="ap-card min-w-0 space-y-3 rounded border border-border-subtle p-3">
             <h3>Kích thước lệnh</h3>
-            <div className="ap-grid grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="ap-grid grid min-w-0 grid-cols-1 gap-3">
               <label>
                 Rủi ro / lệnh (%)
                 <input
@@ -220,7 +219,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
               </label>
             </div>
             <fieldset className="leverage-box rounded border border-border-base bg-surface-2 p-3" disabled={locked || !state?.max_leverage}>
-              <legend>
+              <legend className="flex items-center gap-2 px-1 text-xs">
                 Đòn bẩy <span className="leverage-mode flex flex-wrap items-center gap-2 text-xs [&>button]:rounded [&>button]:border [&>button]:border-border-base [&>button]:px-2 [&>button]:py-1">Cross</span>
               </legend>
               <div className="leverage-stepper flex flex-wrap items-center gap-2 text-xs [&>button]:rounded [&>button]:border [&>button]:border-border-base [&>button]:px-2 [&>button]:py-1">
@@ -231,7 +230,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 >
                   −
                 </button>
-                <label className="leverage-input w-20 font-mono">
+                <label className="leverage-input relative w-20 font-mono [&>span]:absolute [&>span]:right-2 [&>span]:top-3 [&>input]:pr-6">
                   <input
                     type="number"
                     aria-label="Đòn bẩy"
@@ -290,7 +289,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           </section>
           <section className="ap-card min-w-0 space-y-3 rounded border border-border-subtle p-3">
             <h3>Giới hạn ví chung · 10 cặp</h3>
-            <div className="ap-grid grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="ap-grid grid min-w-0 grid-cols-1 gap-3">
               <label>
                 Ngưỡng lỗ ngày (%)
                 <input
@@ -319,7 +318,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
                 />
               </label>
             </div>
-            <label className="ap-switch flex flex-row items-center gap-2 text-xs">
+            <label className="ap-switch flex items-start gap-2 text-xs [&>input]:mt-0.5 [&>input]:size-4 [&>input]:shrink-0 [&>input]:accent-bull">
               <input
                 type="checkbox"
                 checked={capEnabled}
@@ -335,7 +334,7 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           </section>
           <div className="ap-actions flex flex-wrap items-center gap-2 text-xs">
             <button
-              className="secondary inline-flex items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-3"
+              className="secondary inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-md border border-border-active bg-surface-2 px-3 py-2 text-xs text-text-secondary hover:bg-surface-3"
               type="submit"
               disabled={!state || !online || busy || state.enabled || !dirty}
             >
@@ -355,8 +354,12 @@ export function AutoPaperPanel({ state, stale, online, clock, onUpdated, onViewT
           {message}
         </p>
       )}
-      <details className="auto-paper-guide mt-2 text-xs leading-relaxed text-text-muted [&.high]:text-amber-300">
-        <summary>Cách vận hành & giới hạn</summary>
+      <details className="rounded-lg border border-border-subtle text-xs">
+        <summary className="cursor-pointer px-3 py-2.5 font-medium text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">Nhật ký Auto · 24 giờ</summary>
+        <div className="min-w-0 border-t border-border-subtle px-3"><AutoJournal state={state} onViewTrade={onViewTrade} /></div>
+      </details>
+      <details className="auto-paper-guide rounded-lg border border-border-subtle px-3 text-xs leading-relaxed text-text-muted [&>p]:mb-3">
+        <summary className="cursor-pointer py-2.5 font-medium text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">Cách vận hành & giới hạn</summary>
         <p className="micro text-xs leading-relaxed text-text-muted">
           Mốc equity ngày {state?.day || 'đang chờ'} (UTC):{' '}
           {state ? formatPrice(state.day_start_equity) : '—'} USDT. Lỗ tính trên toàn bộ ví, số lệnh

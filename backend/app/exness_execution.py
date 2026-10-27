@@ -392,7 +392,8 @@ def record_journal(state, detail, outcome, now):
              "mode": detail.get("mode"), "selected": detail.get("selected"), "confirmed": detail.get("confirmed", []),
              "strategies": detail.get("strategies", []), "reason": detail.get("reason"),
              "events": (old or {}).get("events", [])}
-    if not old or old["outcome"] != outcome:
+    last_outcome = entry["events"][-1]["outcome"] if entry["events"] else (old or {}).get("outcome")
+    if last_outcome != outcome:
         entry["events"] = (entry["events"] + [{"at": now, "outcome": outcome}])[-16:]
     if old and ((old["outcome"] in ("order_sent", "execution_error")
                  and outcome not in ("order_sent", "execution_error"))
@@ -673,7 +674,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             if result == "submitted":
                 with Session.begin() as session:
                     state = session.get(ExnessExecutionState, api.account_id)
-                    record_journal(state, {"candle_time": row.signal_time}, "order_sent", now)
+                    record_journal(state, {"symbol": symbol, "candle_time": row.signal_time}, "order_sent", now)
             return result
         if not row.snapshot.get("legs"):
             continue
@@ -824,7 +825,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             with Session.begin() as s:
                 st = s.get(ExnessExecutionState, api.account_id)
                 if st:
-                    record_journal(st, {"candle_time": stamp}, "order_sent", now)
+                    record_journal(st, {"symbol": symbol, "candle_time": stamp}, "order_sent", now)
         if signal.get("entry_intent_id"):
             for index, data in enumerate(legs[1:], start=1):
                 if result != "submitted":
@@ -837,7 +838,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             st = s.get(ExnessExecutionState, api.account_id)
             if st:
                 outcome = "api_rate_limited" if getattr(exc, "rate_limited", False) and not client.last_submission else "execution_error"
-                record_journal(st, {"candle_time": stamp, "reason": str(exc)[:200]}, outcome, now)
+                record_journal(st, {"symbol": symbol, "candle_time": stamp, "reason": str(exc)[:200]}, outcome, now)
         raise
 
 def submit_leg(client, row, index, data, condition, now):

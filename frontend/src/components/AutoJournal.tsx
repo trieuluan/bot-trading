@@ -117,7 +117,7 @@ export function AutoJournal({
       {typeof document !== 'undefined' && tip.visible &&
         createPortal(
           <div
-            className={`ap-portal-tooltip${tip.below ? ' below' : ''}${tip.visible ? ' is-visible' : ''} fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg`}
+            className={`ap-portal-tooltip pointer-events-none fixed z-[80] w-[min(280px,calc(100vw-20px))] -translate-x-1/2 ${tip.below ? 'translate-y-0' : '-translate-y-full'} max-h-[70dvh] overflow-hidden whitespace-normal break-words rounded-lg border border-border-active bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary shadow-lg`}
             style={{ top: `${tip.top}px`, left: `${tip.left}px` }}
             role="tooltip"
             aria-hidden={!tip.visible}

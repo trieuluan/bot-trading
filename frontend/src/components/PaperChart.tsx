@@ -709,7 +709,7 @@ export function PaperChart({
                 </div>
                 {hover === tagKey && (
                   <section
-                    className="position-tip pointer-events-auto"
+                    className="position-tip pointer-events-auto absolute z-30 m-0 flex w-[360px] max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-lg border border-border-active bg-surface-2 px-3 py-2 font-mono text-xs leading-relaxed text-text-primary shadow-xl [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:break-words [&_dd]:text-right [&_dd]:tabular-nums [&_i]:not-italic [&_i]:text-text-muted"
                     aria-label="Chi tiết vị thế"
                     onFocus={() => setHover(tagKey)}
                     onBlur={(event) => {
@@ -742,7 +742,7 @@ export function PaperChart({
                           }
                     }
                   >
-                    <h4>
+                    <h4 className="m-0 mb-1.5 shrink-0 text-xs font-semibold text-sky-300">
                       {members.length > 1 ? `${members.length} lệnh` : `#${open.id}`} ·{' '}
                       {open.side === 'long' ? 'LONG' : 'SHORT'} ·{' '}
                       {tag.kind === 'entry'
@@ -752,7 +752,7 @@ export function PaperChart({
                           : 'Nếu chạm TP'}
                     </h4>
                     <div
-                      className="position-tip-list"
+                      className="position-tip-list min-h-0 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:outline-sky-400"
                       tabIndex={0}
                       aria-label="Danh sách lệnh, cuộn để xem thêm"
                     >
@@ -773,13 +773,13 @@ export function PaperChart({
                             : ((price - p.entry) / p.entry) * 100 * (p.side === 'long' ? 1 : -1);
                         const unit = getFuturesSymbol().split('_')[0];
                         return (
-                          <div key={p.id} className="position-tip-trade">
-                            <h5>
-                              <b>#{p.id}</b>{' '}
+                          <div key={p.id} className="position-tip-trade border-b border-border-subtle py-2 last:border-b-0">
+                            <h5 className="m-0 mb-1 break-words text-xs font-medium">
+                              <b className="mr-1 text-sky-300">#{p.id}</b>{' '}
                               {tradeStrategy(p.audit)?.title ??
                                 (p.origin === 'manual' ? 'Thủ công' : 'Auto')}
                             </h5>
-                            <dl>
+                            <dl className="m-0 [&>div]:grid [&>div]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&>div]:gap-2 [&>div]:py-0.5">
                               <div>
                                 <dt>{tag.kind === 'entry' ? 'Hiện tại' : 'Chốt'}</dt>
                                 <dd>
@@ -826,14 +826,14 @@ export function PaperChart({
                         );
                       })}
                     </div>
-                    <dl className="total">
+                    <dl className="total m-0 mt-1 grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 border-t border-border-active pt-2 font-semibold">
                       <dt>
                         PnL ròng nếu chốt{members.length > 1 ? ' (tổng)' : ''}
-                        <small>Phí đóng ước tính {feeBps} bps</small>
+                        <small className="mt-0.5 block text-[10px] font-normal">Phí đóng ước tính {feeBps} bps</small>
                       </dt>
                       <dd>{fmt(net)} USDT</dd>
                     </dl>
-                    <p>
+                    <p className="m-0 mt-1.5 shrink-0 text-[11px] text-text-muted">
                       Chưa gồm trượt giá và funding tương lai{markStale ? ' · giá đang chậm' : ''}.
                     </p>
                   </section>

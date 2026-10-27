@@ -690,6 +690,22 @@ def test_journal_preserves_error_until_fresh_evaluation():
     assert row["outcome"] == "no_signal"
     assert row["reason"] is None
 
+@pytest.mark.parametrize("outcome", ["no_signal", "order_sent", "execution_error", "worker_error", "order_planned"])
+def test_journal_records_transitions_not_repeated_unavailable_checks(outcome):
+    state = SimpleNamespace(snapshot={})
+    detail = {"symbol": "NZDUSD", "candle_time": NOW - 900, "evaluated": True}
+    ee.record_journal(state, detail, outcome, NOW)
+    unavailable = {**detail, "evaluated": False}
+    for offset in range(1, 20):
+        ee.record_journal(state, unavailable, "unavailable:outside_signal_window", NOW + offset)
+    row = state.snapshot["journal"][0]
+    assert row["symbol"] == "NZDUSD"
+    assert row["outcome"] == outcome
+    assert row["events"] == [{"at": NOW, "outcome": outcome},
+                             {"at": NOW + 1, "outcome": "unavailable:outside_signal_window"}]
+    ee.record_journal(state, detail, outcome, NOW + 20)
+    assert state.snapshot["journal"][0]["events"][-1] == {"at": NOW + 20, "outcome": outcome}
+
 def test_instrument_error_does_not_pollute_gold_journal(monkeypatch):
     api = dummy_api()
     seed_executor(api, monkeypatch)

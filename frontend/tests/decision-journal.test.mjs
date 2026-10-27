@@ -53,7 +53,7 @@ test('journal renders separated metrics, local filter counts, raw reasons and at
   assert.match(html, /aria-pressed="true"/);
   assert.match(html, /2 nến liên tiếp/);
   assert.match(html, /poor_rr/);
-  assert.match(html, /1 lần kiểm tra/);
+  assert.match(html, /1 mốc ghi nhận/);
   assert.match(html, /border-rose-400/);
   assert.ok(!html.includes('NaN') && !html.includes('Infinity'));
   assert.equal((html.match(/<details/g) ?? []).length, 2);

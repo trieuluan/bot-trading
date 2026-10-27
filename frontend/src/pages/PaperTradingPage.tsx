@@ -709,7 +709,7 @@ export function PaperTradingPage({
             </aside>
           </div>
         )}
-        <aside className="desk-controls min-w-0 space-y-3 rounded-lg border border-border-base bg-surface-1 p-3 xl:sticky xl:top-[calc(var(--desk-header-h,120px)+12px)] xl:max-h-[calc(100dvh-var(--desk-header-h,120px)-24px)] xl:self-start xl:overflow-y-auto" aria-label="Điều khiển giao dịch Paper">
+        <aside className="desk-controls min-w-0 space-y-3 rounded-xl border border-border-base bg-surface-1 p-3 [&_button]:disabled:cursor-not-allowed [&_button]:disabled:opacity-50 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-sky-400 xl:sticky xl:top-[calc(var(--desk-header-h,120px)+12px)] xl:max-h-[calc(100dvh-var(--desk-header-h,120px)-24px)] xl:self-start xl:overflow-y-auto" aria-label="Điều khiển giao dịch Paper">
           <div className="desk-mode-switch grid grid-cols-2 gap-1 rounded-md bg-canvas p-1 [&>button]:flex [&>button]:h-9 [&>button]:items-center [&>button]:justify-center [&>button]:gap-1.5 [&>button]:rounded [&>button]:text-xs [&>button]:font-semibold [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary" role="group" aria-label="Chế độ đặt lệnh">
             <button
               type="button"
@@ -728,17 +728,18 @@ export function PaperTradingPage({
           </div>
           <section hidden={orderMode !== 'manual'} className="paper-order min-w-0 space-y-4 px-1 pt-2 text-sm text-text-secondary">
             <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
-              <h2>Đặt lệnh thủ công</h2>
+              <h2 className="text-sm font-semibold text-text-primary">Đặt lệnh thủ công</h2>
               <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">MARKET</span>
             </div>
             {auto?.enabled && (
-              <div className="auto-lock-card min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-2 p-3" role="status">
-                <div>
-                  <strong>Auto đang chạy</strong>
+              <div className="auto-lock-card min-w-0 space-y-3 rounded-lg border border-bull/25 bg-bull/5 p-3" role="status">
+                <div className="flex min-w-0 flex-col gap-1.5 break-words">
+                  <strong className="text-bull">Auto đang chạy</strong>
                   <span className="micro text-xs leading-relaxed text-text-muted">
                     {auto.daily_trades}/{auto.max_daily_trades} lệnh hôm nay · Lỗ ngày{' '}
                     {auto.daily_loss_used_percent.toFixed(1)}%
                   </span>
+                  <span className="text-xs leading-relaxed text-text-muted">Dừng Auto để mở lệnh thủ công. Vị thế đang mở vẫn được quản lý SL/TP.</span>
                   <span className="micro text-xs leading-relaxed text-text-muted">
                     {wallet?.position?.audit?.strategy
                       ? `Đang giữ ${tradeStrategy(wallet.position.audit)?.title}`
@@ -763,9 +764,9 @@ export function PaperTradingPage({
                 </button>
               </div>
             )}
-            <details className="desk-manual-form min-w-0 [&_label]:flex [&_label]:min-w-0 [&_label]:flex-col [&_label]:gap-2 [&_label]:text-xs [&_label]:text-text-muted [&_input]:h-11 [&_input]:w-full [&_input]:min-w-0 [&_input]:font-mono [&_select]:w-full" open={!auto?.enabled}>
-              <summary className="mb-4 text-xs text-text-muted">Thông số lệnh thủ công</summary>
-              <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
+            <details className="desk-manual-form min-w-0 rounded-lg border border-border-subtle [&_label]:flex [&_label]:min-w-0 [&_label]:flex-col [&_label]:gap-2 [&_label]:text-xs [&_label]:text-text-muted [&_input]:h-11 [&_input]:w-full [&_input]:min-w-0 [&_input]:rounded-lg [&_input]:border [&_input]:border-border-active [&_input]:bg-canvas [&_input]:px-3 [&_input]:font-mono [&_input]:text-sm [&_input]:text-text-primary [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-sky-400 [&_select]:w-full" open={!auto?.enabled}>
+              <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">Thông số lệnh thủ công</summary>
+              <form className="grid gap-4 border-t border-border-subtle p-3" onSubmit={(event) => void submit(event)}>
                 <div className="grid grid-cols-2 gap-2" role="group" aria-label="Chiều lệnh">
                   <button
                     type="button"
