@@ -44,7 +44,10 @@ def advance_forward(samples, bids, asks, now):
 
     from .db import Session, WorkspaceCandle
     from .exness_feed import WORKSPACE
-    active = [sample for sample in samples if sample["status"] in ("waiting", "pending", "open")]
+    # expired without reason/execution came from the final fallthrough; re-evaluate recent ones (deterministic, idempotent)
+    active = [sample for sample in samples if sample["status"] in ("waiting", "pending", "open") or
+              sample["status"] == "expired" and "reason" not in sample and "execution" not in sample
+              and now - sample["signal"]["entry_policy"]["expires_at"] < 86400]
     if not active:
         return
     with Session() as session:
@@ -55,9 +58,15 @@ def advance_forward(samples, bids, asks, now):
             WorkspaceCandle.time + 60 <= now).order_by(WorkspaceCandle.time)).all()
     for sample in active:
         start = sample["signal"]["available_at"]
-        use_minute = any(row.time >= start for row in rows)
-        bid_rows = [row for row in rows if row.price_type == "bid"] if use_minute else bids["15m"]
-        ask_rows = [row for row in rows if row.price_type == "ask"] if use_minute else list(asks.values())
+        bid_rows = [row for row in rows if row.price_type == "bid" and row.time >= start]
+        ask_rows = [row for row in rows if row.price_type == "ask" and row.time >= start]
+        # ponytail: partial M1 stays on M15 until both sides are continuous through the latest closed minute.
+        use_minute = bool(bid_rows) and bid_rows[0].time == start and all(
+            right.time - left.time == 60 for left, right in zip(bid_rows, bid_rows[1:]))
+        use_minute = use_minute and [bar.time for bar in bid_rows] == [bar.time for bar in ask_rows] and (
+            bid_rows[-1].time + 60 == int(now) // 60 * 60)
+        if not use_minute:
+            bid_rows, ask_rows = bids["15m"], list(asks.values())
         sample.update(run(sample["signal"], bid_rows, ask_rows, bids["15m"], bids["1h"], sample["condition"],
                           sample["costs"], now, duration=60 if use_minute else 900))
 
@@ -162,4 +171,6 @@ def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, du
                     "net_r_ex_swap": simulation.get("net_r"), "label_available_at": simulation.get("resolved_at")}
     if simulation:
         return {**result, "status": "open", "execution": simulation}
-    return {**result, "status": "expired" if now >= policy["expires_at"] else "pending"}
+    # ponytail: expire only once evaluated bars cover the deadline (M15 fallback / lagging M1 must not expire early)
+    covered = previous + duration >= policy["expires_at"]
+    return {**result, "status": "expired" if now >= policy["expires_at"] and covered else "pending"}

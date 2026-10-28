@@ -173,6 +173,36 @@ def sync_page(api, frame, days=90, now=None, *, older=False, symbol="XAUUSD", li
                         feed.retry_at = retry_at
         raise
 
+def sync_active_m1(api, symbol, start, now=None):
+    """Fetch one bounded page starting at the first missing bid/ask minute."""
+    checked_symbol(symbol)
+    if type(start) is not int or start < 0 or start % 60:
+        raise ValueError("M1 start must be an aligned UTC timestamp")
+    now = int(utcnow().timestamp()) if now is None else now
+    end = now // 60 * 60
+    if feed_retry_delay(symbol) > 0:
+        return 0
+    with Session() as session:
+        stored = session.execute(select(WorkspaceCandle.time, WorkspaceCandle.price_type).where(
+            WorkspaceCandle.workspace_id == WORKSPACE, WorkspaceCandle.symbol == symbol,
+            WorkspaceCandle.timeframe == "1m", WorkspaceCandle.time >= start, WorkspaceCandle.time < end)).all()
+    complete = {(stamp, side) for stamp, side in stored}
+    first = start
+    while first < end and all((first, side) in complete for side in ("bid", "ask")):
+        first += 60
+    if first >= end:
+        return 0
+    batch_end = min(end, first + api.candle_limit * 60)
+    entries = normalize_rows(api.candles(symbol, "M1", first, batch_end, now=now), "1m", first, batch_end, symbol)
+    with Session.begin() as session:
+        insert = sqlite_insert if session.bind.dialect.name == "sqlite" else postgres_insert
+        for offset in range(0, len(entries), 500):
+            statement = insert(WorkspaceCandle).values(entries[offset:offset + 500])
+            session.execute(statement.on_conflict_do_update(
+                index_elements=["workspace_id", "symbol", "timeframe", "price_type", "time"],
+                set_={field: getattr(statement.excluded, field) for field in ("open", "high", "low", "close", "tick_volume")}))
+    return len(entries) // 2
+
 def feed_retry_delay(symbol=None):
     now = utcnow()
     with Session() as session:

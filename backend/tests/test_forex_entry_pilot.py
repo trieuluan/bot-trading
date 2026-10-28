@@ -144,6 +144,27 @@ def test_replay_no_preentry_tp_or_future_candles(monkeypatch):
     assert run(signal, [bar(1860, 99, 101)], [bar(1860, 99, 101)], [], [], condition, costs, 1920)["reason"] == "replay_data_gap"
 
 
+def test_m15_fallback_market_waits_for_first_closed_bar(monkeypatch):
+    from backend.app.forex_entry_replay import run
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    condition = {"contract_size": "100", "volume_min": "0.01", "volume_step": "0.01", "volume_max": "10",
+                 "point_digits": 3, "instrument": "XAUUSD"}
+    costs = {"commission_per_unit": 0, "slippage_bps": 0}
+    signal = replay_signal()
+    signal["entry_policy"] = {"policy": "market", "limit_price": None, "stop_price": None,
+                              "available_at": 1800, "expires_at": 1920}
+    bar = SimpleNamespace(time=1800, open=100, close=100, low=99.5, high=100.5)
+    # Market window (120s) is shorter than an M15 bar: no verdict until the bar closes.
+    assert run(signal, [], [], [], [], condition, costs, 2000, duration=900)["status"] == "pending"
+    entered = run(signal, [bar], [bar], [], [], condition, costs, 2700, duration=900)
+    assert entered["status"] == "open" and entered["execution"]["entry"] == 100
+    # Limit that never touches still expires once evaluated bars pass its deadline.
+    limit = replay_signal()
+    limit["entry_policy"]["stop_price"] = None
+    bars = [SimpleNamespace(time=stamp, open=100, close=100, low=99.5, high=100.5) for stamp in range(1800, 5400, 900)]
+    assert run(limit, bars, bars, [], [], condition, costs, 6300, duration=900)["status"] == "expired"
+
 def test_v4_tree_schema_hash_and_mutation():
     v3 = g0_trees()[0]
     v4 = with_entry(v3, entry_node("limit_or_stop"))

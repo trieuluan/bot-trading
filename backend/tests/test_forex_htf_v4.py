@@ -279,3 +279,22 @@ def test_partial_tp_then_sl_nets_positive():
     assert stats["ready"] is True
     assert stats["eligible"] is True
     assert stats["mean_r"] == 0.5
+
+def test_active_start_returns_earliest_open_or_none(tmp_path, monkeypatch):
+    from backend.app.forex_htf_v4 import active_start
+    p = tmp_path / "ledger.json"
+    p.write_text('{"runtime": "forex_htf_ast_v4", "schema": "forex_htf_ast_v4", "account": "acc", "symbol": "XAUUSD", "samples": []}')
+    monkeypatch.setattr("backend.app.forex_htf_v4.ledger_path", lambda *_: p)
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: {
+        "samples": [
+            {"status": "resolved", "signal": {"available_at": 1000, "entry_policy": {"expires_at": 2000}}},
+            {"status": "pending", "signal": {"available_at": 3000, "entry_policy": {"expires_at": 4000}}},
+            {"status": "waiting", "signal": {"available_at": 2000, "entry_policy": {"expires_at": 3000}}},
+        ]
+    })
+    assert active_start("acc", "XAUUSD", 3500) == 2000
+    # When all resolved: returns None (no M1 needed)
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: {
+        "samples": [{"status": "resolved", "signal": {"available_at": 1000, "entry_policy": {"expires_at": 2000}}}]
+    })
+    assert active_start("acc", "XAUUSD", 3500) is None

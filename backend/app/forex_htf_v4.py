@@ -492,6 +492,17 @@ def _tick(account, symbol, now, session):
         return capture["status"]
 
 
+def active_start(account, symbol, now):
+    """Earliest signal time of still-unresolved simulations, or None when no M1 is needed."""
+    try:
+        ledger = read_ledger(account, symbol)
+    except (OSError, ValueError, KeyError):
+        return None
+    starts = [s["signal"]["available_at"] for s in ledger["samples"] if s["status"] in ("waiting", "pending", "open")
+              or s["status"] == "expired" and "reason" not in s and "execution" not in s
+              and now - s["signal"]["entry_policy"]["expires_at"] < 86400]
+    return min(starts) if starts else None
+
 def candidates(account, symbol, now):
     """Returns waiting samples that are designated for LIVE broker execution."""
     ledger = read_ledger(account, symbol)

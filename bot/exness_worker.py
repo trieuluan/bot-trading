@@ -58,6 +58,7 @@ def main():
     history_after = 0.0
     entry_consumers = None
     analysed = {}
+    minute_attempts = {}
     try:
         while not stop.is_set():
             enabled = os.getenv("EXNESS_DATA_ENABLED", "false").lower() == "true"
@@ -97,8 +98,22 @@ def main():
                                 continue
                             observation_tick(symbol=symbol)
                             try:
+                                from backend.app.exness_feed import sync_active_m1
+                                from backend.app.forex_htf_v4 import active_start
                                 from backend.app.forex_htf_v4 import tick as v4_tick
+                                needed = active_start(api.account_id, symbol, int(time.time()))
+                                stamp = int(time.time()) // 900
+                                if needed is not None and minute_attempts.get(symbol) != stamp:
+                                    minute_attempts[symbol] = stamp
+                                    try:
+                                        sync_active_m1(api, symbol, needed)
+                                    except ExnessError as exc:
+                                        if exc.rate_limited or exc.account_blocked:
+                                            raise
+                                        logging.warning("M1 unavailable for %s, using M15: %s", symbol, exc)
                                 v4_tick(api.account_id, symbol)
+                            except ExnessError:
+                                raise
                             except Exception:
                                 logging.exception("Forex V4 tick failed: %s", symbol)
                         except ExnessError as exc:

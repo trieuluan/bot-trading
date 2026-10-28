@@ -427,3 +427,16 @@ def test_current_feed_clears_stale_error_without_api_call():
     assert len(api.calls) == calls
     with Session() as session:
         assert session.get(WorkspaceFeedState, (WORKSPACE, "XAUUSD", "15m")).error is None
+
+def test_sync_active_m1_fetches_contiguous_page_and_deduplicates(monkeypatch):
+    from backend.app.exness_feed import sync_active_m1
+    monkeypatch.setattr("backend.app.exness_feed.utcnow", lambda: datetime.fromtimestamp(NOW, timezone.utc))
+    api = FakeApi()
+    # Pull 10 minutes of M1 for XAUUSD
+    bars = sync_active_m1(api, "XAUUSD", NOW - 600, now=NOW)
+    assert bars == 10
+    assert api.calls == [("XAUUSD", "M1", NOW - 600, NOW)]
+    # Second call for the same window: finds bars already stored, fetches nothing
+    api.calls.clear()
+    assert sync_active_m1(api, "XAUUSD", NOW - 600, now=NOW) == 0
+    assert api.calls == []
