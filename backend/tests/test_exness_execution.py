@@ -992,3 +992,50 @@ def test_trigger_error_keeps_uncertain_submission_and_reraises(monkeypatch, tmp_
         else:
             assert not row.snapshot.get("reason_code")
     api.client.request.assert_not_called()
+
+def test_virtual_entry_waits_for_main_loop_lock_then_submits_once(monkeypatch, tmp_path):
+    import fcntl
+    import hashlib
+    import threading
+    import time
+
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "research-output").mkdir()
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    fingerprint = hashlib.sha256(api.account_id.encode()).hexdigest()[:16]
+    lock = (tmp_path / "research-output" / f"exness-probe-{fingerprint}.lock").open("a")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    threading.Timer(0.3, lambda: (fcntl.flock(lock, fcntl.LOCK_UN), lock.close())).start()
+    started = time.monotonic()
+    execute_trigger(api, identifier, "XAUUSD")
+    assert time.monotonic() - started >= 0.25
+    assert api.client.request.call_count == 1
+    with Session() as session:
+        assert session.get(ExnessEntryIntent, identifier).status == "submitted"
+
+def test_virtual_entry_lock_wait_is_bounded_and_never_submits(monkeypatch, tmp_path):
+    import fcntl
+    import hashlib
+
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "research-output").mkdir()
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    clock = iter(x * 7 for x in range(100))
+    monkeypatch.setattr(ee.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ee.time, "sleep", lambda *_: None)
+    fingerprint = hashlib.sha256(api.account_id.encode()).hexdigest()[:16]
+    with (tmp_path / "research-output" / f"exness-probe-{fingerprint}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        execute_trigger(api, identifier, "XAUUSD")
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "cancelled"
+        assert row.snapshot["reason_code"] == "calibration_or_executor_active"
+    api.client.request.assert_not_called()

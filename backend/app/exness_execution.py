@@ -434,13 +434,25 @@ def execution_tick(api, now=None, entry_request=None):
     directory = Path("research-output")
     directory.mkdir(exist_ok=True)
     with (directory / f"exness-probe-{fingerprint}.lock").open("a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return "calibration_or_executor_active"
+        start_wait = time.monotonic()
+        timeout = 20.0 if entry_request else 0.0
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() - start_wait >= timeout:
+                    return "calibration_or_executor_active"
+                time.sleep(0.1)
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-            locked = connection.dialect.name != "postgresql" or connection.scalar(
-                text("SELECT pg_try_advisory_lock(hashtext(:name))"), {"name": "demo-" + api.account_id})
+            locked = False
+            start_adv = time.monotonic()
+            while True:
+                locked = connection.dialect.name != "postgresql" or connection.scalar(
+                    text("SELECT pg_try_advisory_lock(hashtext(:name))"), {"name": "demo-" + api.account_id})
+                if locked or time.monotonic() - start_adv >= timeout:
+                    break
+                time.sleep(0.1)
             if not locked:
                 return "executor_active"
             try:
