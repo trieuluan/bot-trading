@@ -159,27 +159,36 @@ def read_ledger(account, symbol="XAUUSD", *, path=None):
     return ledger
 
 
+def is_zero_r_expiry(s):
+    """Unfilled non-market entry that expired: no trade, no P&L = 0R. Market expiry (missed window) is not counted."""
+    return (s.get("status") == "expired" and "execution" not in s and s.get("reason", "entry_expired") == "entry_expired"
+            and s.get("signal", {}).get("entry_policy", {}).get("policy") not in (None, "market"))
+
+
+def sample_outcome(s, version, born_at, now):
+    """Net R of a finished, countable sample, else None."""
+    if (s.get("provenance") != PROVENANCE or s.get("costs", {}).get("verified") is not True
+            or s.get("strategy_version") != version):
+        return None
+    if s.get("status") == "resolved":
+        r, end = s.get("net_r_ex_swap"), s.get("label_available_at", 0)
+        ok = type(r) in (int, float) and math.isfinite(r)
+    elif is_zero_r_expiry(s):
+        # ponytail: ceiling = expiry observed at deadline; add per-sample covered-bars proof if M15 lag expires early.
+        r, end, ok = 0.0, s["signal"]["entry_policy"]["expires_at"], True
+    else:
+        return None
+    return r if ok and born_at <= s["confirm_time"] + 900 <= end < now else None
+
+
 def bundle_stats(bundle_id, bundle, samples_by_strategy, now, version):
-    """Fitness of a bundle: computed across matched setups where all 4 entry variants resolved."""
+    """Fitness of a bundle over setups where all 4 entry variants finished (resolved, or non-market expired = 0R)."""
     t_map = bundle["trees"]  # policy -> tid
     tree_samples = {pol: samples_by_strategy.get(tid, []) for pol, tid in t_map.items()}
     
-    # Valid resolved samples per policy
-    def valid_resolved(s_list):
-        return [
-            s for s in s_list
-            if s.get("status") == "resolved"
-            and s.get("provenance") == PROVENANCE
-            and s.get("costs", {}).get("verified") is True
-            and s.get("strategy_version") == version
-            and type(s.get("net_r_ex_swap")) in (int, float)
-            and math.isfinite(s["net_r_ex_swap"])
-            and bundle.get("born_at", 0) <= s["confirm_time"] + 900
-            <= s.get("label_available_at", 0) < now
-        ]
-    
-    res_by_pol = {pol: {(s["setup_id"], s["confirm_time"], s["side"]): s
-                        for s in valid_resolved(s_list)} for pol, s_list in tree_samples.items()}
+    res_by_pol = {pol: {(s["setup_id"], s["confirm_time"], s["side"]): {"net_r_ex_swap": r}
+                        for s in s_list if (r := sample_outcome(s, version, bundle.get("born_at", 0), now)) is not None}
+                  for pol, s_list in tree_samples.items()}
     # Intersect setup_ids across all 4 policies for clean paired evaluation
     common_setups = set.intersection(*(set(d.keys()) for d in res_by_pol.values())) if res_by_pol else set()
     
@@ -519,6 +528,27 @@ def candidates(account, symbol, now):
     ]
 
 
+RUNNING = ("waiting", "pending", "open")
+
+
+def viable_running_setups(bundle, samples_by_tree, now, version):
+    """Setups with a running branch that can still reach 4/4: every branch is running (current version) or countable."""
+    branches = defaultdict(dict)
+    for pol, tid in bundle["trees"].items():
+        for s in samples_by_tree.get(tid, []):
+            branches[(s["setup_id"], s["confirm_time"], s["side"])][pol] = s
+    born = bundle.get("born_at", 0)
+
+    def alive(s):
+        return s["status"] in RUNNING and s.get("strategy_version") == version
+
+    return sum(
+        len(b) == len(bundle["trees"]) and any(map(alive, b.values()))
+        and all(alive(s) or sample_outcome(s, version, born, now) is not None for s in b.values())
+        for b in branches.values()
+    )
+
+
 def summary(account, symbol="XAUUSD"):
     try:
         ledger = read_ledger(account, symbol)
@@ -534,6 +564,8 @@ def summary(account, symbol="XAUUSD"):
             b_id = mem.get("bundle_id")
             s_list = samples_by_tree[tid]
             resolved = [s["net_r_ex_swap"] for s in s_list if s["status"] == "resolved" and s.get("net_r_ex_swap") is not None]
+            zero_r = sum(map(is_zero_r_expiry, s_list))
+            resolved += [0.0] * zero_r
             
             tree_summaries.append({
                 "id": tid,
@@ -547,7 +579,7 @@ def summary(account, symbol="XAUUSD"):
                 "exit_policy": tree["root"]["children"][4]["policy"],
                 "samples_count": len(s_list),
                 "resolved_count": len(resolved),
-                "status_counts": dict(Counter(s["status"] for s in s_list)),
+                "status_counts": dict(Counter("expired_0r" if is_zero_r_expiry(s) else s["status"] for s in s_list)),
                 "mean_r": mean(resolved) if resolved else None,
             })
             
@@ -555,10 +587,9 @@ def summary(account, symbol="XAUUSD"):
         bundle_summaries = {}
         for b_id, bundle in ledger.get("bundles", {}).items():
             stats = bundle_stats(b_id, bundle, samples_by_tree, now, version)
-            running = {s["setup_id"] for tid in bundle["trees"].values() for s in samples_by_tree.get(tid, [])
-                       if s["status"] in ("waiting", "pending", "open")}
+            running = viable_running_setups(bundle, samples_by_tree, now, version)
             bundle_summaries[b_id] = {"matched_count": stats["matched_count"], "ready": stats["ready"],
-                                      "mean_r": stats["mean_r"], "running_setups": len(running)}
+                                      "mean_r": stats["mean_r"], "running_setups": running}
 
         # Group stats by policy
         policy_stats = {}

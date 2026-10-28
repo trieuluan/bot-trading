@@ -1017,7 +1017,8 @@ function paramSpread(values: number[]) {
 const POLICY_ORDER = ['market', 'limit_setup_mid', 'stop_trigger_break', 'limit_or_stop'] as const;
 
 const NO_R_LABELS: Record<string, string> = {
-  expired: 'lỡ lệnh/hết hạn',
+  expired_0r: 'lỡ lệnh (0R)',
+  expired: 'hết hạn (không tính)',
   ambiguous: 'không rõ thứ tự chạm',
   excluded: 'bị loại',
   skipped: 'bỏ qua',
@@ -1028,7 +1029,7 @@ const NO_R_LABELS: Record<string, string> = {
 function finishedNoR(counts: Record<string, number> = {}): string[] {
   const rows: string[] = [];
   for (const [status, count] of Object.entries(counts)) {
-    if (!count || ['resolved', 'open', 'pending', 'waiting'].includes(status)) continue;
+    if (!count || ['resolved', 'expired_0r', 'open', 'pending', 'waiting'].includes(status)) continue;
     rows.push(`${count} ${NO_R_LABELS[status] ?? status}`);
   }
   return rows;
@@ -1421,6 +1422,7 @@ export function ForexEntryPilotPanel({
                             <div className="space-y-0.5 text-[10px] leading-snug">
                               <span className="block text-text-muted">
                                 <b className="font-mono text-text-secondary">{t.samples_count} mẫu</b> · {t.resolved_count} có R
+                                {(t.status_counts?.expired_0r ?? 0) > 0 && <> (gồm {t.status_counts?.expired_0r} lỡ lệnh 0R)</>}
                                 {noR.length > 0 && <span className="text-amber-300/80"> · {noR.join(' · ')}</span>}
                               </span>
                               {running > 0 && (

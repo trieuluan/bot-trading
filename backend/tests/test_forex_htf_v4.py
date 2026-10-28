@@ -303,9 +303,59 @@ def test_active_start_returns_earliest_open_or_none(tmp_path, monkeypatch):
 def test_summary_reports_bundle_progress(tmp_path, monkeypatch):
     from backend.app.forex_htf_v4 import summary
     ledger = {"samples": [{"strategy": "t1", "status": "open", "setup_id": "s1", "side": "long",
-                           "confirm_time": 1, "signal": {"available_at": 901}}],
+                           "confirm_time": 1, "strategy_version": logic_version(), "signal": {"available_at": 901}}],
               "population": [], "members": {}, "since": 0,
               "bundles": {"bundle_00": {"trees": {"market": "t1"}, "born_at": 0}}}
     monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: ledger)
     assert summary("a", "EURUSD")["bundles"]["bundle_00"] == {
         "matched_count": 0, "ready": False, "mean_r": None, "running_setups": 1}
+
+
+def _paired(b_info, version, setup, statuses, policy_of=None):
+    out = {}
+    for pol, tid in b_info["trees"].items():
+        st = statuses[pol]
+        sample = {"setup_id": setup, "side": "long", "confirm_time": 900000, "status": st,
+                  "provenance": "live_forward_htf_ast4_v2", "costs": {"verified": True}, "strategy_version": version,
+                  "signal": {"entry_policy": {"policy": "market" if pol == "market" else pol, "expires_at": 900900}}}
+        if st == "resolved":
+            sample.update(net_r_ex_swap=1.0, label_available_at=999900)
+        out[tid] = [sample]
+    return out
+
+
+def test_bundle_stats_counts_unfilled_expiry_as_zero_r_but_not_ambiguous_or_market():
+    pop, bundles = make_v4_g0_bundle("XAUUSD")
+    b_info = {"trees": bundles["bundle_00"]["tree_ids"], "born_at": 0}
+    version, now = logic_version(), 1000000
+    ok = {"market": "resolved", "limit_setup_mid": "expired", "stop_trigger_break": "resolved", "limit_or_stop": "resolved"}
+    stats = bundle_stats("bundle_00", b_info, _paired(b_info, version, "s", ok), now, version)
+    assert stats["matched_count"] == 1
+    assert stats["policy_means"]["limit_setup_mid"] == 0.0 and stats["policy_means"]["market"] == 1.0
+    assert stats["mean_r"] == 0.75
+    for bad in ({**ok, "limit_or_stop": "ambiguous"}, {**ok, "stop_trigger_break": "open"},
+                {**ok, "limit_or_stop": "excluded"}, {**ok, "market": "expired"}):
+        assert bundle_stats("bundle_00", b_info, _paired(b_info, version, "s", bad), now, version)["matched_count"] == 0
+    early = _paired(b_info, version, "s", ok)
+    early[b_info["trees"]["limit_setup_mid"]][0]["signal"]["entry_policy"]["expires_at"] = now + 1
+    assert bundle_stats("bundle_00", b_info, early, now, version)["matched_count"] == 0
+    filled = _paired(b_info, version, "s", ok)
+    filled[b_info["trees"]["limit_setup_mid"]][0]["execution"] = {}
+    assert bundle_stats("bundle_00", b_info, filled, now, version)["matched_count"] == 0
+
+
+def test_viable_running_setups_skips_dead_setups():
+    from backend.app.forex_htf_v4 import viable_running_setups
+    v, now = "v", 1000000
+    trees = {"market": "a", "limit_setup_mid": "b", "stop_trigger_break": "c", "limit_or_stop": "d"}
+    bundle = {"born_at": 0, "trees": trees}
+
+    def mk(status, sid, pol="market"):
+        return {"setup_id": sid, "confirm_time": 1000, "side": "long", "status": status, "strategy_version": v,
+                "provenance": PROVENANCE, "costs": {"verified": True}, "net_r_ex_swap": 1.0,
+                "label_available_at": 5000, "signal": {"entry_policy": {"policy": pol, "expires_at": 5000}}}
+    live = {t: [mk("resolved", "s1"), mk("open", "s2")] for t in trees.values()}
+    live["d"][1] = mk("ambiguous", "s2")  # s2 can never reach 4/4
+    assert viable_running_setups(bundle, live, now, v) == 0
+    live["d"][1] = mk("open", "s2")
+    assert viable_running_setups(bundle, live, now, v) == 1
