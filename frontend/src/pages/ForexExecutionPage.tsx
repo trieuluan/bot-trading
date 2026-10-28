@@ -134,11 +134,11 @@ export function ForexExecutionPage({
         className={`terminal-account-bar${accountStuck ? ' is-stuck shadow-lg shadow-black/20' : ''} sticky top-[var(--forex-strip-h,56px)] z-20 flex min-w-0 flex-col gap-2.5 border-b border-border-base bg-surface-1/95 px-3 py-2 backdrop-blur-md sm:px-4 lg:flex-row lg:items-center lg:justify-between`}
         aria-label="Tài khoản Exness Demo"
       >
-        <dl className="m-0 grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4 lg:max-w-2xl [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:font-semibold [&_dd]:tabular-nums">
+        <dl className="m-0 grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-[repeat(3,minmax(0,1fr))_max-content] lg:max-w-2xl [&_dt]:text-text-muted [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:font-semibold [&_dd]:tabular-nums">
           <div><dt>Số dư · USD</dt><dd className="text-text-primary">{amount(balance)}</dd></div>
           <div><dt>Vốn thực · USD</dt><dd className="text-text-primary">{amount(equity)}</dd></div>
           <div><dt>P&amp;L thả nổi · USD</dt><dd className={floating == null || floating === 0 ? 'text-text-primary' : floating > 0 ? 'text-bull' : 'text-bear'}>{floating != null && floating > 0 ? '+' : ''}{amount(floating)}</dd></div>
-          <div><dt>Setup {symbol}</dt><dd className="text-text-primary">{data?.symbol_setup_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.account_setup_count ?? '—'}/{data?.max_concurrent ?? '—'} setup · {data?.open_count ?? '—'} ticket</span></dd></div>
+          <div className="col-span-2 sm:col-span-1"><dt>Setup {symbol}</dt><dd className="text-text-primary whitespace-nowrap">{data?.symbol_setup_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.account_setup_count ?? '—'}/{data?.max_concurrent ?? '—'} ({data?.open_count ?? '—'} ticket)</span></dd></div>
         </dl>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 lg:shrink-0">
           <div className="flex items-center gap-1.5">
