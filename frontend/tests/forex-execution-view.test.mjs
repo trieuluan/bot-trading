@@ -20,3 +20,13 @@ test('legs, summary, slippage, timeline', () => {
   assert.equal(steps[2].gap, 8);
   assert.equal(steps.find((x) => x.label === 'Broker khớp').time, null);
 });
+
+import { brokerFillsDiagnosis } from '../src/lib/forex-execution-view.ts';
+test('brokerFillsDiagnosis: chỉ TP1 khớp, không suy diễn runner', () => {
+  const one = { side: 'long', broker_fills: [{ position_id: '1', price: 1 }] };
+  const legs = executionLegs(one, [{ position_id: '1', role: 'tp1', volume: 0.05, status: 'closed', pnl: 3 }], () => 0);
+  const d = brokerFillsDiagnosis(one, legs);
+  assert.equal(d.isPartialFill, true);
+  assert.match(d.text, /Chỉ khớp TP1/);
+  assert.equal(brokerFillsDiagnosis({ side: 'long' }, []).text, 'Chưa có lệnh broker khớp');
+});

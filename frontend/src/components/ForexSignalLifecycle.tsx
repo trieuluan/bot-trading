@@ -8,7 +8,7 @@ import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
 import { formatTime } from '../lib/time-format';
 import { priceDigits, spreadText } from '../lib/forex-labels';
-import { entrySlippage, executionLegs, executionSummary, executionTimeline } from '../lib/forex-execution-view';
+import { brokerFillsDiagnosis, entrySlippage, executionLegs, executionSummary, executionTimeline } from '../lib/forex-execution-view';
 
 interface ForexSignalLifecycleProps {
   open: boolean;
@@ -314,6 +314,9 @@ export function ForexSignalLifecycle({
               const dated = steps.find((step) => step.time != null);
               const r = explainReason(intent);
               const filled = legs.length > 0;
+              const diag = brokerFillsDiagnosis(intent, legs);
+              const sim = detailedSetup.signals.find((sig) => sig.strategy === intent.strategy && sig.strategy.startsWith('hast4_'));
+              const mirror = sim ? (entryStateLabels[sim.status] ?? sim.status) + (sim.status === 'open' ? ' (chưa resolved, chờ runner/SL/TP)' : '') : '';
               const statusTone = lifecycle.tone === 'filled' ? 'border-bull/30 bg-bull/10 text-bull' : lifecycle.tone === 'cancelled' ? 'border-border-active bg-surface-2 text-text-secondary' : lifecycle.tone === 'uncertain' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-sky-400/30 bg-sky-400/10 text-sky-200';
               const money = (v: number | null) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`);
               const tone = (v: number | null) => (v == null || v === 0 ? 'text-text-primary' : v > 0 ? 'text-bull' : 'text-bear');
@@ -348,6 +351,13 @@ export function ForexSignalLifecycle({
                       <div className="mt-0.5 text-[11px] text-text-muted">{r.hint}</div>
                       {r.detail && r.detail !== r.label && <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>}
                     </div>
+                  )}
+                  {diag && filled && (
+                    <p className={`m-0 rounded-md border px-2.5 py-2 text-[11px] ${diag.isPartialFill ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-border-subtle bg-surface-1 text-text-secondary'}`}>
+                      <strong>Broker: {diag.text}</strong>{diag.subtext ? ` · ${diag.subtext}` : ''}
+                      {diag.isPartialFill ? '. Chưa có fill runner trong dữ liệu; nguyên nhân không được suy diễn.' : ''}
+                      {mirror ? ` Mô phỏng V4 cùng setup: ${mirror}.` : ''}
+                    </p>
                   )}
                   <dl className={`m-0 grid grid-cols-2 gap-2 ${filled ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
                     {metrics.map((m) => (
@@ -668,6 +678,9 @@ export function ForexSignalLifecycle({
                 if (v4Count > 0) tagParts.push(`V4 ×${v4Count}`);
                 if (v3Count > 0) tagParts.push(`V3 ×${v3Count}`);
                 const r = explainReason(mainIntent);
+                const listDiag = mainIntent?.broker_fills?.length
+                  ? brokerFillsDiagnosis(mainIntent, executionLegs(mainIntent, allPositions ?? positions, pnlOf))
+                  : null;
 
                 return (
                   <article
@@ -705,7 +718,7 @@ export function ForexSignalLifecycle({
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                         {execState ? (
                           <span className="rounded-md border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-medium text-text-secondary">
-                            Thực thi: {execState.short}
+                            Broker: {listDiag?.text ?? execState.short}
                           </span>
                         ) : (
                           <span className="rounded-md border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-text-muted">

@@ -1393,10 +1393,16 @@ export function ForexEntryPilotPanel({
                         <span className="entry-tree-policy block truncate text-[11px] font-semibold text-sky-300">{policyLabel(policy)}</span>
                         <strong className={'block font-mono text-sm tabular-nums ' + (t ? rTone(t.mean_r) : 'text-text-muted')}>{t ? signedR(t.mean_r) : '—'}</strong>
                         <span className="block text-[10px] text-text-muted">{t ? `${t.resolved_count}/${t.samples_count} mẫu đóng` : 'thiếu cây'}</span>
+                        {t?.status_counts?.open ? <span className="block text-[10px] text-sky-300">{t.status_counts.open} đang chạy</span> : null}
                       </div>
                     );
                   })}
                 </div>
+                {b.total_resolved === 0 && b.total_samples > 0 && (
+                  <p className="m-0 text-[11px] leading-snug text-text-muted">
+                    Chưa tính R: cần cả 4 entry của cùng setup kết thúc mô phỏng (gồm runner). Lệnh broker đã chốt không tính vào đây.
+                  </p>
+                )}
               </li>
             ))}
           </ul>

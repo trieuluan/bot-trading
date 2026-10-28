@@ -67,6 +67,7 @@ export interface ForexEntryPilot {
       exit_policy: string;
       samples_count: number;
       resolved_count: number;
+      status_counts?: Record<string, number>;
       mean_r: number | null;
     }[];
   };

@@ -52,6 +52,37 @@ export function executionSummary(legs: ExecutionLeg[]) {
   return { lots: legs.length ? lots : null, averagePrice: weighted, pnl, open, closed: legs.filter((leg) => leg.status === 'closed').length };
 }
 
+export function brokerFillsDiagnosis(intent?: ForexEntryIntent, legs: ExecutionLeg[] = []) {
+  if (!intent) return null;
+  const fills = intent.broker_fills ?? [];
+  const roles = legs.map((l) => l.role.toLowerCase());
+  const hasTp1 = roles.some((r) => r.includes('tp1') || r.includes('phần 1'));
+  const hasRunner = roles.some((r) => r.includes('runner'));
+  const openCount = legs.filter((l) => l.status === 'open').length;
+  const closedCount = legs.filter((l) => l.status === 'closed').length;
+
+  let text = '';
+  let subtext = '';
+  let isPartialFill = false;
+
+  if (fills.length === 0) {
+    text = 'Chưa có lệnh broker khớp';
+  } else if (hasTp1 && !hasRunner && fills.length === 1) {
+    isPartialFill = true;
+    text = 'Chỉ khớp TP1 (thiếu runner)';
+    subtext = closedCount === 1 ? 'TP1 đã đóng · broker kết thúc' : 'TP1 đang mở · không có runner';
+  } else if (openCount > 0) {
+    text = `${openCount} vị thế đang mở`;
+    if (closedCount > 0) subtext = `${closedCount} vị thế đã đóng`;
+  } else if (closedCount === legs.length && legs.length > 0) {
+    text = `Đã đóng hết (${closedCount} vị thế)`;
+  } else {
+    text = `${fills.length} lệnh broker đã khớp`;
+  }
+
+  return { text, subtext, isPartialFill, openCount, closedCount };
+}
+
 export function entrySlippage(intent: ForexEntryIntent, averagePrice: number | null): number | null {
   if (averagePrice == null) return null;
   const direction = intent.side === 'long' ? 1 : -1;

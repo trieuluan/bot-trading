@@ -547,6 +547,7 @@ def summary(account, symbol="XAUUSD"):
                 "exit_policy": tree["root"]["children"][4]["policy"],
                 "samples_count": len(s_list),
                 "resolved_count": len(resolved),
+                "status_counts": dict(Counter(s["status"] for s in s_list)),
                 "mean_r": mean(resolved) if resolved else None,
             })
             
