@@ -2246,7 +2246,7 @@ export function ForexStrategyPage({
         analysis={chartAnalysis}
         shown={shownStrategies}
         executions={executions}
-        positionGroups={executionOnly ? undefined : positionGroups}
+        positionGroups={positionGroups}
         dark
         onClosePosition={onClosePosition}
         onSelectPosition={onSelectPosition}

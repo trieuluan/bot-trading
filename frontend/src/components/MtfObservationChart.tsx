@@ -513,15 +513,16 @@ export function MtfObservationChart({
       }
       if (isSelected) {
         const id = trade.position_id;
+        const tag = trade.role === 'tp1' ? ' TP1' : trade.role === 'runner' ? ' RUNNER' : '';
         const same = (x?: number | null, y?: number | null) =>
           x != null && y != null && Math.abs(x - y) <= Math.abs(x) * 1e-6;
         const breakeven = same(trade.open_price, trade.stop);
         // ponytail: gộp nhãn chỉ khi trùng giá; mức gần nhau chỉ phụ thuộc nhãn trục của thư viện chart.
         for (const [price, color, title, style, width] of [
           [trade.open_price, breakeven ? '#f59e0b' : '#60a5fa',
-            breakeven ? `ENTRY = SL · HÒA VỐN #${id}` : `ENTRY #${id}`, breakeven ? LineStyle.Solid : LineStyle.LargeDashed, breakeven ? 2 : 1],
-          [breakeven ? null : trade.stop, '#f59e0b', `SL #${id}`, LineStyle.Solid, 2],
-          [trade.target, '#14b8a6', `TP #${id}`, LineStyle.Solid, 2],
+            breakeven ? `ENTRY = SL · HÒA VỐN #${id}${tag}` : `ENTRY #${id}${tag}`, breakeven ? LineStyle.Solid : LineStyle.LargeDashed, breakeven ? 2 : 1],
+          [breakeven ? null : trade.stop, '#f59e0b', `SL #${id}${tag}`, LineStyle.Solid, 2],
+          [trade.target, '#14b8a6', `TP #${id}${tag}`, LineStyle.Solid, 2],
         ] as const) {
           if (price == null || price <= 0) continue;
           lines.current.push(

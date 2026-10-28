@@ -95,7 +95,7 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     assert.ok(!markup.includes('Đóng cả setup'));
     assert.ok(!markup.includes('Chi tiết 2 ticket'));
     assert.equal(chart.chartProps.selectedPositionId, '124');
-    assert.equal(chart.chartProps.positionGroups, undefined);
+    assert.deepEqual(chart.chartProps.positionGroups, [group]); // chọn 1 ticket vẫn vẽ cả setup
 
     Object.assign(legs[0], { status: 'closed', remaining_volume: 0, pnl: 3.49, take_profit_filled: true });
     const partial = render();
@@ -112,7 +112,7 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     const source = readFileSync(new URL('../src/pages/ForexStrategyPage.tsx', import.meta.url), 'utf8');
     // source check updated to drawer handler
     assert.ok(source.includes('onSelectPosition(selected ? undefined : pos.position_id)') || source.includes('onSelectPosition'));
-    assert.ok(source.includes('positionGroups={executionOnly ? undefined : positionGroups}'));
+    assert.ok(source.includes('positionGroups={positionGroups}'));
 });
 
 test('formatForexLeverage formats broker leverage according to calculation mode', async () => {
