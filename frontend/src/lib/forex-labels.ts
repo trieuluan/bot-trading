@@ -32,8 +32,8 @@ export const blockText: Record<string, string> = {
   paused: 'Tài khoản tạm dừng mở lệnh',
   no_eligible_tree: 'Chưa có cây được phép vào lệnh',
   v2_ledger_unavailable: 'Chưa có ledger V2 hợp lệ',
-  symbol_position_limit: 'Đủ vị thế mỗi cặp',
-  account_position_limit: 'Đủ vị thế toàn tài khoản',
+  symbol_position_limit: 'Đủ setup mỗi cặp',
+  account_position_limit: 'Đủ setup toàn tài khoản',
   specs_unavailable_or_stale: 'Thông số cặp thiếu hoặc đã cũ',
   commission_unverified: 'Commission chưa xác minh',
 };

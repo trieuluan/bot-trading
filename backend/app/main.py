@@ -406,9 +406,9 @@ def forex_markets():
             execution.pop("entry_allowed_ids", None)
             count = sum(position.get("instrument") == symbol for position in positions)
             setups = open_setup_count(account, [p for p in positions if p.get("instrument") == symbol], owners)
-            if count >= max_positions_per_symbol():
+            if setups >= max_positions_per_symbol():
                 reason = "symbol_position_limit"
-            if len(positions) >= max_positions():
+            if open_setup_count(account, positions, owners) >= max_positions():
                 reason = "account_position_limit"
             tick = stream.get("quote")
             stamp = tick["time"] if tick else last.time + 900 if last else None

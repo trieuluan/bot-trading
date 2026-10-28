@@ -194,13 +194,14 @@ def test_virtual_capacity_reserves_whole_plan_and_no_double_count(monkeypatch, t
     identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
-    positions = [{"position_id": str(index), "instrument": "EURUSD"} for index in range(64)]
+    positions = [{"position_id": str(index), "instrument": "EURUSD"} for index in range(65)]
     broker = {"positions": positions, "orders": []}
     assert ee.capacity_available(broker, api.account_id, "XAUUSD")
     assert not ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
-    assert ee.capacity_available(broker, api.account_id, "XAUUSD", 2, entry_intent_id=identifier)
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD", 1, entry_intent_id=identifier)
     broker["positions"] = [{"position_id": str(index), "instrument": "XAUUSD"} for index in range(5)]
-    assert not ee.capacity_available(broker, api.account_id, "XAUUSD")
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD")
+    assert not ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
     with Session.begin() as session:
         session.get(ExnessEntryIntent, identifier).status = "cancelled"
     assert ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
@@ -369,7 +370,7 @@ def test_max_positions_env_allows_more_than_one(monkeypatch):
     assert ee.busy(broker)
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "2")
     assert not ee.busy(broker)
-    assert ee.busy({"positions": [pos, pos], "orders": []})
+    assert ee.busy({"positions": [pos, {**pos, "position_id": "2"}], "orders": []})
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "999")
     assert ee.max_positions() == 66
 
@@ -501,7 +502,7 @@ def test_equity_missing_at_submission_does_not_send_planned_order(monkeypatch):
         assert row.snapshot["status"] == "skipped"
 
 @pytest.mark.parametrize("symbol_count,total_count", [(5, 5), (0, 65)])
-def test_entire_split_plan_must_fit_account_and_symbol_limits(monkeypatch, symbol_count, total_count):
+def test_split_plan_uses_last_setup_slot(monkeypatch, symbol_count, total_count):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
     monkeypatch.setenv("EXNESS_DEMO_MAX_LOT", "0.10")
@@ -509,10 +510,49 @@ def test_entire_split_plan_must_fit_account_and_symbol_limits(monkeypatch, symbo
                  for index in range(total_count)]
     api = dummy_api(positions=positions, equity="2500")
     seed_executor(api, monkeypatch)
-    assert ee._execution_tick(api, now=NOW) == "position_capacity_for_split"
-    api.client.request.assert_not_called()
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    api.client.request.assert_called_once()
     with Session() as session:
-        assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)) is None
+        assert len(session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)).snapshot["legs"]) == 2
+
+@pytest.mark.parametrize("symbol_count,total_count", [(6, 6), (0, 66)])
+def test_setup_limit_blocks_new_split(monkeypatch, symbol_count, total_count):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
+    positions = [{"position_id": str(index), "instrument": "XAUUSD" if index < symbol_count else "EURUSD"}
+                 for index in range(total_count)]
+    api = dummy_api(positions=positions)
+    seed_executor(api, monkeypatch)
+    assert ee._execution_tick(api, now=NOW) == "position_active"
+    api.client.request.assert_not_called()
+
+@pytest.mark.parametrize("runner_status", ["planned", "submitting", "uncertain", "open", "closed"])
+def test_setup_capacity_groups_live_and_pending_legs(monkeypatch, runner_status):
+    api = dummy_api()
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
+    positions = []
+    with Session.begin() as session:
+        for index in range(6):
+            legs = [{"status": "open", "position_id": f"tp-{index}", "body": {"side": "buy"}},
+                    {"status": runner_status, "body": {"side": "buy"}}]
+            positions.append({"position_id": f"tp-{index}", "instrument": "XAUUSD", "direction": "buy"})
+            if runner_status == "open":
+                legs[1]["position_id"] = f"runner-{index}"
+                positions.append({"position_id": f"runner-{index}", "instrument": "XAUUSD", "direction": "buy"})
+            session.add(ExnessExecutionTrade(account=api.account_id, signal_time=NOW - index, snapshot={"legs": legs}))
+    broker = {"positions": positions, "orders": []}
+    assert ee.setup_capacity_counts(broker, api.account_id, "XAUUSD") == (6, 6)
+    assert ee.capacity_available(broker, api.account_id, "XAUUSD")
+    assert not ee.capacity_available(broker, api.account_id, "XAUUSD", 1)
+    assert ee.capacity_available(broker, api.account_id, "EURUSD", 1)
+    broker["positions"] = positions[1:]
+    assert ee.setup_capacity_counts(broker, api.account_id, "XAUUSD")[1] == 6
+    with Session.begin() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW))
+        ee.update_leg(row, 0, {**row.snapshot["legs"][0], "status": "closed"})
+    expected = 6 if runner_status in ("planned", "submitting", "uncertain", "open") else 5
+    assert ee.setup_capacity_counts(broker, api.account_id, "XAUUSD")[1] == expected
 
 def test_account_lock_blocks_competing_executor(monkeypatch, tmp_path):
     import fcntl

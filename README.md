@@ -721,12 +721,15 @@ lịch sử, không phải đường sinh tín hiệu đang hỗ trợ. V2 dùng
 M15 trigger; không có cản hợp lệ hoặc runner R/R sau chi phí dưới 1.5 thì bỏ setup.
 
 - `EXNESS_SYMBOLS` nhận danh sách 11 cặp, bỏ trùng; khi để trống dùng `EXNESS_SYMBOL`
-  (mặc định XAUUSD). Compose/example cấu hình đủ 11 cặp, 66 vị thế toàn tài khoản và 6 mỗi cặp.
+  (mặc định XAUUSD). Compose/example cấu hình đủ 11 cặp, 66 setup toàn tài khoản và 6 mỗi cặp.
 - Một worker cấp nến M15/H1/H4; mỗi cặp có 56 cây, ledger, mẫu và fitness riêng.
   Migration DB `0024` gán lịch sử cũ cho XAUUSD. Worker chuyển ledger XAUUSD dưới lock,
   lưu archive/manifest và giữ nguyên mẫu/dòng dõi; 10 cặp còn lại tạo G0 sạch, không replay forward.
-- Các leg chốt phần/runner đều chiếm hạn mức. Reserve toàn bộ setup trước submit;
-  vị thế ngoài bot vẫn chiếm hạn mức nhưng không bị bot quản lý. Lệnh chưa rõ kết quả phải reconcile.
+- TP1/Runner và các leg cùng setup chỉ chiếm một suất. Intent chờ/đang gửi cũng giữ một suất;
+  đóng một phần chưa giải phóng suất khi còn runner hoặc leg chưa đối soát. Ticket ngoài bot hoặc
+  chưa xác minh được cùng setup tính riêng từng suất, không bị bot quản lý. Lệnh chưa rõ kết quả phải reconcile.
+- Giữ tên biến `EXNESS_DEMO_MAX_POSITIONS` và `EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL`, nhưng đơn vị là setup:
+  cấu hình triển khai 66 toàn tài khoản, 6 mỗi cặp; không chia đôi khi setup tách ticket.
 - Specs/commission và tỷ giá bid/ask đã đóng được chụp theo thời điểm; thiếu, stale hoặc sai
   tài khoản/cặp thì chặn entry. Hiện chỉ hỗ trợ tài khoản demo USD; không đoán phí hoặc tỷ giá.
 - URL/API Forex nhận `symbol`, mặc định XAUUSD; ngoài danh sách cấu hình trả 422.
@@ -740,7 +743,7 @@ M15 trigger; không có cản hợp lệ hoặc runner R/R sau chi phí dưới 
 
 - Ngân sách SL = 1% equity từ snapshot broker. Tổng lot = ngân sách / (khoảng cách entry–SL × contract size × tỷ giá lỗ về USD), làm tròn xuống theo bước lot và giới hạn broker. Không còn trần 0.10 lot hay chặn notional $50,000 cho Auto.
 - TP1/Runner dùng chung ngân sách setup, không phải 1% mỗi ticket. Lưu equity/ngân sách lúc lập kế hoạch; trước mỗi lần gửi, đối chiếu equity mới và không vượt ngân sách gốc. Thiếu/không hợp lệ equity thì không mở lệnh; không fallback sang $25. Các biến cũ `EXNESS_DEMO_MAX_LOT` và `EXNESS_DEMO_RISK_PER_TRADE_USD` không còn áp dụng.
-- 1% là rủi ro giá tới SL, chưa gồm phí/swap/trượt giá, không phải margin hay bảo đảm lỗ tối đa. Giữ giới hạn số ticket và broker kiểm tra margin. Không thay lot/SL/TP của lệnh đã mở; lệnh kiểm tra thủ công vẫn 0.01 lot.
+- 1% là rủi ro giá tới SL, chưa gồm phí/swap/trượt giá, không phải margin hay bảo đảm lỗ tối đa. Giới hạn tính theo setup và broker kiểm tra margin. Không thay lot/SL/TP của lệnh đã mở; lệnh kiểm tra thủ công vẫn 0.01 lot.
 - Thanh tài khoản hiện ngân sách setup và đòn bẩy cấu hình của cặp đang xem từ specs cache, không thêm API broker/polling. Theo Exness API: `forex`/`cfd_leverage` dùng account leverage, `forex_no_leverage`/`cfd` dùng nghịch đảo `margin_percent` (tỷ lệ, không chia thêm 100). Đây chưa phải mức HMR realtime; specs thiếu/stale hiện `—`.
 - Replay SL/TP hiện có vẫn dùng tài khoản tham chiếu $2,500 (ngân sách $25), không lấy equity broker hiện tại để sửa kết quả lịch sử; không cộng kết quả replay vào rủi ro giao dịch.
 

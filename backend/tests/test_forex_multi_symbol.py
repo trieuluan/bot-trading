@@ -172,22 +172,24 @@ def test_missing_conversion_or_commission_cannot_be_verified():
     assert result["commission_per_unit"] is None
 
 
-def test_reservations_count_each_leg_and_do_not_double_count_reconciled_positions(monkeypatch):
+def test_reservations_count_each_setup_and_do_not_double_count_reconciled_positions(monkeypatch):
     from backend.app.db import ExnessExecutionTrade
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "66")
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6")
     with Session.begin() as session:
         session.add(ExnessExecutionTrade(account="acc", symbol="EURUSD", signal_time=NOW,
             snapshot={"status": "submitted", "legs": [
-                {"status": "open", "position_id": "1"}, {"status": "submitted"}, {"status": "planned"},
+                {"status": "open", "position_id": "1", "body": {"side": "buy"}},
+                {"status": "submitted", "body": {"side": "buy"}},
+                {"status": "planned", "body": {"side": "buy"}},
             ]}))
-    broker = {"positions": [{"position_id": "1", "instrument": "EURUSD"}], "orders": []}
-    assert capacity_available(broker, "acc", "EURUSD", 3)
-    assert not capacity_available(broker, "acc", "EURUSD", 4)
+    broker = {"positions": [{"position_id": "1", "instrument": "EURUSD", "direction": "buy"}], "orders": []}
+    assert capacity_available(broker, "acc", "EURUSD", 5)
+    assert not capacity_available(broker, "acc", "EURUSD", 6)
     assert capacity_available(broker, "acc", "GBPUSD", 6)
     broker["positions"] += [{"position_id": str(i), "instrument": "external"} for i in range(2, 63)]
-    assert capacity_available(broker, "acc", "GBPUSD", 2)
-    assert not capacity_available(broker, "acc", "GBPUSD", 3)
+    assert capacity_available(broker, "acc", "GBPUSD", 4)
+    assert not capacity_available(broker, "acc", "GBPUSD", 5)
 
 
 def test_feed_observation_journal_and_execution_partition_same_timestamp():

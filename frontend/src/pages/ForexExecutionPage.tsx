@@ -138,7 +138,7 @@ export function ForexExecutionPage({
           <div><dt>Số dư · USD</dt><dd className="text-text-primary">{amount(balance)}</dd></div>
           <div><dt>Vốn thực · USD</dt><dd className="text-text-primary">{amount(equity)}</dd></div>
           <div><dt>P&amp;L thả nổi · USD</dt><dd className={floating == null || floating === 0 ? 'text-text-primary' : floating > 0 ? 'text-bull' : 'text-bear'}>{floating != null && floating > 0 ? '+' : ''}{amount(floating)}</dd></div>
-          <div><dt>Vị thế {symbol}</dt><dd className="text-text-primary">{data?.symbol_open_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.open_count ?? '—'}/{data?.max_concurrent ?? '—'}</span></dd></div>
+          <div><dt>Setup {symbol}</dt><dd className="text-text-primary">{data?.symbol_setup_count ?? '—'} / {data?.max_concurrent_per_symbol ?? '—'} <span className="font-sans font-normal text-text-muted">· TK {data?.account_setup_count ?? '—'}/{data?.max_concurrent ?? '—'} setup · {data?.open_count ?? '—'} ticket</span></dd></div>
         </dl>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 lg:shrink-0">
           <div className="flex items-center gap-1.5">

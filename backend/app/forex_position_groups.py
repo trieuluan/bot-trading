@@ -74,12 +74,11 @@ def group_page(groups, offset, limit, status):
             "open_groups": [group for group in groups if group["status"] == "open"]}
 
 
-def open_setup_count(account, positions, owners):
+def open_setup_keys(account, positions, owners):
     keys = set()
-    unidentified = 0
-    for position in positions:
+    for index, position in enumerate(positions):
         if position.get("position_id") is None:
-            unidentified += 1
+            keys.add(("unidentified", index))
             continue
         symbol, identifier = position["instrument"], str(position["position_id"])
         owner = owners.get((account, symbol, identifier))
@@ -87,4 +86,7 @@ def open_setup_count(account, positions, owners):
             keys.add((setup_key(account, symbol, owner[0].signal_time), position["direction"]))
         else:
             keys.add((symbol, identifier))
-    return len(keys) + unidentified
+    return keys
+
+def open_setup_count(account, positions, owners):
+    return len(open_setup_keys(account, positions, owners))

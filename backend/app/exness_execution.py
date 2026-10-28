@@ -75,36 +75,53 @@ def max_positions_per_symbol():
     except ValueError:
         return 1
 
-def capacity_available(broker, account, symbol, additional=0, *, entry_intent_id=None):
+def setup_capacity_counts(broker, account, symbol, *, entry_intent_id=None):
+    from .forex_position_groups import open_setup_keys, setup_key, ticket_owners
     positions = broker["positions"]
-    live_ids = {position["position_id"] for position in positions}
-    occupied = len(positions)
-    local = sum(position.get("instrument") == symbol for position in positions)
-    if any(order.get("order_type") != "sltp" for order in broker["orders"]):
-        return False
+    live_ids = {(position.get("instrument"), str(position["position_id"])) for position in positions}
     with Session() as session:
         intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
         from .db import ExnessEntryIntent
         from .forex_entry_intents import RESERVED
         pending_intents = session.scalars(select(ExnessEntryIntent).where(
             ExnessEntryIntent.account == account, ExnessEntryIntent.status.in_(RESERVED))).all()
+    owners = ticket_owners(intents)
+    occupied = open_setup_keys(account, positions, owners)
+    local = open_setup_keys(account, [position for position in positions if position.get("instrument") == symbol], owners)
     for intent in intents:
-        for _, leg in leg_records(intent.snapshot):
-            if leg.get("status") in (*ACTIVE, "planned") and leg.get("position_id") not in live_ids:
-                occupied += 1
-                local += intent.symbol == symbol
+        legs = [leg for _, leg in leg_records(intent.snapshot)]
+        pending = any(leg.get("status") in (*ACTIVE, "planned")
+                      and (intent.symbol, str(leg.get("position_id"))) not in live_ids for leg in legs)
+        if pending:
+            sides = {leg.get("body", {}).get("side") for leg in legs}
+            side = next(iter(sides)) if len(sides) == 1 and sides <= {"buy", "sell"} else None
+            key = (setup_key(account, intent.symbol, intent.signal_time), side)
+            occupied.add(key)
+            if intent.symbol == symbol:
+                local.add(key)
     for entry_intent in pending_intents:
         if entry_intent.id == entry_intent_id or any(
                 intent.snapshot.get("signal", {}).get("entry_intent_id") == entry_intent.id for intent in intents):
             continue
-        legs_count = entry_intent.snapshot.get("reserved_legs", 1)
-        occupied += legs_count
-        local += (entry_intent.symbol == symbol) * legs_count
+        key = ("entry", entry_intent.id)
+        occupied.add(key)
+        if entry_intent.symbol == symbol:
+            local.add(key)
+    return len(occupied), len(local)
+
+def capacity_available(broker, account, symbol, additional=0, *, entry_intent_id=None):
+    if any(order.get("order_type") != "sltp" for order in broker["orders"]):
+        return False
+    occupied, local = setup_capacity_counts(broker, account, symbol, entry_intent_id=entry_intent_id)
     return occupied + additional <= max_positions() and local + additional <= max_positions_per_symbol()
 
-def busy(broker):
+def busy(broker, account=None):
+    from .forex_position_groups import open_setup_count, ticket_owners
+    account = account or os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    with Session() as session:
+        intents = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
     pending = [order for order in broker["orders"] if order.get("order_type") != "sltp"]
-    return pending or len(broker["positions"]) >= max_positions()
+    return pending or open_setup_count(account, broker["positions"], ticket_owners(intents)) >= max_positions()
 
 SIGNAL_WINDOW = 300
 LATE_AFTER = 120
@@ -713,7 +730,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 continue
             if first["status"] != "open":
                 continue
-            if busy(broker):
+            if not capacity_available(broker, api.account_id, symbol):
                 persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Runner capacity unavailable"})
                 continue
             return submit_leg(client, row, index, data, condition, now)
@@ -728,7 +745,8 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
         unresolved = unresolved or session.scalar(select(ExnessEntryIntent.id).where(
             ExnessEntryIntent.account == api.account_id, ExnessEntryIntent.status == "uncertain").limit(1)) is not None
         reason = "symbol_disabled" if symbol not in configured_symbols() else "costs_unverified" if not costs_ready else "paused" if not state.enabled else "reconciling" if unresolved else (
-            "position_active" if busy(broker) else
+            "position_active" if not capacity_available(broker, api.account_id, symbol, 0 if entry_intent_id else 1,
+                                                        entry_intent_id=entry_intent_id) else
             "session_close_near" if near_close else
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
         from .forex_entry_intents import pilot_enabled
@@ -750,7 +768,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                     continue
                 max_legs = (3 if proposal["exit_policy"] == "ladder_h1" else
                             1 if proposal["exit_policy"] in ("fixed_structural", "runner_h1", "trail_swing_h1") else 2)
-                if capacity_available(broker, api.account_id, symbol, max_legs):
+                if capacity_available(broker, api.account_id, symbol, 1):
                     create_intent(session, api.account_id, proposal, sample["tree"], now, max_legs,
                                   version=sample["strategy_version"], provenance=sample["provenance"])
                     break
@@ -821,7 +839,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 intent_row.snapshot = {**intent_row.snapshot, "status": "cancelled", "reason": "preflight_failed",
                                        "reason_code": reason_detail.split(":", 1)[0].strip(), "reason_detail": reason_detail, "ended_at": now}
             return "preflight_failed"
-        if not capacity_available(broker, api.account_id, symbol, len(bodies), entry_intent_id=signal.get("entry_intent_id")):
+        if not capacity_available(broker, api.account_id, symbol, 1, entry_intent_id=signal.get("entry_intent_id")):
             record_journal(state, detail, "position_capacity_for_split", now)
             if intent_row:
                 intent_row.status = "cancelled"
@@ -972,7 +990,13 @@ def record_error(account, exc, now=None, symbol=None):
 @router.get("")
 def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD",
                       view: str = "tickets", status: str = "all"):
-    from .forex_position_groups import group_page, position_groups, setup_key, ticket_owners
+    from .forex_position_groups import (
+        group_page,
+        open_setup_count,
+        position_groups,
+        setup_key,
+        ticket_owners,
+    )
     if view not in ("tickets", "setups") or status not in ("all", "open", "closed", "bot"):
         raise HTTPException(422, "Unsupported execution view or status")
     request_symbol(symbol)
@@ -1060,6 +1084,10 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                                 target=float(order.get("take_profit_price") or 0) or None)
     rows = sorted(positions.values(), key=lambda row: row.get("open_time") or 0, reverse=True)
     heartbeat = meta.get("heartbeat")
+    with Session() as session:
+        account_trades = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
+    account_owners = ticket_owners(account_trades)
+    broker_positions = broker.get("positions", [])
     result = {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
         "account": account, "strategy": "learning", "lot": "Theo rủi ro 1% equity", "risk_percent": 1,
@@ -1077,6 +1105,9 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         "has_more": offset + limit < len(rows), "intents": [row.snapshot for row in intents[:20]],
         "open_count": len(broker.get("positions", [])), "orders": broker.get("orders", []),
         "symbol_open_count": sum(position.get("instrument") == symbol for position in broker.get("positions", [])),
+        "account_setup_count": open_setup_count(account, broker_positions, account_owners),
+        "symbol_setup_count": open_setup_count(account, [position for position in broker_positions
+                                                         if position.get("instrument") == symbol], account_owners),
         "closed_count": sum(row["status"] == "closed" for row in rows),
         "broker_profit": round(sum(row.get("pnl") or 0 for row in rows), 2),
         "learning": learning_summary(symbol=symbol),

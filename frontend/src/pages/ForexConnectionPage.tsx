@@ -58,7 +58,7 @@ export function ForexConnectionPage({
                     : 'Tạm dừng'}
             </Row>
             <Row label="Khối lượng mỗi lệnh">{data ? `${data.lot} lot` : '—'}</Row>
-            <Row label="Giới hạn vị thế">
+            <Row label="Giới hạn setup">
               {data
                 ? `${data.max_concurrent} tài khoản · ${data.max_concurrent_per_symbol}/cặp`
                 : '—'}

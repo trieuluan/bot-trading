@@ -322,7 +322,7 @@ export function ForexMarkets({
         <th className="py-2.5 px-3 text-left">Phiên dự kiến</th>
         <th className="py-2.5 px-3 text-right font-mono tabular-nums">Giá bid</th>
         <th className="py-2.5 px-3 text-left">Độ mới</th>
-        <th className="py-2.5 px-3 text-right font-mono tabular-nums">Vị thế</th>
+        <th className="py-2.5 px-3 text-right font-mono tabular-nums">Setup / Giới hạn</th>
         <th className="py-2.5 px-3 text-right font-mono tabular-nums" title="Cây được phép vào lệnh / đủ chuẩn tiến hoá">
           Cây vào lệnh · tiến hoá
         </th>
@@ -348,7 +348,7 @@ export function ForexMarkets({
         <h2 className="text-base font-bold text-text-primary">{variant === 'table' ? 'Các cặp giao dịch' : 'Sức khỏe feed 11 cặp'}</h2>
         <span className="text-xs text-text-muted font-mono">
           {data
-            ? `${data.account_setups ?? data.account_positions} setup · ${data.account_positions}/${data.max_positions} ticket toàn tài khoản · tối đa ${data.max_positions_per_symbol} ticket/cặp`
+            ? `${data.account_setups ?? '—'}/${data.max_positions} setup toàn tài khoản · ${data.account_positions} ticket · tối đa ${data.max_positions_per_symbol} setup/cặp`
             : 'Đang tải…'}
         </span>
       </div>
@@ -420,7 +420,7 @@ export function ForexMarkets({
                         </span>
                       </td>
                       <td className="num font-mono tabular-nums text-right">
-                        {market.positions}/{data?.max_positions_per_symbol ?? '—'}
+                        {market.setup_positions ?? '—'}/{data?.max_positions_per_symbol ?? '—'} setup · {market.positions} ticket
                       </td>
                       <td className="num font-mono tabular-nums text-right">
                         {market.execution?.entry_allowed_count ?? '—'}

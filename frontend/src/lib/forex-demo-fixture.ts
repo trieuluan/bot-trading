@@ -16,6 +16,8 @@ export const demoEURUSDExecution: ExnessExecution = {
   max_concurrent: 4,
   max_concurrent_per_symbol: 2,
   symbol_open_count: 1,
+  symbol_setup_count: 1,
+  account_setup_count: 1,
   risk_percent: 1.0,
   planned_risk_ceiling_usd: 100.0,
   stop_management_available: true,

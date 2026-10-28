@@ -70,7 +70,7 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
                 {key === 'orders' ? <ListOrdered size={15} aria-hidden="true" /> : <GitBranch size={15} aria-hidden="true" />}
                 {title}
                 {key === 'orders' && (
-                  <span className="terminal-tab-count rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary tabular-nums">{data.open_count}</span>
+                  <span className="terminal-tab-count rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary tabular-nums">{data.symbol_open_count ?? 0}</span>
                 )}
               </button>
             ))}
@@ -92,7 +92,7 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
                 {preview ? <span className="text-xs text-amber-300">Xuất CSV bị khóa trong bản demo UI</span> : <a className="inline-flex min-h-9 items-center rounded-lg border border-border-base bg-surface-2 px-3 text-xs font-medium text-text-secondary transition-colors hover:border-border-active hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-bull" href={`${url}/trades.csv?symbol=${symbol}`} download>Xuất CSV {symbol}</a>}
               </div>
               <dl className="grid grid-cols-2 gap-2 lg:grid-cols-4 [&_dt]:text-[11px] [&_dt]:text-text-muted [&_dd]:mt-1 [&_dd]:font-mono [&_dd]:text-lg [&_dd]:font-semibold [&_dd]:tabular-nums">
-                <div className="rounded-lg border border-bull/20 bg-bull/5 p-3"><dt>Ticket đang mở · {symbol}</dt><dd className="text-bull">{data.open_count}</dd></div>
+                <div className="rounded-lg border border-bull/20 bg-bull/5 p-3"><dt>Ticket đang mở · {symbol}</dt><dd className="text-bull">{data.symbol_open_count ?? 0}</dd></div>
                 <div className="rounded-lg border border-border-subtle bg-surface-2/50 p-3"><dt>Setup trong bộ lọc</dt><dd>{data.total}</dd></div>
                 <div className="rounded-lg border border-border-subtle bg-surface-2/50 p-3"><dt>Đã chốt · trang này · USD</dt><dd className={closedRows.length ? realized >= 0 ? 'text-bull' : 'text-bear' : 'text-text-muted'}>{closedRows.length ? `${realized > 0 ? '+' : ''}${realized.toFixed(2)}` : '—'}</dd></div>
                 <div className="rounded-lg border border-border-subtle bg-surface-2/50 p-3"><dt>Tỷ lệ thắng · trang này</dt><dd>{closedRows.length ? `${Math.round(wins / closedRows.length * 100)}%` : '—'} <span className="text-[11px] font-normal text-text-muted">{wins}/{closedRows.length} setup đóng</span></dd></div>

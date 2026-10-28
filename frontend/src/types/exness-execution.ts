@@ -236,6 +236,8 @@ export interface ExnessExecution {
   max_concurrent: number;
   max_concurrent_per_symbol: number;
   symbol_open_count: number;
+  symbol_setup_count?: number;
+  account_setup_count?: number;
   risk_percent?: number;
   planned_risk_ceiling_usd?: number | null;
   stop_management_available?: boolean;

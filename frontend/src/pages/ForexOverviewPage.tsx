@@ -107,13 +107,13 @@ export function ForexOverviewPage({
           <span>{amount(data?.closed_count)} lệnh đóng · chưa gồm swap</span>
         </div>
         <div>
-          <small>Vị thế đang mở <Layers size={15} className="text-bull" aria-hidden="true" /></small>
+          <small>Setup đang mở <Layers size={15} className="text-bull" aria-hidden="true" /></small>
           <strong>
-            {data?.open_count ?? '—'}
+            {data?.account_setup_count ?? '—'}
             <em> / {data?.max_concurrent ?? '—'}</em>
           </strong>
           <span>
-            {symbol}: {data?.symbol_open_count ?? '—'}/{data?.max_concurrent_per_symbol ?? '—'}
+            {symbol}: {data?.symbol_setup_count ?? '—'}/{data?.max_concurrent_per_symbol ?? '—'} setup · {data?.open_count ?? '—'} ticket toàn tài khoản
           </span>
         </div>
       </div>
