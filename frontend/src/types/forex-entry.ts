@@ -28,7 +28,7 @@ export interface ForexEntryIntent {
   winner?: 'limit' | 'stop' | 'market';
   trigger_quote?: { bid: number; ask: number; time: number };
   signal?: { stop?: number; target?: number };
-  broker_fills?: { position_id: string; price: number; deviation: number | null }[];
+  broker_fills?: { position_id: string; price: number; deviation: number | null; submitted_at?: number; filled_at?: number }[];
 }
 
 export interface ForexEntryPilot {

@@ -1039,3 +1039,25 @@ def test_virtual_entry_lock_wait_is_bounded_and_never_submits(monkeypatch, tmp_p
         assert row.status == "cancelled"
         assert row.snapshot["reason_code"] == "calibration_or_executor_active"
     api.client.request.assert_not_called()
+
+def test_virtual_entry_fill_times_come_only_from_trade_and_deals(monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import reconcile_intents
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session.begin() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        candle = row.snapshot["signal"]["candle_time"]
+        session.add(ExnessExecutionTrade(account=api.account_id, symbol="XAUUSD", signal_time=candle, snapshot={
+            "signal": {"entry_intent_id": identifier},
+            "legs": [{"status": "open", "position_id": "p1", "submitted_at": NOW + 1},
+                     {"status": "open", "position_id": "p2"}]}))
+        session.add(ExnessDeal(account=api.account_id, deal_id="d1", position_id="p1", event_time=NOW + 2,
+                               snapshot={"type": "open", "price": "4000.1", "volume": "0.1", "event_time": NOW + 2}))
+        session.add(ExnessDeal(account=api.account_id, deal_id="d2", position_id="p2", event_time=NOW + 3,
+                               snapshot={"type": "open", "price": "4000.2", "volume": "0.1"}))
+    reconcile_intents(api.account_id, NOW + 5, identifier=identifier)
+    with Session() as session:
+        fills = session.get(ExnessEntryIntent, identifier).snapshot["broker_fills"]
+    assert fills[0]["submitted_at"] == NOW + 1 and fills[0]["filled_at"] == NOW + 2
+    assert "submitted_at" not in fills[1] and "filled_at" not in fills[1]

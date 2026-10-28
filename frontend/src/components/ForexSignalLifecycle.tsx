@@ -7,7 +7,8 @@ import { entryLifecycle } from '../lib/forex-entry-lifecycle';
 import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
 import { formatTime } from '../lib/time-format';
-import { priceDigits } from '../lib/forex-labels';
+import { priceDigits, spreadText } from '../lib/forex-labels';
+import { entrySlippage, executionLegs, executionSummary, executionTimeline } from '../lib/forex-execution-view';
 
 interface ForexSignalLifecycleProps {
   open: boolean;
@@ -302,43 +303,41 @@ export function ForexSignalLifecycle({
             </header>
 
             {detailedSetup.intents.map((intent) => {
-              const fills = intent.broker_fills ?? [];
               const lifecycle = entryLifecycle(intent);
-              const terminal = ['cancelled', 'expired', 'completed'].includes(intent.status);
-              const notSent = terminal && intent.status !== 'completed' && !fills.length;
-              const steps: { label: string; value: string | null; tone: 'done' | 'end' | 'pending' }[] = [
-                { label: 'Tín hiệu', value: intent.available_at != null ? formatTime(intent.available_at, true) : null, tone: 'done' },
-                { label: 'Canh giá', value: intent.created_at != null ? formatTime(intent.created_at, true) : null, tone: 'done' },
-                {
-                  label: 'Kích hoạt',
-                  value: intent.triggered_at != null ? `${(intent.winner ?? '').toUpperCase()} · ${formatTime(intent.triggered_at, true)}` : null,
-                  tone: 'done',
-                },
-                ...(notSent ? [] : [
-                  { label: 'Gửi broker', value: intent.status === 'submitted' || fills.length ? 'Đã gửi · Không có thời gian ghi nhận' : null, tone: 'pending' as const },
-                  {
-                    label: 'Khớp',
-                    value: fills.length ? fills.map((f) => `#${f.position_id} @ ${price(f.price)}`).join(', ') + ' · Không có thời gian ghi nhận' : null,
-                    tone: 'pending' as const,
-                  },
-                ]),
-                ...(terminal ? [{
-                  label: notSent ? (intent.status === 'expired' ? 'Hết hạn' : 'Hủy canh') : 'Kết thúc',
-                  value: intent.ended_at != null ? formatTime(intent.ended_at, true) : null,
-                  tone: 'end' as const,
-                }] : []),
-              ];
+              const legs = executionLegs(intent, positions, pnlOf);
+              const sum = executionSummary(legs);
+              const slip = entrySlippage(intent, sum.averagePrice);
+              const steps = executionTimeline(intent, legs);
+              const dated = steps.find((step) => step.time != null);
               const r = explainReason(intent);
+              const filled = legs.length > 0;
               const statusTone = lifecycle.tone === 'filled' ? 'border-bull/30 bg-bull/10 text-bull' : lifecycle.tone === 'cancelled' ? 'border-border-active bg-surface-2 text-text-secondary' : lifecycle.tone === 'uncertain' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-sky-400/30 bg-sky-400/10 text-sky-200';
+              const money = (v: number | null) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`);
+              const tone = (v: number | null) => (v == null || v === 0 ? 'text-text-primary' : v > 0 ? 'text-bull' : 'text-bear');
+              const metrics: { label: string; value: string; cls?: string }[] = filled ? [
+                { label: 'Giá vào TB', value: price(sum.averagePrice) },
+                { label: 'Trượt giá', value: slip == null ? '—' : `${slip > 0 ? '+' : ''}${spreadText(slip, symbol)}`, cls: slip == null || slip <= 0 ? '' : 'text-amber-300' },
+                { label: 'Tổng lot', value: sum.lots == null ? '—' : sum.lots.toFixed(2) },
+                { label: 'P&L', value: sum.pnl == null ? '—' : `${money(sum.pnl)} USD`, cls: tone(sum.pnl) },
+              ] : [
+                { label: 'Nhánh', value: intent.winner?.toUpperCase() ?? 'Chưa kích hoạt' },
+                { label: 'Giá chờ', value: price(intent.limit_price ?? intent.stop_price) },
+                { label: 'Hạn canh', value: intent.expires_at ? formatTime(intent.expires_at, true) : '—' },
+              ];
 
               return (
-                <section key={intent.id} className="flex flex-col gap-3.5 rounded-lg border border-border-base bg-surface-2/40 p-3.5" aria-label="Kết quả thực thi">
+                <section key={intent.id} className="flex flex-col gap-3 rounded-lg border border-border-base bg-surface-2/40 p-3.5" aria-label="Kết quả thực thi">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h4 className="m-0 text-sm font-semibold text-text-primary">Kết quả thực thi</h4>
+                      <h4 className="m-0 flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">
+                        Kết quả thực thi
+                        <span className="text-xs font-normal text-text-muted">
+                          {intent.side === 'long' ? 'MUA' : 'BÁN'} {symbol}{intent.winner ? ` · ${intent.winner[0].toUpperCase()}${intent.winner.slice(1)}` : ''}
+                        </span>
+                      </h4>
                       <p className="m-0 mt-0.5 break-all font-mono text-[10px] text-text-muted">{intent.strategy}</p>
                     </div>
-                    <span className={`shrink-0 rounded-md border px-2 py-1 font-medium ${statusTone}`}>{lifecycle.label}</span>
+                    <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${statusTone}`}>{lifecycle.label}</span>
                   </div>
                   {r && (
                     <div className="rounded-md border border-border-active bg-surface-1 p-2.5">
@@ -347,25 +346,71 @@ export function ForexSignalLifecycle({
                       {r.detail && r.detail !== r.label && <div className="mt-1 break-all font-mono text-[10px] text-text-muted">Mã: {r.detail}</div>}
                     </div>
                   )}
-                  <div className="rounded-md border border-border-subtle bg-surface-1 p-2.5">
-                    <dl className="m-0 grid grid-cols-1 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-3 [&_dd]:m-0 [&_dd]:mt-0.5 [&_dd]:font-mono [&_dd]:text-text-primary [&_dt]:text-text-muted">
-                      <div><dt className="text-[10px] uppercase tracking-wide">Nhánh</dt><dd className="break-words">{intent.winner?.toUpperCase() ?? 'Chưa kích hoạt'}</dd></div>
-                      <div><dt className="text-[10px] uppercase tracking-wide">Hạn canh</dt><dd className="break-words">{intent.expires_at ? formatTime(intent.expires_at, true) : 'Không ghi nhận'}</dd></div>
-                      <div><dt className="text-[10px] uppercase tracking-wide">Broker</dt><dd className="break-words">{fills.length ? `${fills.length} fill` : 'Chưa xác nhận gửi/khớp'}</dd></div>
-                    </dl>
-                  </div>
-                  <ol className="m-0 list-none space-y-2.5 p-0 pt-1" aria-label="Dòng thời gian thực thi">
-                    {steps.map((step, index) => (
-                      <li key={step.label} className="relative grid grid-cols-[14px_88px_minmax(0,1fr)] items-baseline gap-x-3 gap-y-0.5">
-                        {index < steps.length - 1 && <span className="absolute top-2.5 left-[4.5px] h-[calc(100%+10px)] w-px bg-border-base" aria-hidden="true" />}
-                        <span className={`relative self-center size-2.5 rounded-full border ${!step.value ? 'border-border-active bg-surface-1' : step.tone === 'end' ? 'border-text-muted bg-surface-3' : 'border-emerald-400 bg-emerald-400/40'}`} aria-hidden="true" />
-                        <span className={`text-xs ${step.value ? 'font-medium text-text-primary' : 'text-text-muted'}`}>{step.label}</span>
-                        <span className={`min-w-0 break-words font-mono text-xs ${step.value ? 'text-text-secondary' : 'text-text-muted'}`}>
-                          {step.value ?? (step.label === 'Gửi broker' ? 'Chưa có xác nhận gửi' : step.label === 'Khớp' ? 'Chưa có fill xác nhận' : 'Không có thời gian ghi nhận')}
-                        </span>
-                      </li>
+                  <dl className={`m-0 grid grid-cols-2 gap-2 ${filled ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                    {metrics.map((m) => (
+                      <div key={m.label} className="min-w-0 rounded-md border border-border-subtle bg-surface-1 px-2.5 py-2">
+                        <dt className="text-[10px] uppercase tracking-wide text-text-muted">{m.label}</dt>
+                        <dd className={`m-0 mt-0.5 break-words font-mono text-xs font-semibold ${m.cls || 'text-text-primary'}`}>{m.value}</dd>
+                      </div>
                     ))}
-                  </ol>
+                  </dl>
+                  {filled && (
+                    <div className="overflow-hidden rounded-md border border-border-subtle">
+                      <table className="w-full border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-surface-1 text-left text-[10px] uppercase tracking-wide text-text-muted">
+                            <th className="px-2.5 py-1.5 font-medium">Vị thế</th>
+                            <th className="px-2.5 py-1.5 text-right font-medium">Lot</th>
+                            <th className="px-2.5 py-1.5 text-right font-medium">Giá vào</th>
+                            <th className="px-2.5 py-1.5 text-right font-medium">P&L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {legs.map((leg) => (
+                            <tr
+                              key={leg.positionId}
+                              className={`border-t border-border-subtle ${leg.position ? 'cursor-pointer hover:bg-surface-1' : ''}`}
+                              onClick={leg.position ? () => onSelectPosition(leg.positionId) : undefined}
+                            >
+                              <td className="px-2.5 py-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-medium text-text-primary">{leg.role}</span>
+                                  <span className={`rounded px-1.5 py-px text-[10px] ${leg.status === 'open' ? 'bg-sky-400/10 text-sky-200' : 'bg-surface-3 text-text-muted'}`}>
+                                    {leg.status === 'open' ? 'Đang mở' : leg.status === 'closed' ? 'Đã đóng' : 'Chưa đồng bộ'}
+                                  </span>
+                                </div>
+                                <div className="font-mono text-[10px] text-text-muted">#{leg.positionId}</div>
+                              </td>
+                              <td className="px-2.5 py-2 text-right font-mono">{leg.lots == null ? '—' : leg.lots.toFixed(2)}</td>
+                              <td className="px-2.5 py-2 text-right font-mono">{price(leg.price)}</td>
+                              <td className={`px-2.5 py-2 text-right font-mono font-semibold ${tone(leg.pnl)}`}>{money(leg.pnl)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div>
+                    <div className="mb-2 flex items-baseline justify-between text-[10px] uppercase tracking-wide text-text-muted">
+                      <span>Dòng thời gian</span>
+                      {dated?.time != null && <span className="normal-case">{formatTime(dated.time, false)}</span>}
+                    </div>
+                    <ol className="m-0 list-none space-y-2.5 p-0" aria-label="Dòng thời gian thực thi">
+                      {steps.map((step, index) => (
+                        <li key={step.label} className="relative grid grid-cols-[14px_84px_minmax(0,1fr)] items-baseline gap-x-3">
+                          {index < steps.length - 1 && <span className="absolute top-2.5 left-[4.5px] h-[calc(100%+10px)] w-px bg-border-base" aria-hidden="true" />}
+                          <span className={`relative size-2.5 self-center rounded-full border ${step.done ? 'border-emerald-400 bg-emerald-400/50' : 'border-border-active bg-surface-1'}`} aria-hidden="true" />
+                          <span className={`text-xs ${step.done ? 'font-medium text-text-primary' : 'text-text-muted'}`}>{step.label}</span>
+                          <span className="min-w-0 break-words text-xs text-text-secondary">
+                            {step.time != null && <span className="font-mono">{formatTime(step.time, true, false).slice(-8)}</span>}
+                            {step.gap != null && step.gap > 0 && <span className="ml-1.5 font-mono text-[10px] text-text-muted">+{step.gap}s</span>}
+                            {step.detail && <span className={step.time != null ? 'ml-2 text-text-muted' : ''}>{step.detail}</span>}
+                            {step.time == null && step.missingTime && !step.detail && <span className="text-text-muted">—</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
                 </section>
               );
             })}

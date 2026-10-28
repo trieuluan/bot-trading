@@ -218,8 +218,14 @@ def reconcile_intents(account, now, *, identifier=None, restart=False, outcome=N
                     price = (sum(float(deal["price"]) * float(deal["volume"]) for deal in opens) / volume if volume else
                              float(position["open_price"]) if position else None)
                     if price is not None:
+                        # Chỉ ghi giờ khi broker/ledger có dữ liệu; thiếu thì bỏ khoá, UI hiện "—".
+                        filled_at = (min(deal["event_time"] for deal in opens if deal.get("event_time") is not None)
+                                     if any(deal.get("event_time") is not None for deal in opens)
+                                     else position.get("open_time") if position else None)
                         fills.append({"position_id": pid, "price": price,
-                                      "deviation": (price - level) * (1 if row.side == "long" else -1) if level else None})
+                                      "deviation": (price - level) * (1 if row.side == "long" else -1) if level else None,
+                                      **({"submitted_at": leg["submitted_at"]} if leg.get("submitted_at") else {}),
+                                      **({"filled_at": filled_at} if filled_at else {})})
                 row.snapshot = {**row.snapshot, "broker_fills": fills}
             elif row.status in ("submitting", "submitted", "uncertain"):
                 status = "uncertain"
