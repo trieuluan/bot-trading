@@ -1016,6 +1016,28 @@ function paramSpread(values: number[]) {
 
 const POLICY_ORDER = ['market', 'limit_setup_mid', 'stop_trigger_break', 'limit_or_stop'] as const;
 
+const NO_R_LABELS: Record<string, string> = {
+  expired: 'lỡ lệnh/hết hạn',
+  ambiguous: 'không rõ thứ tự chạm',
+  excluded: 'bị loại',
+  skipped: 'bỏ qua',
+  invalid: 'không hợp lệ',
+};
+
+/** Tách mẫu đã kết thúc nhưng không có R (lỡ lệnh, mơ hồ, bị loại). Mẫu đang chạy tách dòng riêng bên dưới. */
+function finishedNoR(counts: Record<string, number> = {}): string[] {
+  const rows: string[] = [];
+  for (const [status, count] of Object.entries(counts)) {
+    if (!count || ['resolved', 'open', 'pending', 'waiting'].includes(status)) continue;
+    rows.push(`${count} ${NO_R_LABELS[status] ?? status}`);
+  }
+  return rows;
+}
+
+function runningCount(counts: Record<string, number> = {}): number {
+  return (counts.open ?? 0) + (counts.pending ?? 0) + (counts.waiting ?? 0);
+}
+
 export function ForexEntryPilotPanel({
   entryPilot,
   symbol,
@@ -1392,17 +1414,21 @@ export function ForexEntryPilotPanel({
                       <div key={policy} className="entry-tree-policy-cell min-w-0 rounded-lg border border-border-subtle bg-surface-1 p-2" title={t?.id}>
                         <span className="entry-tree-policy block truncate text-[11px] font-semibold text-sky-300">{policyLabel(policy)}</span>
                         <strong className={'block font-mono text-sm tabular-nums ' + (t ? rTone(t.mean_r) : 'text-text-muted')}>{t ? signedR(t.mean_r) : '—'}</strong>
-                        {t ? (
-                          <span className="block text-[10px] text-text-muted">
-                            {t.resolved_count} có R
-                            {((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)) > 0 && (
-                              <span className="text-sky-300"> · {(t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)} đang chạy</span>
-                            )}
-                            {t.samples_count - t.resolved_count - ((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)) > 0 && (
-                              <span> · {t.samples_count - t.resolved_count - ((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0))} không có R</span>
-                            )}
-                          </span>
-                        ) : (
+                        {t ? (() => {
+                          const noR = finishedNoR(t.status_counts);
+                          const running = runningCount(t.status_counts);
+                          return (
+                            <div className="space-y-0.5 text-[10px] leading-snug">
+                              <span className="block text-text-muted">
+                                <b className="font-mono text-text-secondary">{t.samples_count} mẫu</b> · {t.resolved_count} có R
+                                {noR.length > 0 && <span className="text-amber-300/80"> · {noR.join(' · ')}</span>}
+                              </span>
+                              {running > 0 && (
+                                <span className="block text-sky-300">⏳ {running} đang chạy</span>
+                              )}
+                            </div>
+                          );
+                        })() : (
                           <span className="block text-[10px] text-text-muted">thiếu cây</span>
                         )}
                       </div>
@@ -1413,8 +1439,8 @@ export function ForexEntryPilotPanel({
                   const info = pilot.bundles?.[b.bundle_id];
                   return info ? (
                     <p className="m-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border-subtle bg-surface-1 px-2.5 py-1.5 text-[11px] text-text-secondary">
-                      <span>Đủ 4/4 policy: <b className="font-mono text-text-primary">{info.matched_count}/10</b> setup{info.ready ? ' · đủ ngưỡng' : ''}</span>
-                      {info.running_setups > 0 && <span className="text-sky-300">{info.running_setups} setup chờ đủ 4 policy</span>}
+                      <span>Đối chiếu xong 4/4: <b className="font-mono text-text-primary">{info.matched_count}/10</b> setup{info.ready ? ' · đủ ngưỡng' : ''}</span>
+                      {info.running_setups > 0 && <span className="text-sky-300">{info.running_setups} setup còn nhánh đang chạy</span>}
                     </p>
                   ) : null;
                 })()}
