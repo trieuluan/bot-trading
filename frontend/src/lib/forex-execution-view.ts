@@ -83,6 +83,12 @@ export function brokerFillsDiagnosis(intent?: ForexEntryIntent, legs: ExecutionL
   return { text, subtext, isPartialFill, openCount, closedCount };
 }
 
+/** Shadow chỉ cập nhật theo nến M15; broker đóng trước thì báo đang đối chiếu thay vì "đang mở". */
+export function shadowStatusText(status: string, brokerClosed: boolean, labels: Record<string, string>) {
+  if (brokerClosed && ['open', 'pending', 'waiting'].includes(status)) return 'Đang đối chiếu · cập nhật theo nến M15';
+  return labels[status] ?? status;
+}
+
 export function entrySlippage(intent: ForexEntryIntent, averagePrice: number | null): number | null {
   if (averagePrice == null) return null;
   const direction = intent.side === 'long' ? 1 : -1;

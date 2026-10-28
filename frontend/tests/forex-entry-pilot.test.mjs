@@ -82,7 +82,7 @@ test('ForexEntryPilotPanel groups 4 entries per V4 bundle and flags missing tree
     const tree = (bundle, policy) => ({
       id: `hast4_${bundle}_${policy}`, bundle_id: bundle, generation: 0, control_tree_id: `hast3_${bundle}`,
       entry_policy: policy, entry_params: {}, h1_setup: 'channel_breakout', m15_trigger: 'channel',
-      exit_policy: 'fixed_structural', samples_count: 2, resolved_count: 1, mean_r: 0.5,
+      exit_policy: 'fixed_structural', samples_count: 2, resolved_count: 1, mean_r: 0.5, status_counts: { resolved: 1, open: 1 },
     });
     const trees = [
       ...policies.map((p) => tree('bundle_00', p)),
@@ -90,12 +90,17 @@ test('ForexEntryPilotPanel groups 4 entries per V4 bundle and flags missing tree
     ];
     const html = renderToStaticMarkup(React.createElement(ForexEntryPilotPanel, {
       symbol: 'XAUUSD',
-      entryPilot: { enabled: true, intents: [], pilot: { status: 'ready', tree_count: 7, bundle_count: 2, generation: 0, trees } },
+      entryPilot: { enabled: true, intents: [], pilot: { status: 'ready', tree_count: 7, bundle_count: 2, generation: 0, trees,
+        bundles: { bundle_00: { matched_count: 0, ready: false, mean_r: null, running_setups: 1 } } } },
     }));
     assert.equal(html.match(/class="entry-bundle /g)?.length, 2);
     assert.equal(html.match(/entry-tree-policy-cell/g)?.length, 8);
     assert.ok(html.includes('thiếu cây'));
     assert.ok(html.includes('2 / 2 bộ'));
+    assert.ok(html.includes('1 có R'));
+    assert.ok(html.includes('1 đang chạy'));
+    assert.ok(html.includes('1 setup chờ đủ 4 policy'));
+    assert.ok(!html.includes('mẫu đóng'));
   } finally {
     await server.close();
   }

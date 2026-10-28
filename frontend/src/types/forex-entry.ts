@@ -54,6 +54,7 @@ export interface ForexEntryPilot {
     note?: string;
     generation?: number;
     bundle_count?: number;
+    bundles?: Record<string, { matched_count: number; ready: boolean; mean_r: number | null; running_setups: number }>;
     policy_stats?: Record<string, { tree_count: number; resolved_count: number; mean_r: number | null }>;
     trees?: {
       id: string;

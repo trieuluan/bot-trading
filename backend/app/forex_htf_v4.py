@@ -551,6 +551,15 @@ def summary(account, symbol="XAUUSD"):
                 "mean_r": mean(resolved) if resolved else None,
             })
             
+        version, now = logic_version(), int(time.time())
+        bundle_summaries = {}
+        for b_id, bundle in ledger.get("bundles", {}).items():
+            stats = bundle_stats(b_id, bundle, samples_by_tree, now, version)
+            running = {s["setup_id"] for tid in bundle["trees"].values() for s in samples_by_tree.get(tid, [])
+                       if s["status"] in ("waiting", "pending", "open")}
+            bundle_summaries[b_id] = {"matched_count": stats["matched_count"], "ready": stats["ready"],
+                                      "mean_r": stats["mean_r"], "running_setups": len(running)}
+
         # Group stats by policy
         policy_stats = {}
         for pol in POLICIES:
@@ -573,6 +582,7 @@ def summary(account, symbol="XAUUSD"):
             "since": ledger["since"],
             "counts": dict(counts),
             "policy_stats": policy_stats,
+            "bundles": bundle_summaries,
             "trees": tree_summaries,
             "evolution_history": ledger.get("evolution_history", []),
             "signals": [

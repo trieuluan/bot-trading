@@ -1392,17 +1392,32 @@ export function ForexEntryPilotPanel({
                       <div key={policy} className="entry-tree-policy-cell min-w-0 rounded-lg border border-border-subtle bg-surface-1 p-2" title={t?.id}>
                         <span className="entry-tree-policy block truncate text-[11px] font-semibold text-sky-300">{policyLabel(policy)}</span>
                         <strong className={'block font-mono text-sm tabular-nums ' + (t ? rTone(t.mean_r) : 'text-text-muted')}>{t ? signedR(t.mean_r) : '—'}</strong>
-                        <span className="block text-[10px] text-text-muted">{t ? `${t.resolved_count}/${t.samples_count} mẫu đóng` : 'thiếu cây'}</span>
-                        {t?.status_counts?.open ? <span className="block text-[10px] text-sky-300">{t.status_counts.open} đang chạy</span> : null}
+                        {t ? (
+                          <span className="block text-[10px] text-text-muted">
+                            {t.resolved_count} có R
+                            {((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)) > 0 && (
+                              <span className="text-sky-300"> · {(t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)} đang chạy</span>
+                            )}
+                            {t.samples_count - t.resolved_count - ((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0)) > 0 && (
+                              <span> · {t.samples_count - t.resolved_count - ((t.status_counts?.open ?? 0) + (t.status_counts?.pending ?? 0) + (t.status_counts?.waiting ?? 0))} không có R</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="block text-[10px] text-text-muted">thiếu cây</span>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-                {b.total_resolved === 0 && b.total_samples > 0 && (
-                  <p className="m-0 text-[11px] leading-snug text-text-muted">
-                    Chưa tính R: cần cả 4 entry của cùng setup kết thúc mô phỏng (gồm runner). Lệnh broker đã chốt không tính vào đây.
-                  </p>
-                )}
+                {(() => {
+                  const info = pilot.bundles?.[b.bundle_id];
+                  return info ? (
+                    <p className="m-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border-subtle bg-surface-1 px-2.5 py-1.5 text-[11px] text-text-secondary">
+                      <span>Đủ 4/4 policy: <b className="font-mono text-text-primary">{info.matched_count}/10</b> setup{info.ready ? ' · đủ ngưỡng' : ''}</span>
+                      {info.running_setups > 0 && <span className="text-sky-300">{info.running_setups} setup chờ đủ 4 policy</span>}
+                    </p>
+                  ) : null;
+                })()}
               </li>
             ))}
           </ul>

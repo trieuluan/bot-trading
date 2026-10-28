@@ -8,7 +8,7 @@ import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
 import { formatTime } from '../lib/time-format';
 import { priceDigits, spreadText } from '../lib/forex-labels';
-import { brokerFillsDiagnosis, entrySlippage, executionLegs, executionSummary, executionTimeline } from '../lib/forex-execution-view';
+import { brokerFillsDiagnosis, entrySlippage, shadowStatusText, executionLegs, executionSummary, executionTimeline } from '../lib/forex-execution-view';
 
 interface ForexSignalLifecycleProps {
   open: boolean;
@@ -77,6 +77,8 @@ export function ForexSignalLifecycle({
   const v4Strategy = priceStrategy?.startsWith('hast4_') ? priceStrategy : undefined;
   const priceIntent = detailedSetup?.intents.find((intent) => intent.strategy === priceStrategy);
   const priceSignal = v4Signals.find((signal) => signal.strategy === priceStrategy);
+  const priceLegs = priceIntent ? executionLegs(priceIntent, allPositions ?? positions, pnlOf) : [];
+  const priceBrokerClosed = priceLegs.length > 0 && priceLegs.every((leg) => leg.status === 'closed');
   const snapshotKey = detailedSetup && v4Strategy ? `${symbol}:${detailedSetup.time}:${v4Strategy}` : '';
   const v4Chart = snapshot.key === snapshotKey ? snapshot.data : undefined;
   const v4Error = snapshot.key === snapshotKey ? snapshot.error : undefined;
@@ -316,7 +318,9 @@ export function ForexSignalLifecycle({
               const filled = legs.length > 0;
               const diag = brokerFillsDiagnosis(intent, legs);
               const sim = detailedSetup.signals.find((sig) => sig.strategy === intent.strategy && sig.strategy.startsWith('hast4_'));
-              const mirror = sim ? (entryStateLabels[sim.status] ?? sim.status) + (sim.status === 'open' ? ' (chưa resolved, chờ runner/SL/TP)' : '') : '';
+              const brokerClosed = filled && sum.open === 0 && sum.closed === legs.length;
+              const mirror = sim ? shadowStatusText(sim.status, brokerClosed, entryStateLabels)
+                + (sim.status === 'open' && !brokerClosed ? ' (chưa resolved, chờ runner/SL/TP)' : '') : '';
               const statusTone = lifecycle.tone === 'filled' ? 'border-bull/30 bg-bull/10 text-bull' : lifecycle.tone === 'cancelled' ? 'border-border-active bg-surface-2 text-text-secondary' : lifecycle.tone === 'uncertain' ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-sky-400/30 bg-sky-400/10 text-sky-200';
               const money = (v: number | null) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`);
               const tone = (v: number | null) => (v == null || v === 0 ? 'text-text-primary' : v > 0 ? 'text-bull' : 'text-bear');
@@ -454,7 +458,7 @@ export function ForexSignalLifecycle({
                     </span>
                   )}
                 </div>
-                {priceSignal && <p className="m-0 text-[11px] text-sky-300">Mô phỏng: {entryStateLabels[priceSignal.status] ?? priceSignal.status}</p>}
+                {priceSignal && <p className="m-0 text-[11px] text-sky-300">Mô phỏng: {shadowStatusText(priceSignal.status, priceBrokerClosed, entryStateLabels)}</p>}
                 {v4Error && <p role="status" className="m-0 text-[11px] text-amber-200">{v4Error}{priceIntent ? ' · Hiển thị mức giá canh đã lưu thay thế.' : ''}</p>}
                 {priceLevels.length ? (
                   <>
@@ -727,7 +731,7 @@ export function ForexSignalLifecycle({
                         )}
                         {v4Count > 0 && (
                           <span className="rounded bg-sky-400/10 px-1.5 py-0.5 font-medium text-sky-300">
-                            Mô phỏng: {isSimulating ? 'Đang chạy' : 'Đã ghi nhận'}
+                            Mô phỏng: {isSimulating ? (listDiag && listDiag.openCount === 0 && listDiag.closedCount > 0 ? 'Đang đối chiếu' : 'Đang chạy') : 'Đã ghi nhận'}
                           </span>
                         )}
                         {r && <span className="truncate text-amber-400/90">{r.label}</span>}

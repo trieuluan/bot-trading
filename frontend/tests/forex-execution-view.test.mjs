@@ -30,3 +30,11 @@ test('brokerFillsDiagnosis: chỉ TP1 khớp, không suy diễn runner', () => {
   assert.match(d.text, /Chỉ khớp TP1/);
   assert.equal(brokerFillsDiagnosis({ side: 'long' }, []).text, 'Chưa có lệnh broker khớp');
 });
+
+import { shadowStatusText } from '../src/lib/forex-execution-view.ts';
+test('shadowStatusText: broker đóng, shadow chưa cập nhật', () => {
+  const labels = { open: 'Shadow đang mở', resolved: 'Đã kết thúc' };
+  assert.match(shadowStatusText('open', true, labels), /Đang đối chiếu/);
+  assert.equal(shadowStatusText('open', false, labels), 'Shadow đang mở');
+  assert.equal(shadowStatusText('resolved', true, labels), 'Đã kết thúc');
+});

@@ -298,3 +298,14 @@ def test_active_start_returns_earliest_open_or_none(tmp_path, monkeypatch):
         "samples": [{"status": "resolved", "signal": {"available_at": 1000, "entry_policy": {"expires_at": 2000}}}]
     })
     assert active_start("acc", "XAUUSD", 3500) is None
+
+
+def test_summary_reports_bundle_progress(tmp_path, monkeypatch):
+    from backend.app.forex_htf_v4 import summary
+    ledger = {"samples": [{"strategy": "t1", "status": "open", "setup_id": "s1", "side": "long",
+                           "confirm_time": 1, "signal": {"available_at": 901}}],
+              "population": [], "members": {}, "since": 0,
+              "bundles": {"bundle_00": {"trees": {"market": "t1"}, "born_at": 0}}}
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: ledger)
+    assert summary("a", "EURUSD")["bundles"]["bundle_00"] == {
+        "matched_count": 0, "ready": False, "mean_r": None, "running_setups": 1}
