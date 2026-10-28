@@ -570,6 +570,8 @@ def summary(account, symbol="XAUUSD"):
                     "available_at": s["signal"]["available_at"],
                     "status": s["status"],
                     "live_assigned": s.get("live_assigned", False),
+                    "setup_id": s.get("setup_id"),
+                    "bundle_id": s.get("bundle_id"),
                 }
                 for s in sorted(ledger["samples"], key=lambda row: row["confirm_time"], reverse=True)[:100]
             ],

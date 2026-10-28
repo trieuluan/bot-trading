@@ -79,4 +79,6 @@ export interface ForexRecordedSignal {
   available_at: number;
   status: string;
   live_assigned?: boolean;
+  setup_id?: string | null;
+  bundle_id?: string | null;
 }

@@ -18,8 +18,17 @@ export function signalSetups(intents: ForexEntryIntent[], signals: ForexRecorded
     group.intents.push(intent);
     groups.set(id, group);
   }
-  for (const signal of signals) {
+  for (const recorded of signals) {
+    const signal = signals.find((candidate) => candidate.setup_id && candidate.strategy === recorded.strategy &&
+      candidate.available_at === recorded.available_at && candidate.side === recorded.side) ?? recorded;
     if (!Number.isFinite(signal.available_at) || signal.available_at > now) continue;
+    if (signal.setup_id) {
+      const id = `setup:${signal.setup_id}:${signal.available_at}:${signal.side}`;
+      const group = groups.get(id) ?? { id, time: signal.available_at, side: signal.side, intents: [], signals: [] };
+      if (!group.signals.some((recorded) => recorded.strategy === signal.strategy)) group.signals.push(signal);
+      groups.set(id, group);
+      continue;
+    }
     const matching = [...groups.values()].filter((group) => group.time === signal.available_at &&
       group.side === signal.side && group.intents.some((intent) => intent.strategy === signal.strategy));
     const id = `signals:${signal.available_at}:${signal.side}:${signal.strategy.startsWith('hast4_') ? 'v4' : 'v3'}`;

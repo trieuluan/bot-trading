@@ -160,3 +160,28 @@ test('signalSetups keeps distinct setups, sides, versions and timestamps separat
   assert.ok(groups.every((group) => group.intents.length <= 1));
   assert.equal(JSON.stringify({ intents, signals }), before);
 });
+
+test('signalSetups merges V4 simulations and the executed tree of one setup into one group', () => {
+  const intents = [{ id: 'i', setup_id: 'S', strategy: 'hast4_a', side: 'short', status: 'submitted', available_at: 1000 }];
+  const signals = ['a', 'b', 'c', 'd'].map((x) => ({
+    strategy: `hast4_${x}`, side: 'short', available_at: 1000, status: 'pending', setup_id: 'S', bundle_id: 'bundle_03',
+  }));
+  const groups = signalSetups(intents, signals, 2000);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].signals.length, 4);
+  assert.equal(groups[0].intents.length, 1);
+});
+
+test('V4 setup identity separates bundles and enriches duplicate analysis signals without mutating input', () => {
+  const signals = [
+    { strategy: 'hast4_b', side: 'short', available_at: 1000, status: 'recorded' },
+    { strategy: 'hast4_b', side: 'short', available_at: 1000, status: 'pending', setup_id: 'S', bundle_id: 'one' },
+    { strategy: 'hast4_c', side: 'short', available_at: 1000, status: 'pending', setup_id: 'T', bundle_id: 'two' },
+  ];
+  const before = JSON.stringify(signals);
+  const groups = signalSetups([], signals, 2000);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].signals.length, 1);
+  assert.equal(groups[0].signals[0].status, 'pending');
+  assert.equal(JSON.stringify(signals), before);
+});
