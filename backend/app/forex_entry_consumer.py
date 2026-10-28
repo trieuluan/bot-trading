@@ -72,7 +72,12 @@ class EntryConsumers:
                         return
                     if line.startswith(b"data: "):
                         event = json.loads(line[6:])
-                        if event.get("symbol") != symbol or event.get("status") != "live":
+                        if event.get("symbol") != symbol:
+                            self.cancel(symbol, "stream_disconnected")
+                            return
+                        if event.get("kind") == "ready" or event.get("status") == "waiting":
+                            continue
+                        if event.get("status") != "live" or not event.get("quote"):
                             self.cancel(symbol, "stream_disconnected")
                             return
                         with Session.begin() as session:

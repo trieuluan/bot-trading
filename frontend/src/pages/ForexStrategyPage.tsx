@@ -2237,6 +2237,15 @@ export function ForexStrategyPage({
               </span>
             </div>
             <div className="flex items-center gap-2">
+              {selectedPosition?.status === 'closed' && (
+                <button
+                  type="button"
+                  className="rounded-md border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-[11px] font-medium text-sky-200 transition-colors hover:border-sky-400/60"
+                  onClick={() => onSelectPosition?.(undefined)}
+                >
+                  Về giá hiện tại
+                </button>
+              )}
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[11px] ${
                   quoteLive && selectedPosition?.status !== 'closed'

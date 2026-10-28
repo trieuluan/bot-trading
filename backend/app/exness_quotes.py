@@ -287,7 +287,8 @@ async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart"):
             queue = asyncio.Queue(maxsize=256)
             entry_subscribers.setdefault(symbol, set()).add(queue)
             try:
-                yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
+                # Entry stream chỉ nhận tick live hoặc heartbeat; không gửi snapshot cũ tránh quote_stale.
+                yield "data: " + json.dumps({"status": "waiting", "symbol": symbol, "kind": "ready"}) + "\n\n"
                 while True:
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=1)
