@@ -7,6 +7,7 @@ import math
 
 SCHEMA = "forex_htf_ast_v4"
 QUOTE_GAP = 5  # seconds; entry still requires a fresh (<=2s) quote
+MAX_QUOTE_GAP = 60  # seconds without ticks before a waiting entry is cancelled
 POLICIES = ("market", "limit_setup_mid", "stop_trigger_break", "limit_or_stop")
 DEFAULTS = {"limit_ratio": 0.5, "stop_buffer_atr": 0.05, "wait_bars": 4}
 
@@ -134,7 +135,8 @@ def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=Fa
                          and 0 <= now - quote["received_at"] <= 2 and quote["time"] >= result["available_at"]):
         return {**result, "status": "cancelled", "reason": "quote_stale", "ended_at": now}
     previous = result.get("last_quote")
-    if previous and (now - previous["received_at"] > QUOTE_GAP or quote["time"] - previous["time"] > QUOTE_GAP):
+    gap = bool(previous and (now - previous["received_at"] > QUOTE_GAP or quote["time"] - previous["time"] > QUOTE_GAP))
+    if previous and (now - previous["received_at"] > MAX_QUOTE_GAP or quote["time"] - previous["time"] > MAX_QUOTE_GAP):
         return {**result, "status": "cancelled", "reason": "quote_gap", "ended_at": now}
     if previous and quote["time"] <= previous["time"]:
         if quote["time"] < previous["time"]:
@@ -147,6 +149,8 @@ def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=Fa
     hits = touched(result, result["side"], quote["ask" if result["side"] == "long" else "bid"])
     if not previous and hits:
         return {**result, "status": "cancelled", "reason": "level_already_crossed", "ended_at": now}
+    if gap and hits:  # ponytail: ticks during a short gap are unseen; never assume the level filled at the new price
+        return {**result, "status": "cancelled", "reason": "level_crossed_during_gap", "ended_at": now}
     result["last_quote"] = dict(quote)
     if len(hits) > 1:
         return {**result, "status": "cancelled", "reason": "ambiguous_entry", "ended_at": now}

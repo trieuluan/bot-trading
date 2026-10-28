@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from .db import ExnessEntryIntent, Session
 from .forex_entry_intents import cancel_waiting, consume_quote, reconcile_intents
-from .forex_entry_policy import QUOTE_GAP
+from .forex_entry_policy import MAX_QUOTE_GAP, QUOTE_GAP
 
 
 class EntryConsumers:
@@ -57,14 +57,18 @@ class EntryConsumers:
 
     def stream(self, symbol):
         from .app_auth import quote_request
-        last = time.time()
+        last = tick = time.time()  # last = any line (heartbeat proves link alive), tick = last quote
         try:
             with urlopen(quote_request(symbol, entry=True), timeout=2) as stream:
                 while not self.stop.is_set() and self.waiting(symbol):
                     line = stream.readline()
                     now = time.time()
                     if not line or now - last > QUOTE_GAP:
-                        self.cancel(symbol, "stream_disconnected" if not line else "quote_gap")
+                        self.cancel(symbol, "stream_disconnected")
+                        return
+                    last = now
+                    if now - tick > MAX_QUOTE_GAP:
+                        self.cancel(symbol, "quote_gap")
                         return
                     if line.startswith(b"data: "):
                         event = json.loads(line[6:])
@@ -73,7 +77,7 @@ class EntryConsumers:
                             return
                         with Session.begin() as session:
                             triggered = consume_quote(session, self.account, symbol, event.get("quote"), now)
-                        last = now
+                        tick = now
                         for identifier in triggered:
                             threading.Thread(target=self.trigger, args=(identifier, symbol), daemon=True,
                                              name=f"submit-{identifier}").start()

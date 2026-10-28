@@ -61,7 +61,9 @@ def test_duplicate_backward_gap_future_and_expiry():
     assert observe(armed, quote(1005, 98, 99), 1005) == armed
     assert observe(armed, quote(1004), 1005)["reason"] == "quote_out_of_order"
     assert observe(armed, quote(1008), 1008)["status"] == "waiting"  # sparse Asian-session ticks
-    assert observe(armed, quote(1011), 1011)["reason"] == "quote_gap"
+    assert observe(armed, quote(1011), 1011)["status"] == "waiting"  # short gap, level not touched: keep waiting
+    assert observe(armed, quote(1011, 98, 98.5), 1011)["reason"] == "level_crossed_during_gap"
+    assert observe(armed, quote(1070), 1070)["reason"] == "quote_gap"
     assert observe(armed, quote(1007), 1006)["reason"] == "quote_stale"
     assert observe(armed, quote(2000), 2000)["status"] == "expired"
 
