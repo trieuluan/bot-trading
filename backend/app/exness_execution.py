@@ -161,7 +161,8 @@ def utc(stamp):
 def live_quote(symbol="XAUUSD"):
     from .app_auth import quote_request
     deadline = time.monotonic() + 5
-    with urlopen(quote_request(symbol), timeout=5) as stream:
+    # entry stream: only fresh ticks, no cached chart snapshot (that one was rejected as stale before the next tick).
+    with urlopen(quote_request(symbol, entry=True), timeout=5) as stream:
         while time.monotonic() < deadline:
             line = stream.readline()
             if not line:

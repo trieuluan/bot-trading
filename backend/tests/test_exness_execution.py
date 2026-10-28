@@ -19,6 +19,7 @@ from backend.app.forex_costs import account_tag
 from backend.app.main import app
 
 NOW = 1791900000
+REAL_LIVE_QUOTE = ee.live_quote  # autouse fixture mocks ee.live_quote
 
 def route(positions, orders, equity="1000"):
     def get(path, params=None):
@@ -1152,3 +1153,16 @@ def test_split_runner_shrinks_to_remaining_budget_instead_of_skipping(monkeypatc
     with Session() as session:
         leg = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)).snapshot["legs"][1]
     assert leg["volume_adjustment"] == {"planned": "0.09", "submitted": "0.08", "reason": "remaining_risk_budget"}
+
+
+def test_live_quote_uses_entry_stream_and_waits_for_fresh_tick(monkeypatch):
+    import io
+    import time
+    urls = []
+    now = time.time()
+    tick = {"bid": 1.0, "ask": 1.0001, "time": now, "received_at": now}
+    body = (b'data: {"status": "waiting", "symbol": "EURJPY", "kind": "ready"}\n\n'
+            + b"data: " + json.dumps({"status": "live", "symbol": "EURJPY", "quote": tick}).encode() + b"\n\n")
+    monkeypatch.setattr(ee, "urlopen", lambda request, timeout: (urls.append(request.full_url), io.BytesIO(body))[1])
+    assert REAL_LIVE_QUOTE("EURJPY")["bid"] == 1.0
+    assert urls[0].endswith("symbol=EURJPY&purpose=entry")
