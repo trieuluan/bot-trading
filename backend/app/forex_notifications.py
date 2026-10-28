@@ -23,7 +23,7 @@ def shown(value, signed=False):
 
 def event_key(now, trade, pid, event):
     identity = f"{trade.account}:{getattr(trade, 'symbol', 'XAUUSD')}:{trade.signal_time}:{pid}:{event}"
-    return f"{now:010d}-forex-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
+    return f"{int(now):010d}-forex-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
 def strategy_text(signal):

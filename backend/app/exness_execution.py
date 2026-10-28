@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import io
 import json
+import logging
 import os
 import time
 from collections import Counter
@@ -254,7 +255,12 @@ def reconcile(api, broker, now):
                     protection = next((item for item in broker["orders"]
                                        if item.get("position_id") == updated.get("position_id")
                                        and item.get("order_type") == "sltp"), None)
-                    notify_reconciled(session, current, previous, updated, position, protection, deals, now)
+                    try:
+                        with session.begin_nested():
+                            notify_reconciled(session, current, previous, updated, position, protection, deals, now)
+                    except Exception:
+                        logging.exception("Forex notification failed: account=%s symbol=%s signal_time=%s position=%s",
+                                          api.account_id, row.symbol, row.signal_time, updated.get("position_id"))
                     update_leg(current, index, updated)
             pid = data.get("position_id")
             if not pid:

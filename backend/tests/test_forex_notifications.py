@@ -23,7 +23,8 @@ def test_notify_reconciled_disabled_by_default(monkeypatch):
         assert session.scalar(select(PaperNotification)) is None
 
 
-def test_notify_reconciled_full_lifecycle(monkeypatch):
+@pytest.mark.parametrize("fraction", [0, 0.325541])
+def test_notify_reconciled_full_lifecycle(monkeypatch, fraction):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "mock-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "mock-chat")
     sent = []
@@ -44,7 +45,7 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
             position={"position_id": "100", "open_price": "2610.0", "volume": "0.01", "direction": "buy"},
             protection={"stop_loss_price": "2600.0", "take_profit_price": "2620.0"},
             deals=[],
-            now=1700000010,
+            now=1700000010 + fraction,
         )
 
         # 2. SL confirmed
@@ -55,7 +56,7 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
             position={"position_id": "100", "open_price": "2610.0", "direction": "buy"},
             protection={"stop_loss_price": "2610.0", "take_profit_price": "2620.0"},
             deals=[],
-            now=1700000020,
+            now=1700000020 + fraction,
         )
 
         # 2b. TP updated (e.g. runner extended to H4 barrier)
@@ -66,7 +67,7 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
             position={"position_id": "100", "open_price": "2610.0", "direction": "buy"},
             protection={"stop_loss_price": "2610.0", "take_profit_price": "2635.0"},
             deals=[],
-            now=1700000025,
+            now=1700000025 + fraction,
         )
 
         # 3. Closed with deals
@@ -79,7 +80,7 @@ def test_notify_reconciled_full_lifecycle(monkeypatch):
             position=None,
             protection=None,
             deals=[deal_open, deal_close],
-            now=1700000030,
+            now=1700000030 + fraction,
         )
 
     deliver()
@@ -178,3 +179,29 @@ def test_stop_exit_reason_only_when_exit_reached_stop():
     assert stop_exit_reason("buy", "1.0890", "1.0900", "1.0950") == "stop_loss"
     assert stop_exit_reason("buy", "1.0950", "1.0900", "1.0850") is None
     assert stop_exit_reason("buy", "1.0", None, None) is None
+
+
+def test_notify_reconciled_accepts_float_timestamp(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "mock-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "mock-chat")
+    trade = SimpleNamespace(
+        account="31000117657",
+        symbol="GBPJPY",
+        signal_time=1793170800,
+        snapshot={"signal": {"strategy": "hast4_d2c9fb7a3d2f", "side": "short"}},
+    )
+    with Session.begin() as session:
+        notify_reconciled(
+            session,
+            trade,
+            previous={"status": "submitted"},
+            updated={"status": "open", "position_id": "999", "role": "runner"},
+            position={"position_id": "999", "open_price": "209.68", "volume": "0.1", "direction": "sell"},
+            protection=None,
+            deals=[],
+            now=1793171779.325541,
+        )
+    with Session() as session:
+        row = session.scalar(select(PaperNotification).where(PaperNotification.id.like("%forex%")))
+        assert row is not None
+        assert "GBPJPY" in row.message

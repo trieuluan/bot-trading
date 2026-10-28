@@ -11,6 +11,7 @@ from backend.app.db import (
     ExnessDeal,
     ExnessExecutionState,
     ExnessExecutionTrade,
+    PaperNotification,
     Session,
 )
 from backend.app.exness import ExnessError, load_private_key
@@ -626,6 +627,36 @@ def test_reconciles_when_broker_drops_comment(copies):
         trade = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", old))
         assert trade.snapshot["status"] == ("closed" if copies == 1 else "submitted")
         assert trade.snapshot.get("position_id") == ("P2" if copies == 1 else None)
+
+@pytest.mark.parametrize("failure", ["render", "flush"])
+def test_notification_failure_does_not_rollback_reconcile(monkeypatch, caplog, failure):
+    api = dummy_api()
+    stamp = NOW - 60
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=stamp, snapshot={
+            "status": "open", "position_id": "P", "body": {"side": "buy"},
+        }))
+        session.add(ExnessDeal(account=api.account_id, deal_id="closed", position_id="P", event_time=NOW - 1,
+                              snapshot={"type": "close", "price": "4020.0", "position_id": "P"}))
+        session.add(PaperNotification(id="existing", message="preserved"))
+
+    def broken_notification(session, *args):
+        session.add(PaperNotification(id="incomplete", message="must roll back"))
+        if failure == "render":
+            raise ValueError("invalid notification timestamp")
+        session.add(PaperNotification(id="existing", message="duplicate"))
+        session.flush()
+
+    monkeypatch.setattr(ee, "notify_reconciled", broken_notification)
+    ee.reconcile(api, {"positions": [], "orders": []}, NOW + 0.325541)
+    with Session() as session:
+        saved = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", stamp)).snapshot
+        assert saved["status"] == "closed"
+        assert session.get(PaperNotification, "incomplete") is None
+        assert session.get(PaperNotification, "existing").message == "preserved"
+    assert "Forex notification failed:" in caplog.text
+    assert "Traceback" in caplog.text
+    api.client.request.assert_not_called()
 
 def test_journal_records_why_bot_stayed_out(monkeypatch):
     api = dummy_api()
