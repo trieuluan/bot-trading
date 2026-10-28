@@ -332,7 +332,7 @@ def test_daily_baseline_does_not_roll_on_stale_price(ready):
     assert state["daily_loss"] == 0 and not state["enabled"]
 
 
-def test_auto_opens_second_position_after_funding_recovers(ready):
+def test_auto_opens_after_funding_recovers_without_stacking_same_strategy(ready):
     clock, seed = ready
     last = seed()
     with Session.begin() as session:
@@ -347,8 +347,9 @@ def test_auto_opens_second_position_after_funding_recovers(ready):
     last = seed()
     auto_tick()
     with Session() as session:
-        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
-        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
+        decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
+        assert decision.action == "skipped" and "chờ đóng" in decision.reason
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
 
 
 def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(ready):
@@ -388,19 +389,67 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
     assert trade["entry_reason"] == "test"
 
 
-def test_auto_enters_same_strategy_repeatedly_without_cap(ready):
+def test_auto_does_not_stack_same_strategy_until_position_closes(ready):
     clock, seed = ready
-    for i in range(4):
+    for _ in range(4):
         seed("long")
         auto_tick()
         clock[0] += 900
     with Session() as session:
         trades = session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))).all()
-        assert len(trades) == 4
-        assert len({t.id for t in trades}) == 4
-        # All entered under the same breakout strategy
-        assert all(t.origin == "auto" for t in trades)
+        assert len(trades) == 1
+        assert trades[0].origin == "auto"
+        skipped = session.scalars(select(AutoPaperDecision).where(AutoPaperDecision.action == "skipped")).all()
+        assert len(skipped) == 3
+        assert all("chờ đóng" in row.reason for row in skipped)
 
+    with Session.begin() as session:
+        trade = session.scalar(select(PaperTrade))
+        trade.exit_time = int(clock[0])
+        trade.exit, trade.net_pnl = trade.entry, 0.0
+    last = seed("long")
+    auto_tick()
+    with Session() as session:
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
+
+def test_auto_unknown_position_owner_fails_closed(ready):
+    clock, seed = ready
+    last = seed()
+    auto_tick()
+    with Session.begin() as session:
+        session.get(AutoPaperDecision, ("BTC_USDT", last)).parameters = {}
+    clock[0] += 900
+    last = seed()
+    auto_tick()
+    with Session() as session:
+        decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
+        assert decision.action == "skipped" and "Không xác định" in decision.reason
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
+
+def test_auto_can_open_different_strategy_on_same_pair(ready):
+    clock, seed = ready
+    last = seed()
+    auto_tick()
+    with Session.begin() as session:
+        from backend.app.futures_learner import read_state, save_state
+        learning = read_state(session, int(clock[0]))
+        other = "test:other"
+        learning["candidates"][other] = dict(next(iter(learning["candidates"].values())))
+        save_state(session, learning)
+        decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
+        decision.parameters = {"audit": {"strategy": other}}
+    clock[0] += 900
+    last = seed()
+    with Session.begin() as session:
+        from backend.app.futures_learner import read_state, save_state
+        learning = read_state(session, int(clock[0]))
+        learning["candidates"][other] = dict(next(iter(learning["candidates"].values())))
+        save_state(session, learning)
+    auto_tick()
+    with Session() as session:
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
+        assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
 
 def test_timeline_counts_actions_and_unrecorded_candles(ready):
     clock, seed = ready

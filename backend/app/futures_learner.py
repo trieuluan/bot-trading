@@ -591,7 +591,7 @@ def select_for_auto(session, candle_time, now):
     return True, Setup(**decision["setup"]), decision["selected"]
 
 
-def active_strategies(session, state):
+def active_strategies(session, state, *, exclude_order_id=None):
     known = state["candidates"]
     protected, owners = set(), {}
     positions = session.execute(
@@ -612,6 +612,8 @@ def active_strategies(session, state):
     pending = session.scalars(select(PaperPendingOrder).where(
         PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")).all()
     for order in pending:
+        if order.id == exclude_order_id:
+            continue
         snapshot = order.snapshot if isinstance(order.snapshot, dict) else {}
         name = snapshot.get("strategy")
         audit = snapshot.get("audit")

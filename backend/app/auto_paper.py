@@ -27,7 +27,7 @@ from .db import (
 from .feed import load_candles, save_market_signal
 from .futures_entries import WAIT_BARS, wait
 from .futures_exits import has_target
-from .futures_learner import read_state, select_for_auto
+from .futures_learner import active_strategies, read_state, select_for_auto
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .notifications import notify_blocked, notify_open
@@ -246,6 +246,11 @@ def close_pending(session, order, status, reason):
 
 def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
     snap = order.snapshot
+    busy = active_strategies(session, read_state(session, int(now)), exclude_order_id=order.id)
+    if busy is None or snap["strategy"] in busy:
+        close_pending(session, order, "cancelled",
+                      "Không rõ cây sở hữu hoặc cây đã có vị thế/lệnh chờ khác trên cặp; không mở trùng")
+        return
     setup = Setup(order.side, order.level, order.stop, order.target, snap["reason"])
     entry = order.level if limit else execution_price(wallet, order.side, opening=True)
     notional, risk_cash, blocked_by = size_order(session, wallet, state, now, order.side, entry, order.stop)
@@ -449,6 +454,15 @@ def _auto_tick(now=None):
             return
         learning = read_state(session, int(now))
         learning_decision = learning["last_decision"] or {}
+        busy = active_strategies(session, learning)
+        if busy is None:
+            record_decision(session, state, candle_time, "skipped",
+                            "Không xác định được cây đang giữ vị thế; không vào lệnh mới", setup)
+            return
+        if strat_name in busy:
+            record_decision(session, state, candle_time, "skipped",
+                            "Cây này đang có vị thế hoặc lệnh chờ trên cặp; chờ đóng trước khi vào lại", setup)
+            return
         save_market_signal(session, candle_time, setup)
         market_entry = learning["candidates"][strat_name]["genome"].get("entry_policy", "market") == "market"
         if not market_entry:
@@ -462,7 +476,7 @@ def _auto_tick(now=None):
                 session, state, candle_time, "skipped", "Khoảng cách SL không hợp lệ", setup
             )
             return
-        # ponytail: no position cap; bounded only by available cash, risk budget and daily limits.
+        # ponytail: one open position/order per strategy per pair; no portfolio-wide position cap yet.
         requested_notional, risk_cash, blocked_by = size_order(session, wallet, state, now, setup.side, entry, setup.stop)
         if blocked_by:
             kind, reason = blocked_by
