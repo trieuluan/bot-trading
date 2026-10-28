@@ -17,6 +17,8 @@ interface ForexSignalLifecycleProps {
   focusId?: string;
   symbol: string;
   positions: BrokerPosition[];
+  /** Gồm cả ticket đã đóng, chỉ dùng tra cứu cho kết quả thực thi. */
+  allPositions?: BrokerPosition[];
   selectedPositionId?: string;
   onSelectPosition: (id?: string) => void;
   pnlOf: (pos: BrokerPosition) => number | null;
@@ -40,6 +42,7 @@ export function ForexSignalLifecycle({
   focusId,
   symbol,
   positions,
+  allPositions,
   selectedPositionId,
   onSelectPosition,
   pnlOf,
@@ -304,7 +307,7 @@ export function ForexSignalLifecycle({
 
             {detailedSetup.intents.map((intent) => {
               const lifecycle = entryLifecycle(intent);
-              const legs = executionLegs(intent, positions, pnlOf);
+              const legs = executionLegs(intent, allPositions ?? positions, pnlOf);
               const sum = executionSummary(legs);
               const slip = entrySlippage(intent, sum.averagePrice);
               const steps = executionTimeline(intent, legs);
@@ -397,7 +400,7 @@ export function ForexSignalLifecycle({
                     </div>
                     <ol className="m-0 list-none space-y-2.5 p-0" aria-label="Dòng thời gian thực thi">
                       {steps.map((step, index) => (
-                        <li key={step.label} className="relative grid grid-cols-[14px_84px_minmax(0,1fr)] items-baseline gap-x-3">
+                        <li key={step.label} className="relative grid grid-cols-[14px_104px_minmax(0,1fr)] items-baseline gap-x-3">
                           {index < steps.length - 1 && <span className="absolute top-2.5 left-[4.5px] h-[calc(100%+10px)] w-px bg-border-base" aria-hidden="true" />}
                           <span className={`relative size-2.5 self-center rounded-full border ${step.done ? 'border-emerald-400 bg-emerald-400/50' : 'border-border-active bg-surface-1'}`} aria-hidden="true" />
                           <span className={`text-xs ${step.done ? 'font-medium text-text-primary' : 'text-text-muted'}`}>{step.label}</span>

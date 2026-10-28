@@ -2157,6 +2157,7 @@ export function ForexStrategyPage({
         focusId={drawerFocusId}
         symbol={symbol}
         positions={pickerPositions}
+        allPositions={executions}
         selectedPositionId={selectedPosition?.position_id}
         onSelectPosition={onSelectPosition ?? (() => {})}
         pnlOf={pnlOf}

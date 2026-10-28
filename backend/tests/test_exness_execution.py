@@ -456,7 +456,7 @@ def test_invalid_broker_equity_blocks_auto_without_submission(monkeypatch, equit
     with Session() as session:
         assert session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)) is None
 
-@pytest.mark.parametrize("fresh_equity,ask", [("5000", 4000.25), ("20000", 4000.6)])
+@pytest.mark.parametrize("fresh_equity,ask", [("5000", 4000.25)])
 def test_split_rechecks_current_equity_and_original_setup_budget(monkeypatch, fresh_equity, ask):
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
     api = dummy_api(equity="10000")
@@ -1061,3 +1061,23 @@ def test_virtual_entry_fill_times_come_only_from_trade_and_deals(monkeypatch, tm
         fills = session.get(ExnessEntryIntent, identifier).snapshot["broker_fills"]
     assert fills[0]["submitted_at"] == NOW + 1 and fills[0]["filled_at"] == NOW + 2
     assert "submitted_at" not in fills[1] and "filled_at" not in fills[1]
+
+
+def test_split_runner_shrinks_to_remaining_budget_instead_of_skipping(monkeypatch):
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    api = dummy_api(equity="10000")
+    seed_executor(api, monkeypatch)
+    assert ee._execution_tick(api, now=NOW) == "submitted"
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900))
+    api.get = route((), (), "20000")
+    monkeypatch.setattr(ee, "live_quote", lambda *_: {"bid": 4000.0, "ask": 4000.6, "time": NOW, "received_at": NOW})
+    condition = {**api.condition("XAUUSD"), "account_currency": "USD", "observed_at": NOW,
+                 "account_tag": account_tag(api.account_id), "commission_per_unit": 0}
+    ee.submit_leg(ee.ExnessDemoClient(api), row, 1, row.snapshot["legs"][1], condition, NOW)
+    sent = json.loads(api.client.request.call_args.kwargs["content"])
+    # Ngân sách 100 USD, leg 0 đã dùng 49.5, còn 50.5 / 5.85 USD mỗi 0.01 lot => 0.08 (< 0.09 kế hoạch).
+    assert sent["volume"] == "0.08"
+    with Session() as session:
+        leg = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", NOW - 900)).snapshot["legs"][1]
+    assert leg["volume_adjustment"] == {"planned": "0.09", "submitted": "0.08", "reason": "remaining_risk_budget"}

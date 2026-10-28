@@ -13,7 +13,7 @@ import os
 import time
 from collections import Counter
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -876,6 +876,7 @@ def submit_leg(client, row, index, data, condition, now):
             latest = session.get(ExnessExecutionTrade, (api.account_id, symbol, row.signal_time))
             latest_snapshot = latest.snapshot
     key = data["key"]
+    planned_volume = positive_decimal(data["body"]["volume"])
     def build(quote):
         submitted_at = max(now, int(time.time()))
         fresh_condition = cost_context(condition, submitted_at, account=api.account_id, symbol=symbol)
@@ -887,9 +888,7 @@ def submit_leg(client, row, index, data, condition, now):
         if latest_snapshot.get("risk_budget_usd") is not None:
             budget = min(budget, positive_decimal(latest_snapshot["risk_budget_usd"]))
         full = client.strategy_body(signal, fresh_condition, quote, key, equity=equity)
-        volume = positive_decimal(data["body"]["volume"])
-        if volume > positive_decimal(full["volume"]):
-            raise ExnessError("Fresh quote no longer supports planned lot")
+        volume = min(planned_volume, positive_decimal(full["volume"]))
         full["volume"] = format(volume, "f")
         entry = Decimal(str(quote["ask" if full["side"] == "buy" else "bid"]))
         contract = positive_decimal(condition["contract_size"])
@@ -903,7 +902,17 @@ def submit_leg(client, row, index, data, condition, now):
                            Decimal(str(other.get("quote", {}).get("ask" if full["side"] == "buy" else "bid", entry))))
             committed += abs(other_entry - positive_decimal(other["body"]["stop_loss_price"])) * positive_decimal(other["body"]["volume"]) * contract
         conversion = positive_decimal(fresh_condition["quote_to_account_loss"])
-        if (committed + abs(entry - Decimal(full["stop_loss_price"])) * volume * contract) * conversion > budget:
+        per_lot = abs(entry - Decimal(full["stop_loss_price"])) * contract * conversion
+        if (committed * conversion + per_lot * volume) > budget:
+            step = positive_decimal(condition["volume_step"])
+            minimum = positive_decimal(condition["volume_min"])
+            remaining = budget - committed * conversion
+            if per_lot <= 0 or remaining < minimum * per_lot:
+                raise ExnessError("Combined split risk exceeds setup budget")
+            fit = minimum + ((remaining / per_lot - minimum) / step).to_integral_value(rounding=ROUND_FLOOR) * step
+            volume = min(volume, fit)
+            full["volume"] = format(volume, "f")
+        if volume < planned_volume / 2:
             raise ExnessError("Combined split risk exceeds setup budget")
         if data["role"] == "tp1":
             target = entry + entry - Decimal(full["stop_loss_price"])
@@ -919,7 +928,11 @@ def submit_leg(client, row, index, data, condition, now):
                     {"status": "submitting", "body": submission["body"], "quote": submission["quote"],
                      "tp_reason": signal.get("tp_reason"),
                      "cost_profile": cost_context(condition, submission["submitted_at"], account=api.account_id, symbol=symbol),
-                     "submitted_at": submission["submitted_at"]})
+                     "submitted_at": submission["submitted_at"],
+                     "volume_adjustment": {
+                         "planned": format(planned_volume, "f"), "submitted": submission["body"]["volume"],
+                         "reason": "remaining_risk_budget",
+                     } if Decimal(submission["body"]["volume"]) < planned_volume else None})
     try:
         ack = client.mutate("POST", key, body=data["body"], quote_source=lambda: live_quote(symbol),
                             build=build, on_submit=on_submit)

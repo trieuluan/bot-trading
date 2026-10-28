@@ -69,7 +69,7 @@ export function executionTimeline(intent: ForexEntryIntent, legs: ExecutionLeg[]
     { label: 'Canh giá', time: intent.created_at ?? null, done: intent.created_at != null, missingTime: intent.created_at == null },
   ];
   if (intent.triggered_at != null || sent) {
-    steps.push({ label: 'Kích hoạt', time: intent.triggered_at ?? null, detail: intent.winner?.toUpperCase(), done: intent.triggered_at != null,
+    steps.push({ label: 'Chạm điều kiện', time: intent.triggered_at ?? null, detail: intent.winner?.toUpperCase(), done: intent.triggered_at != null,
       missingTime: intent.triggered_at == null });
   }
   const firstOf = (key: 'submitted_at' | 'filled_at') => {
@@ -92,7 +92,7 @@ export function executionTimeline(intent: ForexEntryIntent, legs: ExecutionLeg[]
   }
   let previous: number | null = null;
   return steps.map((step) => {
-    const gap = step.time != null && previous != null ? step.time - previous : null;
+    const gap = step.time != null && previous != null ? Math.round(step.time - previous) : null;
     if (step.time != null) previous = step.time;
     return { ...step, gap };
   });
