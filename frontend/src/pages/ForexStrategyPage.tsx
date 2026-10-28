@@ -1491,6 +1491,7 @@ export function ForexStrategyPage({
   positionGroups = [],
   selectedPosition,
   executionOnly = false,
+  chartScope = 'setup',
   includeReplay = true,
   onClosePosition,
   onSelectPosition,
@@ -1502,6 +1503,7 @@ export function ForexStrategyPage({
   positionGroups?: PositionGroup[];
   selectedPosition?: BrokerPosition;
   executionOnly?: boolean;
+  chartScope?: 'ticket' | 'setup';
   includeReplay?: boolean;
   onClosePosition?: (position: BrokerPosition) => void;
   onSelectPosition?: (id?: string) => void;
@@ -1843,6 +1845,9 @@ export function ForexStrategyPage({
 
   const pnlAt = (position: BrokerPosition, price: number) => estimatedPnl(position, price, dashboard.instrument?.profile);
   const openGroups = positionGroups.filter((group) => group.status === 'open');
+  const chartGroup = chartScope === 'setup'
+    ? positionGroups.find((group) => group.legs.some((leg) => leg.position_id === selectedPosition?.position_id))
+    : undefined;
   const pickerPositions = executions.filter((position) => position.status === 'open' ||
     position.position_id === selectedPosition?.position_id ||
     openGroups.some((group) => group.legs.some((leg) => leg.position_id === position.position_id)));
@@ -2142,8 +2147,17 @@ export function ForexStrategyPage({
                   setDrawerOpen(true);
                 }}
               >
-                <span>Ticket {selectedPosition.side === 'buy' ? 'MUA' : 'BÁN'} #{selectedPosition.position_id}</span>
-                <span className="font-mono">({ticketRole(selectedPosition)})</span>
+                {chartGroup && chartGroup.legs.length > 1 ? (
+                  <>
+                    <span>Setup {selectedPosition.side === 'buy' ? 'MUA' : 'BÁN'} #{chartGroup.legs[0].position_id}</span>
+                    <span className="font-mono">({chartGroup.legs.length} ticket)</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Ticket {selectedPosition.side === 'buy' ? 'MUA' : 'BÁN'} #{selectedPosition.position_id}</span>
+                    <span className="font-mono">({ticketRole(selectedPosition)})</span>
+                  </>
+                )}
               </button>
               <button
                 type="button"
@@ -2246,7 +2260,7 @@ export function ForexStrategyPage({
         analysis={chartAnalysis}
         shown={shownStrategies}
         executions={executions}
-        positionGroups={positionGroups}
+        positionGroups={chartScope === 'setup' ? positionGroups : []}
         dark
         onClosePosition={onClosePosition}
         onSelectPosition={onSelectPosition}

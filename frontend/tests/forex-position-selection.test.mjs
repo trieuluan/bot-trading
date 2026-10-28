@@ -84,18 +84,24 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
       executions: legs, positionGroups: [group], executionOnly: true,
       selectedPosition: legs[1], disconnected: false, includeReplay: false,
     };
+    props.chartScope = 'ticket'; // drawer/#id: chỉ đúng ticket, không kéo cả setup
     const render = () => renderToStaticMarkup(React.createElement(ForexStrategyPage, props));
     const markup = render();
     // Thanh điều khiển trên chart thu gọn và chip trong drawer
     assert.ok(markup.includes('Danh sách'));
     assert.ok(markup.includes('Ticket BÁN #124'));
+    assert.ok(!markup.includes('Setup BÁN #123'));
     assert.equal((markup.match(/class="[^"]*broker-position-chip[^"]*"/g) ?? []).length, 2);
     assert.match(markup, /aria-pressed="false" aria-label="Chọn ticket #123 · TP1"/);
     assert.match(markup, /class="[^"]*broker-position-chip[^"]*" aria-pressed="true" aria-label="Chọn ticket #124 · Runner"/);
     assert.ok(!markup.includes('Đóng cả setup'));
     assert.ok(!markup.includes('Chi tiết 2 ticket'));
     assert.equal(chart.chartProps.selectedPositionId, '124');
-    assert.deepEqual(chart.chartProps.positionGroups, [group]); // chọn 1 ticket vẫn vẽ cả setup
+    assert.deepEqual(chart.chartProps.positionGroups, []); // ticket scope: chart chỉ vẽ ticket đó
+
+    props.chartScope = 'setup'; // Xem chart ở setup card: kéo cả setup
+    assert.ok(render().includes('Setup BÁN #123') && render().includes('2 ticket'));
+    assert.deepEqual(chart.chartProps.positionGroups, [group]);
 
     Object.assign(legs[0], { status: 'closed', remaining_volume: 0, pnl: 3.49, take_profit_filled: true });
     const partial = render();
@@ -112,7 +118,7 @@ test('chart offers individual TP1/Runner tickets without duplicating setup histo
     const source = readFileSync(new URL('../src/pages/ForexStrategyPage.tsx', import.meta.url), 'utf8');
     // source check updated to drawer handler
     assert.ok(source.includes('onSelectPosition(selected ? undefined : pos.position_id)') || source.includes('onSelectPosition'));
-    assert.ok(source.includes('positionGroups={positionGroups}'));
+    assert.ok(source.includes("chartScope === 'setup' ? positionGroups : []"));
 });
 
 test('formatForexLeverage formats broker leverage according to calculation mode', async () => {

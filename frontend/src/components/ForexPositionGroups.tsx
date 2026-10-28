@@ -12,7 +12,8 @@ const profit = (value: number | null) => value == null || !Number.isFinite(value
 export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, onCloseTicket, onCloseSetup, closeDisabled, pnlOf }: {
   groups: PositionGroup[];
   selectedId?: string;
-  onSelect: (id: string) => void;
+  /** scope: 'setup' = chart hiện cả setup; 'ticket' = chỉ ticket được bấm. */
+  onSelect: (id: string, scope?: 'ticket' | 'setup') => void;
   onDeselect?: () => void;
   onCloseTicket: (position: BrokerPosition) => void;
   onCloseSetup: (group: PositionGroup) => void;
@@ -163,7 +164,7 @@ export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, 
                   <button
                     type="button"
                     className="btn-action inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-border-base bg-surface-2 px-3 text-xs font-medium text-text-secondary transition-colors hover:border-border-active hover:bg-surface-3"
-                    onClick={() => onSelect(active.position_id)}
+                    onClick={() => onSelect(active.position_id, 'setup')}
                   >
                     Xem chart
                   </button>
@@ -217,7 +218,7 @@ export function ForexPositionGroups({ groups, selectedId, onSelect, onDeselect, 
                                 <button
                                   type="button"
                                   className="btn-action rounded border border-border-base bg-surface-2 px-1.5 py-0.5 font-semibold text-text-primary hover:border-border-active"
-                                  onClick={() => onSelect(leg.position_id)}
+                                  onClick={() => onSelect(leg.position_id, 'ticket')}
                                 >
                                   #{leg.position_id}
                                 </button>

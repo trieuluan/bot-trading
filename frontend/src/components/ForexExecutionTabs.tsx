@@ -27,7 +27,7 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
   offset: number;
   setOffset: Dispatch<SetStateAction<number>>;
   selectedId?: string;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, scope?: 'ticket' | 'setup') => void;
   closeTicket: (position: BrokerPosition) => void;
   closeSetup: (group: PositionGroup) => void;
   closeDisabled: boolean;

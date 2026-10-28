@@ -40,6 +40,8 @@ export function ForexExecutionPage({
   const [snapshot, setData] = useState<ExnessExecution | null>(null);
   const data = snapshot?.symbol === symbol ? snapshot : null;
   const [selectedId, setSelectedId] = useState<string>();
+  // 'setup': nút Xem chart của card (cả TP1 + Runner). 'ticket': chọn từ drawer/#id/chart (đúng ticket đó).
+  const [chartScope, setChartScope] = useState<'ticket' | 'setup'>('ticket');
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
@@ -237,7 +239,8 @@ export function ForexExecutionPage({
           positionGroups={chartGroups}
           selectedPosition={chartPosition}
           onQuote={setLiveQuote}
-          onSelectPosition={setSelectedId}
+          chartScope={chartScope}
+          onSelectPosition={(id) => { setChartScope('ticket'); setSelectedId(id); }}
           executionOnly
           includeReplay={false}
           onClosePosition={closeTicket}
@@ -276,7 +279,7 @@ export function ForexExecutionPage({
       {effectiveData && (
         <ForexExecutionTabs data={effectiveData} panel={panel} setPanel={setPanel} filter={filter} setFilter={setFilter}
           offset={offset} setOffset={setOffset} selectedId={chartPosition?.position_id}
-          onSelect={(id) => { setSelectedId(id); document.getElementById('execution-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+          onSelect={(id, scope = 'ticket') => { setChartScope(scope); setSelectedId(id); document.getElementById('execution-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
           closeTicket={demoMode ? () => {} : closeTicket} closeSetup={demoMode ? () => {} : closeSetup} closeDisabled={demoMode || closeDisabled} pnlOf={pnlOf} preview={demoMode} />
       )}
     </div>
