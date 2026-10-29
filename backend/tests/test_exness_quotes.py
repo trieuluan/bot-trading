@@ -457,3 +457,195 @@ def test_chart_sse_pushes_on_tick_without_waiting_full_second(monkeypatch):
         assert not exness_quotes.chart_subscribers["XAUUSD"]
 
     asyncio.run(run())
+
+
+def test_candles_opt_in_open_candle_for_recovery():
+    import httpx
+    good = "00" * 32
+    sample = {
+        "candles": [
+            {
+                "time": "2026-10-12T10:00:00Z",
+                "bid": {"open": 1, "high": 2, "low": 0.5, "close": 1.5},
+                "ask": {"open": 1.1, "high": 2.1, "low": 0.6, "close": 1.6},
+            }
+        ]
+    }
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=sample)))
+    api = exness_quotes.ExnessReadOnly("k", good, "123", "https://api.exness.com", client=client)
+    assert api.candles("XAUUSD", "H1", 1791799200, 1791799200 + 3600, now=1791799500) == []
+    open_bar = api.candles("XAUUSD", "H1", 1791799200, 1791799200 + 3600,
+                           now=1791799500, include_open=True)
+    assert len(open_bar) == 1
+    assert open_bar[0]["bid"]["open"] == 1
+
+
+def test_quote_stream_recovers_partial_bar(monkeypatch):
+    stream = QuoteStream()
+    stream.status = "connected"
+    now = 1791799500
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: now)
+    stream.accept_quote({"time": now, "received_at": now, "bid": 2000.0, "ask": 2001.0}, "NZDUSD")
+    bar = stream.snapshot("NZDUSD")["candles"]["15m"][-1]
+    assert bar["partial"] is True
+    assert bar["bid"]["open"] == 2000.0
+
+    recovered_entry = [
+        {"workspace_id": "exness_forex", "symbol": "NZDUSD", "timeframe": "15m", "price_type": "bid",
+         "time": 1791799200, "open": 1990.0, "high": 2005.0, "low": 1985.0, "close": 1995.0, "tick_volume": 10},
+        {"workspace_id": "exness_forex", "symbol": "NZDUSD", "timeframe": "15m", "price_type": "ask",
+         "time": 1791799200, "open": 1991.0, "high": 2006.0, "low": 1986.0, "close": 1996.0, "tick_volume": 10},
+    ]
+    monkeypatch.setattr(stream, "fetch_recovery", lambda symbol, frame, stamp: recovered_entry)
+    async def run():
+        stream.schedule_recovery("NZDUSD", "15m")
+        assert stream.recovery_task is not None
+        await stream.recovery_task
+    asyncio.run(run())
+    updated = stream.snapshot("NZDUSD")["candles"]["15m"][-1]
+    assert updated["partial"] is False
+    assert updated["bid"]["open"] == 1990.0
+    assert updated["bid"]["high"] == 2005.0
+    assert updated["bid"]["low"] == 1985.0
+    assert updated["bid"]["close"] == 2000.0
+
+
+def recovery_rows(stamp):
+    return [{"price_type": side, "time": stamp, "open": 3990 + offset,
+             "high": 4005 + offset, "low": 3985 + offset, "close": 3995 + offset}
+            for side, offset in (("bid", 0), ("ask", 1))]
+
+
+@pytest.mark.parametrize("change", ["new_tick", "gap", "reconnect", "rollover"])
+def test_recovery_does_not_overwrite_newer_ticks_or_new_stream(monkeypatch, change):
+    stream = QuoteStream()
+    stream.status = "connected"
+    stream.accept_quote(quote_at(300), "NZDUSD")
+    market = stream.markets["NZDUSD"]
+    bar = market.candles["15m"][-1]
+    clock = [NOW + 300]
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: clock[0])
+
+    async def fetch(function, *args):
+        if change == "reconnect":
+            stream.markets.clear()
+        clock[0] = NOW + (301 if change in ("new_tick", "reconnect") else 330 if change == "gap" else 901)
+        stream.accept_quote({"time": clock[0], "received_at": clock[0], "bid": 4010, "ask": 4011}, "NZDUSD")
+        return recovery_rows(NOW)
+
+    monkeypatch.setattr(exness_quotes.asyncio, "to_thread", fetch)
+    asyncio.run(stream.recover_candle("NZDUSD", "15m", market, bar, market.gap_sequence))
+    assert stream.markets["NZDUSD"].candles["15m"][-1]["bid"]["close"] == 4010
+    assert bar["partial"] is (change != "new_tick")
+    if change == "new_tick":
+        assert bar["bid"] == {"open": 3990, "high": 4010, "low": 3985, "close": 4010}
+    else:
+        assert bar["bid"]["open"] == 4000
+
+
+def test_recovery_rate_limit_preserves_partial_and_waits(monkeypatch, caplog):
+    stream = QuoteStream()
+    stream.status = "connected"
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: NOW + 300)
+    monkeypatch.setattr(exness_quotes.time, "monotonic", lambda: 100)
+    stream.accept_quote(quote_at(300), "NZDUSD")
+    market = stream.markets["NZDUSD"]
+    bar = market.candles["15m"][-1]
+
+    def fetch(*args):
+        raise ExnessError("secret-not-to-log", retry_after=180, rate_limited=True)
+
+    monkeypatch.setattr(stream, "fetch_recovery", fetch)
+    asyncio.run(stream.recover_candle("NZDUSD", "15m", market, bar, market.gap_sequence))
+    assert bar["partial"]
+    assert stream.recovery_after == 280
+    assert "secret-not-to-log" not in caplog.text
+    assert "cause=ExnessError" in caplog.text
+
+
+def test_recovery_shares_inflight_and_bounds_retries(monkeypatch):
+    stream = QuoteStream()
+    stream.status = "connected"
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: NOW + 300)
+    clock, calls = [100], []
+    monkeypatch.setattr(exness_quotes.time, "monotonic", lambda: clock[0])
+    stream.accept_quote(quote_at(300), "NZDUSD")
+    stream.accept_quote(quote_at(300), "EURUSD")
+
+    def fetch(symbol, frame, stamp):
+        calls.append((symbol, frame, stamp))
+        raise ExnessError("unavailable")
+
+    monkeypatch.setattr(stream, "fetch_recovery", fetch)
+
+    async def run():
+        for _ in range(3):
+            stream.schedule_recovery("NZDUSD", "15m")
+            task = stream.recovery_task
+            stream.schedule_recovery("NZDUSD", "15m")
+            stream.schedule_recovery("EURUSD", "15m")
+            assert stream.recovery_task is task
+            await task
+            stream.schedule_recovery("NZDUSD", "15m")
+            assert stream.recovery_task is task
+            clock[0] += 61
+        task = stream.recovery_task
+        stream.schedule_recovery("NZDUSD", "15m")
+        assert stream.recovery_task is task
+        assert len(calls) == 3
+        stream.schedule_recovery("EURUSD", "15m")
+        await stream.recovery_task
+        assert len(calls) == 4
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("broken", ["empty", "invalid", "duplicate", "future"])
+def test_recovery_validates_rest_before_changing_chart(monkeypatch, broken):
+    from types import SimpleNamespace
+
+    stream = QuoteStream()
+    stream.status = "connected"
+    stream.accept_quote(quote_at(300), "NZDUSD")
+    market = stream.markets["NZDUSD"]
+    bar = market.candles["15m"][-1]
+    before = json.dumps(bar)
+    raw = {"time": datetime.fromtimestamp(NOW, timezone.utc).isoformat(),
+           "bid": {"open": 3990, "high": 4010, "low": 3980, "close": 4000},
+           "ask": {"open": 3991, "high": 4011, "low": 3981, "close": 4001}}
+    if broken == "invalid":
+        raw["bid"]["open"] = float("nan")
+    if broken == "future":
+        raw["time"] = datetime.fromtimestamp(NOW + 900, timezone.utc).isoformat()
+    rows = [] if broken == "empty" else [raw, raw] if broken == "duplicate" else [raw]
+    stream.recovery_api = SimpleNamespace(candles=lambda *args, **kwargs: rows)
+    monkeypatch.setattr(exness_quotes.time, "time", lambda: NOW + 300)
+    asyncio.run(stream.recover_candle("NZDUSD", "15m", market, bar, market.gap_sequence))
+    assert json.dumps(bar) == before
+
+
+def test_fetch_recovery_reuses_normalizer_and_chart_only_opt_in():
+    from types import SimpleNamespace
+
+    calls = []
+
+    def candles(symbol, code, start, end, **kwargs):
+        calls.append((symbol, code, start, end, kwargs))
+        return [{"time": datetime.fromtimestamp(start, timezone.utc).isoformat(),
+                 **{row["price_type"]: {key: row[key] for key in ("open", "high", "low", "close")}
+                    for row in recovery_rows(start)}}]
+
+    stream = QuoteStream()
+    stream.recovery_api = SimpleNamespace(candles=candles)
+    rows = stream.fetch_recovery("NZDUSD", "15m", NOW)
+    assert len(rows) == 2
+    assert rows[0]["open"] == 3990
+    assert calls == [("NZDUSD", "M15", NOW, NOW + 900, {"include_open": True})]
+
+
+def test_recovery_without_chart_viewers_does_not_start(monkeypatch):
+    stream = QuoteStream()
+    stream.status = "connected"
+    stream.accept_quote(quote_at(300), "NZDUSD")
+    assert stream.recovery_task is None
+    assert stream.recovery_api is None

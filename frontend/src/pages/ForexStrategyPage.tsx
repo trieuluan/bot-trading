@@ -1698,7 +1698,7 @@ export function ForexStrategyPage({
 
   useEffect(() => {
     setQuoteState({ status: 'connecting', quote: null });
-    const stream = new EventSource(`/api/workspaces/exness_forex/quotes/stream?symbol=${symbol}`);
+    const stream = new EventSource(`/api/workspaces/exness_forex/quotes/stream?symbol=${symbol}&frame=${frame}`);
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     stream.onmessage = (event) => {
       try {
@@ -1758,7 +1758,7 @@ export function ForexStrategyPage({
       stream.close();
       window.clearInterval(timer);
     };
-  }, [symbol]);
+  }, [symbol, frame]);
   const snap = dashboard.observation.snapshot;
   const currentStatus = dashboard.observation.status;
   const hasRange =

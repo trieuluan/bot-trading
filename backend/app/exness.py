@@ -158,8 +158,8 @@ class ExnessReadOnly:
             f"/v1/configuration/accounts/{self.account_id}/instruments/{quote(instrument, safe='')}/conditions"
         )
 
-    def candles(self, instrument, timeframe, start: int, end: int, now=None):
-        """Closed bid+ask candles in [start, end), UTC seconds."""
+    def candles(self, instrument, timeframe, start: int, end: int, now=None, *, include_open=False):
+        """Closed bid+ask history by default; chart recovery may opt into the current bar."""
         duration = {"M1": 60, "M15": 900, "H1": 3600, "H4": 14400}.get(timeframe)
         if duration is None or start >= end:
             raise ExnessError("Unsupported candle timeframe or invalid time range")
@@ -184,7 +184,7 @@ class ExnessReadOnly:
                 if stamp.tzinfo is None:
                     raise ValueError
                 opened = stamp.timestamp()
-                if start <= opened and opened + duration <= cutoff:
+                if start <= opened < cutoff and (include_open or opened + duration <= cutoff):
                     rows.append(row)
         except (KeyError, ValueError, TypeError, AttributeError) as exc:
             raise ExnessError("Invalid Exness candle timestamps") from exc

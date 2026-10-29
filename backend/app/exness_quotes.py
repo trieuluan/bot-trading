@@ -9,7 +9,7 @@ import time
 from collections import deque
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
@@ -78,6 +78,11 @@ class QuoteStream:
         self.markets = {}
         self.task = None
         self.candles = {frame: deque(maxlen=32) for frame in CHART_FRAMES}
+        self.gap_sequence = 0
+        self.recovery_task = None
+        self.recovery_api = None
+        self.recovery_after = 0
+        self.recovery_attempts = {}
 
     def accept_quote(self, quote, symbol="XAUUSD"):
         if symbol != "XAUUSD":
@@ -88,6 +93,8 @@ class QuoteStream:
         if previous and quote["time"] < previous["time"]:
             return
         gap = previous is None or quote["time"] - previous["time"] > 15
+        if gap:
+            self.gap_sequence += 1
         for frame, seconds in CHART_FRAMES.items():
             stamp = int(quote["time"] // seconds) * seconds
             rows = self.candles[frame]
@@ -110,6 +117,62 @@ class QuoteStream:
                     bar["low"] = min(bar["low"], quote[side])
                     bar["close"] = quote[side]
         self.quote = quote
+
+    def schedule_recovery(self, symbol, frame):
+        market = self if symbol == "XAUUSD" else self.markets.get(symbol)
+        now = time.monotonic()
+        if (self.status != "connected" or market is None or not market.quote
+                or time.time() - market.quote["time"] > 15 or now < self.recovery_after
+                or self.recovery_task is not None and not self.recovery_task.done()):
+            return
+        rows = market.candles[frame]
+        if not rows or not rows[-1]["partial"]:
+            return
+        bar = rows[-1]
+        previous_bar, attempts, retry_at = self.recovery_attempts.get((symbol, frame), (None, 0, 0))
+        if now < retry_at or previous_bar is bar and attempts >= 3:
+            return
+        attempts = attempts + 1 if previous_bar is bar else 1
+        self.recovery_attempts[symbol, frame] = (bar, attempts, now + 60)
+        # ponytail: at most 6 chart repairs/minute/process, 3 attempts/bar; REST history remains authoritative.
+        self.recovery_after = now + 10
+        self.recovery_task = asyncio.create_task(self.recover_candle(symbol, frame, market, bar, market.gap_sequence))
+
+    def fetch_recovery(self, symbol, frame, stamp):
+        from .exness_feed import FRAMES, connect_exness, normalize_rows
+
+        if self.recovery_api is None:
+            self.recovery_api = connect_exness()
+        code, seconds = FRAMES[frame]
+        raw = self.recovery_api.candles(symbol, code, stamp, stamp + seconds, include_open=True)
+        if not raw or len(raw) > 1:
+            raise ExnessError("Chart recovery expected one candle")
+        return normalize_rows(raw, frame, stamp, stamp + seconds, symbol)
+
+    async def recover_candle(self, symbol, frame, market, bar, gap_sequence):
+        requested_at = time.time()
+        try:
+            recovered = await asyncio.to_thread(self.fetch_recovery, symbol, frame, bar["time"])
+            current = self if symbol == "XAUUSD" else self.markets.get(symbol)
+            if (self.status != "connected" or current is not market or market.gap_sequence != gap_sequence
+                    or not any(row is bar for row in market.candles[frame])):
+                return
+            closed = bar["time"] + CHART_FRAMES[frame] <= requested_at
+            for row in recovered:
+                side = row["price_type"]
+                live = bar[side]
+                live["open"] = row["open"]
+                live["high"] = max(live["high"], row["high"])
+                live["low"] = min(live["low"], row["low"])
+                if closed:
+                    live["close"] = row["close"]
+            bar["partial"] = False
+            logging.info("Chart candle recovered: symbol=%s frame=%s time=%s", symbol, frame, bar["time"])
+            publish_chart(symbol)
+        except Exception as exc:
+            self.recovery_after = max(self.recovery_after, time.monotonic() + max(60, getattr(exc, "retry_after", 60)))
+            logging.warning("Chart recovery deferred: symbol=%s frame=%s time=%s cause=%s",
+                            symbol, frame, bar["time"], type(exc).__name__)
 
     def snapshot(self, symbol="XAUUSD"):
         if symbol != "XAUUSD":
@@ -144,6 +207,12 @@ class QuoteStream:
                 pass
             self.task = None
         self.status = "disabled"
+        if self.recovery_task:
+            await self.recovery_task
+            self.recovery_task = None
+        if self.recovery_api:
+            self.recovery_api.client.close()
+            self.recovery_api = None
 
     async def run(self):
         while True:
@@ -286,8 +355,10 @@ def publish_chart(symbol):
 
 
 @router.get("/api/workspaces/exness_forex/quotes/stream")
-async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart"):
+async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart", frame: str = "15m"):
     request_symbol(symbol)
+    if frame not in CHART_FRAMES:
+        raise HTTPException(422, "Unsupported chart timeframe")
     async def events():
         if purpose == "entry":
             queue = asyncio.Queue(maxsize=256)
@@ -315,6 +386,7 @@ async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart"):
         try:
             while True:
                 signal.clear()
+                quotes.schedule_recovery(symbol, frame)
                 yield "data: " + json.dumps(quotes.snapshot(symbol)) + "\n\n"
                 try:
                     await asyncio.wait_for(signal.wait(), timeout=1)
