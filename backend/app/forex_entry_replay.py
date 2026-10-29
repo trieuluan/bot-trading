@@ -6,7 +6,13 @@ from collections import Counter
 from types import SimpleNamespace
 
 from .forex_buffer_study import advance_variant, initialize_variant, new_variants
-from .forex_entry_policy import replay_touch, touched
+from .forex_entry_policy import (
+    confirm_hybrid,
+    confirm_limit_sweep,
+    confirm_stop,
+    replay_touch,
+    touched,
+)
 
 
 def compare(bundle):
@@ -112,6 +118,19 @@ def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, du
             price_bar = ask if direction == 1 else bid
             if policy["policy"] == "market":
                 touch = {"status": "filled", "winner": "market", "entry": price_bar.open, "intrabar": False}
+            elif policy["policy"] in ("stop_trigger_break", "limit_setup_mid", "limit_or_stop"):
+                confirm_fn = (confirm_stop if policy["policy"] == "stop_trigger_break"
+                              else confirm_limit_sweep if policy["policy"] == "limit_setup_mid"
+                              else confirm_hybrid)
+                confirmation = confirm_fn(policy, signal["side"], minutes, bid.time)
+                if confirmation["status"] in ("cancelled", "expired"):
+                    return {**result, "status": "excluded" if confirmation["status"] == "cancelled" else "expired",
+                            "reason": confirmation["reason"]}
+                if confirmation["status"] != "confirmed":
+                    continue
+                result["confirmed_at"] = confirmation["confirmed_at"]
+                winner = confirmation.get("winner", "stop" if policy["policy"] == "stop_trigger_break" else "limit")
+                touch = {"status": "filled", "winner": winner, "entry": price_bar.open, "intrabar": False}
             else:
                 if bid.time == signal["available_at"] and touched(policy, signal["side"], price_bar.open):
                     return {**result, "status": "excluded", "reason": "level_already_crossed"}

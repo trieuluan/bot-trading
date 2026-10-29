@@ -376,6 +376,7 @@ def assign_policy(ledger, setup_id, now):
 
 
 def capture_samples(ledger, candle, bids, asks, condition, slip, commission, market, now):
+    from .forex_entry_policy import live_entry_allowed
     from .forex_htf_v2 import diagnose, setup_identity
 
     symbol, stamp = ledger["symbol"], candle.time
@@ -402,7 +403,8 @@ def capture_samples(ledger, candle, bids, asks, condition, slip, commission, mar
             sample = {"strategy": identifier, "tree": tree, "signal": signal, "side": signal["side"],
                       "cohort_id": ledger["cohort_id"], "bundle_id": bundle["id"], "setup_id": setup_id,
                       "confirm_time": stamp, "recorded_at": now, "strategy_version": version,
-                      "provenance": PROVENANCE, "status": "waiting", "live_assigned": policy == assigned,
+                      "provenance": PROVENANCE, "status": "waiting",
+                      "live_assigned": policy == assigned and live_entry_allowed({"policy": policy}, signal["side"]),
                       "condition": condition, "costs": {"verified": True, "slippage_bps": slip["bps"],
                       "commission_per_unit": commission, "conversion": condition.get("conversion")}}
             try:
@@ -515,10 +517,12 @@ def active_start(account, symbol, now):
 def candidates(account, symbol, now):
     """Returns waiting samples that are designated for LIVE broker execution."""
     ledger = read_ledger(account, symbol)
+    from .forex_entry_policy import live_entry_allowed
     ver = logic_version()
     return [
         sample for sample in ledger["samples"]
         if sample.get("live_assigned", False) is True
+        and live_entry_allowed(sample["signal"]["entry_policy"], sample["signal"].get("side", sample.get("side")))
         and sample["status"] == "waiting"
         and sample["strategy_version"] == ver
         and sample["provenance"] == PROVENANCE

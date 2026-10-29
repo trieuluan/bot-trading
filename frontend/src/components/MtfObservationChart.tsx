@@ -258,7 +258,7 @@ export function MtfObservationChart({
             lineWidth: waiting ? 1 : 2,
             lineStyle: waiting ? LineStyle.Dashed : LineStyle.Solid,
             axisLabelVisible: true,
-            title: `${branch === 'limit' ? 'Limit giữa' : 'Stop phá nến'} ảo · ${waiting ? 'chờ giá' : 'đã kích hoạt'}`,
+            title: `${branch === 'limit' ? 'Biên Limit' : 'Mức Stop'} ảo · ${waiting ? 'chờ nến M15 đóng' : 'đã kích hoạt'}`,
           }),
         );
         } else {

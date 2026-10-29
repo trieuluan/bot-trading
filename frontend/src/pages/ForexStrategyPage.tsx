@@ -977,8 +977,8 @@ const signedR = (value: number | null | undefined) =>
 const rTone = (value: number | null | undefined) =>
   value == null ? '' : value >= 0 ? 'positive' : 'negative';
 const winnerLabels: Record<string, string> = {
-  limit: 'Limit giữa',
-  stop: 'Stop phá nến',
+  limit: 'Limit sweep M15',
+  stop: 'Stop đóng M15',
   market: 'Market',
 };
 
@@ -990,9 +990,9 @@ const entryDefaults: Record<string, number> = {
 // Tham số mỗi kiểu vào lệnh dùng (khớp backend forex_entry_policy.entry_node).
 const entryPolicyParams: Record<string, string[]> = {
   market: [],
-  limit_setup_mid: ['limit_ratio', 'wait_bars'],
+  limit_setup_mid: ['wait_bars'],
   stop_trigger_break: ['stop_buffer_atr', 'wait_bars'],
-  limit_or_stop: ['limit_ratio', 'stop_buffer_atr', 'wait_bars'],
+  limit_or_stop: ['wait_bars'],
 };
 const entryPolicyLabels: Record<string, string> = {
   market: 'Market',
@@ -1253,7 +1253,7 @@ export function ForexEntryPilotPanel({
               <span className="text-text-muted transition-transform group-open:rotate-180">▾</span>
             </summary>
             <p className="mt-2 text-text-muted">
-              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh qua tick stream, không phải pending trên sàn. Hybrid canh cả hai mức, nhánh chạm trước gửi Market lên Exness Demo, nhánh còn lại huỷ.
+              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh qua tick stream, không phải pending trên sàn. Hybrid chờ nến M15 đóng xác nhận; nhánh xác nhận trước gửi Market lên Exness Demo.
             </p>
             <ol className="mt-3 space-y-2 border-t border-border-subtle pt-3">
               {policies.has('market') ? (
@@ -1265,23 +1265,34 @@ export function ForexEntryPilotPanel({
                   </span>
                 </li>
               ) : null}
-              {policies.has('limit_or_stop') || policies.has('limit_setup_mid') ? (
+              {policies.has('limit_setup_mid') ? (
                 <li className="flex flex-col gap-0.5">
-                  <strong className="text-teal-300">Limit · chờ hồi</strong>
+                  <strong className="text-teal-300">Limit Long · quét râu xác nhận (Short chỉ shadow)</strong>
                   <span className="text-text-muted">
-                    Giá hồi về{' '}
-                    <b className="text-text-primary">{showValue(limitRatio, (n) => `${Math.round(n * 100)}%`, 'limit_ratio')}</b>{' '}
-                    quãng từ giá đóng M15 tới mức cấu trúc H1 (Mua: dưới giá đóng · Bán: trên giá
-                    đóng).
+                    Chiều Mua (Long) chờ nến M15 quét thủng biên dưới vùng cản H1 (level - 0,05 ATR) và đóng nến
+                    bật trở lại trên biên trên (level + 0,05 ATR), vào tại Open nến sau. Nếu M15 đóng thủng hẳn dưới
+                    biên cản thì huỷ setup ngay. Chiều Bán (Short) chỉ chạy mô phỏng shadow đối chứng, không bao giờ gửi lệnh thật.
                   </span>
                 </li>
               ) : null}
-              {policies.has('limit_or_stop') || policies.has('stop_trigger_break') ? (
+              {policies.has('stop_trigger_break') ? (
                 <li className="flex flex-col gap-0.5">
-                  <strong className="text-amber-300">Stop · phá nến</strong>
+                  <strong className="text-amber-300">Stop · chờ M15 đóng xác nhận</strong>
                   <span className="text-text-muted">
-                    Giá vượt đỉnh (Mua) hoặc thủng đáy (Bán) nến trigger thêm{' '}
-                    <b className="text-text-primary">{showValue(stopBuffer, (n) => `${n} ATR`, 'stop_buffer_atr')}</b>.
+                    Nến M15 tiếp theo phải đóng vượt đỉnh (Mua) hoặc thủng đáy (Bán) nến trigger
+                    thêm 0,05 ATR H1, cố định tại lúc tạo tín hiệu. Chỉ chạm râu nến không vào.
+                    Vào tại quote hợp lệ đầu tiên sau khi nhận nến đóng; quá 120 giây thì bỏ,
+                    không vượt thời hạn setup H1.
+                  </span>
+                </li>
+              ) : null}
+              {policies.has('limit_or_stop') ? (
+                <li className="flex flex-col gap-0.5">
+                  <strong className="text-amber-300">Hybrid · Limit sweep + Stop đóng M15</strong>
+                  <span className="text-text-muted">
+                    Stop cần M15 đóng vượt đỉnh/đáy nến trigger thêm 0,05 ATR H1. Limit chỉ áp dụng cho
+                    Mua: quét dưới vùng H1 (level ± 0,05 ATR) rồi đóng trên biên trên. Nến xác nhận trước
+                    thắng; cùng nến xác nhận cả hai thì ưu tiên Stop. Bán chỉ vào nếu Stop thắng.
                   </span>
                 </li>
               ) : null}

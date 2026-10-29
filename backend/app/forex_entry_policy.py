@@ -92,11 +92,18 @@ def levels(signal, candle, node):
     direction = 1 if signal["side"] == "long" else -1
     params, policy = node["params"], node["policy"]
     limit = candle.close + params.get("limit_ratio", 0.5) * (structure["level"] - candle.close)
-    stop = (candle.high if direction == 1 else candle.low) + direction * params.get("stop_buffer_atr", 0.05) * structure["atr"]
+    buffer = 0.05 if policy in ("stop_trigger_break", "limit_or_stop") else params.get("stop_buffer_atr", 0.05)
+    stop = (candle.high if direction == 1 else candle.low) + direction * buffer * structure["atr"]
     if not all(math.isfinite(value) and value > 0 for value in (limit, stop)):
         raise ValueError("invalid_entry_levels")
-    if policy in ("limit_setup_mid", "limit_or_stop") and direction * (candle.close - limit) <= 0:
-        raise ValueError("limit_wrong_side")
+    limit_branch = False
+    if policy in ("limit_setup_mid", "limit_or_stop"):
+        limit = structure["level"] + direction * 0.05 * structure["atr"]
+        if structure["level"] - 0.05 * structure["atr"] <= 0:
+            raise ValueError("invalid_entry_levels")
+        limit_branch = direction * (candle.close - limit) > 0
+        if policy == "limit_setup_mid" and not limit_branch:
+            raise ValueError("zone_wrong_side")
     if policy in ("stop_trigger_break", "limit_or_stop") and direction * (stop - candle.close) <= 0:
         raise ValueError("stop_wrong_side")
     available = signal.get("available_at")
@@ -106,9 +113,49 @@ def levels(signal, candle, node):
                  structure["setup_time"] + 14400 + 900)
     if expiry <= available:
         raise ValueError("setup_expired")
+    confirmation = {}
+    if policy == "stop_trigger_break":
+        confirmation = {"confirmation": "m15_close", "confirmation_deadline": expiry,
+                        "stop_buffer_atr": buffer}
+    elif policy == "limit_setup_mid":
+        confirmation = {"confirmation": "m15_sweep_reclaim", "confirmation_deadline": expiry,
+                        "zone_lower": structure["level"] - 0.05 * structure["atr"],
+                        "zone_upper": structure["level"] + 0.05 * structure["atr"]}
+    elif policy == "limit_or_stop":
+        confirmation = {"confirmation": "m15_hybrid", "confirmation_deadline": expiry,
+                        "stop_buffer_atr": buffer, "limit_branch": limit_branch and direction == 1,
+                        "zone_lower": structure["level"] - 0.05 * structure["atr"],
+                        "zone_upper": structure["level"] + 0.05 * structure["atr"]}
+    if confirmation:
+        expiry = min(expiry + 120, structure["setup_time"] + 14400 + 900)
     return {"policy": policy, "limit_price": limit if policy in ("limit_setup_mid", "limit_or_stop") else None,
             "stop_price": stop if policy in ("stop_trigger_break", "limit_or_stop") else None,
-            "available_at": available, "expires_at": expiry}
+            "available_at": available, "expires_at": expiry, **confirmation}
+
+def confirm_stop(entry, side, candles, now):
+    if entry.get("confirmation") != "m15_close":
+        return {"status": "cancelled", "reason": "entry_policy_changed"}
+    available, deadline = entry["available_at"], entry["confirmation_deadline"]
+    direction = 1 if side == "long" else -1
+    expected = available
+    for candle in sorted((bar for bar in candles if available <= bar.time < deadline and
+                          bar.time + 900 <= now), key=lambda bar: bar.time):
+        if candle.time != expected:
+            return {"status": "cancelled", "reason": "confirmation_data_gap"}
+        if (not all(type(getattr(candle, key)) in (int, float) and math.isfinite(getattr(candle, key)) and
+                    getattr(candle, key) > 0 for key in ("open", "high", "low", "close")) or
+                candle.low > min(candle.open, candle.close) or candle.high < max(candle.open, candle.close)):
+            return {"status": "cancelled", "reason": "invalid_confirmation_bar"}
+        expected += 900
+        if direction * (candle.close - entry["stop_price"]) >= 0:
+            if now - expected >= 120 or expected >= entry["expires_at"]:
+                return {"status": "cancelled", "reason": "confirmation_stale"}
+            return {"status": "confirmed", "confirmed_at": expected}
+    if expected >= deadline and now >= deadline:
+        return {"status": "expired", "reason": "stop_close_not_confirmed"}
+    if now >= expected + 900 + 120:
+        return {"status": "cancelled", "reason": "confirmation_data_gap"}
+    return {"status": "waiting"}
 
 
 def touched(entry, side, price):
@@ -121,10 +168,88 @@ def touched(entry, side, price):
     return hits
 
 
-def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=False):
+def live_entry_allowed(entry, side, winner=None):
+    winner = winner or entry.get("winner")
+    return not (side == "short" and (entry.get("policy") == "limit_setup_mid" or
+                entry.get("policy") == "limit_or_stop" and winner == "limit"))
+
+
+def confirm_limit_sweep(entry, side, candles, now):
+    if entry.get("confirmation") != "m15_sweep_reclaim":
+        return {"status": "cancelled", "reason": "entry_policy_changed"}
+    lower, upper = entry.get("zone_lower"), entry.get("zone_upper")
+    if (side not in ("long", "short") or any(type(value) not in (int, float) or not math.isfinite(value)
+                                           for value in (lower, upper)) or not 0 < lower < upper):
+        return {"status": "cancelled", "reason": "invalid_entry_levels"}
+    available, deadline = entry["available_at"], entry["confirmation_deadline"]
+    direction = 1 if side == "long" else -1
+    far, near = (lower, upper) if side == "long" else (upper, lower)
+    expected = available
+    for candle in sorted((bar for bar in candles if available <= bar.time < deadline and
+                          bar.time + 900 <= now), key=lambda bar: bar.time):
+        if candle.time != expected:
+            return {"status": "cancelled", "reason": "confirmation_data_gap"}
+        if (not all(type(getattr(candle, key)) in (int, float) and math.isfinite(getattr(candle, key)) and
+                    getattr(candle, key) > 0 for key in ("open", "high", "low", "close")) or
+                candle.low > min(candle.open, candle.close) or candle.high < max(candle.open, candle.close)):
+            return {"status": "cancelled", "reason": "invalid_confirmation_bar"}
+        expected += 900
+        if direction * (candle.close - far) < 0:
+            return {"status": "cancelled", "reason": "m15_closed_through_zone"}
+        swept = candle.low < lower if side == "long" else candle.high > upper
+        if swept and direction * (candle.close - near) > 0:
+            if now - expected >= 120 or expected >= entry["expires_at"]:
+                return {"status": "cancelled", "reason": "confirmation_stale"}
+            return {"status": "confirmed", "confirmed_at": expected}
+    if expected >= deadline and now >= deadline:
+        return {"status": "expired", "reason": "sweep_not_confirmed"}
+    if now >= expected + 900 + 120:
+        return {"status": "cancelled", "reason": "confirmation_data_gap"}
+    return {"status": "waiting"}
+
+
+def confirm_hybrid(entry, side, candles, now):
+    if entry.get("confirmation") != "m15_hybrid":
+        return {"status": "cancelled", "reason": "entry_policy_changed"}
+    lower, upper = entry.get("zone_lower"), entry.get("zone_upper")
+    if (side not in ("long", "short") or any(type(value) not in (int, float) or not math.isfinite(value)
+                                           for value in (lower, upper, entry.get("stop_price"))) or
+            not 0 < lower < upper or entry["stop_price"] <= 0 or type(entry.get("limit_branch")) is not bool):
+        return {"status": "cancelled", "reason": "invalid_entry_levels"}
+    available, deadline = entry["available_at"], entry["confirmation_deadline"]
+    direction = 1 if side == "long" else -1
+    limit_alive = side == "long" and entry.get("limit_branch") is True
+    expected = available
+    for candle in sorted((bar for bar in candles if available <= bar.time < deadline and
+                          bar.time + 900 <= now), key=lambda bar: bar.time):
+        if candle.time != expected:
+            return {"status": "cancelled", "reason": "confirmation_data_gap"}
+        if (not all(type(getattr(candle, key)) in (int, float) and math.isfinite(getattr(candle, key)) and
+                    getattr(candle, key) > 0 for key in ("open", "high", "low", "close")) or
+                candle.low > min(candle.open, candle.close) or candle.high < max(candle.open, candle.close)):
+            return {"status": "cancelled", "reason": "invalid_confirmation_bar"}
+        expected += 900
+        stop_hit = direction * (candle.close - entry["stop_price"]) >= 0
+        if limit_alive and candle.close < lower:
+            limit_alive = False
+        limit_hit = limit_alive and candle.low < lower and candle.close > upper
+        winner = "stop" if stop_hit else "limit" if limit_hit else None
+        if winner:
+            if now - expected >= 120 or expected >= entry["expires_at"]:
+                return {"status": "cancelled", "reason": "confirmation_stale"}
+            return {"status": "confirmed", "winner": winner, "confirmed_at": expected}
+    if expected >= deadline and now >= deadline:
+        return {"status": "expired", "reason": "hybrid_not_confirmed"}
+    if now >= expected + 900 + 120:
+        return {"status": "cancelled", "reason": "confirmation_data_gap"}
+    return {"status": "waiting"}
+
+def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=False, candles=()):
     result = copy.deepcopy(payload)
     if result["status"] != "waiting":
         return result
+    if not live_entry_allowed(result, result["side"]):
+        return {**result, "status": "cancelled", "reason": "limit_short_shadow_only", "ended_at": now}
     reason = ("control_disabled" if not allowed else "setup_invalidated" if invalidated else
               "stream_disconnected" if not connected else "entry_expired" if now >= result["expires_at"] else None)
     if reason:
@@ -145,6 +270,19 @@ def observe(payload, quote, now, *, connected=True, allowed=True, invalidated=Fa
     if result.get("policy") == "market":
         result.update(status="triggered", winner="market", triggered_at=now,
                       trigger_quote=dict(quote), last_quote=dict(quote))
+        return result
+    if result.get("policy") in ("stop_trigger_break", "limit_setup_mid", "limit_or_stop"):
+        confirm_fn = (confirm_stop if result["policy"] == "stop_trigger_break"
+                      else confirm_limit_sweep if result["policy"] == "limit_setup_mid"
+                      else confirm_hybrid)
+        confirmation = confirm_fn(result, result["side"], candles, now)
+        result["last_quote"] = dict(quote)
+        if confirmation["status"] in ("cancelled", "expired"):
+            return {**result, **confirmation, "ended_at": now}
+        if confirmation["status"] == "confirmed" and quote["time"] >= confirmation["confirmed_at"]:
+            winner = confirmation.get("winner", "stop" if result["policy"] == "stop_trigger_break" else "limit")
+            result.update(status="triggered", winner=winner, triggered_at=now,
+                          confirmed_at=confirmation["confirmed_at"], trigger_quote=dict(quote))
         return result
     hits = touched(result, result["side"], quote["ask" if result["side"] == "long" else "bid"])
     if not previous and hits:

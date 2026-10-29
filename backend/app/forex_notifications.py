@@ -34,8 +34,8 @@ def strategy_text(signal):
     except (KeyError, TypeError, ValueError):
         return f"<code>{esc(identifier)}</code>"
     title = label["title"]
-    for policy, name in {"limit_or_stop": "Limit/Stop ảo", "limit_setup_mid": "Limit giữa vùng",
-                         "stop_trigger_break": "Stop phá nến", "market": "Market"}.items():
+    for policy, name in {"limit_or_stop": "Hybrid đóng M15", "limit_setup_mid": "Limit Long sweep · Short shadow",
+                         "stop_trigger_break": "Stop đóng M15 · 0,05 ATR H1", "market": "Market"}.items():
         title = title.replace(policy, name)
     return f"{esc(title)} · {esc(label['policy'])}\nMã: <code>{esc(identifier)}</code>"
 
@@ -121,7 +121,7 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         vol = (position or {}).get("volume")
         branch_text = ""
         if signal.get("entry_branch"):
-            branch_name = {"limit": "Limit giữa", "stop": "Stop phá nến", "market": "Market"}.get(signal["entry_branch"], "Chưa xác minh")
+            branch_name = {"limit": "Limit sweep M15", "stop": "Stop đóng M15", "market": "Market"}.get(signal["entry_branch"], "Chưa xác minh")
             branch_text = f"\n🎯 <b>Nhánh kích hoạt:</b> {branch_name} (bot canh giá)"
 
         queue(

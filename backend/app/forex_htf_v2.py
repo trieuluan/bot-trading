@@ -604,7 +604,9 @@ def mutate(tree, rng=None, symbol="XAUUSD"):
         if rng.randrange(5) == 0:
             node = copy.deepcopy(tree["root"]["children"][3])
             if node["params"] and rng.random() < 0.5:
-                key = rng.choice(list(node["params"]))
+                key = rng.choice([key for key in node["params"]
+                                  if not (key == "stop_buffer_atr" and node["policy"] in ("stop_trigger_break", "limit_or_stop"))
+                                  and not (key == "limit_ratio" and node["policy"] in ("limit_setup_mid", "limit_or_stop"))])
                 values = {"wait_bars": (1, 2, 3, 4), "limit_ratio": (0.25, 0.5, 0.75, 1),
                           "stop_buffer_atr": (0, 0.025, 0.05, 0.1, 0.25)}[key]
                 node["params"][key] = rng.choice([value for value in values if value != node["params"][key]])

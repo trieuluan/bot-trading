@@ -7,7 +7,7 @@ import time
 from sqlalchemy import select, text
 
 from .db import ExnessEntryIntent, ExnessExecutionState
-from .forex_entry_policy import observe
+from .forex_entry_policy import live_entry_allowed, observe
 
 RESERVED = ("waiting", "triggered", "submitting", "submitted", "uncertain")
 
@@ -15,6 +15,9 @@ RESERVED = ("waiting", "triggered", "submitting", "submitted", "uncertain")
 def execution_signal(row):
     payload = row.snapshot
     sig = payload["signal"]
+    if not live_entry_allowed(sig["entry_policy"], sig["side"], payload.get("winner")):
+        from .exness import ExnessError
+        raise ExnessError("limit_short_shadow_only")
     body = {**sig, "tree": payload["tree"], "shadow_only": False,
             "execution_source": payload.get("provenance", "live_forward_htf_ast4_entry_pilot"),
             "strategy_version": payload["strategy_version"],
@@ -34,6 +37,8 @@ def validate_execution_signal(signal, account, now):
     from .forex_htf_v4 import PROVENANCE, logic_version, read_ledger
     if not pilot_enabled() or signal.get("shadow_only") is not False:
         raise ExnessError("entry_pilot_disabled")
+    if not live_entry_allowed(signal.get("entry_policy", {}), signal.get("side"), signal.get("entry_branch")):
+        raise ExnessError("limit_short_shadow_only")
     with Session() as session:
         row = session.get(ExnessEntryIntent, signal.get("entry_intent_id", ""))
         state = session.get(ExnessExecutionState, account)
@@ -94,6 +99,8 @@ def create_intent(session, account, signal, tree, now, max_legs, *, version=None
     from .forex_entry_policy import SCHEMA, tree_id
     lock_account(session, account)
     entry = signal["entry_policy"]
+    if not live_entry_allowed(entry, signal["side"]):
+        raise ValueError("limit_short_shadow_only")
     if (tree["schema"] != SCHEMA or tree_id(tree) != signal["strategy"]
             or not entry["available_at"] <= now < entry["expires_at"] or type(max_legs) is not int or not 1 <= max_legs <= 3):
         raise ValueError("Invalid virtual entry request")
@@ -141,8 +148,14 @@ def consume_quote(session, account, symbol, quote, now, *, connected=True, inval
                      and hours[-1].time == int(now) // 3600 * 3600 - 3600
                      and all(right.time - left.time == 3600 for left, right in zip(hours, hours[1:])))
         previous_status = row.status
+        candles = session.scalars(select(WorkspaceCandle).where(
+            WorkspaceCandle.workspace_id == WORKSPACE, WorkspaceCandle.symbol == symbol,
+            WorkspaceCandle.timeframe == "15m", WorkspaceCandle.price_type == "bid",
+            WorkspaceCandle.time >= row.available_at, WorkspaceCandle.time < row.expires_at,
+            WorkspaceCandle.time + 900 <= now,
+        ).order_by(WorkspaceCandle.time)).all() if row.snapshot.get("policy") in ("stop_trigger_break", "limit_setup_mid", "limit_or_stop") else ()
         observation = observe({**row.snapshot, "status": "waiting"}, quote, now,
-                              connected=connected and fresh, allowed=allowed, invalidated=broken)
+                              connected=connected and fresh, allowed=allowed, invalidated=broken, candles=candles)
         if previous_status != "waiting":
             row.snapshot = {**row.snapshot, "last_quote": observation.get("last_quote", row.snapshot.get("last_quote"))}
             if observation["status"] in ("cancelled", "expired"):

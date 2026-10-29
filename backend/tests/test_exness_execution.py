@@ -89,8 +89,11 @@ def seed_virtual_entry(api, monkeypatch, tmp_path):
                 "target": 4015, "exit_policy": "partial_be_h1", "management_frame": "H1",
                 "htf_structure": {"atr": 2, "level": 3999, "setup_time": NOW - 3600,
                                   "confirmed_h1": NOW - 3600, "invalidation": 3995.5, "target_reason": "H1 swing"},
-                "entry_policy": {"policy": "limit_or_stop", "limit_price": 3999.5, "stop_price": 4000.25,
-                                 "available_at": NOW, "expires_at": NOW + 3600}}
+                "entry_policy": {"policy": "limit_or_stop", "limit_price": 3999.1, "stop_price": 4000.25,
+                                 "available_at": NOW, "expires_at": NOW + 3720,
+                                 "confirmation": "m15_hybrid", "confirmation_deadline": NOW + 3600,
+                                 "stop_buffer_atr": 0.05, "limit_branch": True,
+                                 "zone_lower": 3998.9, "zone_upper": 3999.1}}
     ledger["samples"] = [{"strategy": tree_id(tree), "strategy_version": logic_version(), "setup_id": "setup",
                           "signal": proposal, "costs": {"verified": True}}]
     atomic_json(path, ledger)
@@ -177,16 +180,19 @@ def test_virtual_quotes_race_only_one_winner(monkeypatch, tmp_path):
         row.snapshot = {**row.snapshot, "status": "waiting", "last_quote": None}
         session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="1h",
                                    price_type="bid", time=NOW - 3600, open=4000, high=4002, low=3998, close=4000))
+        session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="15m",
+                                   price_type="bid", time=NOW, open=4000, high=4001, low=3999.5, close=4000.3))
     def consume(stamp, ask):
         with Session.begin() as session:
             return consume_quote(session, api.account_id, "XAUUSD",
                                  {"bid": ask - 0.25, "ask": ask, "time": stamp, "received_at": stamp}, stamp)
-    assert consume(NOW, 4000.1) == []
+    assert consume(NOW + 899, 4000.1) == []
+    monkeypatch.setattr(ee.time, "time", lambda: NOW + 900)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda price: consume(NOW + 1, price), (4000.25, 3999.5)))
+        results = list(pool.map(lambda price: consume(NOW + 900, price), (4000.25, 4000.3)))
     assert sum(len(result) for result in results) == 1
     with Session() as session:
-        assert session.get(ExnessEntryIntent, identifier).snapshot["winner"] in ("limit", "stop")
+        assert session.get(ExnessEntryIntent, identifier).snapshot["winner"] == "stop"
     api.client.request.assert_not_called()
 
 def test_virtual_capacity_reserves_whole_plan_and_no_double_count(monkeypatch, tmp_path):

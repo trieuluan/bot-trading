@@ -34,6 +34,86 @@ def waiting(side="long"):
 def quote(stamp, bid=100.0, ask=100.5):
     return {"time": stamp, "received_at": stamp, "bid": bid, "ask": ask}
 
+def closed_stop_fixture(side="long", wait_bars=4, setup_time=0):
+    candle = SimpleNamespace(time=900, open=100.0, high=102.0, low=98.0, close=100.0)
+    signal = {"side": side, "stop": 95.0, "target": 110.0, "available_at": 1800,
+              "htf_structure": {"level": 98.0, "atr": 2.0, "setup_time": setup_time}}
+    entry = levels(signal, candle, entry_node("stop_trigger_break", {"stop_buffer_atr": 0.25, "wait_bars": wait_bars}))
+    return {"status": "waiting", "side": side, **entry}
+
+def confirmation_bar(stamp, close=100.0):
+    return SimpleNamespace(time=stamp, open=100.0, high=103.0, low=97.0, close=close)
+
+@pytest.mark.parametrize("side,level,close", [("long", 102.1, 102.1), ("short", 97.9, 97.9)])
+def test_stop_close_fixed_buffer_and_no_wick_entry(side, level, close):
+    payload = closed_stop_fixture(side)
+    assert payload["stop_price"] == level and payload["stop_buffer_atr"] == 0.05
+    assert payload["confirmation_deadline"] == 5400 and payload["expires_at"] == 5520
+    assert observe(payload, quote(1801, 97, 103), 1801)["status"] == "waiting"
+    candle = confirmation_bar(1800, close)
+    assert observe(payload, quote(2699), 2699, candles=[candle])["status"] == "waiting"
+    triggered = observe(payload, quote(2700), 2700, candles=[candle])
+    assert triggered["status"] == "triggered" and triggered["winner"] == "stop"
+    assert triggered["confirmed_at"] == 2700 and triggered["trigger_quote"] == quote(2700)
+    assert observe(triggered, quote(2701), 2701) == triggered
+
+def test_stop_close_uses_bid_not_ask_and_ignores_trigger_candle():
+    payload = closed_stop_fixture()
+    candles = [confirmation_bar(900, 103), confirmation_bar(1800, 102)]
+    assert observe(payload, quote(2700, 102, 103), 2700, candles=candles)["status"] == "waiting"
+    assert observe(payload, quote(2700, 102, 103), 2700, candles=candles[:1])["status"] == "waiting"
+
+def test_stop_close_fourth_confirmation_and_expiry():
+    payload = closed_stop_fixture()
+    candles = [confirmation_bar(stamp) for stamp in (1800, 2700, 3600)]
+    candles.append(confirmation_bar(4500, 102.2))
+    assert observe(payload, quote(5400), 5400, candles=candles)["status"] == "triggered"
+    candles[-1].close = 100
+    expired = observe(payload, quote(5400), 5400, candles=candles)
+    assert expired["status"] == "expired" and expired["reason"] == "stop_close_not_confirmed"
+    candles.append(confirmation_bar(5400, 102.2))
+    assert observe(payload, quote(6300), 6300, candles=candles)["status"] == "expired"
+
+def test_stop_close_keeps_h1_deadline_and_rejects_late_data():
+    payload = closed_stop_fixture()
+    candle = confirmation_bar(1800, 102.2)
+    assert observe(payload, quote(2820), 2820, candles=[candle])["reason"] == "confirmation_stale"
+    assert observe(payload, quote(2820), 2820)["reason"] == "confirmation_data_gap"
+    assert observe(payload, quote(3600), 3600, candles=[confirmation_bar(2700, 102.2)])["reason"] == "confirmation_data_gap"
+    assert observe(payload, quote(2700), 2700, candles=[candle], invalidated=True)["reason"] == "setup_invalidated"
+    assert observe(payload, quote(2700), 2700, candles=[candle], connected=False)["reason"] == "stream_disconnected"
+    assert observe(payload, quote(2700), 2703, candles=[candle])["reason"] == "quote_stale"
+    candle.close = float("nan")
+    assert observe(payload, quote(2700), 2700, candles=[candle])["reason"] == "invalid_confirmation_bar"
+
+def test_stop_close_legacy_waits_cannot_use_tick_entry():
+    payload = {**waiting(), "policy": "stop_trigger_break"}
+    assert observe(payload, quote(1005, 103, 104), 1005)["reason"] == "entry_policy_changed"
+
+@pytest.mark.parametrize("duration", [60, 900])
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_stop_close_replay_enters_next_bar_not_confirmation_bar(monkeypatch, duration, side):
+    from backend.app.forex_entry_replay import run
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    condition = {"contract_size": "100", "volume_min": "0.01", "volume_step": "0.01", "volume_max": "10",
+                 "point_digits": 3, "instrument": "XAUUSD"}
+    costs = {"commission_per_unit": 0, "slippage_bps": 0}
+    signal = replay_signal()
+    signal.update(side=side, entry_policy=closed_stop_fixture(side))
+    if side == "short":
+        signal.update(stop=105.0, target=85.0)
+        signal["htf_structure"]["invalidation"] = 104.5
+    minutes = [confirmation_bar(1800, 102.2 if side == "long" else 97.8)]
+    bars = [confirmation_bar(stamp) for stamp in range(1800, 2700 + duration, duration)]
+    bars[-1].open = 101 if side == "long" else 99
+    before = run(signal, bars[:-1], bars[:-1], minutes, [], condition, costs, 2700, duration=duration)
+    assert "entry_time" not in before
+    entered = run(signal, bars, bars, minutes, [], condition, costs, 2700 + duration, duration=duration)
+    assert entered["entry_time"] == entered["confirmed_at"] == 2700
+    assert entered["entry"] == bars[-1].open and entered["status"] == "open"
+    assert signal["available_at"] == 1800
+
 
 @pytest.mark.parametrize("side,branch,bid,ask", [
     ("long", "limit", 98.8, 99), ("long", "stop", 101.5, 102),
@@ -115,7 +195,7 @@ def replay_signal():
             "candle_time": 900, "available_at": 1800, "htf_ast_v2": True, "shadow_only": True,
             "generated": True, "exit_policy": "fixed_structural", "management_frame": "H1",
             "htf_structure": {"atr": 2.0, "invalidation": 95.5, "target_reason": "H1 swing", "setup_time": 0},
-            "entry_policy": {"policy": "limit_or_stop", "limit_price": 99.0, "stop_price": 102.0,
+            "entry_policy": {"policy": "legacy_touch", "limit_price": 99.0, "stop_price": 102.0,
                              "available_at": 1800, "expires_at": 5400}}
 
 
@@ -182,9 +262,9 @@ def test_levels_and_validation():
         "htf_structure": {"level": 98.0, "atr": 2.0, "setup_time": 1000}
     }
     res = levels(signal, candle, entry_node("limit_or_stop"))
-    assert res["limit_price"] == 99.0
+    assert res["limit_price"] == 98.1
     assert res["stop_price"] == 102.1
-    assert res["expires_at"] == 1900 + 4 * 900
+    assert res["confirmation_deadline"] == 1900 + 4 * 900 and res["expires_at"] == res["confirmation_deadline"] + 120
 
 
 def test_observe_first_touch_and_cancel_conditions():
@@ -455,3 +535,111 @@ def test_pilot_does_not_require_new_costs_without_new_signal(pilot_tick_state, m
     pilot.tick("123", "USDJPY", now=2710)
     assert ledger["last_capture"] == (None if capture_status is None else
                                       {"time": 1800, "status": "captured"})
+
+def limit_sweep_fixture(side="long"):
+    candle = SimpleNamespace(time=900, open=100.0, high=102.0, low=98.0, close=100.0)
+    signal = {"side": side, "stop": 95.0, "target": 110.0, "available_at": 1800,
+              "htf_structure": {"level": 98.0 if side == "long" else 102.0, "atr": 2.0, "setup_time": 0}}
+    return {"status": "waiting", "side": side, **levels(signal, candle, entry_node("limit_setup_mid", {"limit_ratio": 1.0, "wait_bars": 4}))}
+
+def sweep_bar(stamp, low=98.5, high=101.0, close=99.0):
+    return SimpleNamespace(time=stamp, open=100.0, high=high, low=low, close=close)
+
+def test_limit_sweep_long_rules():
+    from backend.app.forex_entry_policy import confirm_limit_sweep
+    entry = limit_sweep_fixture()
+    assert entry["zone_lower"] == 97.9 and entry["zone_upper"] == 98.1
+    def wait(*bars, now=3600):
+        return confirm_limit_sweep(entry, "long", list(bars), now)["status"]
+    assert wait(sweep_bar(1800, low=97.9, close=99)) == "waiting"
+    assert wait(sweep_bar(1800, low=97.8, close=98.1)) == "waiting"
+    assert confirm_limit_sweep(entry, "long", [sweep_bar(1800, low=97.8, close=98.2)], 2700) == {"status": "confirmed", "confirmed_at": 2700}
+    through = confirm_limit_sweep(entry, "long", [sweep_bar(1800, low=97, close=97.8), sweep_bar(2700, low=97, close=99)], 3600)
+    assert through["reason"] == "m15_closed_through_zone"
+    assert wait(sweep_bar(1800, low=97, close=98)) == "waiting"
+    assert confirm_limit_sweep(entry, "long", [sweep_bar(2700, low=97, close=99)], 3600)["reason"] == "confirmation_data_gap"
+    assert confirm_limit_sweep(entry, "long", [sweep_bar(1800, low=97.8, close=98.2)], 2900)["reason"] == "confirmation_stale"
+    bad = sweep_bar(1800, low=97.8, close=float("nan"))
+    assert confirm_limit_sweep(entry, "long", [bad], 2700)["reason"] == "invalid_confirmation_bar"
+
+def test_limit_sweep_short_mirror_and_live_gate():
+    from backend.app.forex_entry_policy import confirm_limit_sweep, live_entry_allowed
+    entry = limit_sweep_fixture("short")
+    assert confirm_limit_sweep(entry, "short", [sweep_bar(1800, high=102.2, close=101.8)], 2700)["status"] == "confirmed"
+    assert confirm_limit_sweep(entry, "short", [sweep_bar(1800, high=103, close=102.2)], 2700)["reason"] == "m15_closed_through_zone"
+    assert live_entry_allowed(entry, "long") and not live_entry_allowed(entry, "short")
+    assert live_entry_allowed({"policy": "market"}, "short")
+    quote_ok = {"time": 2700, "received_at": 2700, "bid": 100.0, "ask": 100.1}
+    result = observe(entry, quote_ok, 2700, candles=[sweep_bar(1800, high=102.2, close=101.8)])
+    assert result["status"] == "cancelled" and result["reason"] == "limit_short_shadow_only"
+
+def test_limit_sweep_live_long_enters_after_confirm_only():
+    entry = limit_sweep_fixture()
+    bar = sweep_bar(1800, low=97.8, close=98.2)
+    early = observe(entry, quote(2699, 99, 99.1), 2699, candles=[bar])
+    assert early["status"] == "waiting"
+    done = observe(entry, quote(2700, 99, 99.1), 2700, candles=[bar])
+    assert done["status"] == "triggered" and done["winner"] == "limit" and done["confirmed_at"] == 2700
+
+def hybrid_fixture(side="long", close=100.0):
+    candle = SimpleNamespace(time=900, open=100.0, high=102.0, low=98.0, close=close)
+    signal = {"side": side, "stop": 95.0 if side == "long" else 105.0, "target": 110.0 if side == "long" else 90.0,
+              "available_at": 1800, "htf_structure": {"level": 98.0 if side == "long" else 102.0, "atr": 2.0, "setup_time": 0}}
+    return {"status": "waiting", "side": side, **levels(signal, candle, entry_node("limit_or_stop", {"limit_ratio": 0.25, "stop_buffer_atr": 0.25, "wait_bars": 4}))}
+
+def test_hybrid_uses_closed_m15_rules_for_both_branches():
+    from backend.app.forex_entry_policy import confirm_hybrid
+    entry = hybrid_fixture()
+    assert entry["stop_price"] == 102.1 and entry["limit_price"] == 98.1 and entry["limit_branch"] is True
+    def check(bars, now):
+        return confirm_hybrid(entry, "long", bars, now)
+    assert check([sweep_bar(1800, low=97.9, high=103, close=101)], 2700)["status"] == "waiting"
+    assert check([sweep_bar(1800, low=97.8, close=98.2)], 2700) == {"status": "confirmed", "winner": "limit", "confirmed_at": 2700}
+    assert check([sweep_bar(1800, high=103, close=102.1)], 2700) == {"status": "confirmed", "winner": "stop", "confirmed_at": 2700}
+    assert check([sweep_bar(1800, low=97, high=103, close=102.2)], 2700) == {"status": "confirmed", "winner": "stop", "confirmed_at": 2700}
+    through = [sweep_bar(1800, low=97, close=97.8), sweep_bar(2700, low=97, close=99)]
+    assert check(through, 3600)["status"] == "waiting"
+    assert check(through + [sweep_bar(3600, high=103, close=102.5)], 4500)["winner"] == "stop"
+    assert check([sweep_bar(2700)], 3600)["reason"] == "confirmation_data_gap"
+    assert check([sweep_bar(1800, low=97.8, close=98.2)], 2900)["reason"] == "confirmation_stale"
+    assert check([sweep_bar(stamp) for stamp in range(1800, 5400, 900)], 5400)["reason"] == "hybrid_not_confirmed"
+    legacy = {**entry}
+    legacy.pop("confirmation")
+    assert confirm_hybrid(legacy, "long", [], 2700)["reason"] == "entry_policy_changed"
+
+def test_hybrid_short_stop_only_and_live_trigger():
+    from backend.app.forex_entry_policy import confirm_hybrid
+    short = hybrid_fixture("short")
+    assert short["stop_price"] == 97.9 and short["limit_branch"] is False
+    assert confirm_hybrid(short, "short", [sweep_bar(1800, high=102.2, close=101.8)], 2700)["status"] == "waiting"
+    assert confirm_hybrid(short, "short", [sweep_bar(1800, low=97, close=97.9)], 2700)["winner"] == "stop"
+    inside = hybrid_fixture(close=98.05)
+    assert inside["limit_branch"] is False
+    assert confirm_hybrid(inside, "long", [sweep_bar(1800, low=97.8, close=98.2)], 2700)["status"] == "waiting"
+    entry = hybrid_fixture()
+    bar = sweep_bar(1800, low=97.8, close=98.2)
+    assert observe(entry, quote(2699, 99, 99.1), 2699, candles=[bar])["status"] == "waiting"
+    done = observe(entry, quote(2700, 99, 99.1), 2700, candles=[bar])
+    assert done["status"] == "triggered" and done["winner"] == "limit" and done["confirmed_at"] == 2700
+
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_hybrid_replay_enters_next_bar_open(monkeypatch, side):
+    from backend.app.forex_entry_replay import run
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    condition = {"contract_size": "100", "volume_min": "0.01", "volume_step": "0.01", "volume_max": "10",
+                 "point_digits": 3, "instrument": "XAUUSD"}
+    costs = {"commission_per_unit": 0, "slippage_bps": 0}
+    signal = replay_signal()
+    signal.update(side=side, entry_policy=hybrid_fixture(side))
+    if side == "short":
+        signal.update(stop=105.0, target=85.0)
+        signal["htf_structure"]["invalidation"] = 104.5
+    minutes = [sweep_bar(1800, low=99, high=103, close=102.2) if side == "long"
+               else sweep_bar(1800, low=97, high=101, close=97.8)]
+    bars = [confirmation_bar(1800), confirmation_bar(2700)]
+    bars[-1].open = 101 if side == "long" else 99
+    assert "entry_time" not in run(signal, bars[:1], bars[:1], minutes, [], condition, costs, 2700, duration=900)
+    entered = run(signal, bars, bars, minutes, [], condition, costs, 3600, duration=900)
+    assert entered["entry_time"] == entered["confirmed_at"] == 2700 and entered["winner"] == "stop"
+    assert entered["entry"] == bars[-1].open
