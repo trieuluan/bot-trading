@@ -128,7 +128,9 @@ def create_intent(session, account, signal, tree, now, max_legs, *, version=None
 
 
 def consume_quote(session, account, symbol, quote, now, *, connected=True, invalidated=False):
+    started = time.monotonic()
     lock_account(session, account)
+    session.info["entry_lock_wait"] = time.monotonic() - started
     state = session.get(ExnessExecutionState, account)
     from .exness_execution import enabled
     from .forex_htf_v2 import execution_enabled

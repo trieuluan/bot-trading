@@ -59,17 +59,19 @@ class EntryConsumers:
 
     def stream(self, symbol):
         from .app_auth import quote_request
-        last = tick = time.time()  # last = any line (heartbeat proves link alive), tick = last quote
+        tick = time.time()  # last processed quote; stale backlog is still rejected by observe() (<=2s)
+        busy = {}
         try:
             with urlopen(quote_request(symbol, entry=True), timeout=QUOTE_GAP) as stream:
                 while not self.stop.is_set() and self.waiting(symbol):
+                    started = time.monotonic()
                     line = stream.readline()
-                    now = time.time()
-                    if not line or now - last > QUOTE_GAP:
+                    now, read_wait = time.time(), time.monotonic() - started
+                    # Only time spent waiting on the socket proves silence; local DB/CPU stalls are logged separately.
+                    if not line or read_wait > QUOTE_GAP:
                         self.cancel(symbol, "stream_disconnected", cause="eof" if not line else "silent",
-                                    since_line=round(now - last, 2), since_tick=round(now - tick, 2))
+                                    read_wait=round(read_wait, 2), since_tick=round(now - tick, 2), **busy)
                         return
-                    last = now
                     if now - tick > MAX_QUOTE_GAP:
                         self.cancel(symbol, "quote_gap")
                         return
@@ -84,8 +86,14 @@ class EntryConsumers:
                             self.cancel(symbol, "stream_disconnected", cause="event", status=str(event.get("status")),
                                         since_tick=round(now - tick, 2))
                             return
+                        started = time.monotonic()
                         with Session.begin() as session:
                             triggered = consume_quote(session, self.account, symbol, event.get("quote"), now)
+                            lock_wait = session.info.get("entry_lock_wait", 0)
+                        consume = time.monotonic() - started
+                        busy = {"consume_ms": round(consume * 1000), "lock_wait_ms": round(lock_wait * 1000)}
+                        if consume > 1:
+                            logging.warning("Virtual entry consumer slow %s: %s", symbol, busy)
                         tick = now
                         for identifier in triggered:
                             threading.Thread(target=self.trigger, args=(identifier, symbol), daemon=True,
