@@ -48,3 +48,26 @@ export function shadowPnlText(trade: ForexShadowTrade, quote?: { bid: number; as
   const cash = risk != null && Number.isFinite(risk) && risk > 0 ? result * risk : null;
   return `${cash != null && Number.isFinite(cash) ? `${cash >= 0 ? '+' : ''}${cash.toFixed(2)} USD · ` : ''}${result >= 0 ? '+' : ''}${result.toFixed(2)}R`;
 }
+
+export interface ShadowPnlParts {
+  r: number;
+  cash: number | null;
+  positive: boolean;
+  rText: string;
+  cashText: string | null;
+}
+
+export function shadowPnlParts(trade: ForexShadowTrade, quote?: { bid: number; ask: number } | null): ShadowPnlParts | null {
+  const r = shadowPnlR(trade, quote);
+  if (r == null || !Number.isFinite(r)) return null;
+  const risk = trade.valuation?.risk_usd;
+  const cash = risk != null && Number.isFinite(risk) && risk > 0 ? r * risk : null;
+  const positive = r >= 0;
+  return {
+    r,
+    cash,
+    positive,
+    rText: `${positive ? '+' : ''}${r.toFixed(2)}R`,
+    cashText: cash != null && Number.isFinite(cash) ? `${cash >= 0 ? '+' : ''}${cash.toFixed(2)} USD` : null,
+  };
+}

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 import type { ForexSignalSetup } from '../lib/forex-entry-lifecycle';
 import type { ForexEntryIntent, ForexSignalChart, ForexShadowTrade } from '../types/forex-entry';
-import { shadowLevels, shadowPhase, shadowPnlText } from '../lib/forex-shadow';
+import { shadowLevels, shadowPhase, shadowPnlParts } from '../lib/forex-shadow';
 import { entryLifecycle } from '../lib/forex-entry-lifecycle';
 import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
@@ -238,7 +238,7 @@ export function ForexSignalLifecycle({
       onClick={(e) => {
         if (e.target === dialogRef.current) onClose();
       }}
-      className="forex-inspector fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-[min(560px,100vw)] max-w-none border-0 border-l border-border-active bg-surface-1 p-0 text-xs text-text-secondary shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm open:flex open:flex-col open:animate-in open:slide-in-from-right duration-300 motion-reduce:animate-none"
+      className={`forex-inspector fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-[min(560px,100vw)] max-w-none border-0 border-l border-border-active bg-surface-1 p-0 text-xs text-text-secondary shadow-2xl ${tab === 'shadow' ? 'backdrop:bg-black/25 backdrop:backdrop-blur-none' : 'backdrop:bg-black/60 backdrop:backdrop-blur-sm'} open:flex open:flex-col open:animate-in open:slide-in-from-right duration-300 motion-reduce:animate-none`}
     >
       <header className="flex shrink-0 items-center justify-between border-b border-border-base px-4 py-3">
         <div className="flex items-center gap-2">
@@ -579,45 +579,151 @@ export function ForexSignalLifecycle({
           </article>
         ) : tab === 'shadow' ? (
           <div className="space-y-3" role="region" aria-label={`Lệnh shadow ${symbol}`}>
-            <p className="m-0 text-xs text-text-muted">MÔ PHỎNG V4 · không gửi lệnh broker. Các biến thể cùng setup là đối chứng, không phải các lệnh độc lập để cộng lợi nhuận.</p>
-            <div className="flex flex-wrap gap-1" role="group" aria-label="Lọc lệnh shadow">
+            <div className="rounded-xl border border-sky-400/25 bg-gradient-to-r from-sky-500/10 via-surface-2/60 to-surface-2/40 p-3">
+              <div className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-sky-400 animate-pulse" />
+                <strong className="text-xs font-semibold text-sky-200">MÔ PHỎNG V4 · THỰC THI ẢO</strong>
+              </div>
+              <p className="m-0 mt-1 text-[11px] leading-relaxed text-text-muted">
+                Lệnh ảo đối chứng theo từng setup; không gửi broker và không cộng dồn P&amp;L giữa các biến thể.
+              </p>
+            </div>
+            <div className="flex items-center rounded-lg border border-border-base bg-surface-2/60 p-0.5" role="group" aria-label="Lọc lệnh shadow">
               {([['open', 'Đang chạy'], ['waiting', 'Chờ khớp'], ['history', 'Lịch sử']] as const).map(([value, label]) => (
                 <button key={value} type="button" aria-pressed={shadowFilter === value} onClick={() => setShadowFilter(value)}
-                  className={`rounded border px-2 py-1 ${shadowFilter === value ? 'border-sky-400/50 bg-sky-400/10 text-sky-200' : 'border-border-base text-text-muted'}`}>
-                  {label} ({shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === value).length})
+                  className={`flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
+                    shadowFilter === value ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
+                  }`}>
+                  {label} <span className="font-mono text-[10px] opacity-75">({shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === value).length})</span>
                 </button>
               ))}
             </div>
-            {shadowStatus !== 'ready' && <p role="status">{shadowStatus === 'error' ? 'Không tải được dữ liệu shadow.' : shadowStatus === 'not_initialized' ? 'Chưa khởi tạo mô phỏng V4.' : 'Dữ liệu shadow chưa sẵn sàng.'}</p>}
-            {shadowStatus === 'ready' && !shadowTrades.some((trade) => trade.symbol === symbol && shadowPhase(trade) === shadowFilter) && <p>Không có lệnh trong bộ lọc này.</p>}
+            {shadowStatus !== 'ready' && (
+              <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200">
+                {shadowStatus === 'error' ? 'Không tải được dữ liệu shadow.' : shadowStatus === 'not_initialized' ? 'Chưa khởi tạo mô phỏng V4.' : 'Dữ liệu shadow chưa sẵn sàng.'}
+              </p>
+            )}
+            {shadowStatus === 'ready' && !shadowTrades.some((trade) => trade.symbol === symbol && shadowPhase(trade) === shadowFilter) && (
+              <p className="rounded-lg border border-dashed border-border-base p-6 text-center text-xs text-text-muted">
+                Không có lệnh trong bộ lọc này.
+              </p>
+            )}
             {shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === shadowFilter).map((trade) => {
               const selected = trade.id === selectedShadowId;
               const time = trade.entry_time ?? trade.available_at;
               const loaded = hasCandle(time);
+              const pnl = shadowPnlParts(trade, shadowQuote);
+              const isLong = trade.side === 'long';
+              const phase = shadowPhase(trade);
+              const phaseText = phase === 'open' ? 'Đang chạy' : phase === 'waiting' ? 'Chưa khớp' : trade.status === 'resolved' ? 'Đã đóng' : entryStateLabels[trade.status] ?? trade.status;
+              const shortStrategy = trade.strategy.replace(/^hast[234]_/, '').slice(0, 10);
+              const levels = shadowLevels(trade);
               return (
-                <article key={trade.id} className={`space-y-2 rounded-lg border p-3 ${selected ? 'border-sky-400/60 bg-sky-400/5' : 'border-border-base bg-surface-2/40'}`}>
+                <article key={trade.id} className={`relative flex flex-col gap-2.5 rounded-xl border p-3.5 transition-all shadow-sm ${
+                  selected ? 'border-sky-400/80 bg-sky-950/20 ring-1 ring-sky-400/60 shadow-md' : 'border-border-base bg-surface-1 hover:border-border-active hover:bg-surface-2/40'
+                }`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className={trade.side === 'long' ? 'text-bull' : 'text-bear'}>{trade.side === 'long' ? 'LONG' : 'SHORT'} · {trade.policy ?? 'Entry'}</strong>
-                    <span className="font-mono text-text-primary">{shadowPnlText(trade, shadowQuote)}</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${
+                        isLong ? 'bg-bull/15 text-bull border border-bull/30' : 'bg-bear/15 text-bear border border-bear/30'
+                      }`}>
+                        {isLong ? 'LONG' : 'SHORT'}
+                      </span>
+                      <span className="rounded border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] uppercase font-semibold text-text-secondary">
+                        {({ market: 'Thị trường', stop_trigger_break: 'Stop xác nhận', limit_setup_mid: 'Limit sweep', limit_or_stop: 'Hybrid' } as Record<string, string>)[trade.policy ?? 'market'] ?? trade.policy}
+                      </span>
+                      {trade.live_assigned && (
+                        <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+                          Có phân công broker
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      {pnl ? (
+                        <div className="flex items-baseline justify-end gap-1.5">
+                          {pnl.cashText && (
+                            <strong className={`font-mono text-sm font-bold tabular-nums ${pnl.positive ? 'text-bull' : 'text-bear'}`}>
+                              {pnl.cashText}
+                            </strong>
+                          )}
+                          <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${
+                            pnl.positive ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'
+                          }`}>
+                            {pnl.rText}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="font-mono text-xs text-text-muted">P&amp;L —</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="break-all font-mono text-[10px] text-text-muted">{trade.strategy}</div>
-                  <p className="m-0">{trade.entry_time == null ? 'Tín hiệu' : 'Khớp mô phỏng'} · {formatTime(time, true)}</p>
-                  <p className="m-0 text-[11px]">{shadowPhase(trade) === 'open' ? 'Đang chạy' : shadowPhase(trade) === 'waiting' ? 'Chưa khớp' : trade.status === 'resolved' ? 'Đã đóng' : entryStateLabels[trade.status] ?? trade.status}{trade.live_assigned ? ' · Có phân công broker, kết quả này vẫn là mô phỏng' : ''}</p>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px]">{shadowLevels(trade).map((level) => <span key={level.label}>{level.label}: {price(level.price)}</span>)}</div>
-                  {trade.legs?.length ? <p className="m-0 text-[11px] text-text-muted">Khối lượng mô phỏng: {trade.legs.map((leg) => `${leg.role} ${leg.volume ?? '—'} lot${leg.open ? '' : ' (đã đóng)'}`).join(' · ')}</p> : null}
-                  {trade.reason && <p className="m-0 break-words text-[11px] text-amber-200">{trade.reason}</p>}
-                  <p className="m-0 text-[10px] text-text-muted">{trade.status === 'resolved' ? 'P&L mô phỏng đã chốt' : 'P&L mô phỏng tạm tính theo bid/ask trực tiếp; thiếu giá hoặc chi phí sẽ để trống'} · chưa swap. USD chỉ hiện khi xác minh được khối lượng và quy đổi đã lưu.{trade.resolution_seconds ? ` Độ phân giải replay: ${trade.resolution_seconds}s.` : ''}</p>
+                  <div className="flex items-center justify-between text-[11px] text-text-muted">
+                    <span className="font-mono text-text-secondary" title={trade.strategy}>
+                      #{shortStrategy}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span>{formatTime(time, false)}</span>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        phase === 'open' ? 'border border-sky-400/30 bg-sky-400/10 text-sky-300'
+                          : phase === 'waiting' ? 'border border-amber-400/30 bg-amber-400/10 text-amber-300'
+                          : 'border border-border-base bg-surface-2 text-text-muted'
+                      }`}>
+                        {phase === 'open' && <span className="size-1.5 rounded-full bg-sky-400 animate-pulse" />}
+                        {phaseText}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 rounded-lg border border-border-subtle bg-surface-2/60 p-2">
+                    {levels.map((level) => {
+                      const isSl = level.label.includes('SL');
+                      const isTp = level.label.includes('TP');
+                      const tone = isSl ? 'text-bear' : isTp ? 'text-bull' : 'text-text-primary';
+                      return (
+                        <div key={level.label} className="flex min-w-0 flex-col text-center" title={`${level.label}: ${price(level.price)}`}>
+                          <span className="truncate text-[10px] uppercase tracking-wider text-text-muted">
+                            {level.label}
+                          </span>
+                          <span className="sr-only">{level.label}: {price(level.price)}</span>
+                          <strong className={`truncate font-mono text-xs font-semibold tabular-nums ${tone}`}>
+                            {price(level.price)}
+                          </strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {trade.legs?.length ? (
+                    <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-text-muted">
+                      <span>Khối lượng: {trade.legs.map((leg) => `${leg.role} ${leg.volume ?? '—'} lot${leg.open ? '' : ' (đã đóng)'}`).join(' · ')}</span>
+                      {trade.resolution_seconds && <span>Replay: {trade.resolution_seconds}s</span>}
+                    </div>
+                  ) : null}
+                  {trade.reason && <p className="m-0 break-words rounded bg-amber-400/10 p-1.5 text-[11px] text-amber-200">{trade.reason}</p>}
+                  {!loaded && <p className="m-0 text-[10px] text-amber-300/80">Chưa có nến thời điểm vào trong chart; mức giá vẫn hiển thị, chưa thể đặt dấu vào lệnh.</p>}
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" aria-pressed={selected} onClick={() => onSelectShadow?.(selected ? undefined : trade.id)} className="rounded border border-border-active px-3 py-1.5 text-text-primary">
+                    <button
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onSelectShadow?.(selected ? undefined : trade.id)}
+                      className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        selected ? 'border-sky-400/80 bg-sky-500/25 text-sky-200 font-semibold shadow-sm'
+                          : 'border-border-active bg-surface-2 text-text-primary hover:border-border-focus hover:bg-surface-3'
+                      }`}
+                    >
                       {selected ? 'Ẩn khỏi chart' : 'Xem chart'}
                     </button>
-                    {!loaded && hasMoreCandles && <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="rounded border border-border-base px-2 py-1 disabled:opacity-50">{loadingOlder ? 'Đang tải nến…' : 'Tải nến cũ'}</button>}
+                    {!loaded && hasMoreCandles && (
+                      <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="rounded-lg border border-border-base bg-surface-2 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50">
+                        {loadingOlder ? 'Đang tải…' : 'Tải nến cũ'}
+                      </button>
+                    )}
                   </div>
-                  {!loaded && <p className="m-0 text-[11px] text-amber-200">Chưa có nến thời điểm vào trong chart; mức giá vẫn hiển thị, chưa thể đặt dấu vào lệnh.</p>}
                 </article>
               );
             })}
-            <p className="text-[10px] text-text-muted">Lịch sử tối đa 100 mẫu gần nhất; lệnh đang chạy không bị cắt theo giới hạn này.</p>
+            <footer className="border-t border-border-subtle pt-3 text-[10px] text-text-muted leading-relaxed">
+              <p className="m-0">* P&amp;L mô phỏng tạm tính theo bid/ask trực tiếp, chưa swap. USD chỉ hiển thị khi có khối lượng giả định và tỷ giá quy đổi đã xác minh.</p>
+              <p className="m-0 mt-0.5 opacity-75">Lịch sử tối đa 100 mẫu gần nhất; lệnh đang chạy không bị cắt theo giới hạn này.</p>
+            </footer>
           </div>
         ) : tab === 'positions' ? (
           <div className="space-y-2" role="group" aria-label="Danh sách vị thế broker">
