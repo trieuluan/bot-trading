@@ -12,6 +12,8 @@ from .db import ExnessEntryIntent, Session
 from .forex_entry_intents import cancel_waiting, consume_quote, reconcile_intents
 from .forex_entry_policy import MAX_QUOTE_GAP, QUOTE_GAP
 
+MAX_QUOTE_AGE = 2  # seconds; same freshness observe() requires
+
 
 class EntryConsumers:
     def __init__(self, account, stop, on_trigger):
@@ -60,7 +62,7 @@ class EntryConsumers:
     def stream(self, symbol):
         from .app_auth import quote_request
         tick = time.time()  # last processed quote; stale backlog is still rejected by observe() (<=2s)
-        busy = {}
+        busy, skipped = {}, 0
         try:
             with urlopen(quote_request(symbol, entry=True), timeout=QUOTE_GAP) as stream:
                 while not self.stop.is_set() and self.waiting(symbol):
@@ -86,12 +88,16 @@ class EntryConsumers:
                             self.cancel(symbol, "stream_disconnected", cause="event", status=str(event.get("status")),
                                         since_tick=round(now - tick, 2))
                             return
+                        quote_time = event["quote"].get("time")
+                        if type(quote_time) in (int, float) and now - quote_time > MAX_QUOTE_AGE:
+                            skipped += 1  # backlog after a slow tick; wait for a fresh quote, never trade on it
+                            continue
                         started = time.monotonic()
                         with Session.begin() as session:
                             triggered = consume_quote(session, self.account, symbol, event.get("quote"), now)
                             lock_wait = session.info.get("entry_lock_wait", 0)
                         consume = time.monotonic() - started
-                        busy = {"consume_ms": round(consume * 1000), "lock_wait_ms": round(lock_wait * 1000)}
+                        busy = {"consume_ms": round(consume * 1000), "lock_wait_ms": round(lock_wait * 1000), "skipped_stale": skipped}
                         if consume > 1:
                             logging.warning("Virtual entry consumer slow %s: %s", symbol, busy)
                         tick = now

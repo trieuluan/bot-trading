@@ -34,4 +34,34 @@ def test_slow_local_processing_is_not_stream_silence(monkeypatch):
     entries.stream("XAUUSD")
 
     assert cancelled == [("stream_disconnected", {
-        "cause": "eof", "read_wait": 0.1, "since_tick": 0.0, "consume_ms": 6000, "lock_wait_ms": 0})]
+        "cause": "eof", "read_wait": 0.1, "since_tick": 0.0, "consume_ms": 6000, "lock_wait_ms": 0, "skipped_stale": 0})]
+
+
+def test_stale_backlog_quote_is_skipped_not_consumed(monkeypatch):
+    def data(stamp):
+        quote = {"bid": 1.0, "ask": 1.1, "time": stamp, "received_at": stamp}
+        return b"data: " + json.dumps({"status": "live", "symbol": "XAUUSD", "quote": quote}).encode() + b"\n"
+
+    consumed, cancelled = [], []
+    entries = consumer.EntryConsumers("acct", threading.Event(), lambda *_: None)
+    monkeypatch.setattr(consumer.time, "time", lambda: 1010.0)
+    monkeypatch.setattr(consumer, "urlopen", lambda *_a, **_k: Stream([data(1005.0), data(1009.5)]))
+    monkeypatch.setattr(consumer, "consume_quote", lambda _s, _a, _y, quote, _n: consumed.append(quote["time"]) or [])
+    monkeypatch.setattr(entries, "waiting", lambda _symbol: True)
+    monkeypatch.setattr(entries, "cancel", lambda _symbol, reason, **detail: cancelled.append((reason, detail)))
+
+    entries.stream("XAUUSD")
+
+    assert consumed == [1009.5] and cancelled[0][0] == "stream_disconnected"
+    assert cancelled[0][1]["skipped_stale"] == 1
+
+
+def test_v4_tick_does_not_hold_account_lock(monkeypatch):
+    from backend.app import forex_entry_intents, forex_htf_v4
+
+    def fail(*_args):
+        raise AssertionError("tick must not take the account lock")
+
+    monkeypatch.setattr(forex_entry_intents, "lock_account", fail)
+    monkeypatch.setattr(forex_htf_v4, "_tick", lambda *_args: "ok")
+    assert forex_htf_v4.tick("acct", "XAUUSD", 1000) == "ok"

@@ -481,10 +481,10 @@ def capture_samples(ledger, candle, bids, asks, condition, slip, commission, mar
 
 def tick(account, symbol="XAUUSD", now=None):
     from .db import Session
-    from .forex_entry_intents import lock_account
 
+    # ponytail: no account lock; the ledger has its own file lock and this only reads intents (busy_strategies).
+    # A multi-second lock here starved the quote consumer into quote_stale. Add a short lock if _tick starts writing intents.
     with Session.begin() as session:
-        lock_account(session, account)
         return _tick(account, symbol, now, session)
 
 
