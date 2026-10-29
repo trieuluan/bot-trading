@@ -1210,3 +1210,47 @@ def test_virtual_submit_survives_slow_preparation(monkeypatch, tmp_path, delay, 
     monkeypatch.setattr(ee, "live_quote", lambda *_: {"bid": 4000.0, "ask": 4000.25, "time": NOW + delay, "received_at": NOW + delay})
     execute_trigger(api, identifier, "XAUUSD")
     assert api.client.request.call_count == sent
+
+@pytest.mark.parametrize("failure", ["stale_quote", "stream_disconnected", "price_drift"])
+def test_virtual_submit_window_preserves_safety_gates(monkeypatch, tmp_path, failure):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setattr(ee.time, "time", lambda: NOW + 12)
+    if failure == "stream_disconnected":
+        with Session.begin() as session:
+            row = session.get(ExnessEntryIntent, identifier)
+            row.snapshot = {**row.snapshot, "continuity_error": failure}
+    elif failure == "price_drift":
+        monkeypatch.setattr(ee, "live_quote", lambda *_: {
+            "bid": 4001, "ask": 4001.25, "time": NOW + 12, "received_at": NOW + 12})
+    if failure == "stale_quote":
+        with pytest.raises(ValueError, match="Stale quote"):
+            execute_trigger(api, identifier, "XAUUSD")
+    else:
+        execute_trigger(api, identifier, "XAUUSD")
+    api.client.request.assert_not_called()
+
+@pytest.mark.parametrize("invalidated", [False, True])
+def test_virtual_triggered_expiry_preserves_invalidation(monkeypatch, tmp_path, invalidated):
+    from backend.app.db import ExnessEntryIntent, WorkspaceCandle
+    from backend.app.forex_entry_intents import consume_quote
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    with Session.begin() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        row.snapshot = {**row.snapshot, "expires_at": NOW + 5}
+        session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="1h",
+                                   price_type="bid", time=NOW - 3600,
+                                   open=4000, high=4002, low=3998, close=4000))
+    with Session.begin() as session:
+        assert consume_quote(session, api.account_id, "XAUUSD", {
+            "bid": 4000, "ask": 4000.25, "time": NOW + 6, "received_at": NOW + 6},
+            NOW + 6, invalidated=invalidated) == []
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert row.status == "triggered"
+        assert row.snapshot.get("continuity_error") == ("setup_invalidated" if invalidated else None)
+    api.client.request.assert_not_called()
