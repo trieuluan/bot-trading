@@ -337,9 +337,10 @@ def test_intent_lifecycle_atomic_and_capacity(tmp_path, monkeypatch):
         assert duplicate.id == intent.id
 
     with Session.begin() as session:
-        assert cancel_waiting(session, account, "manual_test", 1010, symbol) == 1
+        assert cancel_waiting(session, account, "manual_test", 1010, symbol, {"cause": "unit_test"}) == 1
         row = session.get(ExnessEntryIntent, identifier)
         assert row.status == "cancelled"
+        assert row.snapshot["cancel_detail"] == {"cause": "unit_test"}
 @pytest.mark.parametrize("status", ["overflow", "disconnected"])
 def test_entry_sse_terminal_event_cleans_subscription(monkeypatch, status):
     import asyncio

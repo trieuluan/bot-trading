@@ -173,6 +173,7 @@ class QuoteStream:
             path = TICKS_PATH.format(account_id=api.account_id)
             while True:
                 self.status = "connecting"
+                opened, cause = time.time(), "closed"
                 self.markets.clear()
                 self.quote = None
                 paper_gap = True
@@ -218,6 +219,7 @@ class QuoteStream:
                                     logging.exception("Exness paper tick failed; defer to candle recovery")
                                 delay = minimum_delay
                 except InvalidStatus as exc:
+                    cause = f"http_{exc.response.status_code}"
                     if exc.response.status_code < 500:
                         if exc.response.status_code == 429:
                             self.status = "rate_limited"
@@ -232,17 +234,21 @@ class QuoteStream:
                             self.status = "rejected"
                             return
                 except ConnectionClosed as exc:
+                    cause = f"ws_close_{exc.rcvd.code if exc.rcvd else 'none'}"
                     if exc.rcvd and exc.rcvd.code not in (1000, 1001, 1006, 1011, 1012, 1013):
                         self.status = "rejected"
                         return
-                except (OSError, TimeoutError):
-                    pass
+                except (OSError, TimeoutError) as exc:
+                    cause = type(exc).__name__
                 except ExnessError as exc:
+                    cause = "rate_limited" if exc.rate_limited else "exness_error"
                     if not exc.rate_limited:
                         raise
                     self.status = "rate_limited"
                     delay = max(delay, exc.retry_after)
                 finally:
+                    logging.warning("Exness quote websocket ended: cause=%s uptime=%.1fs retry_in=%ss",
+                                    cause, time.time() - opened, delay)
                     for symbol in tuple(entry_subscribers):
                         publish_entry({"status": "disconnected", "symbol": symbol})
                         for symbol in tuple(chart_subscribers):

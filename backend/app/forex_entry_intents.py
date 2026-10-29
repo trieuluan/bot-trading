@@ -175,7 +175,7 @@ def consume_quote(session, account, symbol, quote, now, *, connected=True, inval
     return triggered
 
 
-def cancel_waiting(session, account, reason, now, symbol=None):
+def cancel_waiting(session, account, reason, now, symbol=None, detail=None):
     lock_account(session, account)
     query = select(ExnessEntryIntent).where(ExnessEntryIntent.account == account,
                                           ExnessEntryIntent.status.in_(("waiting", "triggered", "submitting")))
@@ -184,10 +184,11 @@ def cancel_waiting(session, account, reason, now, symbol=None):
     rows = session.scalars(query.with_for_update()).all()
     for row in rows:
         if row.status != "waiting":
-            row.snapshot = {**row.snapshot, "continuity_error": reason}
+            row.snapshot = {**row.snapshot, "continuity_error": reason, **({"continuity_detail": detail} if detail else {})}
             continue
         row.status = "cancelled"
-        row.snapshot = {**row.snapshot, "status": "cancelled", "reason": reason, "ended_at": now}
+        row.snapshot = {**row.snapshot, "status": "cancelled", "reason": reason, "ended_at": now,
+                        **({"cancel_detail": detail} if detail else {})}
     return len(rows)
 
 

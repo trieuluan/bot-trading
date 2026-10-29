@@ -51,9 +51,11 @@ class EntryConsumers:
             except Exception:
                 logging.exception("Cannot cancel virtual entries; execution requires fresh continuous quotes")
 
-    def cancel(self, symbol, reason):
+    def cancel(self, symbol, reason, **detail):
+        now = time.time()
+        logging.warning("Virtual entry cancel %s: %s %s", symbol, reason, detail)
         with Session.begin() as session:
-            cancel_waiting(session, self.account, reason, time.time(), symbol)
+            cancel_waiting(session, self.account, reason, now, symbol, {**detail, "at": now} if detail else None)
 
     def stream(self, symbol):
         from .app_auth import quote_request
@@ -64,7 +66,8 @@ class EntryConsumers:
                     line = stream.readline()
                     now = time.time()
                     if not line or now - last > QUOTE_GAP:
-                        self.cancel(symbol, "stream_disconnected")
+                        self.cancel(symbol, "stream_disconnected", cause="eof" if not line else "silent",
+                                    since_line=round(now - last, 2), since_tick=round(now - tick, 2))
                         return
                     last = now
                     if now - tick > MAX_QUOTE_GAP:
@@ -73,12 +76,13 @@ class EntryConsumers:
                     if line.startswith(b"data: "):
                         event = json.loads(line[6:])
                         if event.get("symbol") != symbol:
-                            self.cancel(symbol, "stream_disconnected")
+                            self.cancel(symbol, "stream_disconnected", cause="symbol_mismatch", got=str(event.get("symbol")))
                             return
                         if event.get("kind") == "ready" or event.get("status") == "waiting":
                             continue
                         if event.get("status") != "live" or not event.get("quote"):
-                            self.cancel(symbol, "stream_disconnected")
+                            self.cancel(symbol, "stream_disconnected", cause="event", status=str(event.get("status")),
+                                        since_tick=round(now - tick, 2))
                             return
                         with Session.begin() as session:
                             triggered = consume_quote(session, self.account, symbol, event.get("quote"), now)
@@ -86,9 +90,10 @@ class EntryConsumers:
                         for identifier in triggered:
                             threading.Thread(target=self.trigger, args=(identifier, symbol), daemon=True,
                                              name=f"submit-{identifier}").start()
-        except Exception:
+        except Exception as exc:
             logging.exception("Virtual entry stream lost: %s", symbol)
-            self.cancel(symbol, "stream_disconnected")
+            self.cancel(symbol, "stream_disconnected", cause="exception", error=type(exc).__name__,
+                        since_tick=round(time.time() - tick, 2))
 
     def trigger(self, identifier, symbol):
         try:
