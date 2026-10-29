@@ -675,6 +675,33 @@ def test_reconciles_when_broker_drops_comment(copies):
         assert trade.snapshot["status"] == ("closed" if copies == 1 else "submitted")
         assert trade.snapshot.get("position_id") == ("P2" if copies == 1 else None)
 
+@pytest.mark.parametrize("second_gap", [4, 0.5])
+def test_reconciles_same_size_legs_without_comments(second_gap):
+    api = dummy_api()
+    old = NOW - 100
+    body = {"instrument": "XAUUSD", "side": "sell", "volume": "0.01",
+            "stop_loss_price": "4051.085", "take_profit_price": "4004.775"}
+    legs = [{"status": "submitted", "key": f"fx-same-{index}", "recorded_at": old,
+             "submitted_at": old + delay, "body": body} for index, delay in enumerate((0, second_gap))]
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account=api.account_id, signal_time=old,
+                                         snapshot={"status": "submitted", "legs": legs}))
+        for pid in ("P1", "P2"):
+            session.add(ExnessDeal(account=api.account_id, deal_id=f"close-{pid}", position_id=pid,
+                                   event_time=old + 30, snapshot={"type": "close", "price": "4051.085",
+                                                                  "position_id": pid}))
+    def order(order_id, pid, delay):
+        return {"order": {**{key: value for key, value in body.items() if key != "side"}, "direction": "sell",
+                          "comment": None, "order_type": "market", "state": "filled", "order_id": order_id,
+                          "position_id": pid, "create_time": datetime.fromtimestamp(old + delay, timezone.utc).isoformat()}}
+    api.get = lambda path, params=None: ({"items": [order("O1", "P1", 0.8), order("O2", "P2", second_gap + 0.8)],
+                                          "has_more": False} if path.endswith("/orders") else {"items": [], "has_more": False})
+    ee.reconcile(api, {"positions": [], "orders": []}, NOW)
+    with Session() as session:
+        stored = session.get(ExnessExecutionTrade, (api.account_id, "XAUUSD", old)).snapshot["legs"]
+    expected = [("P1", "O1", "closed"), ("P2", "O2", "closed")] if second_gap == 4 else [(None, None, "submitted")] * 2
+    assert [(leg.get("position_id"), leg.get("order_id"), leg["status"]) for leg in stored] == expected
+
 @pytest.mark.parametrize("failure", ["render", "flush"])
 def test_notification_failure_does_not_rollback_reconcile(monkeypatch, caplog, failure):
     api = dummy_api()

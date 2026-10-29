@@ -259,6 +259,10 @@ def reconcile(api, broker, now):
             ExnessExecutionTrade.account == api.account_id)).all()
         deals = session.scalars(select(ExnessDeal).where(ExnessDeal.account == api.account_id)).all()
     open_ids = {position["position_id"] for position in broker["positions"]}
+    claimed = {leg["position_id"] for trade in trades for _, leg in leg_records(trade.snapshot) if leg.get("position_id")}
+    claimed_orders = {leg["order_id"] for trade in trades for _, leg in leg_records(trade.snapshot) if leg.get("order_id")}
+    claimed_orders.update(deal.snapshot.get("order_id") for deal in deals
+                          if deal.snapshot.get("type") == "open" and deal.position_id in claimed)
     for row in trades:
         for index, data in leg_records(row.snapshot):
             if data["status"] not in ACTIVE:
@@ -281,6 +285,7 @@ def reconcile(api, broker, now):
                                           api.account_id, row.symbol, row.signal_time, updated.get("position_id"))
                     update_leg(current, index, updated)
             pid = data.get("position_id")
+            matched_order_id = None
             if not pid:
                 operation = data.get("ack", {}).get("operation_id")
                 if operation:
@@ -290,6 +295,8 @@ def reconcile(api, broker, now):
                         continue
                 start = data["recorded_at"] - 5
                 orders = list(history(api, "orders", start, min(now, start + 86400)))
+                orders = [item for item in orders if item["order"].get("position_id") not in claimed
+                          and item["order"].get("order_id") not in claimed_orders]
                 matching = [item["order"] for item in orders
                             if item["order"].get("comment") == data["key"][:32]
                             and item["order"].get("instrument") == row.symbol]
@@ -310,21 +317,31 @@ def reconcile(api, broker, now):
                             for field in ("volume", "stop_loss_price", "take_profit_price")
                         ):
                             candidates.append(order)
-                    if len(candidates) == 1:
-                        matching = candidates
+                    stamps = sorted(((abs(datetime.fromisoformat(order["create_time"].replace("Z", "+00:00")).timestamp()
+                                          - submitted), order) for order in candidates), key=lambda item: item[0])
+                    if len(stamps) == 1 or (len(stamps) > 1 and stamps[0][0] <= 60
+                                           and stamps[1][0] - stamps[0][0] >= 1):
+                        matching = [stamps[0][1]]
                 for order in matching:
                     if order.get("state") == "rejected":
                         save({"status": "rejected"})
                     if order.get("state") == "filled" and order.get("position_id"):
                         pid = order["position_id"]
+                        matched_order_id = order["order_id"]
                         break
                     filled = next((deal for deal in deals if deal.snapshot.get("order_id") == order["order_id"]
                                    and deal.snapshot.get("type") == "open"), None)
                     if filled:
                         pid = filled.position_id
+                        matched_order_id = order["order_id"]
                         break
+                if pid in claimed:
+                    continue
             if not pid:
                 continue
+            claimed.add(pid)
+            if matched_order_id:
+                claimed_orders.add(matched_order_id)
             has_close = any(deal.position_id == pid and deal.snapshot.get("type") == "close" for deal in deals)
             status = "open" if pid in open_ids else "closed" if has_close else "uncertain"
             if data["status"] == "closing" and pid in open_ids:
@@ -360,6 +377,7 @@ def reconcile(api, broker, now):
                                                 and d.snapshot.get("type") == "open"), None))
                          if status == "closed" and exits and not tp_filled and not data.get("close_reason") else None)
             save({"position_id": pid, "status": status, "take_profit_filled": tp_filled,
+                  **({"order_id": matched_order_id} if matched_order_id else {}),
                   **({"close_reason": sl_reason} if sl_reason else {}),
                   **({"management": management} if management else {})})
 
