@@ -111,6 +111,18 @@ def test_refresh_persists_sanitized_profile_and_throttles_across_restart():
         assert spec_summary(session, 5000)["status"] == "stale"
         assert session.get(ForexInstrumentState, (WORKSPACE, "XAUUSD")).snapshot["contract_size"] == "100"
 
+def test_success_refreshes_before_spec_ttl_gap():
+    class API:
+        def account(self):
+            return account()
+
+        def condition(self, instrument):
+            return specification()
+
+    sync_specs(API(), 1000)
+    with Session() as session:
+        assert session.get(ForexInstrumentState, (WORKSPACE, "XAUUSD")).retry_at == 4000
+
 def test_failed_refresh_preserves_profile_but_marks_it_unusable():
     with Session.begin() as session:
         session.add(ForexInstrumentState(

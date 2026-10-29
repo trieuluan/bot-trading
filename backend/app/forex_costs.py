@@ -112,7 +112,7 @@ def sync_specs(api, now=None, symbol="XAUUSD"):
         aid = getattr(api, "account_id", acc.get("account_id"))
         snapshot = normalize_specs(acc, api.condition(symbol), now, account_id=aid, symbol=symbol)
         error = None
-        retry = now + SPEC_TTL
+        retry = now + SPEC_TTL - 600  # ponytail: refresh before TTL so the worker's 60-90s loop never leaves a stale gap
     except (ExnessError, ValueError, KeyError, TypeError, AttributeError) as exc:
         if isinstance(exc, ExnessError) and (exc.rate_limited or exc.account_blocked):
             blocked = exc
