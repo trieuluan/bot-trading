@@ -1583,10 +1583,24 @@ export function ForexStrategyPage({
     setAnalysis(null);
     setHtf2Shadow(undefined);
     setEntryPilot(undefined);
-    return subscribeForexStream(
+    // Setup chỉ cần summary (~0.2s); `analysis` stream mất 5-7s, nên tải summary trước, stream ghi đè khi tới.
+    const controller = new AbortController();
+    // Cache replay chạy đồng bộ trong subscribe và có thể cũ; chỉ event live sau đó mới chặn kết quả fetch.
+    let live = false;
+    let streamed = false;
+    fetch(`/api/workspaces/exness_forex/learning?${new URLSearchParams({ symbol })}`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((body) => {
+        if (!body || streamed || body.symbol !== symbol) return;
+        setHtf2Shadow(body.htf_ast3_shadow);
+        setEntryPilot(body.entry_pilot);
+      })
+      .catch(() => {}); // ponytail: lỗi/abort bỏ qua, stream vẫn là nguồn chính; thêm báo lỗi khi cần.
+    const unsubscribe = subscribeForexStream(
       symbol,
       'analysis',
       (value) => {
+        streamed ||= live;
         const body = value as (LearnerAnalysis | { status: string }) & {
           htf_ast3_shadow?: typeof htf2Shadow;
           entry_pilot?: ForexEntryPilot;
@@ -1597,6 +1611,11 @@ export function ForexStrategyPage({
       },
       () => {},
     );
+    live = true;
+    return () => {
+      controller.abort();
+      unsubscribe();
+    };
   }, [symbol]);
   const [loading, setLoading] = useState(false);
   const [frame, setFrame] = useState('15m');
