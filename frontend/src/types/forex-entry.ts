@@ -40,6 +40,7 @@ export interface ForexEntryPilot {
     tree_count: number;
     since?: number;
     signals?: ForexRecordedSignal[];
+    shadow_trades?: ForexShadowTrade[];
     counts?: Record<string, number>;
     comparison?: {
       matched_signals: number;
@@ -83,4 +84,47 @@ export interface ForexRecordedSignal {
   live_assigned?: boolean;
   setup_id?: string | null;
   bundle_id?: string | null;
+}
+
+export interface ForexShadowTrade {
+  id: string;
+  symbol: string;
+  strategy: string;
+  side: 'long' | 'short';
+  status: string;
+  available_at: number;
+  policy?: string;
+  live_assigned?: boolean;
+  reason?: string;
+  resolution_seconds?: number;
+  entry?: number | null;
+  entry_time?: number | null;
+  resolved_at?: number | null;
+  net_r?: number | null;
+  valuation?: {
+    risk: number | null;
+    risk_usd?: number | null;
+    realized_r: number | null;
+    slippage_bps: number | null;
+    commission_per_unit: number | null;
+    verified: boolean;
+    gain_rate: number | null;
+    loss_rate: number | null;
+  };
+  planned_levels?: { label: string; price: number }[];
+  legs?: {
+    role: string;
+    open: boolean;
+    weight?: number | null;
+    volume?: number | null;
+    stop?: number | null;
+    target?: number | null;
+    outcome?: string;
+  }[];
+  exits?: {
+    time: number;
+    price: number;
+    role?: string;
+    reason?: string;
+  }[];
 }

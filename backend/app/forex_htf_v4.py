@@ -160,6 +160,63 @@ def read_ledger(account, symbol="XAUUSD", *, path=None):
     return ledger
 
 
+def shadow_trade(sample, symbol):
+    signal = sample["signal"]
+    execution = sample.get("execution") or {}
+    policy = signal.get("entry_policy") or {}
+
+    def number(value):
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) and not isinstance(value, bool) else None
+
+    condition = sample.get("condition") or {}
+    volumes = [number(leg.get("volume")) for leg in execution.get("legs", [])]
+    risk, contract, conversion = (number(execution.get("risk")), number(condition.get("contract_size")),
+                                  number(condition.get("quote_to_account_loss")))
+    risk_usd = None
+    if (condition.get("account_currency") == "USD" and sample.get("costs", {}).get("verified") is True
+            and condition.get("conversion", {}).get("verified") is True
+            and all(value is not None and value > 0 for value in (risk, contract, conversion))
+            and volumes and all(value is not None and value > 0 for value in volumes)):
+        risk_usd = number(risk * contract * conversion * sum(volumes))
+
+    return {
+        "id": json.dumps([symbol, sample["strategy"], sample.get("setup_id"), signal["available_at"]]),
+        "symbol": symbol, "strategy": sample["strategy"], "side": sample["side"],
+        "status": sample["status"], "available_at": signal["available_at"],
+        "policy": policy.get("policy"), "live_assigned": sample.get("live_assigned", False),
+        "reason": sample.get("reason"), "resolution_seconds": sample.get("resolution_seconds"),
+        "entry": number(execution.get("entry")), "entry_time": number(execution.get("entry_time")),
+        "resolved_at": number(execution.get("resolved_at")),
+        "net_r": number(sample.get("net_r_ex_swap")) if sample["status"] == "resolved" else None,
+        "valuation": {"risk": number(execution.get("risk")),
+                      "risk_usd": risk_usd,
+                      "realized_r": number(execution.get("net_r")),
+                      "slippage_bps": number(sample.get("costs", {}).get("slippage_bps")),
+                      "commission_per_unit": number(sample.get("costs", {}).get("commission_per_unit")),
+                      "verified": sample.get("costs", {}).get("verified") is True,
+                      "gain_rate": number(sample.get("condition", {}).get("quote_to_account_gain")),
+                      "loss_rate": number(sample.get("condition", {}).get("quote_to_account_loss"))},
+        "planned_levels": [{"label": label, "price": price} for label, value in (
+            ("LIMIT", policy.get("limit_price")), ("STOP ENTRY", policy.get("stop_price")),
+            ("SL", signal.get("stop")), ("TP", signal.get("target")))
+            if (price := number(value)) is not None and price > 0],
+        "legs": [{"role": leg.get("role", "trade"), "open": leg.get("open") is True,
+                  "weight": number(leg.get("weight")),
+                  "volume": number(leg.get("volume")), "stop": number(leg.get("stop_loss_price")),
+                  "target": number(leg.get("take_profit_price")), "outcome": leg.get("outcome")}
+                 for leg in execution.get("legs", [])],
+        "exits": [{"time": event["at"], "price": price, "role": event.get("role"),
+                   "reason": event.get("action")}
+                  for event in execution.get("management_history", [])
+                  if event.get("role") is not None and number(event.get("at")) is not None
+                  and (price := number(event.get("price"))) is not None and price > 0],
+    }
+
+
 def is_zero_r_expiry(s):
     """Unfilled non-market entry that expired: no trade, no P&L = 0R. Market expiry (missed window) is not counted."""
     return (s.get("status") == "expired" and "execution" not in s and s.get("reason", "entry_expired") == "entry_expired"
@@ -624,6 +681,12 @@ def summary(account, symbol="XAUUSD"):
             "bundles": bundle_summaries,
             "trees": tree_summaries,
             "evolution_history": ledger.get("evolution_history", []),
+            "shadow_trades": [shadow_trade(sample, symbol) for sample in sorted(
+                ledger["samples"], key=lambda row: row["confirm_time"], reverse=True)
+                if sample["status"] in ("waiting", "pending", "open")] + [
+                shadow_trade(sample, symbol) for sample in sorted(
+                    (row for row in ledger["samples"] if row["status"] not in ("waiting", "pending", "open")),
+                    key=lambda row: row["confirm_time"], reverse=True)[:100]],
             "signals": [
                 {
                     "strategy": s["strategy"],

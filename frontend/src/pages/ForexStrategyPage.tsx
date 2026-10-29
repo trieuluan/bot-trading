@@ -14,6 +14,7 @@ import { cachedCandles, candleKey, storeCandles } from '../lib/forex-cache';
 import { ForexSessionStatus } from '../components/ForexSessionStatus';
 import { ForexSignalLifecycle } from '../components/ForexSignalLifecycle';
 import { signalSetups } from '../lib/forex-entry-lifecycle';
+import { shadowPnlText } from '../lib/forex-shadow';
 import { feedErrorText, marketSessionDisplay, priceDigits } from '../lib/forex-labels';
 import { clockTime, relativeTime, formatTime } from '../lib/time-format';
 import { timeZoneLabel } from '../lib/time-zone';
@@ -1540,12 +1541,17 @@ export function ForexStrategyPage({
   ], [analysis, entryPilot]);
   const setups = useMemo(() => signalSetups(entryPilot?.intents ?? [], recordedSignals), [entryPilot, recordedSignals]);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'positions' | 'setups'>('positions');
+  const [drawerTab, setDrawerTab] = useState<'positions' | 'setups' | 'shadow'>('positions');
+  const [shadowSelection, setShadowSelection] = useState<{ symbol: string; id: string } | null>(null);
+  const shadowTrades = (entryPilot?.pilot.shadow_trades ?? []).filter((trade) => trade.symbol === symbol);
+  const selectedShadow = shadowSelection?.symbol === symbol
+    ? shadowTrades.find((trade) => trade.id === shadowSelection.id) : undefined;
   const [drawerFocusId, setDrawerFocusId] = useState<string>();
   useEffect(() => {
     setDrawerOpen(false);
     setDrawerTab('positions');
     setDrawerFocusId(undefined);
+    setShadowSelection(null);
   }, [symbol]);
   const [setupSelection, setSetupSelection] = useState<{ symbol: string; id: string } | null>(null);
   const selectedSetup = setupSelection?.symbol === symbol
@@ -2237,7 +2243,7 @@ export function ForexStrategyPage({
         >
           <span>Danh sách</span>
           <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
-            {pickerPositions.filter((position) => position.status === 'open').length} ticket mở · {setups.length} setup
+            {pickerPositions.filter((position) => position.status === 'open').length} ticket mở · {setups.length} setup · {shadowTrades.filter((trade) => trade.status === 'open').length} shadow
           </span>
         </button>
       </div>
@@ -2249,14 +2255,27 @@ export function ForexStrategyPage({
         onTabChange={(tab) => { setDrawerTab(tab); setDrawerFocusId(undefined); }}
         focusId={drawerFocusId}
         symbol={symbol}
+        shadowTrades={shadowTrades}
+        shadowStatus={entryPilot?.pilot.status}
+        selectedShadowId={selectedShadow?.id}
+        shadowQuote={quoteLive ? quoteState.quote : null}
+        onSelectShadow={(id) => {
+          setShadowSelection(id ? { symbol, id } : null);
+          if (id) {
+            setSetupSelection(null);
+            onSelectPosition?.(undefined);
+            if (window.matchMedia('(max-width: 639px)').matches) setDrawerOpen(false);
+          }
+        }}
         positions={pickerPositions}
         allPositions={executions}
         selectedPositionId={selectedPosition?.position_id}
-        onSelectPosition={onSelectPosition ?? (() => {})}
+        onSelectPosition={(id) => { setShadowSelection(null); onSelectPosition?.(id); }}
         pnlOf={pnlOf}
         setups={setups}
         selectedSetupId={selectedSetup?.id}
         onSelectSetup={(id, strategy) => {
+          setShadowSelection(null);
           if (id && strategy) setV4Selection({ setup: id, strategy });
           setSetupSelection(id ? { symbol, id } : null);
         }}
@@ -2274,10 +2293,21 @@ export function ForexStrategyPage({
         }
       />
 
+      {selectedShadow && (
+        <section aria-label="Shadow đang hiển thị" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-400/30 bg-sky-400/5 px-3 py-2 text-xs">
+          <div className="min-w-0 space-y-1">
+            <strong className="text-sky-300">SHADOW — MÔ PHỎNG · {selectedShadow.side.toUpperCase()} · {selectedShadow.policy}</strong>
+            <p className="m-0 break-all text-text-muted">{selectedShadow.strategy} · {selectedShadow.entry_time == null ? 'Chưa khớp; mức giá dự kiến' : `Entry ${formatPrice(selectedShadow.entry!)} · ${formatTime(selectedShadow.entry_time, true)}`}</p>
+            <p className="m-0 text-text-secondary">{selectedShadow.status === 'resolved' ? 'Đã chốt' : 'Tạm tính'}: {shadowPnlText(selectedShadow, quoteLive ? quoteState.quote : null)} · khối lượng giả lập, chưa swap · không phải lệnh broker</p>
+          </div>
+          <button type="button" onClick={() => setShadowSelection(null)} className="rounded border border-border-active px-2 py-1">Ẩn khỏi chart</button>
+        </section>
+      )}
       <MtfObservationChart
         entryIntents={selectedSetup?.intents}
         recordedSignals={selectedSetup?.signals}
-        selectedSetupTime={selectedSetup?.time}
+        selectedSetupTime={selectedShadow?.entry_time ?? selectedShadow?.available_at ?? selectedSetup?.time}
+        selectedShadow={selectedShadow}
         key={`${symbol}-${frame}-${side}-${historyBefore ?? 'live'}`}
         pricePrecision={
           dashboard.instrument?.profile?.point_digits ??
@@ -2293,15 +2323,16 @@ export function ForexStrategyPage({
         positionGroups={chartScope === 'setup' ? positionGroups : []}
         dark
         onClosePosition={onClosePosition}
-        onSelectPosition={onSelectPosition}
+        onSelectPosition={(id) => { setShadowSelection(null); onSelectPosition?.(id); }}
         onPositionDetails={(id) => {
+          setShadowSelection(null);
           setDrawerTab('positions');
           setDrawerFocusId(id);
           setDrawerOpen(true);
         }}
         pnlAt={pnlAt}
         pnlOf={pnlOf}
-        selectedPositionId={selectedPosition?.position_id}
+        selectedPositionId={selectedShadow ? undefined : selectedPosition?.position_id}
         frameSeconds={chartFrameSeconds}
         trendLabel="Xu hướng 4h"
         levelLabel="Mức breakout"

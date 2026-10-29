@@ -17,7 +17,8 @@ import {
 } from 'lightweight-charts';
 import type { Candle, MtfObservationSnapshot } from '../types/trading';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
-import type { ForexEntryIntent, ForexRecordedSignal } from '../types/forex-entry';
+import type { ForexEntryIntent, ForexRecordedSignal, ForexShadowTrade } from '../types/forex-entry';
+import { shadowLevels } from '../lib/forex-shadow';
 import { intentEvents } from '../lib/forex-entry-lifecycle';
 import { formatForexPrice as formatPrice, observationStatusLabels } from '../lib/format';
 import { CONTEXT_STRATEGY_KEY } from './StrategyOverlayMenu';
@@ -41,6 +42,7 @@ export function MtfObservationChart({
   entryIntents,
   recordedSignals = [],
   selectedSetupTime,
+  selectedShadow,
   shown = [],
   livePrice = null,
   liveCandles = [],
@@ -66,6 +68,7 @@ export function MtfObservationChart({
   entryIntents?: ForexEntryIntent[];
   recordedSignals?: ForexRecordedSignal[];
   selectedSetupTime?: number;
+  selectedShadow?: ForexShadowTrade;
   shown?: string[];
   title?: string;
   livePrice?: { price: number; label: string; color?: string }[] | null;
@@ -538,9 +541,35 @@ export function MtfObservationChart({
         }
       }
     }
+    if (selectedShadow) {
+      const grouped = new Map<number, string[]>();
+      for (const level of shadowLevels(selectedShadow)) {
+        grouped.set(level.price, [...(grouped.get(level.price) ?? []), level.label]);
+      }
+      for (const [price, labels] of grouped) {
+        lines.current.push(priceSeries.createPriceLine({
+          price, title: `SHADOW · ${labels.join(' / ')}`,
+          color: labels.some((label) => label.startsWith('SL')) ? '#f59e0b'
+            : labels.some((label) => label.startsWith('TP')) ? '#14b8a6' : '#60a5fa',
+          lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true,
+        }));
+      }
+      const shadowMarker = (time: number, text: string, exit: boolean) => {
+        const bucket = Math.floor(time / frameSeconds) * frameSeconds;
+        if (!Number.isFinite(time) || time > Date.now() / 1000 || !candleTimes.has(bucket)) return;
+        points.push({ time: bucket as UTCTimestamp,
+          position: (selectedShadow.side === 'long') !== exit ? 'belowBar' : 'aboveBar',
+          shape: exit ? 'circle' : selectedShadow.side === 'long' ? 'arrowUp' : 'arrowDown',
+          color: exit ? '#14b8a6' : '#60a5fa', text: `SHADOW · ${text}` });
+      };
+      if (selectedShadow.entry_time != null && selectedShadow.entry != null)
+        shadowMarker(selectedShadow.entry_time, `ENTRY ${selectedShadow.entry.toFixed(pricePrecision)}`, false);
+      for (const exit of selectedShadow.exits ?? [])
+        shadowMarker(exit.time, `EXIT ${exit.role ?? ''} ${exit.price.toFixed(pricePrecision)}`, true);
+    }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
   }, [snapshot, candles, levelLabel, executions, selectedPositionId, frameSeconds, entryIntents,
-    recordedSignals, liveCandles.at(-1)?.time]);
+    recordedSignals, liveCandles.at(-1)?.time, selectedShadow, pricePrecision]);
 
   useEffect(() => {
     const priceSeries = series.current;

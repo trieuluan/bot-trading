@@ -311,6 +311,74 @@ def test_summary_reports_bundle_progress(tmp_path, monkeypatch):
         "matched_count": 0, "ready": False, "mean_r": None, "running_setups": 1}
 
 
+def test_shadow_trade_projects_fills_exits_and_verified_simulated_money():
+    import copy
+
+    from backend.app.forex_htf_v4 import shadow_trade
+
+    sample = {"strategy": "hast4_test", "setup_id": "setup", "side": "short", "status": "open",
+              "signal": {"available_at": 900, "stop": 161, "target": 157,
+                         "entry_policy": {"policy": "stop_trigger_break", "stop_price": 160}},
+              "costs": {"verified": True, "slippage_bps": 1, "commission_per_unit": .0001},
+              "condition": {"account_currency": "USD", "contract_size": 100000,
+                            "quote_to_account_loss": .006, "quote_to_account_gain": .0059,
+                            "conversion": {"verified": True}},
+              "execution": {"entry": 160, "entry_time": 1800, "risk": 1, "net_r": .4,
+                            "legs": [{"role": "tp1", "volume": ".02", "weight": .5, "open": False,
+                                      "stop_loss_price": "161", "take_profit_price": "159"},
+                                     {"role": "runner", "volume": ".02", "weight": .5, "open": True,
+                                      "stop_loss_price": "160", "take_profit_price": "157"}],
+                            "management_history": [{"at": 2700, "action": "target", "role": "tp1", "price": 159},
+                                                   {"at": 3600, "action": "protect_stop", "stop": 160}]}}
+    before = copy.deepcopy(sample)
+    view = shadow_trade(sample, "USDJPY")
+    assert sample == before
+    assert view["entry"] == 160 and view["entry_time"] == 1800
+    assert view["net_r"] is None
+    assert view["valuation"]["risk_usd"] == pytest.approx(24)
+    assert view["valuation"]["realized_r"] == .4
+    assert view["legs"][1]["stop"] == 160
+    assert view["exits"] == [{"time": 2700, "price": 159, "role": "tp1", "reason": "target"}]
+    assert json.loads(view["id"]) == ["USDJPY", "hast4_test", "setup", 900]
+    sample["condition"]["conversion"]["verified"] = False
+    assert shadow_trade(sample, "USDJPY")["valuation"]["risk_usd"] is None
+
+
+def test_shadow_trade_unfilled_and_legacy_do_not_invent_fills_or_dollars():
+    from backend.app.forex_htf_v4 import shadow_trade
+
+    sample = {"strategy": "hast4_test", "side": "long", "status": "waiting",
+              "signal": {"available_at": 900, "stop": 1.08, "target": 1.1,
+                         "entry_policy": {"policy": "limit_setup_mid", "limit_price": 1.09}}}
+    view = shadow_trade(sample, "EURUSD")
+    assert view["entry"] is None and view["entry_time"] is None
+    assert view["legs"] == [] and view["exits"] == []
+    assert view["valuation"]["risk_usd"] is None
+    assert view["planned_levels"][0] == {"label": "LIMIT", "price": 1.09}
+    sample.update(status="resolved", net_r_ex_swap=1.2, execution={"entry": float("nan"), "resolved_at": 2700})
+    view = shadow_trade(sample, "EURUSD")
+    assert view["entry"] is None and view["net_r"] == 1.2 and view["resolved_at"] == 2700
+    json.dumps(view, allow_nan=False)
+
+
+def test_shadow_summary_retains_all_active_samples_and_bounds_history(monkeypatch):
+    from backend.app.forex_htf_v4 import summary
+
+    def sample(stamp, status):
+        return {"strategy": "hast4_test", "side": "long", "status": status,
+                "confirm_time": stamp, "signal": {"available_at": stamp + 900}}
+
+    ledger = {"samples": [sample(stamp, "open" if stamp < 3 else "resolved") for stamp in range(110)],
+              "population": [], "members": {}, "since": 0, "bundles": {}}
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: ledger)
+    view = summary("account", "EURUSD")["shadow_trades"]
+    assert len(view) == 103
+    assert sum(trade["status"] == "open" for trade in view) == 3
+    assert view[0]["available_at"] == 902
+    assert view[3]["available_at"] == 1009
+    assert len({trade["id"] for trade in view}) == 103
+
+
 def _paired(b_info, version, setup, statuses, policy_of=None):
     out = {}
     for pol, tid in b_info["trees"].items():

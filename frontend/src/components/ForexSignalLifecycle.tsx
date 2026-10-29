@@ -2,7 +2,8 @@ import { Check, X, ChevronLeft } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { BrokerPosition, LearnerAnalysis } from '../types/exness-execution';
 import type { ForexSignalSetup } from '../lib/forex-entry-lifecycle';
-import type { ForexEntryIntent, ForexSignalChart } from '../types/forex-entry';
+import type { ForexEntryIntent, ForexSignalChart, ForexShadowTrade } from '../types/forex-entry';
+import { shadowLevels, shadowPhase, shadowPnlText } from '../lib/forex-shadow';
 import { entryLifecycle } from '../lib/forex-entry-lifecycle';
 import { ticketRole, ticketStatus } from '../lib/forex-position-groups';
 import { chartTreeTag, treeLabel } from '../lib/forex-tree-label';
@@ -12,8 +13,13 @@ import { brokerFillsDiagnosis, entrySlippage, shadowStatusText, executionLegs, e
 
 interface ForexSignalLifecycleProps {
   open: boolean;
-  initialTab?: 'positions' | 'setups';
-  onTabChange: (tab: 'positions' | 'setups') => void;
+  initialTab?: 'positions' | 'setups' | 'shadow';
+  onTabChange: (tab: 'positions' | 'setups' | 'shadow') => void;
+  shadowTrades?: ForexShadowTrade[];
+  shadowStatus?: string;
+  selectedShadowId?: string;
+  onSelectShadow?: (id?: string) => void;
+  shadowQuote?: { bid: number; ask: number } | null;
   focusId?: string;
   symbol: string;
   positions: BrokerPosition[];
@@ -57,13 +63,19 @@ export function ForexSignalLifecycle({
   loadingOlder,
   onLoadOlder,
   hasCandle,
+  shadowTrades = [],
+  shadowStatus,
+  selectedShadowId,
+  onSelectShadow,
+  shadowQuote,
 }: ForexSignalLifecycleProps) {
   const tab = initialTab;
   const [setupFilter, setSetupFilter] = useState<'pending' | 'history' | 'all'>('pending');
+  const [shadowFilter, setShadowFilter] = useState<'open' | 'waiting' | 'history'>('open');
   const [detailedSetupId, setDetailedSetupId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const scrollPositions = useRef({ positions: 0, setups: 0 });
+  const scrollPositions = useRef({ positions: 0, setups: 0, shadow: 0 });
   const pendingFocus = useRef<string | undefined>(undefined);
   const detailTrigger = useRef<HTMLButtonElement | null>(null);
   const backRef = useRef<HTMLButtonElement | null>(null);
@@ -260,6 +272,10 @@ export function ForexSignalLifecycle({
                 }`}
               >
                 Setup ({setups.length})
+              </button>
+              <button type="button" aria-pressed={tab === 'shadow'} onClick={() => onTabChange('shadow')}
+                className={`rounded-md px-3 py-1 font-medium transition-colors ${tab === 'shadow' ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
+                Shadow ({shadowTrades.filter((trade) => shadowPhase(trade) === 'open').length})
               </button>
             </div>
           )}
@@ -561,6 +577,48 @@ export function ForexSignalLifecycle({
               </ul>
             </section>
           </article>
+        ) : tab === 'shadow' ? (
+          <div className="space-y-3" role="region" aria-label={`Lệnh shadow ${symbol}`}>
+            <p className="m-0 text-xs text-text-muted">MÔ PHỎNG V4 · không gửi lệnh broker. Các biến thể cùng setup là đối chứng, không phải các lệnh độc lập để cộng lợi nhuận.</p>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Lọc lệnh shadow">
+              {([['open', 'Đang chạy'], ['waiting', 'Chờ khớp'], ['history', 'Lịch sử']] as const).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={shadowFilter === value} onClick={() => setShadowFilter(value)}
+                  className={`rounded border px-2 py-1 ${shadowFilter === value ? 'border-sky-400/50 bg-sky-400/10 text-sky-200' : 'border-border-base text-text-muted'}`}>
+                  {label} ({shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === value).length})
+                </button>
+              ))}
+            </div>
+            {shadowStatus !== 'ready' && <p role="status">{shadowStatus === 'error' ? 'Không tải được dữ liệu shadow.' : shadowStatus === 'not_initialized' ? 'Chưa khởi tạo mô phỏng V4.' : 'Dữ liệu shadow chưa sẵn sàng.'}</p>}
+            {shadowStatus === 'ready' && !shadowTrades.some((trade) => trade.symbol === symbol && shadowPhase(trade) === shadowFilter) && <p>Không có lệnh trong bộ lọc này.</p>}
+            {shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === shadowFilter).map((trade) => {
+              const selected = trade.id === selectedShadowId;
+              const time = trade.entry_time ?? trade.available_at;
+              const loaded = hasCandle(time);
+              return (
+                <article key={trade.id} className={`space-y-2 rounded-lg border p-3 ${selected ? 'border-sky-400/60 bg-sky-400/5' : 'border-border-base bg-surface-2/40'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className={trade.side === 'long' ? 'text-bull' : 'text-bear'}>{trade.side === 'long' ? 'LONG' : 'SHORT'} · {trade.policy ?? 'Entry'}</strong>
+                    <span className="font-mono text-text-primary">{shadowPnlText(trade, shadowQuote)}</span>
+                  </div>
+                  <div className="break-all font-mono text-[10px] text-text-muted">{trade.strategy}</div>
+                  <p className="m-0">{trade.entry_time == null ? 'Tín hiệu' : 'Khớp mô phỏng'} · {formatTime(time, true)}</p>
+                  <p className="m-0 text-[11px]">{shadowPhase(trade) === 'open' ? 'Đang chạy' : shadowPhase(trade) === 'waiting' ? 'Chưa khớp' : trade.status === 'resolved' ? 'Đã đóng' : entryStateLabels[trade.status] ?? trade.status}{trade.live_assigned ? ' · Có phân công broker, kết quả này vẫn là mô phỏng' : ''}</p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px]">{shadowLevels(trade).map((level) => <span key={level.label}>{level.label}: {price(level.price)}</span>)}</div>
+                  {trade.legs?.length ? <p className="m-0 text-[11px] text-text-muted">Khối lượng mô phỏng: {trade.legs.map((leg) => `${leg.role} ${leg.volume ?? '—'} lot${leg.open ? '' : ' (đã đóng)'}`).join(' · ')}</p> : null}
+                  {trade.reason && <p className="m-0 break-words text-[11px] text-amber-200">{trade.reason}</p>}
+                  <p className="m-0 text-[10px] text-text-muted">{trade.status === 'resolved' ? 'P&L mô phỏng đã chốt' : 'P&L mô phỏng tạm tính theo bid/ask trực tiếp; thiếu giá hoặc chi phí sẽ để trống'} · chưa swap. USD chỉ hiện khi xác minh được khối lượng và quy đổi đã lưu.{trade.resolution_seconds ? ` Độ phân giải replay: ${trade.resolution_seconds}s.` : ''}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" aria-pressed={selected} onClick={() => onSelectShadow?.(selected ? undefined : trade.id)} className="rounded border border-border-active px-3 py-1.5 text-text-primary">
+                      {selected ? 'Ẩn khỏi chart' : 'Xem chart'}
+                    </button>
+                    {!loaded && hasMoreCandles && <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="rounded border border-border-base px-2 py-1 disabled:opacity-50">{loadingOlder ? 'Đang tải nến…' : 'Tải nến cũ'}</button>}
+                  </div>
+                  {!loaded && <p className="m-0 text-[11px] text-amber-200">Chưa có nến thời điểm vào trong chart; mức giá vẫn hiển thị, chưa thể đặt dấu vào lệnh.</p>}
+                </article>
+              );
+            })}
+            <p className="text-[10px] text-text-muted">Lịch sử tối đa 100 mẫu gần nhất; lệnh đang chạy không bị cắt theo giới hạn này.</p>
+          </div>
         ) : tab === 'positions' ? (
           <div className="space-y-2" role="group" aria-label="Danh sách vị thế broker">
             {!positions.length && (
