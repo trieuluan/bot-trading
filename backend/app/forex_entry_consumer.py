@@ -59,7 +59,7 @@ class EntryConsumers:
         from .app_auth import quote_request
         last = tick = time.time()  # last = any line (heartbeat proves link alive), tick = last quote
         try:
-            with urlopen(quote_request(symbol, entry=True), timeout=2) as stream:
+            with urlopen(quote_request(symbol, entry=True), timeout=QUOTE_GAP) as stream:
                 while not self.stop.is_set() and self.waiting(symbol):
                     line = stream.readline()
                     now = time.time()

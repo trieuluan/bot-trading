@@ -1199,3 +1199,14 @@ def test_live_quote_uses_entry_stream_and_waits_for_fresh_tick(monkeypatch):
     monkeypatch.setattr(ee, "urlopen", lambda request, timeout: (urls.append(request.full_url), io.BytesIO(body))[1])
     assert REAL_LIVE_QUOTE("EURJPY")["bid"] == 1.0
     assert urls[0].endswith("symbol=EURJPY&purpose=entry")
+
+@pytest.mark.parametrize("delay,sent", [(2.5, 1), (12, 1), (31, 0)])
+def test_virtual_submit_survives_slow_preparation(monkeypatch, tmp_path, delay, sent):
+    from backend.app.forex_entry_intents import execute_trigger
+    monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    monkeypatch.setattr(ee.time, "time", lambda: NOW + delay)
+    monkeypatch.setattr(ee, "live_quote", lambda *_: {"bid": 4000.0, "ask": 4000.25, "time": NOW + delay, "received_at": NOW + delay})
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == sent

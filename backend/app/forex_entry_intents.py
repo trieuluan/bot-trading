@@ -27,6 +27,13 @@ def execution_signal(row):
     return body
 
 
+SUBMIT_WINDOW = 30  # seconds after trigger; price safety = fresh live_quote (<=2s) + 0.25R drift in late_drift_ok
+
+def submit_window_ok(snapshot, now):
+    # ponytail: broker prep takes seconds, so quote age is not gated here; add per-step timing if SUBMIT_WINDOW proves too loose.
+    triggered = snapshot.get("triggered_at")
+    return type(triggered) in (int, float) and 0 <= now - triggered <= SUBMIT_WINDOW
+
 def validate_execution_signal(signal, account, now):
     from .db import Session
     from .exness import ExnessError
@@ -44,8 +51,7 @@ def validate_execution_signal(signal, account, now):
         state = session.get(ExnessExecutionState, account)
         if (not row or row.account != account or row.status not in ("triggered", "submitting", "submitted")
                 or not state or not state.enabled or row.snapshot.get("continuity_error")
-                # Quote stream keeps updating while the executor prepares, so a quote newer than `now` is fresh.
-                or not -10 <= now - row.snapshot.get("last_quote", {}).get("received_at", 0) <= 2):
+                or not submit_window_ok(row.snapshot, now)):
             raise ExnessError("unverified_virtual_entry")
         expected = execution_signal(row)
         supplied = dict(signal)
@@ -158,7 +164,8 @@ def consume_quote(session, account, symbol, quote, now, *, connected=True, inval
                               connected=connected and fresh, allowed=allowed, invalidated=broken, candles=candles)
         if previous_status != "waiting":
             row.snapshot = {**row.snapshot, "last_quote": observation.get("last_quote", row.snapshot.get("last_quote"))}
-            if observation["status"] in ("cancelled", "expired"):
+            # Expiry after trigger must not block a submit already in flight (window bounded by SUBMIT_WINDOW).
+            if observation["status"] in ("cancelled", "expired") and observation.get("reason") != "entry_expired":
                 row.snapshot = {**row.snapshot, "continuity_error": observation["reason"]}
             continue
         row.snapshot = observation
