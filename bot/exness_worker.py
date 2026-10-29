@@ -34,6 +34,25 @@ def tick_due(done, symbol, now):
         done[symbol] = stamp
     return True
 
+def live_candidates(account, symbol):
+    from backend.app.forex_entry_intents import pilot_enabled
+    from backend.app.forex_htf_v4 import candidates
+    try:
+        return pilot_enabled() and bool(candidates(account, symbol, int(time.time())))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+def run_execution(api, symbol=None):
+    """Returns monotonic retry deadline (0 when none); errors never stop the feed loop."""
+    try:
+        execution_tick(api) if symbol is None else execution_tick(api, symbol=symbol)
+    except Exception as exc:
+        record_error(api.account_id, exc)
+        logging.exception("Exness demo execution tick failed; no duplicate orders")
+        if isinstance(exc, ExnessError):
+            return time.monotonic() + exc.retry_after
+    return 0
+
 def execute_entry(account, identifier, symbol):
     from backend.app.forex_entry_intents import execute_trigger
     client = connect_exness()
@@ -112,6 +131,11 @@ def main():
                                             raise
                                         logging.warning("M1 unavailable for %s, using M15: %s", symbol, exc)
                                 v4_tick(api.account_id, symbol)
+                                if live_candidates(api.account_id, symbol):
+                                    retry_until = max(retry_until, run_execution(api, symbol))
+                                    if time.monotonic() < retry_until:
+                                        throttled = True
+                                        break
                             except ExnessError:
                                 raise
                             except Exception:
@@ -139,13 +163,7 @@ def main():
                         legacy_paper_tick()
                     except Exception:
                         logging.exception("Legacy Paper management unavailable; no new entries")
-                    try:
-                        execution_tick(api)
-                    except Exception as exc:
-                        record_error(api.account_id, exc)
-                        logging.exception("Exness demo execution tick failed; no duplicate orders")
-                        if isinstance(exc, ExnessError):
-                            retry_until = time.monotonic() + exc.retry_after
+                    retry_until = max(retry_until, run_execution(api))
                     if (time.monotonic() - last_throttle > 600
                             and time.monotonic() >= max(retry_until, history_after) and not stop.is_set()):
                         history_after = time.monotonic() + 60

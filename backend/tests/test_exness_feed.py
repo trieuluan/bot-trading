@@ -440,3 +440,89 @@ def test_sync_active_m1_fetches_contiguous_page_and_deduplicates(monkeypatch):
     api.calls.clear()
     assert sync_active_m1(api, "XAUUSD", NOW - 600, now=NOW) == 0
     assert api.calls == []
+
+def test_run_execution_reports_retry_and_never_raises(monkeypatch):
+    from types import SimpleNamespace
+
+    from bot import exness_worker
+    errors = []
+    monkeypatch.setattr(exness_worker, "record_error", lambda account, exc: errors.append(exc))
+    api = SimpleNamespace(account_id="1")
+    monkeypatch.setattr(exness_worker, "execution_tick", lambda _: "ok")
+    assert exness_worker.run_execution(api) == 0
+    def rate_limited(_):
+        raise ExnessError("limited", 30, rate_limited=True)
+    monkeypatch.setattr(exness_worker, "execution_tick", rate_limited)
+    assert exness_worker.run_execution(api) > 0
+    monkeypatch.setattr(exness_worker, "execution_tick", lambda _: 1 / 0)
+    assert exness_worker.run_execution(api) == 0
+    assert len(errors) == 2
+
+def test_live_candidates_false_on_unreadable_ledger(monkeypatch):
+    from bot import exness_worker
+    monkeypatch.setenv("FOREX_ENTRY_PILOT_ENABLED", "false")
+    monkeypatch.setattr("backend.app.forex_htf_v4.candidates", lambda *_: [{}])
+    assert exness_worker.live_candidates("1", "XAUUSD") is False  # pilot off: no early intent creation
+    monkeypatch.setenv("FOREX_ENTRY_PILOT_ENABLED", "true")
+    monkeypatch.setattr("backend.app.forex_htf_v4.candidates", lambda *_: (_ for _ in ()).throw(FileNotFoundError()))
+    assert exness_worker.live_candidates("1", "XAUUSD") is False
+    monkeypatch.setattr("backend.app.forex_htf_v4.candidates", lambda *_: [{}])
+    assert exness_worker.live_candidates("1", "XAUUSD") is True
+
+@pytest.mark.parametrize("candidate,rate_limited", [(True, False), (False, False), (True, True)])
+def test_worker_executes_candidate_before_syncing_next_symbol(monkeypatch, candidate, rate_limited):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from bot import exness_worker
+
+    calls = []
+
+    class Stop:
+        stopped = False
+
+        def is_set(self):
+            return self.stopped
+
+        def wait(self, seconds):
+            self.stopped = True
+            return True
+
+    api = SimpleNamespace(account_id="1", available_instruments={"XAUUSD", "EURUSD"}, client=Mock())
+    consumers = SimpleNamespace(ready=Mock(wait=Mock(return_value=True)), failed=Mock(is_set=Mock(return_value=False)),
+                                run=lambda: None)
+    monkeypatch.setenv("EXNESS_DATA_ENABLED", "true")
+    monkeypatch.setenv("FOREX_ENTRY_PILOT_ENABLED", "true")
+    monkeypatch.setattr(exness_worker.threading, "Event", Stop)
+    monkeypatch.setattr(exness_worker.threading, "Thread", Mock())
+    monkeypatch.setattr(exness_worker.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(exness_worker, "validate_mode", lambda: None)
+    monkeypatch.setattr(exness_worker, "configured_symbols", lambda: ["XAUUSD", "EURUSD"])
+    monkeypatch.setattr(exness_worker, "worker_heartbeat", lambda *_: None)
+    monkeypatch.setattr(exness_worker, "connect_exness", lambda: api)
+    monkeypatch.setattr(exness_worker, "feed_retry_delay", lambda *_: 0)
+    monkeypatch.setattr(exness_worker, "sync_specs", lambda api, symbol: calls.append(("sync", symbol)))
+    monkeypatch.setattr(exness_worker, "sync_page", lambda *args, **kwargs: None)
+    monkeypatch.setattr(exness_worker, "observation_tick", lambda **kwargs: None)
+    monkeypatch.setattr(exness_worker, "live_candidates", lambda account, symbol: candidate and symbol == "XAUUSD")
+    monkeypatch.setattr(exness_worker, "record_error", lambda *args: None)
+    monkeypatch.setattr(exness_worker.time, "monotonic", lambda: 1000)
+    monkeypatch.setattr("backend.app.forex_entry_consumer.EntryConsumers", lambda *args: consumers)
+    monkeypatch.setattr("backend.app.forex_htf_v4.active_start", lambda *args: None)
+    monkeypatch.setattr("backend.app.forex_htf_v4.tick", lambda account, symbol: calls.append(("capture", symbol)))
+    monkeypatch.setattr("backend.app.forex_paper.legacy_paper_tick", lambda: None)
+
+    def execute(api, *, symbol=None):
+        calls.append(("execute", symbol))
+        if rate_limited:
+            raise ExnessError("limited", 30, rate_limited=True)
+
+    monkeypatch.setattr(exness_worker, "execution_tick", execute)
+    exness_worker.main()
+    expected = [("sync", "XAUUSD"), ("capture", "XAUUSD")]
+    if candidate:
+        expected.append(("execute", "XAUUSD"))
+    if not rate_limited:
+        expected += [("sync", "EURUSD"), ("capture", "EURUSD"), ("execute", None)]
+    assert calls == expected
+    api.client.close.assert_called_once()

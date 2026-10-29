@@ -359,3 +359,29 @@ def test_viable_running_setups_skips_dead_setups():
     assert viable_running_setups(bundle, live, now, v) == 0
     live["d"][1] = mk("open", "s2")
     assert viable_running_setups(bundle, live, now, v) == 1
+
+def test_short_never_gets_limit_slot_and_ledger_still_validates(tmp_path):
+    import json
+
+    from backend.app.forex_htf_v4 import assign_policy
+    path = tmp_path / "v4.json"
+    ledger = initialize(path, "acc", "XAUUSD", 1000)
+    sides = ["short", "long", "short", "short", "long", "short", "short", "long"]
+    got = [assign_policy(ledger, f"s{i}", 1000 + i, side) for i, side in enumerate(sides)]
+    assert all(p != "limit_setup_mid" for p, side in zip(got, sides) if side == "short")
+    assert got[1] == "limit_setup_mid" and got[5] == "stop_trigger_break"  # long keeps the slot; short at slot 1 -> stop
+    path.write_text(json.dumps(ledger))
+    assert read_ledger("acc", "XAUUSD", path=path)["rr_counter"] == 8
+    ledger["assignments"]["s5"]["policy"] = "market"  # tamper
+    path.write_text(json.dumps(ledger))
+    with pytest.raises(ValueError):
+        read_ledger("acc", "XAUUSD", path=path)
+
+def test_legacy_ledger_without_side_still_valid(tmp_path):
+    import json
+    path = tmp_path / "v4.json"
+    ledger = initialize(path, "acc", "XAUUSD", 1000)
+    ledger["assignments"] = {f"s{i}": {"policy": POLICIES[i % 4]} for i in range(6)}
+    ledger["rr_counter"] = 6
+    path.write_text(json.dumps(ledger))
+    assert len(read_ledger("acc", "XAUUSD", path=path)["assignments"]) == 6

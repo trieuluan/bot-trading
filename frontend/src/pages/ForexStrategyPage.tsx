@@ -1184,7 +1184,7 @@ export function ForexEntryPilotPanel({
               </h4>
               <p className="muted-desc mt-1 text-xs leading-relaxed text-text-muted">
                 {pilot.note ||
-                  'Mỗi setup chỉ chọn một entry luân phiên Market → Limit → Stop → Hybrid. Bốn cây vẫn mô phỏng độc lập; không fallback.'}
+                  'Mỗi setup chọn entry luân phiên Market → Limit (Short dùng Stop) → Stop → Hybrid. Bốn cây mô phỏng độc lập; không fallback.'}
               </p>
             </div>
             <span

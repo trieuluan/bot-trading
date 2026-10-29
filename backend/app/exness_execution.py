@@ -470,7 +470,7 @@ def funnel(rows):
             "since": min((row["at"] for row in rows), default=None),
             "by_strategy": dict(Counter(item["strategy"] for row in evaluated for item in row["confirmed"]).most_common())}
 
-def execution_tick(api, now=None, entry_request=None):
+def execution_tick(api, now=None, entry_request=None, *, symbol=None):
     if not enabled():
         return "disabled"
     fingerprint = hashlib.sha256(api.account_id.encode()).hexdigest()[:16]
@@ -508,18 +508,18 @@ def execution_tick(api, now=None, entry_request=None):
                     reconcile(api, broker, observed_at)
                     return _symbol_execution_tick(api, broker, observed_at,
                                                   entry_request[1], entry_intent_id=entry_request[0])
-                result = _execution_tick(api, now)
+                result = _execution_tick(api, now) if symbol is None else _execution_tick(api, now, symbol=symbol)
                 observed_at = int(time.time()) if now is None else now
                 with Session.begin() as session:
                     state = session.get(ExnessExecutionState, api.account_id)
                     stamp = observed_at // 900 * 900 - 900
-                    for symbol in configured_symbols():
-                        if state and not any(row["time"] == stamp and row.get("symbol", "XAUUSD") == symbol
+                    for evaluated_symbol in configured_symbols() if symbol is None else (symbol,):
+                        if state and not any(row["time"] == stamp and row.get("symbol", "XAUUSD") == evaluated_symbol
                                              for row in state.snapshot.get("journal", [])):
-                            signal = evaluate(session, observed_at, symbol)
+                            signal = evaluate(session, observed_at, evaluated_symbol)
                             detail = {**session.info.get("execution_evaluation", {"candle_time": stamp}),
-                                      "symbol": symbol}
-                            reason = result.get(symbol) if isinstance(result, dict) else result
+                                      "symbol": evaluated_symbol}
+                            reason = result.get(evaluated_symbol) if isinstance(result, dict) else result
                             if reason == "waiting_signal":
                                 reason = None
                             record_journal(state, detail, tick_outcome(reason, signal, detail), observed_at)
@@ -530,7 +530,7 @@ def execution_tick(api, now=None, entry_request=None):
                                        {"name": "demo-" + api.account_id})
 
 
-def _execution_tick(api, now=None):
+def _execution_tick(api, now=None, *, symbol=None):
     now = int(time.time()) if now is None else now
     if not enabled():
         return "disabled"
@@ -558,13 +558,14 @@ def _execution_tick(api, now=None):
             ExnessExecutionTrade.account == api.account_id,
         ).distinct()).all()
     results = {}
-    for symbol in dict.fromkeys((*configured_symbols(), *managed)):
+    targets = tuple(dict.fromkeys((*configured_symbols(), *managed))) if symbol is None else (symbol,)
+    for sym in targets:
         try:
-            results[symbol] = _symbol_execution_tick(api, broker, now, symbol)
+            results[sym] = _symbol_execution_tick(api, broker, now, sym)
         except Exception as exc:
-            results[symbol] = type(exc).__name__ + ": " + str(exc)[:160]
-            record_error(api.account_id, exc, now, symbol=symbol)
-            if getattr(exc, "rate_limited", False) or getattr(exc, "account_blocked", False) or len(configured_symbols()) == 1:
+            results[sym] = type(exc).__name__ + ": " + str(exc)[:160]
+            record_error(api.account_id, exc, now, symbol=sym)
+            if getattr(exc, "rate_limited", False) or getattr(exc, "account_blocked", False) or len(targets) == 1:
                 raise
     return next(iter(results.values())) if len(results) == 1 else results
 

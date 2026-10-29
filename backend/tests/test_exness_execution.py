@@ -1254,3 +1254,16 @@ def test_virtual_triggered_expiry_preserves_invalidation(monkeypatch, tmp_path, 
         assert row.status == "triggered"
         assert row.snapshot.get("continuity_error") == ("setup_invalidated" if invalidated else None)
     api.client.request.assert_not_called()
+
+def test_execution_tick_symbol_scope_runs_only_that_symbol(monkeypatch):
+    monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
+    api = dummy_api()
+    seen = []
+    monkeypatch.setattr(ee, "reconcile", lambda *_: None)
+    monkeypatch.setattr(ee, "sync_deals", lambda *_: None)
+    monkeypatch.setattr(ee, "_symbol_execution_tick", lambda api, broker, now, symbol: seen.append(symbol) or "waiting_signal")
+    assert ee._execution_tick(api, now=NOW, symbol="EURUSD") == "waiting_signal"
+    assert seen == ["EURUSD"]
+    seen.clear()
+    ee._execution_tick(api, now=NOW)
+    assert seen == ["XAUUSD", "EURUSD"]

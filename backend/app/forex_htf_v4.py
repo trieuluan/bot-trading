@@ -154,7 +154,8 @@ def read_ledger(account, symbol="XAUUSD", *, path=None):
     if ledger["rr_counter"] != len(assignments):
         raise ValueError("V4 assignment counter mismatch")
     for index, assignment in enumerate(assignments.values()):
-        if assignment["policy"] != POLICIES[index % len(POLICIES)]:
+        if (assignment.get("side", "long") not in ("long", "short")
+                or assignment["policy"] != live_policy(POLICIES[index % len(POLICIES)], assignment.get("side", "long"))):
             raise ValueError("V4 assignment policy mismatch")
     return ledger
 
@@ -367,13 +368,16 @@ def busy_strategies(session, account, symbol):
     return busy
 
 
-def assign_policy(ledger, setup_id, now):
+def live_policy(slot, side):
+    return "stop_trigger_break" if side == "short" and slot == "limit_setup_mid" else slot
+
+def assign_policy(ledger, setup_id, now, side="long"):
     assignments = ledger["assignments"]
     if setup_id not in assignments:
-        assignments[setup_id] = {"policy": POLICIES[ledger["rr_counter"] % len(POLICIES)], "assigned_at": now}
+        slot = POLICIES[ledger["rr_counter"] % len(POLICIES)]
+        assignments[setup_id] = {"policy": live_policy(slot, side), "side": side, "assigned_at": now}
         ledger["rr_counter"] += 1
     return assignments[setup_id]["policy"]
-
 
 def capture_samples(ledger, candle, bids, asks, condition, slip, commission, market, now):
     from .forex_entry_policy import live_entry_allowed
@@ -394,7 +398,7 @@ def capture_samples(ledger, candle, bids, asks, condition, slip, commission, mar
         if any((identifier, setup_id) in used for identifier in bundle["trees"].values()):
             rejected["setup_reused"] += 4
             continue
-        assigned = assign_policy(ledger, setup_id, now)
+        assigned = assign_policy(ledger, setup_id, now, source["side"])
         for policy, identifier in bundle["trees"].items():
             tree = ledger["members"][identifier]["tree"]
             signal = {**copy.deepcopy(source), "strategy": identifier, "symbol": symbol,
