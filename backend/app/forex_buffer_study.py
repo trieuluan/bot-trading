@@ -146,7 +146,7 @@ def closed_h1_rows(rows, now):
                                        high=max(r.high for r in group), low=min(r.low for r in group)))
     return out
 
-def initialize_variant(row, bid_open, ask_open, entry_time, slip, commission):
+def initialize_variant(row, bid_open, ask_open, entry_time, slip, commission, *, normalized=False):
     signal, condition = row["signal"], row["condition"]
     direction = 1 if signal["side"] == "long" else -1
     tick = Decimal(1).scaleb(-condition["point_digits"])
@@ -169,19 +169,20 @@ def initialize_variant(row, bid_open, ask_open, entry_time, slip, commission):
         target, reason = (htf_exit_target(signal, entry, stop, tick, slip, commission, condition)
                           if signal.get("htf_ast") or signal.get("htf_ast_v2")
                           else exit_target(signal, entry, stop, tick))
-        volume = size_lot(risk, condition, equity=Decimal("2500"))
+        volume = Decimal("1") if normalized else size_lot(risk, condition, equity=Decimal("2500"))
     except ExnessError as exc:
         row.update(status="skipped", reason=str(exc))
         return
-    if volume * Decimal(str(condition["contract_size"])) * entry * Decimal(str(condition.get("quote_to_account_loss", "1"))) > 50000:
+    if not normalized and volume * Decimal(str(condition["contract_size"])) * entry * Decimal(str(condition.get("quote_to_account_loss", "1"))) > 50000:
         row.update(status="skipped", reason="notional_ceiling")
         return
     body = {"side": "buy" if direction == 1 else "sell", "volume": str(volume),
             "stop_loss_price": str(stop), "take_profit_price": str(target)}
     if signal.get("htf_ast_v2") and signal.get("exit_policy") in ADAPTIVE_EXITS:
-        legs = plan_legs(signal, body, condition, entry)
+        legs = plan_legs(signal, body, condition, entry, normalized=normalized)
     else:
-        legs = split_bodies(body, condition, entry, partial_be=signal.get("split", signal.get("partial_be", True)))
+        legs = split_bodies(body, condition, entry, partial_be=signal.get("split", signal.get("partial_be", True)),
+                            normalized=normalized)
     for leg in legs:
         leg["weight"] = float(Decimal(leg["volume"]) / volume)
         leg["open"] = True

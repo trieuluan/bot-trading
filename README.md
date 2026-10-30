@@ -745,7 +745,8 @@ M15 trigger; không có cản hợp lệ hoặc runner R/R sau chi phí dưới 
 - TP1/Runner dùng chung ngân sách setup, không phải 1% mỗi ticket. Lưu equity/ngân sách lúc lập kế hoạch; trước mỗi lần gửi, đối chiếu equity mới và không vượt ngân sách gốc. Thiếu/không hợp lệ equity thì không mở lệnh; không fallback sang $25. Các biến cũ `EXNESS_DEMO_MAX_LOT` và `EXNESS_DEMO_RISK_PER_TRADE_USD` không còn áp dụng.
 - 1% là rủi ro giá tới SL, chưa gồm phí/swap/trượt giá, không phải margin hay bảo đảm lỗ tối đa. Giới hạn tính theo setup và broker kiểm tra margin. Không thay lot/SL/TP của lệnh đã mở; lệnh kiểm tra thủ công vẫn 0.01 lot.
 - Thanh tài khoản hiện ngân sách setup và đòn bẩy cấu hình của cặp đang xem từ specs cache, không thêm API broker/polling. Theo Exness API: `forex`/`cfd_leverage` dùng account leverage, `forex_no_leverage`/`cfd` dùng nghịch đảo `margin_percent` (tỷ lệ, không chia thêm 100). Đây chưa phải mức HMR realtime; specs thiếu/stale hiện `—`.
-- Replay SL/TP hiện có vẫn dùng tài khoản tham chiếu $2,500 (ngân sách $25), không lấy equity broker hiện tại để sửa kết quả lịch sử; không cộng kết quả replay vào rủi ro giao dịch.
+- Mẫu Shadow V4 mới (`sizing_mode=normalized_r_v1`) đo hiệu quả theo R, chốt từng phần theo tỷ trọng chính xác, không bị vốn $2,500, lot tối thiểu hay trần notional chặn. Vẫn kiểm tra giá, dữ liệu, spread, SL/TP và chi phí; không gửi lệnh broker.
+- Mẫu cũ và replay mặc định giữ mô phỏng vốn $2,500 (ngân sách $25), không sửa kết quả lịch sử. Thống kê cây V4 chỉ dùng phiên bản logic hiện tại; giao diện phân biệt mẫu chuẩn hóa R với vốn giả lập cũ. Không suy ra USD hoặc lot thật từ tỷ trọng R; broker vẫn giữ toàn bộ kiểm tra vốn/lot.
 
 #### Tài liệu execution cũ (chỉ tham khảo lịch sử)
 

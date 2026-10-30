@@ -644,3 +644,66 @@ def test_hybrid_replay_enters_next_bar_open(monkeypatch, side):
     entered = run(signal, bars, bars, minutes, [], condition, costs, 3600, duration=900)
     assert entered["entry_time"] == entered["confirmed_at"] == 2700 and entered["winner"] == "stop"
     assert entered["entry"] == bars[-1].open
+
+def test_normalized_replay_ignores_lot_budget_and_keeps_exact_partials(monkeypatch):
+    from backend.app.forex_entry_replay import run
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    monkeypatch.setenv("EXNESS_DEMO_RISK_PER_TRADE_USD", "25")
+    condition = {"contract_size": "10000", "volume_min": "0.01", "volume_step": "0.01", "volume_max": "10",
+                 "point_digits": 3, "instrument": "XAUUSD"}
+    costs = {"commission_per_unit": 0, "slippage_bps": 0}
+    signal = replay_signal()
+    signal["split"] = True
+    signal["entry_policy"] = {"policy": "market", "limit_price": None, "stop_price": None,
+                              "available_at": 1800, "expires_at": 1920}
+    bars = [SimpleNamespace(time=1800, open=100, close=100, low=99.5, high=100.5)]
+    legacy = run(copy.deepcopy(signal), bars, bars, [], [], condition, costs, 2700, duration=900)
+    assert legacy["status"] == "excluded" and "risk budget" in legacy["reason"]
+    entered = run(copy.deepcopy(signal), bars, bars, [], [], condition, costs, 2700, duration=900, normalized=True)
+    assert entered["status"] == "open"
+    legs = entered["execution"]["legs"]
+    assert [(leg["role"], leg["weight"]) for leg in legs] == [("tp1", .5), ("runner", .5)]
+    assert legs[0]["take_profit_price"] == "105.000"
+    bad = copy.deepcopy(signal)
+    bad["stop"] = 101.0
+    assert run(bad, bars, bars, [], [], condition, costs, 2700, duration=900, normalized=True)["status"] == "excluded"
+    for rate in (0, -1, None, "bad", float("nan")):
+        assert run(signal, bars, bars, [], [], {**condition, "quote_to_account_loss": rate}, costs,
+                   2700, duration=900, normalized=True)["reason"] == "invalid_replay_conversion"
+
+
+@pytest.mark.parametrize("side", ["long", "short"])
+def test_normalized_replay_costs_and_partial_results_match_legacy_r(monkeypatch, side):
+    from backend.app.forex_entry_replay import run
+
+    monkeypatch.setattr("backend.app.forex_buffer_study.session_closed_ahead", lambda *_: False)
+    condition = {"contract_size": "100", "volume_min": "0.01", "volume_step": "0.01", "volume_max": "10",
+                 "point_digits": 3, "instrument": "XAUUSD", "quote_to_account_loss": 1, "quote_to_account_gain": 1}
+    costs = {"commission_per_unit": .1, "slippage_bps": 1}
+    signal = replay_signal()
+    signal.update(split=True, side=side)
+    signal["entry_policy"] = {"policy": "market", "available_at": 1800, "expires_at": 1920}
+    direction = 1 if side == "long" else -1
+    signal.update(stop=100 - direction * 5, target=100 + direction * 15)
+    signal["htf_structure"]["invalidation"] = signal["stop"]
+    bid = SimpleNamespace(time=1800, open=100, close=100 + direction * 16,
+                          low=99 if side == "long" else 84, high=116 if side == "long" else 101)
+    ask = SimpleNamespace(**{key: value + .1 if key != "time" else value for key, value in vars(bid).items()})
+    normalized = run(copy.deepcopy(signal), [bid], [ask], [], [], condition, costs, 1860, normalized=True)
+    assert normalized["status"] == "resolved"
+    assert [leg["weight"] for leg in normalized["execution"]["legs"]] == [.5, .5]
+    assert all(leg["outcome"] == "target" for leg in normalized["execution"]["legs"])
+    legacy = run(copy.deepcopy(signal), [bid], [ask], [], [], condition, costs, 1860)
+    assert legacy["status"] == "resolved"
+    assert normalized["net_r_ex_swap"] == pytest.approx(legacy["net_r_ex_swap"])
+
+
+def test_advance_forward_keeps_legacy_sizing_and_opts_in_new_samples(monkeypatch):
+    from backend.app.forex_entry_replay import advance_forward
+
+    flags = []
+    monkeypatch.setattr("backend.app.forex_entry_replay.run", lambda *args, **kwargs: flags.append(kwargs["normalized"]) or {})
+    samples = [{"status": "waiting", "signal": replay_signal(), "condition": {}, "costs": {}} for _ in range(2)]
+    samples[1]["sizing_mode"] = "normalized_r_v1"
+    advance_forward(samples, {"15m": [], "1h": []}, {}, 1900)
+    assert flags == [False, True]

@@ -69,7 +69,7 @@ def barrier_runner(side, entry, stop, context):
                  and direction * (item[0] - float(entry)) >= 1.5 * abs(float(entry - stop))), None)
 
 
-def plan_legs(signal, body, condition, entry):
+def plan_legs(signal, body, condition, entry, *, normalized=False):
     policy = signal["exit_policy"]
     params = parameters(policy, signal.get("exit_params"))
     runner = {**body, "role": "runner"}
@@ -86,14 +86,15 @@ def plan_legs(signal, body, condition, entry):
         if target is None:
             signal["partial_skip_reason"] = "no_partial_barrier"
             return [runner]
-    volume, minimum, step = (Decimal(str(value)) for value in
-                             (body["volume"], condition["volume_min"], condition["volume_step"]))
-    minimum = max(minimum, Decimal("0.01"))
+    volume = Decimal(str(body["volume"]))
     count = 2 if policy == "ladder_h1" else 1
     part = volume * Decimal(str(params["fraction"]))
-    part = minimum + ((part - minimum) / step).to_integral_value(rounding=ROUND_FLOOR) * step
+    if not normalized:
+        minimum = max(Decimal(condition["volume_min"]), Decimal("0.01"))
+        step = Decimal(condition["volume_step"])
+        part = minimum + ((part - minimum) / step).to_integral_value(rounding=ROUND_FLOOR) * step
     rest = volume - count * part
-    if part < minimum or rest < minimum or (rest - Decimal(condition["volume_min"])) % step:
+    if not normalized and (part < minimum or rest < minimum or (rest - Decimal(condition["volume_min"])) % step):
         signal["partial_skip_reason"] = "insufficient_split_lot"
         return [runner]
     legs = [{**body, "volume": format(part, "f"), "role": f"partial{index + 1}"} for index in range(count)]

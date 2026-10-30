@@ -453,3 +453,32 @@ def test_legacy_ledger_without_side_still_valid(tmp_path):
     ledger["rr_counter"] = 6
     path.write_text(json.dumps(ledger))
     assert len(read_ledger("acc", "XAUUSD", path=path)["assignments"]) == 6
+
+def test_normalized_shadow_hides_fake_lots_and_dollars():
+    from backend.app.forex_htf_v4 import shadow_trade
+
+    sample = {"strategy": "hast4_test", "setup_id": "s", "side": "long", "status": "open",
+              "sizing_mode": "normalized_r_v1",
+              "signal": {"available_at": 900, "stop": 99, "target": 103, "entry_policy": {"policy": "market"}},
+              "costs": {"verified": True}, "condition": {"account_currency": "USD", "contract_size": 100,
+                                                         "quote_to_account_loss": 1, "conversion": {"verified": True}},
+              "execution": {"entry": 100, "risk": 1, "legs": [{"role": "tp1", "volume": "0.5", "weight": .5},
+                                                               {"role": "runner", "volume": "0.5", "weight": .5}]}}
+    view = shadow_trade(sample, "XAUUSD")
+    assert view["sizing_mode"] == "normalized_r_v1"
+    assert view["valuation"]["risk_usd"] is None
+    assert [(leg["volume"], leg["weight"]) for leg in view["legs"]] == [(None, .5), (None, .5)]
+
+def test_summary_tree_stats_only_use_current_logic_version(monkeypatch):
+    from backend.app.forex_htf_v4 import summary
+
+    pop, _ = make_v4_g0_bundle("EURUSD")
+    tid = tree_id(pop[0])
+    ledger = {"samples": [{"strategy": tid, "side": "long", "status": "resolved", "net_r_ex_swap": r,
+                           "strategy_version": version, "confirm_time": 0, "signal": {"available_at": 900}}
+                          for r, version in ((-1.0, "old"), (2.0, logic_version()))],
+              "population": [pop[0]], "members": {tid: {}}, "since": 0, "bundles": {}}
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: ledger)
+    tree = summary("account", "EURUSD")["trees"][0]
+    assert tree["mean_r"] == 2.0 and tree["samples_count"] == 1
+    assert len(summary("account", "EURUSD")["shadow_trades"]) == 2

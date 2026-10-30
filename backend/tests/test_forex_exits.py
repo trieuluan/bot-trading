@@ -62,3 +62,11 @@ def test_action_evidence_exits_on_weakness_not_strength():
     rows.append(bar(26 * 3600, 103.4, 103.5, 101.8, 102.0))
     act2 = action(sig, rows, 100.0, 1.0, 0, 99.0, COND, 102.0)
     assert act2 is not None and act2["close_roles"] == ["partial1"]
+
+def test_plan_legs_normalized_uses_exact_fractions_without_lot_floor():
+    body = {"side": "buy", "volume": "1", "stop_loss_price": "99.000", "take_profit_price": "105.000"}
+    sig = {"exit_policy": "evidence_h1", "side": "long"}
+    assert [leg["volume"] for leg in plan_legs(sig, body, COND, Decimal("100"), normalized=True)] == ["0.3", "0.7"]
+    assert sig["partial_skip_reason"] is None
+    sig = {"exit_policy": "ladder_h1", "side": "long"}
+    assert [leg["volume"] for leg in plan_legs(sig, body, COND, Decimal("100"), normalized=True)] == ["0.3", "0.3", "0.4"]

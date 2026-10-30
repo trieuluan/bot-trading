@@ -1255,6 +1255,42 @@ def test_virtual_triggered_expiry_preserves_invalidation(monkeypatch, tmp_path, 
         assert row.snapshot.get("continuity_error") == ("setup_invalidated" if invalidated else None)
     api.client.request.assert_not_called()
 
+@pytest.mark.parametrize("delay,new_bar,connected,status,reason", [
+    (30, None, True, "waiting", None),                     # H1 sync lag: hold, never trigger blind
+    (130, None, True, "cancelled", "h1_data_gap"),        # bar still missing after grace
+    (30, 4000, True, "triggered", None),                   # bar landed: normal trigger
+    (30, 3995, True, "cancelled", "setup_invalidated"),   # closed through invalidation
+    (30, None, False, "cancelled", "stream_disconnected"),
+    (30, None, "disabled", "cancelled", "control_disabled"),  # hold keeps other guards
+    (30, None, "stale", "cancelled", "quote_stale"),
+])
+def test_virtual_entry_h1_sync_grace(monkeypatch, tmp_path, delay, new_bar, connected, status, reason):
+    from backend.app.db import ExnessEntryIntent, WorkspaceCandle
+    from backend.app.forex_entry_intents import consume_quote
+    api = dummy_api()
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    now = NOW + 3600 + delay
+    quote = {"bid": 4000, "ask": 4000.25, "time": now - 5 if connected == "stale" else now, "received_at": now}
+    with Session.begin() as session:
+        session.get(ExnessExecutionState, api.account_id).enabled = connected != "disabled"
+        row = session.get(ExnessEntryIntent, identifier)
+        row.status = "waiting"
+        row.snapshot = {key: value for key, value in row.snapshot.items()
+                        if key not in ("winner", "triggered_at", "trigger_quote")} | {
+            "status": "waiting", "policy": "market", "last_quote": {**quote, "time": now - 1, "received_at": now - 1}}
+        for time_, close in ((NOW - 3600, 4000), (NOW, new_bar)):
+            if close is not None:
+                session.add(WorkspaceCandle(workspace_id="exness_forex", symbol="XAUUSD", timeframe="1h",
+                                           price_type="bid", time=time_, open=4000, high=4002, low=3994, close=close))
+    with Session.begin() as session:
+        consume_quote(session, api.account_id, "XAUUSD", quote, now, connected=connected is not False)
+    with Session() as session:
+        row = session.get(ExnessEntryIntent, identifier)
+        assert (row.status, row.snapshot.get("reason")) == (status, reason)
+        if status == "waiting":
+            assert row.snapshot["last_quote"]["time"] == now
+    api.client.request.assert_not_called()
+
 def test_execution_tick_symbol_scope_runs_only_that_symbol(monkeypatch):
     monkeypatch.setenv("EXNESS_SYMBOLS", "XAUUSD,EURUSD")
     api = dummy_api()

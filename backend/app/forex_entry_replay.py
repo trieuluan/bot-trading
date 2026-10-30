@@ -14,6 +14,8 @@ from .forex_entry_policy import (
     touched,
 )
 
+NORMALIZED_SIZING = "normalized_r_v1"
+
 
 def compare(bundle):
     from .forex_entry_policy import POLICIES, entry_node, levels
@@ -74,10 +76,11 @@ def advance_forward(samples, bids, asks, now):
         if not use_minute:
             bid_rows, ask_rows = bids["15m"], list(asks.values())
         sample.update(run(sample["signal"], bid_rows, ask_rows, bids["15m"], bids["1h"], sample["condition"],
-                          sample["costs"], now, duration=60 if use_minute else 900))
+                          sample["costs"], now, duration=60 if use_minute else 900,
+                          normalized=sample.get("sizing_mode") == NORMALIZED_SIZING))
 
 
-def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, duration=60):
+def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, duration=60, normalized=False):
     if duration not in (60, 900):
         raise ValueError("Replay requires M1 or explicit M15 fallback")
     result = {"status": "pending", "resolution_seconds": duration,
@@ -87,6 +90,13 @@ def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, du
     if any(type(costs[key]) not in (int, float) or not math.isfinite(costs[key]) or costs[key] < 0
            for key in ("commission_per_unit", "slippage_bps")):
         return {**result, "status": "excluded", "reason": "invalid_replay_costs"}
+    if normalized:
+        try:
+            rates = [float(condition.get(key, 1)) for key in ("quote_to_account_gain", "quote_to_account_loss")]
+        except (TypeError, ValueError, OverflowError):
+            return {**result, "status": "excluded", "reason": "invalid_replay_conversion"}
+        if any(not math.isfinite(rate) or rate <= 0 for rate in rates):
+            return {**result, "status": "excluded", "reason": "invalid_replay_conversion"}
     asks = {bar.time: bar for bar in ask_rows if bar.time + duration <= now}
     rows = sorted((bar for bar in bid_rows if signal["available_at"] <= bar.time and bar.time + duration <= now),
                   key=lambda bar: bar.time)
@@ -141,7 +151,7 @@ def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, du
                     alternative = copy.deepcopy(signal)
                     alternative["entry_policy"]["limit_price" if branch == "stop" else "stop_price"] = None
                     scenarios[branch] = run(alternative, bid_rows, ask_rows, minutes, hours, condition,
-                                            costs, now, duration=duration)
+                                            costs, now, duration=duration, normalized=normalized)
                 lows = [row.get("lower_r", row.get("net_r_ex_swap")) for row in scenarios.values()]
                 highs = [row.get("upper_r", row.get("net_r_ex_swap")) for row in scenarios.values()]
                 return {**result, **touch, "reason": "entry_order_unknown", "scenarios": scenarios,
@@ -161,7 +171,7 @@ def run(signal, bid_rows, ask_rows, minutes, hours, condition, costs, now, *, du
                 return {**result, "status": "excluded", "reason": "invalid_bid_ask"}
             bid_open = touch["entry"] - spread if direction == 1 else touch["entry"]
             ask_open = touch["entry"] if direction == 1 else touch["entry"] + spread
-            initialize_variant(simulation, bid_open, ask_open, bid.time, slip, commission)
+            initialize_variant(simulation, bid_open, ask_open, bid.time, slip, commission, normalized=normalized)
             if simulation["status"] != "open":
                 return {**result, "status": "excluded", "reason": simulation.get("reason", "entry_preflight_failed")}
             result.update(winner=touch["winner"], entry=simulation["entry"], entry_time=bid.time)

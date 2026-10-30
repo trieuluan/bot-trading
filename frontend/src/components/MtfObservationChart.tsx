@@ -363,7 +363,6 @@ export function MtfObservationChart({
     lines.current = [];
     ranges.current.forEach((range) => chart.current?.removeSeries(range));
     ranges.current = [];
-    markers.current?.setMarkers([]);
 
     const points: SeriesMarker<Time>[] = [];
     if (snapshot) {
@@ -466,7 +465,7 @@ export function MtfObservationChart({
       }
     }
     const candleTimes = new Set(candles.map((candle) => candle.time));
-    if (liveCandles.at(-1)) candleTimes.add(liveCandles.at(-1)!.time);
+    for (const live of liveCandles) if (live.time > (candles.at(-1)?.time ?? -1)) candleTimes.add(live.time);
     const events = new Map<string, SeriesMarker<Time> & { count: number }>();
     const addEvent = (time: number, side: string, text: string, color: string) => {
       const bucket = Math.floor(time / frameSeconds) * frameSeconds;
@@ -502,7 +501,7 @@ export function MtfObservationChart({
       for (const deal of trade.deals) {
         if (deal.type !== 'open') continue;
         const bucket = Math.floor(deal.event_time / frameSeconds) * frameSeconds;
-        if (!candles.some((candle) => candle.time === bucket)) continue;
+        if (!candleTimes.has(bucket)) continue;
         const markerId = group?.id ?? trade.position_id;
         if (marked.has(markerId)) continue;
         marked.add(markerId);
@@ -569,7 +568,7 @@ export function MtfObservationChart({
     }
     markers.current?.setMarkers(points.sort((a, b) => Number(a.time) - Number(b.time)));
   }, [snapshot, candles, levelLabel, executions, selectedPositionId, frameSeconds, entryIntents,
-    recordedSignals, liveCandles.at(-1)?.time, selectedShadow, pricePrecision]);
+    recordedSignals, liveCandles, selectedShadow, pricePrecision]);
 
   useEffect(() => {
     const priceSeries = series.current;
@@ -800,6 +799,11 @@ export function MtfObservationChart({
     }
     return clear;
   }, [analysis, candles, shown, frameSeconds]);
+
+  useEffect(() => {
+    const plugin = markers.current;
+    if (plugin) plugin.setMarkers([...plugin.markers()]);
+  }, [analysis, candles, liveCandles, shown, frameSeconds, snapshot]);
 
   useEffect(() => {
     let frame = 0;

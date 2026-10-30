@@ -26,6 +26,7 @@ from .forex_entry_policy import (
     tree_id,
     with_entry,
 )
+from .forex_entry_replay import NORMALIZED_SIZING
 from .forex_migration import atomic_json
 
 PROVENANCE = "live_forward_htf_ast4_v2"
@@ -176,8 +177,9 @@ def shadow_trade(sample, symbol):
     volumes = [number(leg.get("volume")) for leg in execution.get("legs", [])]
     risk, contract, conversion = (number(execution.get("risk")), number(condition.get("contract_size")),
                                   number(condition.get("quote_to_account_loss")))
+    normalized = sample.get("sizing_mode") == NORMALIZED_SIZING
     risk_usd = None
-    if (condition.get("account_currency") == "USD" and sample.get("costs", {}).get("verified") is True
+    if (not normalized and condition.get("account_currency") == "USD" and sample.get("costs", {}).get("verified") is True
             and condition.get("conversion", {}).get("verified") is True
             and all(value is not None and value > 0 for value in (risk, contract, conversion))
             and volumes and all(value is not None and value > 0 for value in volumes)):
@@ -187,7 +189,7 @@ def shadow_trade(sample, symbol):
         "id": json.dumps([symbol, sample["strategy"], sample.get("setup_id"), signal["available_at"]]),
         "symbol": symbol, "strategy": sample["strategy"], "side": sample["side"],
         "status": sample["status"], "available_at": signal["available_at"],
-        "policy": policy.get("policy"), "live_assigned": sample.get("live_assigned", False),
+        "policy": policy.get("policy"), "sizing_mode": sample.get("sizing_mode"), "live_assigned": sample.get("live_assigned", False),
         "reason": sample.get("reason"), "resolution_seconds": sample.get("resolution_seconds"),
         "entry": number(execution.get("entry")), "entry_time": number(execution.get("entry_time")),
         "resolved_at": number(execution.get("resolved_at")),
@@ -206,7 +208,7 @@ def shadow_trade(sample, symbol):
             if (price := number(value)) is not None and price > 0],
         "legs": [{"role": leg.get("role", "trade"), "open": leg.get("open") is True,
                   "weight": number(leg.get("weight")),
-                  "volume": number(leg.get("volume")), "stop": number(leg.get("stop_loss_price")),
+                  "volume": None if normalized else number(leg.get("volume")), "stop": number(leg.get("stop_loss_price")),
                   "target": number(leg.get("take_profit_price")), "outcome": leg.get("outcome")}
                  for leg in execution.get("legs", [])],
         "exits": [{"time": event["at"], "price": price, "role": event.get("role"),
@@ -464,7 +466,7 @@ def capture_samples(ledger, candle, bids, asks, condition, slip, commission, mar
             sample = {"strategy": identifier, "tree": tree, "signal": signal, "side": signal["side"],
                       "cohort_id": ledger["cohort_id"], "bundle_id": bundle["id"], "setup_id": setup_id,
                       "confirm_time": stamp, "recorded_at": now, "strategy_version": version,
-                      "provenance": PROVENANCE, "status": "waiting",
+                      "provenance": PROVENANCE, "status": "waiting", "sizing_mode": NORMALIZED_SIZING,
                       "live_assigned": policy == assigned and live_entry_allowed({"policy": policy}, signal["side"]),
                       "condition": condition, "costs": {"verified": True, "slippage_bps": slip["bps"],
                       "commission_per_unit": commission, "conversion": condition.get("conversion")}}
@@ -621,13 +623,14 @@ def summary(account, symbol="XAUUSD"):
         samples_by_tree = defaultdict(list)
         for s in ledger["samples"]:
             samples_by_tree[s["strategy"]].append(s)
-            
+
+        version, now = logic_version(), int(time.time())
         tree_summaries = []
         for tree in ledger["population"]:
             tid = tree_id(tree)
             mem = ledger["members"].get(tid, {})
             b_id = mem.get("bundle_id")
-            s_list = samples_by_tree[tid]
+            s_list = [s for s in samples_by_tree[tid] if s.get("strategy_version") == version]
             resolved = [s["net_r_ex_swap"] for s in s_list if s["status"] == "resolved" and s.get("net_r_ex_swap") is not None]
             zero_r = sum(map(is_zero_r_expiry, s_list))
             resolved += [0.0] * zero_r
@@ -648,7 +651,6 @@ def summary(account, symbol="XAUUSD"):
                 "mean_r": mean(resolved) if resolved else None,
             })
             
-        version, now = logic_version(), int(time.time())
         bundle_summaries = {}
         for b_id, bundle in ledger.get("bundles", {}).items():
             stats = bundle_stats(b_id, bundle, samples_by_tree, now, version)

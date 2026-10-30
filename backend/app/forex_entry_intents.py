@@ -152,9 +152,12 @@ def consume_quote(session, account, symbol, quote, now, *, connected=True, inval
         current = quote.get("bid" if row.side == "long" else "ask") if isinstance(quote, dict) else None
         broken = (invalidated or any(direction * (bar.close - structure["invalidation"]) <= 0 for bar in hours)
                   or type(current) in (int, float) and direction * (current - structure["invalidation"]) <= 0)
-        fresh = bool(hours and hours[0].time == structure["confirmed_h1"]
-                     and hours[-1].time == int(now) // 3600 * 3600 - 3600
-                     and all(right.time - left.time == 3600 for left, right in zip(hours, hours[1:])))
+        latest_closed_h1 = int(now) // 3600 * 3600 - 3600
+        contiguous = bool(hours and hours[0].time == structure["confirmed_h1"]
+                          and all(right.time - left.time == 3600 for left, right in zip(hours, hours[1:])))
+        # ponytail: worker needs up to 120s past the hour to commit the new H1 bar; fixed window, make it a setting only if sync gets slower.
+        syncing = contiguous and hours[-1].time == latest_closed_h1 - 3600 and now - (latest_closed_h1 + 3600) < 120
+        fresh = contiguous and hours[-1].time == latest_closed_h1
         previous_status = row.status
         candles = session.scalars(select(WorkspaceCandle).where(
             WorkspaceCandle.workspace_id == WORKSPACE, WorkspaceCandle.symbol == symbol,
@@ -163,7 +166,12 @@ def consume_quote(session, account, symbol, quote, now, *, connected=True, inval
             WorkspaceCandle.time + 900 <= now,
         ).order_by(WorkspaceCandle.time)).all() if row.snapshot.get("policy") in ("stop_trigger_break", "limit_setup_mid", "limit_or_stop") else ()
         observation = observe({**row.snapshot, "status": "waiting"}, quote, now,
-                              connected=connected and fresh, allowed=allowed, invalidated=broken, candles=candles)
+                              connected=connected and (fresh or syncing), allowed=allowed, invalidated=broken, candles=candles)
+        if syncing and observation["status"] == "triggered":
+            # New H1 not stored yet: keep every other guard, only hold the trigger; last_quote advances so quote_gap stays honest.
+            observation = {**row.snapshot, "status": "waiting", "last_quote": observation["last_quote"]}
+        if connected and not fresh and observation.get("reason") == "stream_disconnected":
+            observation = {**observation, "reason": "h1_data_gap"}  # H1 history stale, not a quote-stream fault
         if previous_status != "waiting":
             row.snapshot = {**row.snapshot, "last_quote": observation.get("last_quote", row.snapshot.get("last_quote"))}
             # Expiry after trigger must not block a submit already in flight (window bounded by SUBMIT_WINDOW).

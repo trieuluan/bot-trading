@@ -57,17 +57,19 @@ def size_lot(distance, condition, conversion_rate=Decimal("1"), *, equity):
     return volume
 
 
-def split_bodies(body, condition, entry, partial_be=True):
+def split_bodies(body, condition, entry, partial_be=True, *, normalized=False):
     if type(partial_be) is not bool:
         raise ExnessError("Invalid partial_be")
     if not partial_be:
         return [{**body, "role": "runner"}]
     volume = Decimal(body["volume"])
-    minimum = Decimal(condition["volume_min"])
-    step = Decimal(condition["volume_step"])
-    half = minimum + ((volume / 2 - minimum) / step).to_integral_value(rounding=ROUND_FLOOR) * step
+    half = volume / 2
+    if not normalized:
+        minimum = Decimal(condition["volume_min"])
+        step = Decimal(condition["volume_step"])
+        half = minimum + ((half - minimum) / step).to_integral_value(rounding=ROUND_FLOOR) * step
     rest = volume - half
-    if half < max(minimum, Decimal("0.01")) or rest < max(minimum, Decimal("0.01")) or (rest - minimum) % step:
+    if not normalized and (half < max(minimum, Decimal("0.01")) or rest < max(minimum, Decimal("0.01")) or (rest - minimum) % step):
         return [{**body, "role": "runner"}]
     stop = Decimal(body["stop_loss_price"])
     target = (entry + (entry - stop))

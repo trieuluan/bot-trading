@@ -177,3 +177,15 @@ test('setup detail view keeps execution first and has no duplicate price dropdow
   assert.ok(i('Kết quả thực thi') < i('Kế hoạch giá') && i('Kế hoạch giá') < i('Bối cảnh tín hiệu'));
   assert.equal(i('Mức giá canh đã lưu'), -1);
 });
+
+test('MtfObservationChart syncs markers after overlays and matches broker deals on live candle', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../src/components/MtfObservationChart.tsx', import.meta.url), 'utf8');
+
+  // Broker deals must check displayed candle times including live candle, not just closed DB candles
+  assert.match(src, /if\s*\(!candleTimes\.has\(bucket\)\)\s*continue;/);
+  assert.match(src, /for\s*\(const\s+live\s+of\s+liveCandles\)/);
+
+  // Markers must re-index after overlay/zone effects mutate the chart timeline
+  assert.match(src, /plugin\.setMarkers\(\[\.\.\.plugin\.markers\(\)\]\)/);
+});

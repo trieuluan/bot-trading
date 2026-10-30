@@ -320,6 +320,7 @@ const rejectLabels: Record<string, [string, string]> = {
   quote_gap: ['Mất liên tục giá', 'Không có quote quá 60 giây'],
   quote_out_of_order: ['Quote ngược thời gian', 'Hủy để tránh suy đoán nhánh chạm trước'],
   stream_disconnected: ['Mất luồng giá', 'Hủy chờ; kết nối lại không tạo lệnh đuổi'],
+  h1_data_gap: ['Thiếu nến H1', 'Quá 120s đầu giờ chưa có nến H1 mới'],
   level_crossed_during_gap: ['Giá chạm mức khi mất tick', 'Không giả định đã khớp; không vào đuổi'],
   level_already_crossed: ['Giá đã vượt trước khi canh', 'Không giả định mức đã khớp trước đó'],
   entry_expired: ['Hết thời gian chờ', 'Tối đa 4 M15, không quá hạn setup'],

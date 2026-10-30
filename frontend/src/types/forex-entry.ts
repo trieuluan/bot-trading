@@ -95,6 +95,7 @@ export interface ForexShadowTrade {
   available_at: number;
   policy?: string;
   live_assigned?: boolean;
+  sizing_mode?: string | null;
   reason?: string;
   resolution_seconds?: number;
   entry?: number | null;

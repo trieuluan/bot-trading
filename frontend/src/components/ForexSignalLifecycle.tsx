@@ -189,6 +189,8 @@ export function ForexSignalLifecycle({
     invalid_htf_levels: { label: 'Mức HTF không hợp lệ', hint: 'Thiếu hoặc lỗi cấu trúc TP/SL' },
     quote_gap: { label: 'Mất nhịp giá', hint: 'Không có quote quá 60 giây' },
     quote_stale: { label: 'Giá quá cũ', hint: 'Dữ liệu quote không đủ mới' },
+    stream_disconnected: { label: 'Mất luồng giá', hint: 'Mất kết nối stream quote' },
+    h1_data_gap: { label: 'Thiếu nến H1', hint: 'Quá 120 giây đầu giờ chưa nhận được nến H1 đóng' },
     level_crossed_during_gap: { label: 'Giá chạm mức khi mất tick', hint: 'Không giả định đã khớp; không vào đuổi' },
     level_already_crossed: { label: 'Giá đã vượt mức chờ', hint: 'Không thể vào đuổi' },
     entry_expired: { label: 'Quá thời hạn chờ', hint: 'Hết thời gian canh nến' },
@@ -586,6 +588,7 @@ export function ForexSignalLifecycle({
               </div>
               <p className="m-0 mt-1 text-[11px] leading-relaxed text-text-muted">
                 Lệnh ảo đối chứng theo từng setup; không gửi broker và không cộng dồn P&amp;L giữa các biến thể.
+                {' '}Mẫu mới tính theo R và tỷ lệ chốt, không giới hạn vốn hoặc lot broker; mẫu cũ giữ nguyên.
               </p>
             </div>
             <div className="flex items-center rounded-lg border border-border-base bg-surface-2/60 p-0.5" role="group" aria-label="Lọc lệnh shadow">
@@ -613,6 +616,7 @@ export function ForexSignalLifecycle({
               const time = trade.entry_time ?? trade.available_at;
               const loaded = hasCandle(time);
               const pnl = shadowPnlParts(trade, shadowQuote);
+              const normalized = trade.sizing_mode === 'normalized_r_v1';
               const isLong = trade.side === 'long';
               const phase = shadowPhase(trade);
               const phaseText = phase === 'open' ? 'Đang chạy' : phase === 'waiting' ? 'Chưa khớp' : trade.status === 'resolved' ? 'Đã đóng' : entryStateLabels[trade.status] ?? trade.status;
@@ -632,6 +636,7 @@ export function ForexSignalLifecycle({
                       <span className="rounded border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] uppercase font-semibold text-text-secondary">
                         {({ market: 'Thị trường', stop_trigger_break: 'Stop xác nhận', limit_setup_mid: 'Limit sweep', limit_or_stop: 'Hybrid' } as Record<string, string>)[trade.policy ?? 'market'] ?? trade.policy}
                       </span>
+                      <span className="text-[10px] text-text-muted">{normalized ? 'Chuẩn hóa R' : 'Vốn giả lập cũ'}</span>
                       {trade.live_assigned && (
                         <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
                           Có phân công broker
@@ -693,7 +698,7 @@ export function ForexSignalLifecycle({
                   </div>
                   {trade.legs?.length ? (
                     <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-text-muted">
-                      <span>Khối lượng: {trade.legs.map((leg) => `${leg.role} ${leg.volume ?? '—'} lot${leg.open ? '' : ' (đã đóng)'}`).join(' · ')}</span>
+                      <span>{normalized ? 'Tỷ trọng' : 'Khối lượng'}: {trade.legs.map((leg) => `${leg.role} ${normalized ? leg.weight == null ? '—' : `${(leg.weight * 100).toFixed(0)}%` : `${leg.volume ?? '—'} lot`}${leg.open ? '' : ' (đã đóng)'}`).join(' · ')}</span>
                       {trade.resolution_seconds && <span>Replay: {trade.resolution_seconds}s</span>}
                     </div>
                   ) : null}
