@@ -14,8 +14,8 @@ ALL(
 ```
 
 Each genome chooses exactly two distinct confirmation feature IDs from the H4
-catalog. All three H4 leaves must pass for the same trade direction. There is
-no OR or 2-of-N vote inside H4, no duplicate confirmation, and EMA50 cannot be
+catalog. Superseded by the 2026-10-25 update below: EMA50 plus at least one confirmation (2/3) passes. There is
+no OR vote across the EMA50 leaf, no duplicate confirmation, and EMA50 cannot be
 removed, mutated, or moved to another frame. Exactly two confirmations satisfy
 the requested minimum without adding an operator or changing the JSON schema.
 
@@ -159,3 +159,12 @@ H4 gate relaxed from 3/3 to 2/3: EMA50 trend is mandatory plus at least one of
 the two confirmations. Genome schema, fingerprints and learner version are
 unchanged; only `matches()` evaluation changed. Forward samples collected
 before this change used 3/3. 2/3 is weaker evidence than 3/3.
+
+## Update 2026-11-01: M15 confirmation entries
+
+Added `sweep_h1` and seeded it with `retest_h1` next to `body50` (same G0 tree). Entry waits up to 4 M15 bars:
+`sweep_h1` confirms when a bar wicks through the H1 breakout level and closes back on the trend side;
+`retest_h1` needs a same-direction body after touching it. Close through the level, or target first, cancels (0R).
+Replay (10 pairs, 340d, `scripts/futures_confirmation_replay.py`): H4 2/3 sweep validation +0.207R/trade (216 fills),
+but train -0.338R and since 25/10 -0.234R. Unproven; forward-collect before promotion. `VERSION` not bumped
+(would reset all candidates); 2/3 and 3/3 samples before/after 25/10 remain mixed.

@@ -28,12 +28,12 @@ KEYS = ("signals", "resolved", "mean_r", "profit_factor")
 
 _orig, _memo = strategy.aggregate, {}
 
-def memo_aggregate(candles, seconds):
-    key = (tuple(map(id, candles)), seconds)
+def memo_aggregate(candles, seconds, *, until=None):
+    key = (tuple(map(id, candles)), seconds, until)
     if key not in _memo:
         if len(_memo) > 200:
             _memo.clear()
-        _memo[key] = (candles, _orig(candles, seconds))
+        _memo[key] = (candles, _orig(candles, seconds, until=until))
     return _memo[key][1]
 
 def setup_memo():

@@ -88,3 +88,15 @@ def test_limit_entries_cannot_qualify_from_market_only_windows():
     result = qualification(candidate)
     assert not result["eligible"] and not result["checks"]["entry_windows_supported"]
     assert all(value for key, value in result["checks"].items() if key != "entry_windows_supported")
+
+
+def test_sweep_confirms_on_wick_through_level_and_cancels_on_close_through():
+    item = sample("sweep_h1")
+    # bar wicks through 98.0 (low 97.5) but closes back on trend side (100.5 > 98.0)
+    advance_entry(item, "sweep_h1", Candle(900, 100, 101, 97.5, 100.5, 1), None, [], [])
+    assert item.get("confirmed") and item["entry_time"] == 1800
+
+    item_fail = sample("sweep_h1")
+    # bar closes through 98.0 (close 97.0 < 98.0)
+    advance_entry(item_fail, "sweep_h1", Candle(900, 100, 101, 96, 97.0, 1), None, [], [])
+    assert item_fail["exit_reason"] == "closed_through_level"

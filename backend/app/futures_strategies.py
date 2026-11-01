@@ -115,7 +115,8 @@ def _exit_seeds():
 
 EXIT_SEEDS = _exit_seeds()
 # Same G0 tree as RULE_SEEDS[0], limit at 50% of the signal body; other policies arrive via mutation.
-ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": "body50"}]
+# ponytail: sweep_h1/retest_h1 = Forex V4-style M15 confirmation; offline replay evidence is validation-only (train negative), so forward-test before trusting.
+ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": policy} for policy in ("body50", "retest_h1", "sweep_h1")]
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
