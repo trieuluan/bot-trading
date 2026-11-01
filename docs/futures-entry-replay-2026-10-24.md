@@ -61,7 +61,7 @@ Candles, fair price and funding extended from 2026-10-18 to 2026-10-24 via `scri
 Paired body50 minus market: validation taker +0.036 [-0.123, +0.174]; maker 0.02% +0.069 [-0.092, +0.208]; train taker +0.051 [-0.002, +0.104]. Only the 42 signals after 2026-10-18 (out-of-sample vs previous run): body50 +0.128 R/signal over market (market -0.687 on them); far too few to conclude.
 
 ## Entry policy gene (code, not deployed)
-- `backend/app/futures_entries.py`: `ENTRY_POLICIES = market, body38, body50, ema20_m15, breakout_h1, retest_h1`; optional genome field `entry_policy` (absent = `market`, so every existing genome and name is unchanged).
+- `backend/app/futures_entries.py`: `ENTRY_POLICIES = market, body38, body50, ema20_m15, breakout_h1, retest_h1` (+ `sweep_h1` added 2026-11-01, see `futures-h4-consensus-v2.md`); optional genome field `entry_policy` (absent = `market`, so every existing genome and name is unchanged).
 - `ENTRY_SEEDS` = one G0 (`RULE_SEEDS[0]` tree) with `entry_policy="body50"`. Other policies arrive only via `mutate` (new `entry_policy` gene) or `crossover` (child inherits mate's non-market policy).
 - Learner and history replay build samples with `entry_fields`; `advance` calls `wait` until filled. Unfilled signals resolve as 0R so they are scored, not hidden.
 - Non-market genomes can now be selected in `paper_learning`. Qualified mode still blocks them (`entry_windows_supported=false`): its validation windows currently simulate market entries, so those results cannot qualify limit/retest entries.

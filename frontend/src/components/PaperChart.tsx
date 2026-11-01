@@ -21,7 +21,7 @@ import { exitLabels } from './PaperTradeDetails';
 import { groupNearbyTags, placeChartTags } from '../lib/chart-tags';
 import { ChartLabels, type ChartLabel } from '../lib/chart-labels';
 import { formatQuote } from '../lib/format';
-import { chartStrategyText, tradeStrategy } from '../lib/futures-strategy-info';
+import { chartStrategyText, entryPolicyLabel, tradeStrategy } from '../lib/futures-strategy-info';
 import { estimatedPaperPnl } from '../lib/paper-position';
 import type { FuturesStrategyObservation, PaperTrade } from '../types/paper';
 
@@ -326,7 +326,7 @@ export function PaperChart({
     const points: SeriesMarker<Time>[] = [];
     const allLevels: { title: string; price: number; color: string; lineStyle?: LineStyle }[] = [];
     for (const order of pendingOrders.filter((order) => order.status === 'pending')) {
-      const label = `CHỜ #${order.id} ${order.side.toUpperCase()} ${order.entry_policy}`;
+      const label = `CHỜ #${order.id} ${order.side.toUpperCase()} ${entryPolicyLabel(order.entry_policy)}`;
       allLevels.push(
         { title: label, price: order.level, color: '#b17b23', lineStyle: LineStyle.Dashed },
         {

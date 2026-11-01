@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cancelPaperPending } from '../lib/api';
 import { formatQuote } from '../lib/format';
+import { entryPolicyLabel } from '../lib/futures-strategy-info';
 import { formatTime } from '../lib/time-format';
 import type { PaperPendingOrder } from '../types/paper';
 
@@ -44,8 +45,8 @@ export function PaperPendingOrders({
         )
       </h3>
       <p className="micro text-xs leading-relaxed text-text-muted">
-        Paper · xét nến M15 đóng · tối đa 4 nến (60 phút). Chưa giữ ký quỹ; kiểm tra lại rủi ro khi
-        khớp. Tắt Auto sẽ hủy lệnh chờ.
+        Paper · xét nến M15 đóng · tối đa 4 nến (60 phút). Retest/Sweep chỉ vào market sau nến xác
+        nhận. Chưa giữ ký quỹ; kiểm tra lại rủi ro khi khớp. Tắt Auto sẽ hủy lệnh chờ.
       </p>
       {error && (
         <p role="alert" className="negative text-bear">
@@ -61,7 +62,7 @@ export function PaperPendingOrders({
               <tr>
                 <th>Lệnh / Cặp</th>
                 <th>Chiến thuật</th>
-                <th>Giá chờ</th>
+                <th>Giá / mức chờ</th>
                 <th>SL / TP</th>
                 <th>RR gộp</th>
                 <th>Hạn chờ</th>
@@ -89,7 +90,7 @@ export function PaperPendingOrders({
                       )}
                     </td>
                     <td>
-                      <strong>{order.entry_policy}</strong>
+                      <strong>{entryPolicyLabel(order.entry_policy)}</strong>
                       <small>{order.strategy}</small>
                     </td>
                     <td>{formatQuote(order.level)}</td>

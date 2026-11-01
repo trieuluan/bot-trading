@@ -1095,7 +1095,10 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             số; cây luật có thể đổi điều kiện và cách ghép. Họ gốc chọn cha mẹ có ≥10 mẫu và R
             dương; cây luật xếp hạng từ ≥10 mẫu, trừ điểm theo độ phức tạp. Biến thể chưa chứng minh
             tốt hơn. Cổng duyệt: ≥100 lệnh forward, PF &gt; 1.3, ≥60% cửa sổ 30 ngày dương, DD &lt;
-            10%.
+            10%. Cây chờ giá hoặc chờ Retest/Sweep M15 vẫn thu mẫu forward nhưng chưa được duyệt.
+            Chế độ paper_learning vẫn có thể chọn các cây này để giao dịch paper; không phải chỉ shadow.
+            H4 hiện là 2/3 (EMA50 + ít nhất 1 xác nhận); cửa sổ forward tính lại từ bản
+            futures_htf_h4_2of3_v3.
           </p>
         </>
       )}

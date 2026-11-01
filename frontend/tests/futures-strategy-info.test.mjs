@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  entryPolicyLabel,
   hasHardTarget,
   howToPlay,
   riskParts,
+  ruleName,
   stepKind,
+  strategyShortTitle,
   targetCapText,
 } from '../src/lib/futures-strategy-info.ts';
 
@@ -165,4 +168,26 @@ test('howToPlay renders H4 consensus slot with EMA50 mandatory and 1-of-2 confir
     'Hai đỉnh và hai đáy cùng hướng, pivot xác nhận 2 nến',
     'BTC cùng chiều và ít nhất 5/10 coin đồng thuận H4',
   ]);
+  assert.match(ruleName(g.rule.children[0]), /ít nhất 1 trong/);
+});
+
+test('retest_h1 and sweep_h1 explain M15 confirmation and cancel rules', () => {
+  const base = { family: 'rule_tree', target_r: 2, stop_buffer: 0, exit_policy: 'adaptive' };
+  for (const policy of ['retest_h1', 'sweep_h1']) {
+    const steps = howToPlay({ ...base, entry_policy: policy }, '');
+    assert.match(steps.find((s) => s.label === 'Điểm vào').text, /market ở giá mở nến kế tiếp/);
+    assert.match(steps.find((s) => s.label === 'Huỷ xác nhận').text, /xác nhận/);
+  }
+  const sweep = howToPlay({ ...base, entry_policy: 'sweep_h1' }, '');
+  assert.match(sweep.find((s) => s.label === 'Điểm vào').text, /râu nến M15 quét/);
+  assert.match(sweep.find((s) => s.label === 'Huỷ xác nhận').text, /SL chạm trước/);
+  assert.equal(entryPolicyLabel('sweep_h1'), 'Sweep M15');
+  assert.match(strategyShortTitle({ ...base, entry_policy: 'retest_h1' }), /Retest M15/);
+  assert.equal(entryPolicyLabel(), 'Market');
+  assert.equal(entryPolicyLabel('future_policy'), 'future_policy');
+  assert.doesNotMatch(
+    howToPlay({ ...base, entry_policy: 'retest_h1' }, '')
+      .find((step) => step.label === 'Huỷ xác nhận').text,
+    /SL chạm trước/,
+  );
 });

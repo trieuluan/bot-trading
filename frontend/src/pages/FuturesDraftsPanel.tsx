@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatTime } from '../lib/time-format';
-import { exitLabel, strategyShortTitle, type Genome } from '../lib/futures-strategy-info';
+import { entryPolicyLabel, exitLabel, strategyShortTitle, type Genome } from '../lib/futures-strategy-info';
 
 export type Draft = {
   id: string;
@@ -138,7 +138,7 @@ export function FuturesDraftsPanel({
                 <span className={`pill ${draft.status === 'waiting_slot' ? 'green' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
                   {STATUS[draft.status]}
                 </span>
-                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{draft.genome.entry_policy ?? 'market'}</span>
+                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{entryPolicyLabel(draft.genome.entry_policy)}</span>
                 <span className="pill blue inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-sky-300">{exitLabel(draft.genome.exit_policy)}</span>
               </p>
               <p className="evo-rule border-y border-border-subtle py-2 text-text-secondary">
