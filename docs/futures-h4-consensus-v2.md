@@ -167,3 +167,7 @@ Added `sweep_h1` and seeded it with `retest_h1` next to `body50` (same G0 tree).
 `retest_h1` needs a same-direction body after touching it. Close through the level, or target first, cancels (0R).
 Replay (10 pairs, 340d, `scripts/futures_confirmation_replay.py`): H4 2/3 sweep validation +0.207R/trade (216 fills),
 but train -0.338R and since 25/10 -0.234R. Unproven; forward-collect before promotion. `VERSION` bumped to `futures_htf_h4_2of3_v3`: candidate windows/promotions reset for the new 2/3 epoch, resolved v2 samples move to `sample_archive`, and open samples/settings are preserved.
+
+## Entry mix v4 (2026-11-01)
+
+`VERSION = futures_htf_entry_mix_v4`. On first read of a v3 state, `rebalance_entries` spreads all 7 `entry_policy` values evenly (±1) over rule trees. Trees with an open paper trade, pending order, open sample or the current selection stay unchanged; the rest go to `rule_archive` (`entry_rebalanced`) and are replaced by the same genome with the least-used policy, keeping parents/generation and resetting windows. Population size is unchanged; later children pick policies through crossover/mutation.

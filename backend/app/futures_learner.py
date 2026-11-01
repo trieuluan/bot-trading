@@ -26,7 +26,7 @@ from .db import (
 from .feed import load_candles
 from .futures_context import load_signal_context
 from .futures_drafts import MAX_PENDING, PENDING, enqueue
-from .futures_entries import entry_fields, wait
+from .futures_entries import ENTRY_POLICIES, entry_fields, wait
 from .futures_exits import (
     adaptive_target,
     discretionary_exit,
@@ -67,7 +67,8 @@ FEE, SLIP = 8 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS) + len(ENTRY_SEEDS)
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
-VERSION = "futures_htf_h4_2of3_v3"
+VERSION = "futures_htf_entry_mix_v4"
+V3 = "futures_htf_h4_2of3_v3"  # entry policies concentrated on market
 V2 = "futures_htf_h4_consensus_v2"  # mixed 3/3 (before 25/10) and 2/3 forward labels
 
 
@@ -84,6 +85,44 @@ def add_candidate(state, genome, born, parents=()):
         "windows": [], "promoted": False,
     }
 
+
+def rebalance_entries(state, now, protected):
+    """Spread entry_policy evenly over rule trees. Protected trees stay; others are archived and
+    replaced by the same genome with the least-used policy (fresh windows)."""
+    born = (now // 900 + 1) * 900
+    known = {genome_fingerprint(c["genome"]) for c in
+             [*state["candidates"].values(), *state.get("rule_archive", {}).values()]}
+    count = {policy: 0 for policy in ENTRY_POLICIES}
+    for candidate in state["candidates"].values():
+        if is_rule_tree(candidate["genome"]):
+            count[candidate["genome"].get("entry_policy", "market")] += 1
+    for name in sorted(state["candidates"]):
+        candidate = state["candidates"][name]
+        genome = candidate["genome"]
+        if name in protected or not is_rule_tree(genome):
+            continue
+        current = genome.get("entry_policy", "market")
+        for policy in sorted(ENTRY_POLICIES, key=lambda p: (count[p], ENTRY_POLICIES.index(p))):
+            if count[policy] >= count[current] - 1 and policy != current:
+                break  # already within 1 of the best option
+            child = {k: v for k, v in genome.items() if k != "entry_policy"}
+            if policy != "market":
+                child["entry_policy"] = policy
+            if policy == current or genome_fingerprint(child) in known:
+                continue
+            replacement = genome_name(child)
+            state.setdefault("rule_archive", {})[name] = {
+                **state["candidates"].pop(name),
+                "retirement": {"at": now, "reason": "entry_rebalanced", "samples": 0,
+                               "mean_r": 0.0, "max_drawdown_r": 0.0,
+                               "retained_strategy": replacement, "overlap": None}}
+            state["candidates"][replacement] = {
+                "genome": child, "born_at": born, "parents": candidate["parents"],
+                "generation": candidate["generation"], "windows": [], "promoted": False}
+            known.add(genome_fingerprint(child))
+            count[current] -= 1
+            count[policy] += 1
+            break
 
 def new_state(now):
     state = {
@@ -108,7 +147,7 @@ def read_state(session, now, *, copy_payload=True):
     row = session.get(FuturesLearningState, state_id())
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
-    if row.payload and row.payload.get("version") not in (VERSION, V2, "futures_htf_v1"):
+    if row.payload and row.payload.get("version") not in (VERSION, V3, V2, "futures_htf_v1"):
         state = new_state(now)
         row.payload = state
         return state
@@ -117,7 +156,7 @@ def read_state(session, now, *, copy_payload=True):
     if state.get("version") == "futures_htf_v1":
         replacement = new_state(now)
         state.setdefault("rule_archive", {}).update(state["candidates"])
-        state.update(version=VERSION, candidates=replacement["candidates"],
+        state.update(version=V3, candidates=replacement["candidates"],
                      evolved_at=now, last_decision=None, h4_consensus_started_at=now)
     if state.get("version") == V2:
         # New 2/3 epoch: same genome IDs, fresh forward windows; resolved labels archived, open ones finish here.
@@ -127,8 +166,18 @@ def read_state(session, now, *, copy_payload=True):
         sync_seeds(state, now)
         state.setdefault("sample_archive", []).extend(
             sample for sample in state["samples"] if sample["status"] != "open")
-        state.update(version=VERSION, samples=[s for s in state["samples"] if s["status"] == "open"],
+        state.update(version=V3, samples=[s for s in state["samples"] if s["status"] == "open"],
                      evolved_at=now, last_decision=None, h4_2of3_started_at=now)
+    if state.get("version") == V3:
+        protected = active_strategies(session, state)
+        if protected is None:  # ownership unknown: retry on a later read
+            return state
+        decision = state.get("last_decision") or {}
+        protected |= {row["strategy"] for row in state["samples"] if row.get("status") == "open"}
+        if decision.get("selected"):
+            protected.add(decision["selected"])
+        rebalance_entries(state, now, protected)
+        state.update(version=VERSION, entry_mix_started_at=now)
     return state
 
 

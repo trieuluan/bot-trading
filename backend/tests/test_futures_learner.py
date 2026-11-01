@@ -690,3 +690,23 @@ def test_v2_to_v3_migration_resets_windows_preserves_open_samples_and_syncs_entr
         learner.save_state(session, state)
     with Session() as session:
         assert session.get(FuturesLearningState, 1).payload["version"] == learner.VERSION
+
+
+def test_v3_to_v4_rebalances_all_seven_entry_policies_and_protects_open():
+    old = learner.new_state(1000)
+    rng = random.Random(1)
+    while len(old["candidates"]) < 28:
+        learner.add_candidate(old, mutate(RULE_SEEDS[0], rng), 1000)
+    old["version"] = learner.V3
+    protected = next(iter(old["candidates"]))
+    old["samples"] = [{"strategy": protected, "status": "open", "side": "long", "stop": 90, "target": 120}]
+    total = len(old["candidates"])
+    with Session.begin() as session:
+        session.get(FuturesLearningState, 1).payload = old
+    with Session.begin() as session:
+        state = learner.read_state(session, 3600)
+        counts = [sum(c["genome"].get("entry_policy", "market") == p for c in state["candidates"].values())
+                  for p in learner.ENTRY_POLICIES]
+        assert state["version"] == learner.VERSION and len(state["candidates"]) == total
+        assert protected in state["candidates"]
+        assert max(counts) - min(counts) <= 1 and all(counts)
