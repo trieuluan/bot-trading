@@ -65,12 +65,16 @@ def wait(sample, bar, funding):
     touched = bar.low < level if direction == 1 else bar.high > level
     target_touched = (bar.high >= sample["target"] if direction == 1
                       else bar.low <= sample["target"])
+    stop_touched = (bar.low <= sample["stop"] if direction == 1
+                    else bar.high >= sample["stop"])
     if sample["entry_policy"] == "sweep_h1":  # M15 wick through the H1 level, close back on the trend side
-        if direction * (bar.close - level) < 0:
+        if stop_touched:
+            sample.update(status="cancelled", exit_reason="stop_before_confirmation")
+        elif direction * (bar.close - level) < 0:
             sample.update(status="cancelled", exit_reason="closed_through_level")
         elif target_touched:
             sample.update(status="cancelled", exit_reason="target_before_confirmation")
-        elif touched:
+        elif touched and direction * (bar.close - level) > 0:
             sample.update(confirmed=True, entry_time=bar.time + 900)
         return None
     if sample["entry_policy"] == "retest_h1":

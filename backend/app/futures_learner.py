@@ -67,7 +67,8 @@ FEE, SLIP = 8 / 10000, 2 / 10000
 WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS) + len(ENTRY_SEEDS)
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
-VERSION = "futures_htf_h4_consensus_v2"
+VERSION = "futures_htf_h4_2of3_v3"
+V2 = "futures_htf_h4_consensus_v2"  # mixed 3/3 (before 25/10) and 2/3 forward labels
 
 
 def add_candidate(state, genome, born, parents=()):
@@ -107,7 +108,7 @@ def read_state(session, now, *, copy_payload=True):
     row = session.get(FuturesLearningState, state_id())
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
-    if row.payload and row.payload.get("version") not in (VERSION, "futures_htf_v1"):
+    if row.payload and row.payload.get("version") not in (VERSION, V2, "futures_htf_v1"):
         state = new_state(now)
         row.payload = state
         return state
@@ -118,6 +119,16 @@ def read_state(session, now, *, copy_payload=True):
         state.setdefault("rule_archive", {}).update(state["candidates"])
         state.update(version=VERSION, candidates=replacement["candidates"],
                      evolved_at=now, last_decision=None, h4_consensus_started_at=now)
+    if state.get("version") == V2:
+        # New 2/3 epoch: same genome IDs, fresh forward windows; resolved labels archived, open ones finish here.
+        born = (now // 900 + 1) * 900
+        for candidate in state["candidates"].values():
+            candidate.update(born_at=born, windows=[], promoted=False)
+        sync_seeds(state, now)
+        state.setdefault("sample_archive", []).extend(
+            sample for sample in state["samples"] if sample["status"] != "open")
+        state.update(version=VERSION, samples=[s for s in state["samples"] if s["status"] == "open"],
+                     evolved_at=now, last_decision=None, h4_2of3_started_at=now)
     return state
 
 

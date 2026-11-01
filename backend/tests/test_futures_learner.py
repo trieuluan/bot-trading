@@ -665,3 +665,28 @@ def test_get_strategy_chart_endpoint(ready):
         headers={"X-Futures-Symbol": "ETH_USDT"},
     ).status_code == 409
     assert client.get("/api/workspaces/mexc_futures/learning/chart?candle_time=0&strategies=").status_code == 422
+
+
+def test_v2_to_v3_migration_resets_windows_preserves_open_samples_and_syncs_entry_seeds():
+    old = learner.new_state(1000)
+    old["version"] = learner.V2
+    name = next(iter(old["candidates"]))
+    old["candidates"][name].update(windows=[{"net_pnl": 50}], promoted=True)
+    open_s = {"strategy": name, "status": "open", "side": "long", "stop": 90, "target": 120}
+    closed_s = {"strategy": name, "status": "resolved", "net_r": 1.5, "label_available_at": 1000}
+    old["samples"] = [open_s, closed_s]
+    old.update(enabled=True, auto_mode="paper_learning")
+    with Session.begin() as session:
+        session.get(FuturesLearningState, 1).payload = old
+    with Session.begin() as session:
+        state = learner.read_state(session, 3600)
+        assert state["version"] == learner.VERSION
+        assert state["enabled"] and state["auto_mode"] == "paper_learning"
+        assert state["samples"] == [open_s]
+        assert closed_s in state["sample_archive"]
+        assert not state["candidates"][name]["windows"]
+        assert not state["candidates"][name]["promoted"]
+        assert any(c["genome"].get("entry_policy") == "sweep_h1" for c in state["candidates"].values())
+        learner.save_state(session, state)
+    with Session() as session:
+        assert session.get(FuturesLearningState, 1).payload["version"] == learner.VERSION

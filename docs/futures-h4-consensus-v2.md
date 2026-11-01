@@ -166,5 +166,4 @@ Added `sweep_h1` and seeded it with `retest_h1` next to `body50` (same G0 tree).
 `sweep_h1` confirms when a bar wicks through the H1 breakout level and closes back on the trend side;
 `retest_h1` needs a same-direction body after touching it. Close through the level, or target first, cancels (0R).
 Replay (10 pairs, 340d, `scripts/futures_confirmation_replay.py`): H4 2/3 sweep validation +0.207R/trade (216 fills),
-but train -0.338R and since 25/10 -0.234R. Unproven; forward-collect before promotion. `VERSION` not bumped
-(would reset all candidates); 2/3 and 3/3 samples before/after 25/10 remain mixed.
+but train -0.338R and since 25/10 -0.234R. Unproven; forward-collect before promotion. `VERSION` bumped to `futures_htf_h4_2of3_v3`: candidate windows/promotions reset for the new 2/3 epoch, resolved v2 samples move to `sample_archive`, and open samples/settings are preserved.
