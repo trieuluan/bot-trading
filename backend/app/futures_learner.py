@@ -441,7 +441,8 @@ def admit_drafts(state, now, protected):
     return admitted
 
 @aggregation_cache()
-def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None):
+def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None,
+         paper_busy=None):
     bar = candles[-1]
     if state["cursor"] is not None and bar.time <= state["cursor"]:
         return
@@ -469,8 +470,10 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
             continue
         ucb = score(state["samples"], name, setup.side, context, bar.time + 900,
                     state.get("historical"))
-        if not shadow_only(candidate["genome"]):
-            found.append({"name": name, "setup": setup, "ucb": ucb,
+        extra = entry_fields(candidate["genome"], candles, setup, bar.time)
+        valid_entry = extra.get("exit_reason") != "no_valid_level"
+        if not shadow_only(candidate["genome"]) and valid_entry:
+            found.append({"name": name, "setup": setup, "ucb": ucb, "extra": extra,
                           "promoted": candidate["promoted"] and qualification(candidate)["eligible"]})
         observation.update(status="shadow" if shadow_only(candidate["genome"]) else "signal",
                            side=setup.side, setup=asdict(setup))
@@ -483,10 +486,13 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
                 "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
                 "exit_params": candidate["genome"].get("exit_params"),
                 "exit_rule": candidate["genome"].get("rule"),
-                **entry_fields(candidate["genome"], candles, setup, bar.time),
+                **extra,
             })
     eligible = [candidate for candidate in found if candidate["promoted"]]
     pool = found if state["auto_mode"] == "paper_learning" else eligible or found
+    free = [c for c in pool if c["name"] not in (paper_busy or ())]
+    if free:
+        pool = free
     best = max((candidate["ucb"] for candidate in pool), default=None)
     tied = sorted((candidate for candidate in pool if candidate["ucb"] == best),
                   key=lambda candidate: candidate["name"])
@@ -503,8 +509,7 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         "setup": asdict(pick["setup"]) if pick else None,
         "chart_context": {"fair_candles": [asdict(fair)]},
         **({"entry_policy": state["candidates"][pick["name"]]["genome"].get("entry_policy", "market"),
-            "level": entry_fields(state["candidates"][pick["name"]]["genome"], candles,
-                                  pick["setup"], bar.time).get("level")} if pick else {}),
+            "level": pick["extra"].get("level")} if pick else {}),
         "strategies": observations,
     }
     state["cursor"], state["updated_at"] = bar.time, now
@@ -555,6 +560,7 @@ def learning_tick(now=None, adapter=None):
         candles = load_candles(session, limit=WARMUP + 96, until=end)
         if not candles or candles[-1].time != end - 900:
             return
+        paper_busy = active_strategies(session, state)
         signal_context = load_signal_context(session, candles[0].time, end)
         benchmarks = signal_context.get("benchmarks")
         oi_history = signal_context.get("oi_history")
@@ -598,7 +604,8 @@ def learning_tick(now=None, adapter=None):
         for bar, mark in zip(bars, fair):
             history = [past for past in candles if past.time <= bar.time][-WARMUP:]
             bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
-            step(work, history, mark, now, oi_history=oi_history, benchmarks=bench_hist)
+            step(work, history, mark, now, oi_history=oi_history, benchmarks=bench_hist,
+                 paper_busy=paper_busy)
         if validation:
             validate_window(work["candidates"][name], validation[2], validation_fair,
                             validation_funding, contract, validation_context)

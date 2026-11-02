@@ -710,3 +710,22 @@ def test_v3_to_v4_rebalances_all_seven_entry_policies_and_protects_open():
         assert state["version"] == learner.VERSION and len(state["candidates"]) == total
         assert protected in state["candidates"]
         assert max(counts) - min(counts) <= 1 and all(counts)
+
+
+def test_step_skips_no_valid_level_and_prefers_non_busy_paper_candidate(monkeypatch):
+    state = learner.new_state(0)
+    state["auto_mode"] = "paper_learning"
+    names = list(state["candidates"])[:3]
+    state["candidates"] = {n: {**state["candidates"][n], "born_at": 0} for n in names}
+    state["candidates"][names[0]]["genome"] = {**RULE_SEEDS[0], "entry_policy": "breakout_h1"}
+    state["candidates"][names[1]]["genome"] = {**RULE_SEEDS[1], "entry_policy": "market"}
+    state["candidates"][names[2]]["genome"] = {**RULE_SEEDS[2], "entry_policy": "body38"}
+    monkeypatch.setattr(learner, "strategy_setup",
+                        lambda g, c, f, **kw: Setup("long", 100, 95, 110, "r"))
+    bars = [candle(i, opening=99, high=101, low=98, closing=100) for i in range(10)]
+    learner.step(state, bars, bars[-1], 9000, paper_busy={names[1]})
+    assert state["last_decision"]["selected"] == names[2]
+    assert state["last_decision"]["entry_policy"] == "body38"
+    assert state["last_decision"]["level"] is not None
+    assert any(s["strategy"] == names[0] and s.get("exit_reason") == "no_valid_level"
+               for s in state["samples"])
