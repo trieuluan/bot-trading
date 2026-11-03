@@ -274,3 +274,13 @@ def test_blocked_signal_alert_once_per_bar():
             session.flush()
         rows = session.scalars(select(PaperNotification).where(PaperNotification.id.like("%SUI_USDT-blocked-margin"))).all()
         assert len(rows) == 1 and "THIẾU KÝ QUỸ" in rows[0].message and "SUI_USDT" in rows[0].message
+
+
+def test_entry_policy_shown_in_strategy_line_and_open_message():
+    from backend.app.notifications import entry_line, strategy_line
+    audit = {"strategy": "rule_tree:3a1709ffff", "generation": 1, "entry_policy": "body38",
+             "limit_level": 3.81032, "genome": {"exit_profile": "default"}}
+    assert strategy_line(audit) == "Cây tự sinh #3a1709 · G1 · Chờ 38% thân nến"
+    assert entry_line(audit) == "🎯 Vào: Chờ 38% thân nến @ <code>3.81032</code>"
+    assert strategy_line({**audit, "entry_policy": "market"}) == "Cây tự sinh #3a1709 · G1"
+    assert entry_line({"entry_policy": "market"}) == "🎯 Vào: Market"

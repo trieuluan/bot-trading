@@ -40,6 +40,28 @@ def strategy_text(signal):
     return f"{esc(title)} · {esc(label['policy'])}\nMã: <code>{esc(identifier)}</code>"
 
 
+def entry_details(signal):
+    branch = signal.get("entry_branch")
+    if not branch:
+        return []
+    name = {"limit": "Limit sweep M15", "stop": "Stop đóng M15", "market": "Market"}.get(branch, "Chưa xác minh")
+    entry = signal.get("entry_policy") or {}
+    children = ((signal.get("tree") or {}).get("root") or {}).get("children") or []
+    params = next((n.get("params") or {} for n in children if isinstance(n, dict) and n.get("frame") == "entry"), {})
+    level = entry.get("limit_price") if branch == "limit" else entry.get("stop_price") if branch == "stop" else None
+    parts = [f"@ <code>{shown(level)}</code>"] if number(level) is not None else []
+    if branch == "limit" and all(number(entry.get(key)) is not None for key in ("zone_lower", "zone_upper")):
+        parts.append(f"vùng sweep {shown(entry['zone_lower'])}–{shown(entry['zone_upper'])}")
+    if branch == "stop":
+        buf = entry.get("stop_buffer_atr", params.get("stop_buffer_atr"))
+        if number(buf) is not None:
+            parts.append(f"đệm {shown(buf)} ATR H1")
+    if branch in ("limit", "stop") and isinstance(params.get("wait_bars"), int):
+        parts.append(f"chờ tối đa {params['wait_bars']} nến M15")
+    detail = f" ({' · '.join(parts)})" if parts else " (bot canh giá)"
+    return [f"🎯 <b>Nhánh kích hoạt:</b> {name}{detail}"]
+
+
 def profit_text(deals):
     amounts, currencies = [], set()
     for deal in deals:
@@ -119,18 +141,13 @@ def notify_reconciled(session, trade, previous, updated, position, protection, d
         target = (protection or {}).get("take_profit_price")
         icon = "🟢" if side == "BUY" else "🔴"
         vol = (position or {}).get("volume")
-        branch_text = ""
-        if signal.get("entry_branch"):
-            branch_name = {"limit": "Limit sweep M15", "stop": "Stop đóng M15", "market": "Market"}.get(signal["entry_branch"], "Chưa xác minh")
-            branch_text = f"\n🎯 <b>Nhánh kích hoạt:</b> {branch_name} (bot canh giá)"
-
         queue(
             session,
             event_key(now, trade, pid, "open"),
             "\n".join([
                 f"{icon} <b>MỞ VỊ THẾ FOREX · {side} {symbol}</b>",
                 f"🌲 <b>Chiến thuật:</b> {strategy_text(signal)}",
-                *( [branch_text.strip()] if branch_text else [] ),
+                *entry_details(signal),
                 "🧪 Exness DEMO · khớp sàn đã đối soát",
                 f"🎯 <b>Vai trò:</b> {esc(role_vn)} · Khối lượng: <code>{shown(vol)} lot</code>",
                 f"📌 Vị thế #{esc(pid)}",

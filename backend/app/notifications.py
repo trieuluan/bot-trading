@@ -83,7 +83,20 @@ def strategy_line(audit):
     code = name.split(":")[-1][:6]
     profile = profile_of(genome) if genome.get("family", "rule_tree") == "rule_tree" else genome.get("family", "rule_tree")
     label = "Cây tự sinh" if profile == "default" else HTF_VN.get(profile, profile.replace("_", " "))
-    return f"{label} #{code} · G{audit.get('generation', 0)}"
+    policy = audit.get("entry_policy") or genome.get("entry_policy") or "market"
+    suffix = "" if policy == "market" else f" · {ENTRY_VN.get(policy, policy)}"
+    return f"{label} #{code} · G{audit.get('generation', 0)}{suffix}"
+
+ENTRY_VN = {
+    "market": "Market", "body38": "Chờ 38% thân nến", "body50": "Chờ 50% thân nến",
+    "ema20_m15": "Chờ EMA20 M15", "breakout_h1": "Chờ mức breakout H1",
+    "retest_h1": "Retest M15", "sweep_h1": "Sweep M15",
+}
+
+def entry_line(audit):
+    policy = (audit or {}).get("entry_policy") or ((audit or {}).get("genome") or {}).get("entry_policy") or "market"
+    level = (audit or {}).get("limit_level")
+    return f"🎯 Vào: {esc(ENTRY_VN.get(policy, policy))}" + (f" @ <code>{price(level)}</code>" if level else "")
 
 def exit_text(policy):
     return {"fixed": "SL/TP cố định", "breakeven": "Hòa vốn 1R", "trail": "Hòa vốn + trailing",
@@ -122,6 +135,7 @@ def notify_open(session, trade, audit, balance, reason=None):
         "",
         f"💰 Giá trị <b>{notional:,.2f}</b> USDT · KL {trade.quantity:g} ({trade.contracts:g} hợp đồng)",
         f"🔒 Ký quỹ {notional / (trade.leverage or 1):,.2f} USDT · x{trade.leverage} Cross · Phí mở {trade.entry_fee:.2f}",
+        *([entry_line(audit)] if trade.origin == "auto" else []),
         f"🧭 Thoát: {esc(exit_text((audit or {}).get('exit_policy')))}",
         *([f"<blockquote expandable>Lý do: {esc(reason)}</blockquote>"] if reason else []),
         f"👛 Ví chung {balance:,.2f} USDT · {when(trade.entry_time)}",

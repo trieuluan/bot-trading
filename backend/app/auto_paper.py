@@ -533,6 +533,7 @@ def _auto_tick(now=None):
                 "initial_target": setup.target,
                 "exit_policy": (learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
                                 if learning else "fixed"),
+                "entry_policy": "market",
                 "genome": learning["candidates"][strat_name]["genome"] if learning and strat_name in learning["candidates"] else None,
                 "generation": learning["candidates"][strat_name].get("generation", 0) if learning and strat_name in learning["candidates"] else 0,
                 "parents": learning["candidates"][strat_name].get("parents", []) if learning and strat_name in learning["candidates"] else [],

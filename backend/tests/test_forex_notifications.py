@@ -205,3 +205,22 @@ def test_notify_reconciled_accepts_float_timestamp(monkeypatch):
         row = session.scalar(select(PaperNotification).where(PaperNotification.id.like("%forex%")))
         assert row is not None
         assert "GBPJPY" in row.message
+
+
+def test_entry_details_includes_branch_level_and_params():
+    from backend.app.forex_entry_policy import with_entry
+    from backend.app.forex_htf_v2 import g0_trees
+    from backend.app.forex_notifications import entry_details
+    tree = with_entry(g0_trees()[0])
+    sig_limit = {"tree": tree, "entry_branch": "limit", "entry_policy": {"limit_price": 2605.5, "stop_price": 2615.0,
+                 "zone_lower": 2604.5, "zone_upper": 2605.5}}
+    assert entry_details(sig_limit) == [
+        "🎯 <b>Nhánh kích hoạt:</b> Limit sweep M15 (@ <code>2,605.5</code> · vùng sweep 2,604.5–2,605.5 · chờ tối đa 4 nến M15)"
+    ]
+    sig_stop = {"tree": tree, "entry_branch": "stop", "entry_policy": {"stop_price": 2615.25, "stop_buffer_atr": 0.05}}
+    assert entry_details(sig_stop) == [
+        "🎯 <b>Nhánh kích hoạt:</b> Stop đóng M15 (@ <code>2,615.25</code> · đệm 0.05 ATR H1 · chờ tối đa 4 nến M15)"
+    ]
+    assert "50%" not in entry_details(sig_limit)[0]
+    assert entry_details({}) == []
+    assert entry_details({"entry_branch": "market"}) == ["🎯 <b>Nhánh kích hoạt:</b> Market (bot canh giá)"]
