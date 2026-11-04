@@ -25,15 +25,14 @@ from .db import (
     Session,
 )
 from .feed import load_candles, save_market_signal
-from .futures_entries import WAIT_BARS, wait
-from .futures_exits import has_target
+from .futures_entries import WAIT_BARS, confirmation_enabled, wait
+from .futures_native import NATIVE_ENTRY
 from .futures_learner import active_strategies, read_state, select_for_auto
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .notifications import notify_blocked, notify_open
 from .paper import (
     MAX_ORDER_MARGIN_PERCENT,
-    close_position,
     create_position,
     execution_price,
     fresh_quote,
@@ -118,7 +117,7 @@ def market_ready(session, now):
         raise HTTPException(409, "Chờ dữ liệu nến MEXC đồng bộ; nguồn nến đang chậm")
     candles = load_candles(session, limit=21, until=int(now) // 900 * 900)
     if len(candles) != 21 or candles[-1].time != int(now) // 900 * 900 - 900:
-        raise HTTPException(409, "Chờ đủ 21 nến MEXC đã đóng liên tục")
+        raise HTTPException(409, "Chờ đủ nến MEXC đã đóng liên tục")
     try:
         validate_candles(candles)
     except MarketDataError as exc:
@@ -200,6 +199,10 @@ def size_order(session, wallet, state, now, side, entry, stop):
 
 def place_pending(session, state, wallet, candle_time, now, setup, strat_name, learning, decision):
     """Queue a limit/retest entry for the closed bar; fills happen in sync_pending_orders."""
+    genome = learning["candidates"][strat_name]["genome"]
+    is_native = bool(genome.get("signal_frame"))
+    if is_native:
+        return place_native(session, state, wallet, candle_time, now, setup, strat_name, learning, decision)
     level = decision.get("level")
     long = setup.side == "long"
     if level is None or not (setup.stop < level < setup.target if long else setup.target < level < setup.stop):
@@ -209,8 +212,10 @@ def place_pending(session, state, wallet, candle_time, now, setup, strat_name, l
             PaperPendingOrder.symbol == current_symbol(), PaperPendingOrder.status == "pending")):
         record_decision(session, state, candle_time, "skipped", "Đang có lệnh chờ của cặp này", setup)
         return
-    genome = learning["candidates"][strat_name]["genome"]
-    policy = genome.get("entry_policy", "market")
+    if not confirmation_enabled(genome):
+        record_decision(session, state, candle_time, "skipped", "Chính sách vào lệnh không xác nhận đã ngừng", setup)
+        return
+    policy = genome["entry_policy"]
     first = candle_time + 900
     snapshot = {
         "strategy": strat_name, "reason": setup.reason, "exit_policy": genome.get("exit_policy", "fixed"),
@@ -237,6 +242,52 @@ def place_pending(session, state, wallet, candle_time, now, setup, strat_name, l
         f"LỆNH CHỜ {setup.side.upper()} · {strat_name} · {policy} @ {level:g}", setup,
         audit=snapshot["audit"])
 
+
+def place_native(session, state, wallet, candle_time, now, setup, strat_name, learning, decision):
+    genome = learning["candidates"][strat_name]["genome"]
+    if not confirmation_enabled(genome) or genome.get("entry_policy") != NATIVE_ENTRY:
+        raise HTTPException(409, "Invalid native confirmation policy")
+    from .futures_strategies import validate_genome
+    from .futures_native import NATIVE_FRAMES
+    validate_genome(genome)
+    if (candle_time + 900) % NATIVE_FRAMES[genome["signal_frame"]]:
+        raise HTTPException(409, "Native signal must be at closed frame boundary")
+    entry = execution_price(wallet, setup.side, opening=True)
+    direction = 1 if setup.side == "long" else -1
+    if direction * (entry - setup.stop) <= 0:
+        record_decision(session, state, candle_time, "skipped", "Invalid native entry geometry", setup)
+        return
+    target = entry + direction * genome["target_r"] * abs(entry - setup.stop)
+    if target <= 0:
+        record_decision(session, state, candle_time, "skipped", "Invalid native target", setup)
+        return
+    notional, risk_cash, blocked_by = size_order(session, wallet, state, now, setup.side, entry, setup.stop)
+    if blocked_by:
+        record_decision(session, state, candle_time, "skipped", blocked_by[1], setup)
+        return
+    try:
+        trade = create_position(session, wallet, setup.side, notional, setup.stop, target, origin="auto",
+                                signal_time=candle_time, exit_policy=genome.get("exit_policy", "fixed"),
+                                leverage=state.leverage, exit_rule=genome["rule"],
+                                signal_frame=genome["signal_frame"], fill_price=entry)
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            raise
+        record_decision(session, state, candle_time, "skipped", exc.detail, setup)
+        return
+    audit = {"strategy": strat_name, "reason": setup.reason, "signal_time": candle_time,
+             "signal_close": setup.entry, "entry_fill": trade.entry, "selector": "futures_learner",
+             "paper_only": True, "auto_mode": learning["auto_mode"], "regime": decision.get("regime"),
+             "selection_reason": decision.get("selection_reason"), "genome": genome,
+             "strategy_source": "entry_snapshot", "entry_policy": NATIVE_ENTRY,
+             "signal_frame": genome["signal_frame"], "exit_policy": genome.get("exit_policy", "fixed"),
+             "initial_stop": trade.stop, "initial_target": trade.target, "risk_budget": risk_cash,
+             "risk_percent": state.risk_percent, "leverage": state.leverage, "margin_mode": "cross",
+             "generation": learning["candidates"][strat_name].get("generation", 0),
+             "parents": learning["candidates"][strat_name].get("parents", [])}
+    record_decision(session, state, candle_time, "opened", f"AUTO PAPER #{trade.id} · {strat_name} · {NATIVE_ENTRY}",
+                    setup, trade, audit)
+
 def close_pending(session, order, status, reason):
     order.status, order.reason = status, reason
     decision = session.get(AutoPaperDecision, (order.symbol, order.signal_time))
@@ -244,7 +295,7 @@ def close_pending(session, order, status, reason):
         decision.action, decision.reason = "skipped", f"Lệnh chờ {status}: {reason}"[:500]
     session.add(Event(kind="paper", message=f"LỆNH CHỜ #{order.id} {order.symbol} {order.side.upper()}: {reason}"))
 
-def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
+def fill_pending(session, wallet, state, order, bar, now):
     snap = order.snapshot
     busy = active_strategies(session, read_state(session, int(now)), exclude_order_id=order.id)
     if busy is None or snap["strategy"] in busy:
@@ -252,7 +303,7 @@ def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
                       "Không rõ cây sở hữu hoặc cây đã có vị thế/lệnh chờ khác trên cặp; không mở trùng")
         return
     setup = Setup(order.side, order.level, order.stop, order.target, snap["reason"])
-    entry = order.level if limit else execution_price(wallet, order.side, opening=True)
+    entry = execution_price(wallet, order.side, opening=True)
     notional, risk_cash, blocked_by = size_order(session, wallet, state, now, order.side, entry, order.stop)
     if blocked_by:
         close_pending(session, order, "cancelled", blocked_by[1])
@@ -261,41 +312,26 @@ def fill_pending(session, wallet, state, order, bar, fill_bar, now, limit):
                            snap["strategy"])
         return
     try:
-        # ponytail: limit fills at the level with taker fee, like the replay; no maker rebate/queue model.
         trade = create_position(
             session, wallet, order.side, notional, order.stop, order.target, origin="auto",
             signal_time=order.signal_time, exit_policy=snap["exit_policy"], leverage=state.leverage,
-            exit_params=snap["exit_params"], exit_rule=snap["exit_rule"],
-            fill_price=order.level if limit else None)
+            exit_params=snap["exit_params"], exit_rule=snap["exit_rule"])
     except HTTPException as exc:
         if exc.status_code == 409:
             raise
         close_pending(session, order, "cancelled", exc.detail)
         return
-    if limit:
-        trade.entry_time = bar.time
-        trade.monitoring = {**trade.monitoring, "next_bar": bar.time + 900}
     trade.monitoring = {**trade.monitoring, "entry_mode": order.entry_policy, "pending_id": order.id}
     order.status, order.trade_id = "filled", trade.id
     decision = session.get(AutoPaperDecision, (order.symbol, order.signal_time))
-    audit = {**snap["audit"], "entry_fill": trade.entry,
+    audit = {**snap["audit"], "entry_fill": trade.entry, "confirmation_time": bar.time,
+             "confirmation_close": bar.close,
              "risk_budget": risk_cash}
     if decision:
         decision.action, decision.trade_id = "opened", trade.id
         decision.reason = f"AUTO PAPER #{trade.id}: {order.side.upper()} · {snap['strategy']} · {order.entry_policy} @ {trade.entry:g}"
         decision.parameters = {**decision.parameters, "audit": audit}
     notify_open(session, trade, audit, master(session).balance, snap["reason"])
-    if limit:
-        direction = 1 if order.side == "long" else -1
-        stopped = bar.low <= order.stop if direction == 1 else bar.high >= order.stop
-        targeted = has_target(trade.monitoring) and (
-            fill_bar.high >= order.target if direction == 1 else fill_bar.low <= order.target)
-        if stopped or targeted:
-            gap = stopped and direction * (bar.open - order.stop) <= 0
-            base = bar.open if gap else order.stop if stopped else order.target
-            price = base * (1 - direction * wallet.slippage_bps / 10000)
-            close_position(session, wallet, trade, "recovered_stop_loss" if stopped else "recovered_take_profit",
-                           now, price=price, exit_time=bar.time if gap else bar.time + 899)
 
 def sync_pending_orders(now=None):
     """Closed-bar fills for queued orders; same trade-through/stop-first rules as the entry replay."""
@@ -311,6 +347,9 @@ def sync_pending_orders(now=None):
         for order in orders:
             if not state or not state.enabled:
                 close_pending(session, order, "cancelled", "Auto Paper đã tắt")
+                continue
+            if not confirmation_enabled({"entry_policy": order.entry_policy}):
+                close_pending(session, order, "cancelled", "unconfirmed_entry_retired")
                 continue
             try:
                 if session.get(MarketState, state_id()).source != SOURCE:
@@ -330,33 +369,39 @@ def sync_pending_orders(now=None):
                 close_pending(session, order, "cancelled", reason)
                 continue
             first = order.expires_at - WAIT_BARS * 900
+            meta = (order.snapshot or {}).get("confirm_state") or {}
             sample = {"side": order.side, "level": order.level, "stop": order.stop, "target": order.target,
-                      "entry_policy": order.entry_policy, "entry_time": first, "first_entry_time": first}
+                      "entry_policy": order.entry_policy, "entry_time": first, "first_entry_time": first, **meta}
             cursor = order.next_bar
+            snapshot_before = order.snapshot
             try:
+                history = (load_candles(session, since=first - 240 * 900, until=order.next_bar)
+                           if order.entry_policy == "micro_bos_m15" else [])
                 for bar in load_candles(session, since=order.next_bar, until=end):
                     if bar.time != order.next_bar:
                         break
-                    filled = wait(sample, bar, [])
+                    if order.entry_policy == "micro_bos_m15":
+                        history.append(bar)
+                    wait(sample, bar, [], history)
                     order.next_bar = bar.time + 900
+                    if sample.get("zone_touched"):
+                        order.snapshot = {**order.snapshot, "confirm_state": {
+                            "zone_touched": True, "bos_trigger": sample.get("bos_trigger")}}
                     if sample.get("status") == "cancelled":
                         close_pending(session, order, "expired" if sample["exit_reason"] == "expired" else "cancelled",
                                       sample["exit_reason"])
                         break
                     if sample.get("confirmed"):
                         if now - (bar.time + 900) > MAX_SIGNAL_AGE:
-                            close_pending(session, order, "cancelled", "retest xác nhận quá 60 giây")
+                            close_pending(session, order, "cancelled", "xác nhận M15 quá 60 giây")
                         else:
-                            fill_pending(session, wallet, state, order, bar, bar, now, limit=False)
+                            fill_pending(session, wallet, state, order, bar, now)
                         break
-                    if filled:
-                        if now - (bar.time + 900) > MAX_SIGNAL_AGE:
-                            close_pending(session, order, "cancelled", "bỏ khớp nến cũ quá 60 giây")
-                        else:
-                            fill_pending(session, wallet, state, order, bar, filled[0], now, limit=True)
-                        break
-            except HTTPException:
+            except HTTPException as exc:
                 order.next_bar = cursor
+                order.snapshot = snapshot_before
+                if exc.status_code != 409:
+                    raise
                 continue
             if order.status == "pending" and end >= order.expires_at:
                 close_pending(session, order, "expired", "hết 4 nến chờ")
@@ -446,6 +491,7 @@ def _auto_tick(now=None):
             return
         try:
             _, setup, strat_name = select_for_auto(session, candle_time, now)
+            fresh_quote(wallet, time.time())
         except HTTPException as exc:
             set_status(session, state, exc.detail)
             return
@@ -459,87 +505,18 @@ def _auto_tick(now=None):
             record_decision(session, state, candle_time, "skipped",
                             "Không xác định được cây đang giữ vị thế; không vào lệnh mới", setup)
             return
-        if strat_name in busy:
+        is_native = bool(learning["candidates"][strat_name]["genome"].get("signal_frame"))
+        if strat_name in busy and not is_native:
             record_decision(session, state, candle_time, "skipped",
                             "Cây này đang có vị thế hoặc lệnh chờ trên cặp; chờ đóng trước khi vào lại", setup)
             return
         save_market_signal(session, candle_time, setup)
-        market_entry = learning["candidates"][strat_name]["genome"].get("entry_policy", "market") == "market"
-        if not market_entry:
-            place_pending(session, state, wallet, candle_time, now, setup, strat_name,
-                          learning, learning_decision)
+        if not confirmation_enabled(learning["candidates"][strat_name]["genome"]):
+            record_decision(session, state, candle_time, "skipped", "Chỉ cho phép vào lệnh sau xác nhận M15", setup)
             return
-        entry = execution_price(wallet, setup.side, opening=True)
-        distance = abs(entry - setup.stop)
-        if distance <= 0:
-            record_decision(
-                session, state, candle_time, "skipped", "Khoảng cách SL không hợp lệ", setup
-            )
-            return
-        # ponytail: one open position/order per strategy per pair; no portfolio-wide position cap yet.
-        requested_notional, risk_cash, blocked_by = size_order(session, wallet, state, now, setup.side, entry, setup.stop)
-        if blocked_by:
-            kind, reason = blocked_by
-            record_decision(session, state, candle_time, "skipped", reason, setup)
-            if kind:
-                notify_blocked(session, current_symbol(), candle_time, setup, kind, reason, strat_name)
-            return
-        try:
-            trade = create_position(
-                session,
-                wallet,
-                setup.side,
-                requested_notional,
-                setup.stop,
-                setup.target,
-                origin="auto",
-                signal_time=candle_time,
-                exit_policy=learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed"),
-                leverage=state.leverage,
-                exit_params=learning["candidates"][strat_name]["genome"].get("exit_params"),
-                exit_rule=learning["candidates"][strat_name]["genome"].get("rule"),
-            )
-        except HTTPException as exc:
-            record_decision(session, state, candle_time, "skipped", exc.detail, setup)
-            kind = ("margin" if exc.detail.startswith(("Không đủ ký quỹ", "Ký quỹ mỗi lệnh"))
-                    else "risk_cap" if exc.detail.startswith("Tổng rủi ro") else None)
-            if kind:
-                notify_blocked(session, current_symbol(), candle_time, setup, kind, exc.detail, strat_name)
-            return
-        record_decision(
-            session,
-            state,
-            candle_time,
-            "opened",
-            f"AUTO PAPER #{trade.id}: {setup.side.upper()} · {strat_name} · {setup.reason}"
-            + (" · HỌC THỬ, CHƯA KIỂM CHỨNG" if learning and learning["auto_mode"] == "paper_learning" else ""),
-            setup,
-            trade,
-            audit={
-                "strategy": strat_name,
-                "reason": setup.reason,
-                "signal_time": candle_time,
-                "signal_close": candles[-1].close,
-                "selector": "futures_learner", "paper_only": True,
-                "auto_mode": learning["auto_mode"],
-                "selection_reason": learning_decision.get("selection_reason"),
-                "regime": learning_decision.get("regime"),
-                "risk_percent": state.risk_percent,
-                "leverage": state.leverage,
-                "margin_mode": "cross",
-                "risk_budget": risk_cash,
-                "strategy_source": "entry_snapshot",
-                "initial_stop": setup.stop,
-                "initial_target": setup.target,
-                "exit_policy": (learning["candidates"][strat_name]["genome"].get("exit_policy", "fixed")
-                                if learning else "fixed"),
-                "entry_policy": "market",
-                "genome": learning["candidates"][strat_name]["genome"] if learning and strat_name in learning["candidates"] else None,
-                "generation": learning["candidates"][strat_name].get("generation", 0) if learning and strat_name in learning["candidates"] else 0,
-                "parents": learning["candidates"][strat_name].get("parents", []) if learning and strat_name in learning["candidates"] else [],
-            },
-        )
-
+        place_pending(session, state, wallet, candle_time, now, setup, strat_name,
+                      learning, learning_decision)
+        return
 
 def state_response(session, wallet, state, now, learning=None):
     account = session.get(AutoPaperState, 1)

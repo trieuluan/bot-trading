@@ -27,6 +27,7 @@ export type Genome = {
   rule?: Rule;
   exit_profile?: string;
   entry_policy?: string;
+  signal_frame?: 'D1' | 'H4';
 };
 
 export const HTF_LABELS: Record<string, string> = {
@@ -47,6 +48,8 @@ export const HTF_LABELS: Record<string, string> = {
   htf_bos: 'Phá vỡ cấu trúc BOS HTF',
   htf_vwap: 'VWAP phiên HTF',
   htf_pdh_pdl: 'PDH/PDL HTF',
+  htf_native_d1: 'Breakout nén D1',
+  htf_native_h4: 'Quét râu H4 cùng D1',
   htf_other: 'Trend + nến',
 };
 
@@ -56,7 +59,10 @@ export function features(rule: Rule): string[] {
 
 // Seed trees: H4 trend filter, H1 setup (child 1), M15 trigger (child 2).
 function htfProfile(rule?: Rule): string | null {
-  if (!rule || !('op' in rule) || rule.op !== 'all' || rule.children.length !== 3) return null;
+  if (!rule || !('op' in rule) || rule.op !== 'all') return null;
+  if (rule.children.some((c) => 'feature' in c && c.feature === 'native_squeeze')) return 'htf_native_d1';
+  if (rule.children.some((c) => 'feature' in c && c.feature === 'native_sweep')) return 'htf_native_h4';
+  if (rule.children.length !== 3) return null;
   const used = features(rule.children[1]);
   const has = (...names: string[]) => names.some((name) => used.includes(name));
   if (has('retest', 'retest_seq')) return 'htf_retest';
@@ -106,6 +112,10 @@ function isH4Consensus(rule: Rule): boolean {
 export function ruleName(rule: Rule, withFrame = true): string {
   if ('feature' in rule) {
     const names: Record<string, string> = {
+      native_squeeze: 'Vùng N nến D1 trước rộng ≤4.5 ATR14 Wilder; thân cùng chiều đóng phá biên',
+      native_sweep: 'Râu quét biên N nến H4 trước rồi đóng reclaim, thân cùng chiều',
+      native_trend: 'Giá đóng so với EMA50 và EMA20 so với EMA50 cùng hướng',
+      daily_bias: 'Giá đóng D1 hoàn tất so với EMA20 cùng hướng',
       trend: 'Xu hướng',
       breakout: 'Breakout',
       compression: 'Nén',
@@ -226,6 +236,12 @@ export function chartStrategyText(row: {
 
 export function strategyInfo(g: Genome): Info {
   const n = g.lookback;
+  if (g.signal_frame) return {
+    kind: HTF_LABELS[g.signal_frame === 'D1' ? 'htf_native_d1' : 'htf_native_h4'],
+    basis: `Biên ${n} nến ${g.signal_frame} đã đóng trước nến tín hiệu`,
+    entry: g.rule ? ruleName(g.rule) : 'Xác nhận nến khung chính đã đóng',
+    stop: `Swing 5 nến ${g.signal_frame} + 0.25 ATR14 Wilder`,
+  };
   const map: Record<string, Info> = {
     breakout: {
       kind: 'Breakout',
@@ -332,11 +348,20 @@ export function hasHardTarget(g: Genome): boolean {
 }
 
 export function targetCapText(g: Genome): string {
+  if (g.signal_frame) return `TP: ${g.target_r}R tính từ giá khớp`;
   if (!hasHardTarget(g)) return 'Không dùng TP cứng';
   return g.target_r < 2 ? `Gene ${g.target_r}R · trần hiệu lực 2R` : `Trần TP: ${g.target_r}R`;
 }
 
 export function riskParts(g: Genome) {
+  if (g.signal_frame) {
+    const sl = `Swing 5 nến ${g.signal_frame} đã đóng + 0.25 ATR14 Wilder ${g.signal_frame}, tối thiểu 1 ATR14 từ giá đóng tín hiệu. Không dùng SL H1/M15.`;
+    const tp = `${g.target_r}R từ giá khớp thực tế tới SL; không kéo TP theo cản H1/H4.`;
+    const manage = (g.exit_policy === 'breakeven'
+      ? 'M15 đóng đạt 1R: dời SL hòa vốn có phí, funding và trượt giá; hiệu lực từ nến sau. '
+      : 'Giữ nguyên SL/TP. ') + `Thoát nếu chưa chạm SL/TP sau ${g.signal_frame === 'D1' ? 15 : 5} ngày. Cho phép nhồi khi có tín hiệu mới; vẫn kiểm tra vốn và ký quỹ.`;
+    return { sl, tp, manage };
+  }
   const sl = `Swing 5 nến H1 đã đóng + 0.25 ATR14 H1, tối thiểu 1 ATR14 H1; đệm thêm ${g.stop_buffer} ATR14 H1. Thiếu H1 thì chờ, không dùng SL M15 thay thế.`;
   const tp = !hasHardTarget(g)
     ? `${targetCapText(g)}. Target tham chiếu ${g.target_r}R (hiệu lực tối thiểu 2R, kéo gần theo cản H1/H4) chỉ dùng xét setup/huỷ lệnh chờ, không kích hoạt đóng lệnh. Bỏ tín hiệu nếu cản gần hơn 1.5R; cách chốt lời theo tham số quản lý lệnh.`
@@ -345,7 +370,8 @@ export function riskParts(g: Genome) {
 }
 
 export function riskText(g: Genome, _stop: string) {
-  const { sl, tp } = riskParts(g);
+  const { sl, tp, manage } = riskParts(g);
+  if (g.signal_frame) return `SL: ${sl} TP: ${tp} ${manage}`;
   return manageText(g, `SL: ${sl} TP: ${tp} `);
 }
 
@@ -383,7 +409,8 @@ function manageText(g: Genome, initial: string) {
 }
 
 const ENTRY_TEXT: Record<string, string> = {
-  market: 'Market tại giá mở nến M15 kế tiếp sau khi tín hiệu đóng nến.',
+  htf_close: 'Vào ngay sau khi nến D1/H4 đóng xác nhận setup; replay dùng giá mở M15 kế tiếp có trượt giá, Auto Paper dùng quote mới trong cửa sổ 60 giây. Không chờ thêm retest M15.',
+  market: 'Market tại giá mở nến M15 kế tiếp (lịch sử, đã ngừng cho lệnh mới).',
   body38:
     'Lệnh chờ tại 38% thân nến tín hiệu tính từ giá đóng. Khớp khi giá xuyên mức; chờ tối đa 4 nến M15.',
   body50:
@@ -395,6 +422,20 @@ const ENTRY_TEXT: Record<string, string> = {
     'Retest M15: giá chạm lại mức breakout H1 (đỉnh/đáy 20 nến H1 trước), nến M15 đóng cùng chiều và vẫn ở phía xu hướng thì vào market ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
   sweep_h1:
     'Sweep M15: râu nến M15 quét xuyên mức breakout H1 rồi đóng trở lại phía xu hướng thì vào market ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  pivot_retest_h1:
+    'Retest Pivot H1: giá chạm lại đỉnh/đáy cấu trúc H1 đã xác nhận và vừa bị phá, nến M15 đóng cùng chiều xu hướng thì vào market ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  pivot_sweep_h1:
+    'Sweep Pivot H1: râu nến M15 quét xuyên đỉnh/đáy cấu trúc H1 vừa bị phá rồi đóng trở lại phía xu hướng thì vào market ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  micro_bos_m15:
+    'Micro-BOS M15: giá chạm vùng hỗ trợ/kháng cự pivot H1, đóng băng pivot ngược chiều M15 tại thời điểm chạm rồi đợi nến M15 sau đóng phá qua để vào ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  sweep_m15:
+    'Sweep Swing M15: râu nến M15 quét qua đỉnh/đáy swing M15 đã xác nhận rồi đóng thu hồi về phía xu hướng thì vào ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  body38_confirm:
+    'Xác nhận 38% thân nến: giá chạm mức hồi 38% thân nến tín hiệu rồi nến M15 đóng cùng chiều xu hướng mới vào ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  body50_confirm:
+    'Xác nhận 50% thân nến: giá chạm mức hồi 50% thân nến tín hiệu rồi nến M15 đóng cùng chiều xu hướng mới vào ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
+  ema20_m15_confirm:
+    'Xác nhận EMA20 M15: giá chạm EMA20 M15 rồi nến M15 đóng cùng chiều xu hướng mới vào ở giá mở nến kế tiếp; chờ tối đa 4 nến M15.',
 };
 
 export function entryPolicyLabel(policy?: string) {
@@ -402,12 +443,20 @@ export function entryPolicyLabel(policy?: string) {
     (
       {
         market: 'Market',
+        htf_close: 'Đóng nến HTF',
         body38: 'Chờ 38% thân nến',
         body50: 'Chờ 50% thân nến',
         ema20_m15: 'Chờ EMA20 M15',
         breakout_h1: 'Chờ mức breakout H1',
         retest_h1: 'Retest M15',
         sweep_h1: 'Sweep M15',
+        pivot_retest_h1: 'Retest Pivot H1',
+        pivot_sweep_h1: 'Sweep Pivot H1',
+        micro_bos_m15: 'Micro-BOS M15',
+        sweep_m15: 'Sweep Swing M15',
+        body38_confirm: 'Xác nhận 38% thân nến',
+        body50_confirm: 'Xác nhận 50% thân nến',
+        ema20_m15_confirm: 'Xác nhận EMA20 M15',
       } as Record<string, string>
     )[policy ?? 'market'] ?? policy
   );
@@ -455,16 +504,23 @@ export function howToPlay(g: Genome, _stop: string): PlayStep[] {
         })
       : [{ label: 'Tín hiệu', text: rule ? ruleName(rule) : strategyInfo(g).entry }];
   const policy = g.entry_policy ?? 'market';
+  const confirmed = ![
+    'market',
+    'body38',
+    'body50',
+    'ema20_m15',
+    'breakout_h1',
+  ].includes(policy);
   const entry: PlayStep[] = [
     { label: 'Điểm vào', text: ENTRY_TEXT[policy] ?? policy },
-    ...(policy === 'market'
+    ...(['market', 'htf_close'].includes(policy)
       ? []
       : [
           {
-            label: policy === 'retest_h1' || policy === 'sweep_h1' ? 'Huỷ xác nhận' : 'Huỷ lệnh chờ',
+            label: confirmed ? 'Huỷ xác nhận' : 'Huỷ lệnh chờ',
             text:
-              policy === 'retest_h1' || policy === 'sweep_h1'
-                ? `Hết 4 nến chưa xác nhận, hoặc nến M15 đóng xuyên mức breakout, hoặc ${hasHardTarget(g) ? 'TP' : 'target tham chiếu'} chạm trước khi xác nhận${policy === 'sweep_h1' ? ', hoặc SL chạm trước khi xác nhận' : ''}. Huỷ tính 0R.`
+              confirmed
+                ? `Hết 4 nến chưa xác nhận, hoặc đóng xuyên mức xác nhận, hoặc SL/${hasHardTarget(g) ? 'TP' : 'target tham chiếu'} chạm trước khi xác nhận. Huỷ tính 0R.`
                 : `Hết 4 nến chưa khớp, hoặc ${hasHardTarget(g) ? 'TP' : 'target tham chiếu'} chạm trước khi khớp, hoặc mức vào không nằm giữa SL và giá tín hiệu.`,
           },
         ]),

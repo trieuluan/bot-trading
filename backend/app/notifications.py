@@ -48,6 +48,7 @@ HTF_VN = {
     "htf_vwap": "VWAP phiên HTF", "htf_sweep": "Quét thanh khoản HTF",
     "htf_wedge": "Nêm HTF", "htf_bollinger": "Bollinger HTF",
     "htf_dryup": "Hồi cạn volume HTF", "htf_trend_align": "Đồng thuận Trend HTF",
+    "htf_native_d1": "Breakout nén D1", "htf_native_h4": "Quét râu H4 cùng D1",
     "htf_other": "Trend + nến",
 }
 
@@ -69,6 +70,10 @@ def profile_of(genome):
     profile = genome.get("exit_profile") or "default"
     if profile != "default":
         return profile
+    if genome.get("signal_frame") == "D1":
+        return "htf_native_d1"
+    if genome.get("signal_frame") == "H4":
+        return "htf_native_h4"
     rule = genome.get("rule") or {}
     if rule.get("op") != "all" or len(rule.get("children", [])) != 3:
         return "default"
@@ -88,9 +93,21 @@ def strategy_line(audit):
     return f"{label} #{code} · G{audit.get('generation', 0)}{suffix}"
 
 ENTRY_VN = {
-    "market": "Market", "body38": "Chờ 38% thân nến", "body50": "Chờ 50% thân nến",
-    "ema20_m15": "Chờ EMA20 M15", "breakout_h1": "Chờ mức breakout H1",
-    "retest_h1": "Retest M15", "sweep_h1": "Sweep M15",
+    "htf_close": "Xác nhận nến D1/H4 đóng, vào ngay sau xác nhận",
+    "market": "Market",
+    "body38": "Chờ 38% thân nến",
+    "body50": "Chờ 50% thân nến",
+    "ema20_m15": "Chờ EMA20 M15",
+    "breakout_h1": "Chờ mức breakout H1",
+    "retest_h1": "Retest M15",
+    "sweep_h1": "Sweep M15",
+    "pivot_retest_h1": "Retest Pivot H1",
+    "pivot_sweep_h1": "Sweep Pivot H1",
+    "micro_bos_m15": "Micro-BOS M15",
+    "sweep_m15": "Sweep Swing M15",
+    "body38_confirm": "Xác nhận 38% thân nến",
+    "body50_confirm": "Xác nhận 50% thân nến",
+    "ema20_m15_confirm": "Xác nhận EMA20 M15",
 }
 
 def entry_line(audit):

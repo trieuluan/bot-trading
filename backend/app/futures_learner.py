@@ -26,7 +26,8 @@ from .db import (
 from .feed import load_candles
 from .futures_context import load_signal_context
 from .futures_drafts import MAX_PENDING, PENDING, enqueue
-from .futures_entries import ENTRY_POLICIES, entry_fields, wait
+from .futures_entries import ENTRY_POLICIES, confirmation_enabled, entry_fields, wait
+from .futures_native import NATIVE_ENTRY, NATIVE_WARMUP, hold_seconds
 from .futures_exits import (
     adaptive_target,
     discretionary_exit,
@@ -39,6 +40,7 @@ from .futures_retirement import failure, forward_evidence, metrics, retirement_c
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
 from .futures_strategies import (
     ENTRY_SEEDS,
+    NATIVE_SEEDS,
     EXIT_SEEDS,
     RULE_SEEDS,
     SEEDS,
@@ -64,10 +66,13 @@ from .strategy import Setup, aggregation_cache
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning", tags=["Futures Learning"])
 FEE, SLIP = 8 / 10000, 2 / 10000
-WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS) + len(ENTRY_SEEDS)
+WARMUP, WINDOW_BARS, CAP = 1600, 2880, 96 + len(EXIT_SEEDS) + len(RULE_SEEDS) + len(ENTRY_SEEDS) + len(NATIVE_SEEDS)
 WINDOW_SECONDS = WINDOW_BARS * 900
 MAX_HOLD = 192 * 900
-VERSION = "futures_htf_entry_mix_v4"
+
+
+VERSION = "futures_htf_confirm_entries_v5"
+V4 = "futures_htf_entry_mix_v4"
 V3 = "futures_htf_h4_2of3_v3"  # entry policies concentrated on market
 V2 = "futures_htf_h4_consensus_v2"  # mixed 3/3 (before 25/10) and 2/3 forward labels
 
@@ -86,28 +91,29 @@ def add_candidate(state, genome, born, parents=()):
     }
 
 
-def rebalance_entries(state, now, protected):
-    """Spread entry_policy evenly over rule trees. Protected trees stay; others are archived and
-    replaced by the same genome with the least-used policy (fresh windows)."""
+def rebalance_entries(state, now, protected, *, legacy_only=False):
+    """Spread confirmation policies evenly; preserve frozen genomes with open trades."""
     born = (now // 900 + 1) * 900
     known = {genome_fingerprint(c["genome"]) for c in
              [*state["candidates"].values(), *state.get("rule_archive", {}).values()]}
     count = {policy: 0 for policy in ENTRY_POLICIES}
     for candidate in state["candidates"].values():
-        if is_rule_tree(candidate["genome"]):
-            count[candidate["genome"].get("entry_policy", "market")] += 1
+        policy = candidate["genome"].get("entry_policy")
+        if is_rule_tree(candidate["genome"]) and policy in count:
+            count[policy] += 1
     for name in sorted(state["candidates"]):
         candidate = state["candidates"][name]
         genome = candidate["genome"]
-        if name in protected or not is_rule_tree(genome):
+        if name in protected or not is_rule_tree(genome) or genome.get("signal_frame"):
             continue
-        current = genome.get("entry_policy", "market")
+        if legacy_only and confirmation_enabled(genome):
+            continue
+        current = genome.get("entry_policy")
         for policy in sorted(ENTRY_POLICIES, key=lambda p: (count[p], ENTRY_POLICIES.index(p))):
-            if count[policy] >= count[current] - 1 and policy != current:
+            if current in count and count[policy] >= count[current] - 1 and policy != current:
                 break  # already within 1 of the best option
             child = {k: v for k, v in genome.items() if k != "entry_policy"}
-            if policy != "market":
-                child["entry_policy"] = policy
+            child["entry_policy"] = policy
             if policy == current or genome_fingerprint(child) in known:
                 continue
             replacement = genome_name(child)
@@ -120,7 +126,8 @@ def rebalance_entries(state, now, protected):
                 "genome": child, "born_at": born, "parents": candidate["parents"],
                 "generation": candidate["generation"], "windows": [], "promoted": False}
             known.add(genome_fingerprint(child))
-            count[current] -= 1
+            if current in count:
+                count[current] -= 1
             count[policy] += 1
             break
 
@@ -129,11 +136,12 @@ def new_state(now):
         "version": VERSION, "enabled": True, "auto_mode": "learner", "started_at": now,
         "cursor": None, "candidates": {}, "samples": [], "funding": [],
         "evolved_at": now, "last_decision": None, "error": None, "updated_at": None,
+        "native_seeds_started_at": now,
     }
     born = (now // 900 + 1) * 900
     for seed in [*SEEDS, *RULE_SEEDS]:
         add_candidate(state, seed, born)
-    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS]:
+    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS, *NATIVE_SEEDS]:
         add_candidate(state, seed, born)
     rng = random.Random(now)
     for seed in [*SEEDS, *RULE_SEEDS]:
@@ -147,7 +155,7 @@ def read_state(session, now, *, copy_payload=True):
     row = session.get(FuturesLearningState, state_id())
     if row is None:
         raise HTTPException(503, "Run migrations before starting Futures learning")
-    if row.payload and row.payload.get("version") not in (VERSION, V3, V2, "futures_htf_v1"):
+    if row.payload and row.payload.get("version") not in (VERSION, V4, V3, V2, "futures_htf_v1"):
         state = new_state(now)
         row.payload = state
         return state
@@ -168,7 +176,7 @@ def read_state(session, now, *, copy_payload=True):
             sample for sample in state["samples"] if sample["status"] != "open")
         state.update(version=V3, samples=[s for s in state["samples"] if s["status"] == "open"],
                      evolved_at=now, last_decision=None, h4_2of3_started_at=now)
-    if state.get("version") == V3:
+    if state.get("version") in (V3, V4):
         protected = active_strategies(session, state)
         if protected is None:  # ownership unknown: retry on a later read
             return state
@@ -176,8 +184,31 @@ def read_state(session, now, *, copy_payload=True):
         protected |= {row["strategy"] for row in state["samples"] if row.get("status") == "open"}
         if decision.get("selected"):
             protected.add(decision["selected"])
+        for row in state.get("drafts", {}).values():
+            if row.get("status") in PENDING and not confirmation_enabled(row["genome"]):
+                row.update(status="rejected", phase="done", reason="unconfirmed_entry_retired", updated_at=now)
         rebalance_entries(state, now, protected)
-        state.update(version=VERSION, entry_mix_started_at=now)
+        state.update(version=VERSION, last_decision=None,
+                     entry_mix_started_at=state.get("entry_mix_started_at") or now,
+                     confirm_entries_started_at=now)
+    if state.get("version") == VERSION and any(
+            not confirmation_enabled(row["genome"]) for row in state["candidates"].values()):
+        protected = active_strategies(session, state)
+        if protected is not None:
+            protected |= {row["strategy"] for row in state["samples"]
+                          if row.get("status") == "open" and row.get("entry") is not None}
+            rebalance_entries(state, now, protected, legacy_only=True)
+    for candidate in state["candidates"].values():
+        if confirmation_enabled(candidate["genome"]) and any(
+                window.get("entry_policy") != candidate["genome"]["entry_policy"]
+                for window in candidate["windows"]):
+            candidate.setdefault("entry_window_archive", []).extend(candidate["windows"])
+            candidate.update(windows=[], promoted=False, born_at=(now // 900 + 1) * 900)
+    if "native_seeds_started_at" not in state:
+        born = (now // 900 + 1) * 900
+        for seed in NATIVE_SEEDS:
+            add_candidate(state, seed, born)
+        state["native_seeds_started_at"] = now
     return state
 
 
@@ -209,7 +240,10 @@ def qualification(candidate):
     checks = {
         "exit_policy_enabled": exit_policy_enabled(candidate["genome"]),
         "not_shadow_only": not shadow_only(candidate["genome"]),
-        "entry_windows_supported": candidate["genome"].get("entry_policy", "market") == "market",
+        "entry_windows_supported": (
+            confirmation_enabled(candidate["genome"])
+            and all(w.get("entry_policy") == candidate["genome"]["entry_policy"] for w in windows)
+        ),
         "forward_windows": bool(windows) and aligned,
         "trades_gte_100": count >= 100,
         "pf_gt_1_3": gains > 1.3 * losses and gains > 0,
@@ -228,7 +262,7 @@ def advance(sample, bar, fair, funding, candles=None):
         return
     direction = 1 if sample["side"] == "long" else -1
     if sample["entry"] is None and sample.get("entry_policy") and not sample.get("confirmed"):
-        filled = wait(sample, bar, funding)
+        filled = wait(sample, bar, funding, candles)
         if sample["status"] == "cancelled":  # unfilled signal scores 0R, never hidden
             sample.update(status="resolved", net_r=0.0, label_available_at=bar.time + 900)
         if filled is None:
@@ -240,10 +274,15 @@ def advance(sample, bar, fair, funding, candles=None):
             return
         entry = bar.open * (1 + direction * SLIP)
         risk = direction * (entry - sample["stop"])
-        if risk <= 0 or direction * (sample["target"] - entry) <= 0:
+        target = (entry + direction * sample["target_r"] * risk
+                  if sample.get("signal_frame") else sample["target"])
+        if (risk <= 0 or target <= 0 or direction * (target - entry) <= 0
+                or sample.get("signal_frame") and direction * (bar.open - sample["stop"]) <= 0):
             sample.update(status="excluded", reason="invalid_entry_geometry")
             return
         sample.update(entry=entry, risk=risk, funding_cost=0.0)
+        if sample.get("signal_frame"):
+            sample["target"] = target
     else:
         sample["funding_cost"] += sample.get("quantity", 1.0) * direction * fair.open * sum(
             row["rate"] for row in funding if row["time"] == bar.time
@@ -255,7 +294,8 @@ def advance(sample, bar, fair, funding, candles=None):
         price, why = stop, "stop"
     elif has_target(sample) and (bar.high >= target if direction == 1 else bar.low <= target):
         price, why = target, "target"
-    elif bar.time - sample["entry_time"] >= MAX_HOLD:
+    elif ((bar.time + 900 - sample["entry_time"] >= hold_seconds(sample["signal_frame"]))
+          if sample.get("signal_frame") else bar.time - sample["entry_time"] >= MAX_HOLD):
         price, why = bar.close, "timeout"
     else:
         history = candles or [bar]
@@ -329,7 +369,7 @@ def sync_seeds(state, now):
     born, rng = (now // 900 + 1) * 900, random.Random(now)
     existing = {genome_fingerprint(candidate["genome"]) for candidate in
                 [*state["candidates"].values(), *state.get("rule_archive", {}).values()]}
-    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS]:
+    for seed in [*EXIT_SEEDS, *ENTRY_SEEDS, *NATIVE_SEEDS]:
         if genome_fingerprint(seed) not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
             existing.add(genome_fingerprint(seed))
@@ -372,6 +412,7 @@ def evolve(state, now, max_children=1, force=False):
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
                      and not failure(metrics(evidence.get(name, [])))
+                     and confirmation_enabled(state["candidates"][name]["genome"])
                      and exit_policy_enabled(state["candidates"][name]["genome"])),
                     key=lambda name: results[name][1] - 0.01 * complexity(
                         state["candidates"][name]["genome"]), reverse=True)
@@ -411,6 +452,7 @@ def admit_drafts(state, now, protected):
         validate_genome(draft["genome"])
         if (genome_fingerprint(draft["genome"]) != draft["fingerprint"]
                 or not exit_policy_enabled(draft["genome"])
+                or not confirmation_enabled(draft["genome"])
                 or not draft.get("replay") or not all(draft["replay"]["checks"].values())):
             draft.update(status="error", reason="invalid_screened_genome", updated_at=now)
             continue
@@ -421,7 +463,11 @@ def admit_drafts(state, now, protected):
             continue
         retired = None
         if sum(exit_policy_enabled(row["genome"]) for row in state["candidates"].values()) >= CAP:
-            weak = retirement_candidates(state, forward_evidence(state, now), protected)
+            unconfirmed = [(name, {"reason": "unconfirmed_entry_retired", "samples": 0, "mean_r": 0.0,
+                                   "max_drawdown_r": 0.0, "retained_strategy": draft["strategy"], "overlap": None})
+                           for name, row in sorted(state["candidates"].items())
+                           if protected is not None and name not in protected and not confirmation_enabled(row["genome"])]
+            weak = unconfirmed or retirement_candidates(state, forward_evidence(state, now), protected)
             if not weak:
                 draft["reason"] = "ownership_unknown" if protected is None else "no_retirement_candidate"
                 break
@@ -449,8 +495,11 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
     if state["cursor"] is not None and bar.time != state["cursor"] + 900:
         raise ValueError("Futures learning candle gap")
     for sample in state["samples"]:
+        if sample["status"] == "open" and sample.get("entry") is None and sample.get("entry_policy") not in (*ENTRY_POLICIES, NATIVE_ENTRY):
+            sample.update(status="excluded", exit_reason="unconfirmed_entry_retired")
+            continue
         advance(sample, bar, fair, state["funding"], candles)
-    context, found, observations = regime(candles), [], []
+    context, found, observations = regime(candles[-WARMUP:]), [], []
     busy = {sample["strategy"] for sample in state["samples"] if sample["status"] == "open"}
     for name, candidate in state["candidates"].items():
         observation = {"strategy": name, "status": "warming_up", "side": None,
@@ -459,12 +508,16 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         if not exit_policy_enabled(candidate["genome"]):
             observation.update(status="paused", note="Đã ngừng thử chính sách thoát này; giữ lịch sử.")
             continue
+        if not confirmation_enabled(candidate["genome"]):
+            observation.update(status="paused", note="Đã ngừng kiểu vào lệnh không xác nhận; giữ cây đến khi đóng vị thế.")
+            continue
         if bar.time < candidate["born_at"]:
             continue
         kwargs = {k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history), ("benchmarks", benchmarks)) if v}
         if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
             kwargs["fair_candles"] = [fair]
-        setup = strategy_setup(candidate["genome"], candles, state["funding"], **kwargs)
+        history = candles if candidate["genome"].get("signal_frame") else candles[-WARMUP:]
+        setup = strategy_setup(candidate["genome"], history, state["funding"], **kwargs)
         observation["status"] = "no_signal"
         if setup is None:
             continue
@@ -477,10 +530,12 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
                           "promoted": candidate["promoted"] and qualification(candidate)["eligible"]})
         observation.update(status="shadow" if shadow_only(candidate["genome"]) else "signal",
                            side=setup.side, setup=asdict(setup))
-        if name not in busy:
+        if name not in busy or candidate["genome"].get("signal_frame"):
             state["samples"].append({
                 "strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,
                 "side": setup.side, "stop": setup.stop, "target": setup.target,
+                "signal_frame": candidate["genome"].get("signal_frame"),
+                "target_r": candidate["genome"]["target_r"],
                 "regime": context, "status": "open", "entry": None, "net_r": None,
                 "label_available_at": None,
                 "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
@@ -490,7 +545,8 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
             })
     eligible = [candidate for candidate in found if candidate["promoted"]]
     pool = found if state["auto_mode"] == "paper_learning" else eligible or found
-    free = [c for c in pool if c["name"] not in (paper_busy or ())]
+    free = [c for c in pool if c["name"] not in (paper_busy or ())
+            or state["candidates"][c["name"]]["genome"].get("signal_frame")]
     if free:
         pool = free
     best = max((candidate["ucb"] for candidate in pool), default=None)
@@ -516,9 +572,12 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
 
 
 def validate_window(candidate, candles, fair, funding, contract, signal_context=None):
+    if not confirmation_enabled(candidate["genome"]):
+        raise ValueError("Forward validation requires a confirmation entry policy")
     start = candidate["born_at"] + len(candidate["windows"]) * WINDOW_SECONDS
     end = start + WINDOW_SECONDS
-    if (len(candles) != WARMUP + WINDOW_BARS or candles[WARMUP].time != start
+    warmup = NATIVE_WARMUP if candidate["genome"].get("signal_frame") else WARMUP
+    if (len(candles) != warmup + WINDOW_BARS or candles[warmup].time != start
             or candles[-1].time + 900 != end):
         raise ValueError("Incomplete forward validation window")
     validate_candles(candles)
@@ -527,7 +586,7 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
         raise ValueError("Fair-price coverage mismatch")
     fair_by_time = {bar.time: bar for bar in fair}
     result = simulate(
-        candles, BacktestConfig(), funding, fair, contract, warmup=WARMUP, window=WARMUP,
+        candles, BacktestConfig(), funding, fair, contract, warmup=warmup, window=warmup,
         signal=lambda history, allow_short=False: strategy_setup(
             candidate["genome"], history, funding,
             **({**(signal_context or {}), "fair_candles": [fair_by_time[history[-1].time]]}
@@ -536,9 +595,13 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
         exit_policy=candidate["genome"].get("exit_policy", "fixed"),
         exit_params=candidate["genome"].get("exit_params"),
         exit_rule=candidate["genome"].get("rule"),
+        entry_policy=candidate["genome"].get("entry_policy", "market"),
+        signal_frame=candidate["genome"].get("signal_frame"),
+        target_r=candidate["genome"]["target_r"],
     )
     candidate["windows"].append({
         **{key: result[key] for key in ("start_time", "end_time", "trade_count", "net_pnl", "max_drawdown_percent")},
+        "entry_policy": candidate["genome"].get("entry_policy", "market"),
         "gains": sum(max(trade["net_pnl"], 0) for trade in result["trades"]),
         "losses": -sum(min(trade["net_pnl"], 0) for trade in result["trades"]),
     })
@@ -557,7 +620,7 @@ def learning_tick(now=None, adapter=None):
         cursor = state["cursor"]
         if cursor is not None and cursor >= end - 900:
             return
-        candles = load_candles(session, limit=WARMUP + 96, until=end)
+        candles = load_candles(session, limit=NATIVE_WARMUP + 96, until=end)
         if not candles or candles[-1].time != end - 900:
             return
         paper_busy = active_strategies(session, state)
@@ -566,13 +629,15 @@ def learning_tick(now=None, adapter=None):
         oi_history = signal_context.get("oi_history")
         due = next(((name, candidate) for name, candidate in state["candidates"].items()
                     if exit_policy_enabled(candidate["genome"])
+                    and confirmation_enabled(candidate["genome"])
                     and candidate["born_at"] + (len(candidate["windows"]) + 1) * WINDOW_SECONDS <= end), None)
         validation = None
         if due:
             name, candidate = due
+            warmup = NATIVE_WARMUP if candidate["genome"].get("signal_frame") else WARMUP
             start = candidate["born_at"] + len(candidate["windows"]) * WINDOW_SECONDS
-            validation = (name, start, load_candles(session, since=start - WARMUP * 900, until=start + WINDOW_SECONDS))
-            validation_context = load_signal_context(session, start - WARMUP * 900,
+            validation = (name, start, load_candles(session, since=start - warmup * 900, until=start + WINDOW_SECONDS))
+            validation_context = load_signal_context(session, start - warmup * 900,
                                                      start + WINDOW_SECONDS)
     owns_adapter = adapter is None
     adapter = adapter or MexcFuturesAdapter()
@@ -591,8 +656,8 @@ def learning_tick(now=None, adapter=None):
         funding = adapter.funding_history(first - 2 * 86400, stop)
         if validation:
             name, start, history = validation
-            if len(history) != WARMUP + WINDOW_BARS:
-                history = adapter.history(start - WARMUP * 900, start + WINDOW_SECONDS, now)
+            if len(history) != warmup + WINDOW_BARS:
+                history = adapter.history(start - warmup * 900, start + WINDOW_SECONDS, now)
                 validation = (name, start, history)
             validation_fair = adapter.history(history[0].time, start + WINDOW_SECONDS, now, fair=True)
             validation_funding = adapter.funding_history(history[0].time, start + WINDOW_SECONDS)
@@ -602,7 +667,7 @@ def learning_tick(now=None, adapter=None):
         if work["cursor"] is None:
             work["cursor"] = first - 900
         for bar, mark in zip(bars, fair):
-            history = [past for past in candles if past.time <= bar.time][-WARMUP:]
+            history = [past for past in candles if past.time <= bar.time][-NATIVE_WARMUP:]
             bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
             step(work, history, mark, now, oi_history=oi_history, benchmarks=bench_hist,
                  paper_busy=paper_busy)
@@ -643,7 +708,9 @@ def select_for_auto(session, candle_time, now):
     if not decision["setup"]:
         return True, None, None
     candidate = state["candidates"].get(decision["selected"])
-    if candidate and (not exit_policy_enabled(candidate["genome"]) or shadow_only(candidate["genome"])):
+    if candidate and (not exit_policy_enabled(candidate["genome"])
+                      or not confirmation_enabled(candidate["genome"])
+                      or shadow_only(candidate["genome"])):
         return True, None, None
     if state["auto_mode"] == "paper_learning":
         if decision.get("auto_mode") != "paper_learning" or decision["mode"] != "paper_learning":
@@ -847,7 +914,8 @@ def get_strategy_chart(candle_time: int, strategies: str = Query(min_length=1, m
     @aggregation_cache()
     def build():
         with Session() as session:
-            candles = load_candles(session, limit=WARMUP, until=candle_time + 900)
+            warmup = NATIVE_WARMUP if any(g.get("signal_frame") for g in genomes.values()) else WARMUP
+            candles = load_candles(session, limit=warmup, until=candle_time + 900)
             if not candles or candles[-1].time != candle_time:
                 raise HTTPException(503, "Missing decision candles for chart")
             context = load_signal_context(session, candles[0].time, candle_time + 900)
@@ -858,7 +926,7 @@ def get_strategy_chart(candle_time: int, strategies: str = Query(min_length=1, m
             observation = observations[name]
             chart = {}
             if observation["status"] not in ("warming_up", "paused"):
-                chart = strategy_chart(genome, candles, {
+                chart = strategy_chart(genome, candles if genome.get("signal_frame") else candles[-WARMUP:], {
                     **context, "funding_threshold": genome["funding_threshold"],
                     "max_er": genome["max_er"],
                 })

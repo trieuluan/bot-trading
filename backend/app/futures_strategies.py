@@ -8,7 +8,8 @@ from dataclasses import replace
 from statistics import fmean, pstdev
 
 from .futures_chart import rule_overlays
-from .futures_entries import ENTRY_POLICIES
+from .futures_entries import ENTRY_POLICIES, LEGACY_POLICIES
+from .futures_native import NATIVE_ENTRY, NATIVE_FEATURES, NATIVE_FRAMES, native_levels
 from .futures_exits import (
     EVOLVABLE_EXITS,
     EXIT_BOUNDS,
@@ -29,6 +30,7 @@ from .futures_rule_tree import (
     matches,
     mutate_htf_rule,
     mutate_rule,
+    nodes,
     validate_htf_rule,
     validate_rule,
 )
@@ -52,14 +54,30 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy"} if rule_tree else {"exit_policy", "exit_params"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
-    if genome.get("entry_policy", "market") not in ENTRY_POLICIES:
+    if genome.get("entry_policy", "market") not in (*ENTRY_POLICIES, *LEGACY_POLICIES, NATIVE_ENTRY):
         raise ValueError("Invalid futures entry policy")
     if rule_tree:
         validate_rule(genome["rule"])
+        native = genome.get("signal_frame")
+        if native is not None:
+            if (not isinstance(native, str) or native not in NATIVE_FRAMES or genome.get("entry_policy") != NATIVE_ENTRY
+                    or genome.get("exit_policy", "fixed") not in ("fixed", "breakeven")
+                    or genome.get("exit_params") or genome["stop_buffer"] != 0.0
+                    or genome.get("exit_profile", "default") != "default"):
+                raise ValueError("Invalid native-frame execution settings")
+            trigger = "native_squeeze" if native == "D1" else "native_sweep"
+            bias = "native_trend" if native == "D1" else "daily_bias"
+            expected = {"op": "all", "children": [{"feature": trigger, "frame": native},
+                                                   {"feature": bias, "frame": "D1"}]}
+            if genome["rule"] != expected:
+                raise ValueError("Native seeds require closed-frame trigger and matching trend gate")
+        elif (genome.get("entry_policy") == NATIVE_ENTRY or any(
+                node.get("feature") in NATIVE_FEATURES for _, node in nodes(genome["rule"]))):
+            raise ValueError("Native predicates require native execution settings")
         if genome.get("exit_profile", "default") not in ("default", *FAMILIES):
             raise ValueError("Invalid rule-tree exit profile")
         if genome.get("exit_profile", "default") == "default":
@@ -93,8 +111,9 @@ def to_rule_tree(genome):
 
 RULE_SEEDS = [
     {"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
-     "max_er": 0.30, "funding_threshold": 0.0003, "exit_policy": "adaptive", "rule": rule}
-    for rule in RULES
+     "max_er": 0.30, "funding_threshold": 0.0003, "exit_policy": "adaptive", "rule": rule,
+     "entry_policy": ENTRY_POLICIES[index % len(ENTRY_POLICIES)]}
+    for index, rule in enumerate(RULES)
 ]
 SEEDS = copy.deepcopy(RULE_SEEDS)
 
@@ -114,9 +133,16 @@ def _exit_seeds():
     return out
 
 EXIT_SEEDS = _exit_seeds()
-# Same G0 tree as RULE_SEEDS[0], limit at 50% of the signal body; other policies arrive via mutation.
-# ponytail: sweep_h1/retest_h1 = Forex V4-style M15 confirmation; offline replay evidence is validation-only (train negative), so forward-test before trusting.
-ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": policy} for policy in ("body50", "retest_h1", "sweep_h1")]
+ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": "body50_confirm"}]
+NATIVE_SEEDS = [
+    {"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
+     "max_er": 0.30, "funding_threshold": 0.0003, "exit_policy": policy,
+     "entry_policy": NATIVE_ENTRY, "signal_frame": frame,
+     "rule": {"op": "all", "children": [{"feature": trigger, "frame": frame},
+                                         {"feature": bias, "frame": "D1"}]}}
+    for frame, trigger, bias, policy in (("D1", "native_squeeze", "native_trend", "breakeven"),
+                                       ("H4", "native_sweep", "daily_bias", "fixed"))
+]
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -170,6 +196,8 @@ def genome_fingerprint(genome):
     return json.dumps(normalized, sort_keys=True)
 
 def exit_policy_enabled(genome):
+    if genome.get("signal_frame"):
+        return genome.get("exit_policy", "fixed") in ("fixed", "breakeven")
     return genome.get("exit_policy", "fixed") in MUTABLE_EXITS
 
 def _newborn(child):
@@ -183,6 +211,12 @@ def _newborn(child):
 def crossover(parent, mate):
     validate_genome(parent)
     validate_genome(mate)
+    if parent.get("signal_frame") or mate.get("signal_frame"):
+        child = copy.deepcopy(parent)
+        if parent.get("signal_frame") and mate.get("signal_frame"):
+            for key in ("target_r", "lookback", "exit_policy"):
+                child[key] = mate.get(key, "fixed")
+        return _newborn(child)
     child = {**parent, "target_r": mate["target_r"], "stop_buffer": mate["stop_buffer"]}
     if is_rule_tree(parent) and is_rule_tree(mate):
         if is_htf_rule(parent["rule"]) and is_htf_rule(mate["rule"]):
@@ -197,8 +231,9 @@ def crossover(parent, mate):
             child["rule"] = joined
         except ValueError:
             pass
-    if mate.get("entry_policy", "market") != "market":
-        child["entry_policy"] = mate["entry_policy"]
+    child["entry_policy"] = (mate["entry_policy"] if mate.get("entry_policy") in ENTRY_POLICIES
+                             else parent["entry_policy"] if parent.get("entry_policy") in ENTRY_POLICIES
+                             else ENTRY_POLICIES[0])
     child.pop("exit_policy", None)
     child.pop("exit_params", None)
     if mate.get("exit_policy") in MUTABLE_EXITS and mate.get("exit_policy") != "fixed":
@@ -210,6 +245,15 @@ def crossover(parent, mate):
 def mutate(genome, rng):
     validate_genome(genome)
     child = dict(genome)
+    if genome.get("signal_frame"):
+        key = rng.choice(("lookback", "target_r", "exit_policy"))
+        if key == "exit_policy":
+            child[key] = "fixed" if genome.get(key) == "breakeven" else "breakeven"
+        else:
+            low, high, step = BOUNDS[key]
+            child[key] = rng.choice([value for value in (genome[key] - step, genome[key] + step)
+                                     if max(2.0, low) <= value <= high])
+        return _newborn(child)
     if not exit_policy_enabled(child):
         child.pop("exit_policy", None)
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else genome["family"]
@@ -240,11 +284,8 @@ def mutate(genome, rng):
         if mode != "fixed":
             child["exit_policy"] = mode
     elif key == "entry_policy":
-        mode = rng.choice([policy for policy in ENTRY_POLICIES
-                           if policy != genome.get("entry_policy", "market")])
-        child.pop("entry_policy", None)
-        if mode != "market":
-            child["entry_policy"] = mode
+        child["entry_policy"] = rng.choice([
+            policy for policy in ENTRY_POLICIES if policy != genome.get("entry_policy")])
     elif key == "exit_params":
         params = exit_parameters(genome["exit_policy"], genome.get("exit_params"))
         param = rng.choice(list(params))
@@ -264,6 +305,8 @@ def mutate(genome, rng):
         low, high, step = BOUNDS[key]
         value = rng.choice([v for v in (genome[key] - step, genome[key] + step) if low - 1e-9 <= v <= high + 1e-9])
         child[key] = int(value) if key == "lookback" else round(value, 6)
+    if is_rule_tree(child) and child.get("entry_policy") not in ENTRY_POLICIES:
+        child["entry_policy"] = rng.choice(ENTRY_POLICIES)
     return _newborn(child)
 
 def regime(candles):
@@ -293,6 +336,9 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     validate_genome(genome)
     if len(candles) < 21:
         return None
+    frame = genome.get("signal_frame")
+    if frame and (candles[-1].time + 900) % NATIVE_FRAMES[frame]:
+        return None
     tree = genome if is_rule_tree(genome) else to_rule_tree(genome)
     lookback = genome["lookback"]
     context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
@@ -304,8 +350,9 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     if len(found) != 1:
         return None
     direction, last = found[0], candles[-1]
-    levels = adaptive_levels("long" if direction == 1 else "short", candles,
-                             genome["target_r"], genome["stop_buffer"])
+    levels = (native_levels(candles, frame, direction, genome["target_r"]) if frame else
+              adaptive_levels("long" if direction == 1 else "short", candles,
+                              genome["target_r"], genome["stop_buffer"]))
     if levels is None:
         return None
     stop, target = levels
@@ -317,7 +364,7 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
         target = structural_target(setup.side, setup.entry, stop, target, candles)
         if target is None:
             return None
-    if risk <= 0 or target <= 0 or direction * (target - setup.entry) <= 0:
+    if risk <= 0 or stop <= 0 or target <= 0 or direction * (target - setup.entry) <= 0:
         return None
     return replace(setup, stop=stop, target=target)
 

@@ -51,12 +51,12 @@ def test_entry_policy_gene_validates_mutates_and_seeds_one_body50_g0():
     )
     seed = ENTRY_SEEDS[0]
     validate_genome(seed)
-    assert seed["entry_policy"] == "body50" and seed["rule"] == RULE_SEEDS[0]["rule"]
+    assert seed["entry_policy"] == "body50_confirm" and seed["rule"] == RULE_SEEDS[0]["rule"]
     assert genome_name(seed) != genome_name(RULE_SEEDS[0]) and not shadow_only(seed)
     assert not shadow_only(RULE_SEEDS[0])
-    assert crossover(RULE_SEEDS[1], seed)["entry_policy"] == "body50"
+    assert crossover(RULE_SEEDS[1], seed)["entry_policy"] == "body50_confirm"
     seen = {mutate(RULE_SEEDS[0], random.Random(i)).get("entry_policy", "market") for i in range(400)}
-    assert {"body50", "retest_h1"} <= seen
+    assert {"body50_confirm", "retest_h1"} <= seen
     try:
         validate_genome({**seed, "entry_policy": "bogus"})
     except ValueError:
@@ -79,7 +79,7 @@ def test_learner_limit_fill_and_unfilled_scores_zero():
         advance(miss, bar, bar, [])
     assert miss["status"] == "resolved" and miss["net_r"] == 0.0 and miss["entry"] is None
 
-def test_limit_entries_cannot_qualify_from_market_only_windows():
+def test_confirm_entries_cannot_qualify_from_unlabeled_windows():
     from backend.app.futures_learner import WINDOW_SECONDS, qualification
     from backend.app.futures_strategies import ENTRY_SEEDS
     candidate = {"genome": ENTRY_SEEDS[0], "born_at": 0, "windows": [{
@@ -100,3 +100,73 @@ def test_sweep_confirms_on_wick_through_level_and_cancels_on_close_through():
     # bar closes through 98.0 (close 97.0 < 98.0)
     advance_entry(item_fail, "sweep_h1", Candle(900, 100, 101, 96, 97.0, 1), None, [], [])
     assert item_fail["exit_reason"] == "closed_through_level"
+
+def test_confirm_entries_qualify_from_matching_windows():
+    from backend.app.futures_learner import WINDOW_SECONDS, qualification
+    from backend.app.futures_strategies import ENTRY_SEEDS
+    window = {"start_time": 0, "end_time": WINDOW_SECONDS, "gains": 200, "losses": 100,
+              "trade_count": 100, "net_pnl": 99, "max_drawdown_percent": 1,
+              "entry_policy": "body50_confirm"}
+    assert qualification({"genome": ENTRY_SEEDS[0], "born_at": 0, "windows": [window]})["eligible"]
+    assert not qualification({"genome": ENTRY_SEEDS[0], "born_at": 0,
+                              "windows": [{**window, "entry_policy": "market"}]})["eligible"]
+
+def test_validation_replays_confirmation_before_next_open(monkeypatch):
+    from backend.app import futures_learner as learner
+    from backend.app.futures_strategies import ENTRY_SEEDS
+    from backend.app.strategy import Setup
+
+    monkeypatch.setattr(learner, "WARMUP", 1)
+    monkeypatch.setattr(learner, "WINDOW_BARS", 4)
+    monkeypatch.setattr(learner, "WINDOW_SECONDS", 3600)
+    monkeypatch.setattr(learner, "strategy_setup", lambda genome, history, funding, **kwargs:
+                        Setup("long", 104, 90, 120, "test") if history[-1].time == 900 else None)
+    bars = [Candle(0, 100, 101, 99, 100, 1), Candle(900, 100, 105, 99, 104, 1),
+            Candle(1800, 102.5, 105, 101, 104, 1), Candle(2700, 105, 106, 104, 105, 1),
+            Candle(3600, 105, 121, 104, 120, 1)]
+    contract = {"contractSize": .001, "volUnit": 1, "minVol": 1, "maxVol": 100000000}
+    captured = []
+    simulate = learner.simulate
+
+    def recording_simulate(*args, **kwargs):
+        result = simulate(*args, **kwargs)
+        captured.append(result)
+        return result
+
+    monkeypatch.setattr(learner, "simulate", recording_simulate)
+    candidate = {"genome": ENTRY_SEEDS[0], "born_at": 900, "windows": [], "promoted": False}
+    learner.validate_window(candidate, bars, bars, [{"time": 2700, "rate": .01}], contract)
+    trade, = captured[-1]["trades"]
+    assert trade["signal_time"] == 900 and trade["entry_time"] == 2700
+    assert trade["entry"] == 105 * 1.0002 and trade["exit_reason"] == "target"
+    assert trade["fees"] > 0 and trade["funding_cost"] == 0
+    assert candidate["windows"][0]["entry_policy"] == "body50_confirm"
+    assert candidate["windows"][0]["trade_count"] == 1
+
+    for invalid in (Candle(1800, 102.5, 105, 89, 104, 1),
+                    Candle(1800, 102.5, 121, 101, 104, 1),
+                    Candle(1800, 104, 105, 103, 104, 1),
+                    Candle(1800, 102.5, 105, 101, 101.5, 1)):
+        changed = [*bars[:2], invalid, *bars[3:]]
+        candidate.update(windows=[], promoted=False)
+        learner.validate_window(candidate, changed, changed, [], contract)
+        assert candidate["windows"][0]["trade_count"] == 0
+
+def test_confirmation_expires_without_replacing_pending_signal():
+    from backend.app.backtest import BacktestConfig, simulate
+    from backend.app.strategy import Setup
+
+    bars = [Candle(index * 900, 100, 105, 99, 104, 1) for index in range(2)]
+    bars += [Candle(index * 900, 104, 106, 103, 105, 1) for index in range(2, 6)]
+    bars += [Candle(5400, 102.5, 106, 101, 104, 1), Candle(6300, 105, 121, 104, 120, 1)]
+    seen = []
+
+    def signal(history, **kwargs):
+        seen.append(history[-1].time)
+        return Setup("long", history[-1].close, 90, 120, "test")
+
+    result = simulate(bars, BacktestConfig(), [], bars,
+                      {"contractSize": .001, "volUnit": 1, "minVol": 1, "maxVol": 100000000},
+                      warmup=1, window=100, signal=signal, entry_policy="body50_confirm")
+    assert seen == [900, 5400]
+    assert result["trade_count"] == 0

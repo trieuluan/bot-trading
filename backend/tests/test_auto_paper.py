@@ -30,7 +30,7 @@ def ready(monkeypatch):
     clock = [int(time.time()) // 900 * 900 + 5]
     monkeypatch.setattr(time, "time", lambda: clock[0])
 
-    def seed(side="long", price=None, enabled=True, policy="market"):
+    def seed(side="long", price=None, enabled=True, policy="body50_confirm", genome=None):
         now = clock[0]
         last = int(now) // 900 * 900 - 900
         close = {"long": 105, "short": 85, "none": 95}[side]
@@ -67,11 +67,7 @@ def ready(monkeypatch):
             setups = {"long": Setup("long", 105, 95, 125, "test"),
                       "short": Setup("short", 85, 95, 65, "test"), "none": None}
             monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: setups[side])
-            from backend.app.strategy import Setup
-            setups = {"long": Setup("long", 105, 95, 125, "test"),
-                      "short": Setup("short", 85, 95, 65, "test"), "none": None}
-            monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: setups[side])
-            learner.add_candidate(learning, {**SEEDS[0], **({} if policy == "market" else {"entry_policy": policy})}, 0)
+            learner.add_candidate(learning, {**(genome or SEEDS[0]), "entry_policy": policy}, 0)
             learner.step(learning, candles, candles[-1], now)
             learner.save_state(session, learning)
         return last
@@ -79,11 +75,24 @@ def ready(monkeypatch):
     return clock, seed
 
 
+def enter(clock, last, side="long"):
+    from backend.app.auto_paper import sync_pending_orders
+    auto_tick()
+    clock[0] += 900
+    bar = (Candle(last + 900, 100.5, 106, 99, 104, 10) if side == "long"
+           else Candle(last + 900, 89.5, 91, 84, 86, 10))
+    with Session.begin() as session:
+        save_candles(session, [bar])
+        wallet = session.get(PaperWallet, 1)
+        wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
+        session.get(MarketState, 1).last_sync = datetime.fromtimestamp(clock[0], timezone.utc)
+    sync_pending_orders()
+
 @pytest.mark.parametrize("side", ["long", "short"])
 def test_auto_entries_share_fills_risk_sizing_and_bar_deduplication(ready, side):
     clock, seed = ready
     last = seed(side)
-    auto_tick()
+    enter(clock, last, side)
     wallet = client.get("/api/paper/wallet").json()
     trade = wallet["position"]
     assert trade["side"] == side and trade["origin"] == "auto"
@@ -119,8 +128,8 @@ def test_enable_waits_for_new_bar_and_startup_skips_missed_history(ready):
         assert session.get(AutoPaperState, 1).last_candle == last
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
     clock[0] += 900
-    seed()
-    auto_tick()
+    stamp = seed()
+    enter(clock, stamp)
     assert client.get("/api/paper/wallet").json()["position"]["signal_time"] == last + 900
 
 
@@ -165,8 +174,7 @@ def test_quote_expiring_during_selection_waits_and_retries_without_disabling(rea
         assert wallet.balance == 10000
         wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
     monkeypatch.setattr(auto_paper, "select_for_auto", select_setup)
-    auto_tick()
-    auto_tick()
+    enter(clock, last)
     with Session() as session:
         assert session.get(AutoPaperState, 1).enabled
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
@@ -176,15 +184,16 @@ def test_quote_expiring_during_selection_waits_and_retries_without_disabling(rea
 def test_unexpected_entry_failures_still_reach_worker(ready, monkeypatch, failure):
     from backend.app import auto_paper
 
-    _, seed = ready
-    seed()
+    clock, seed = ready
+    last = seed()
+    auto_tick()
 
     def fail(*args, **kwargs):
         raise failure
 
     monkeypatch.setattr(auto_paper, "execution_price", fail)
     with pytest.raises(type(failure)):
-        auto_tick()
+        enter(clock, last)
 
 def test_no_setup_and_gap_beyond_target_never_create_trades(ready):
     clock, seed = ready
@@ -194,7 +203,7 @@ def test_no_setup_and_gap_beyond_target_never_create_trades(ready):
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "no_setup"
     clock[0] += 900
     last = seed("long", price=140)
-    auto_tick()
+    enter(clock, last)
     with Session() as session:
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "skipped"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
@@ -203,8 +212,8 @@ def test_no_setup_and_gap_beyond_target_never_create_trades(ready):
 
 def test_pause_keeps_position_and_stops_work_while_auto_is_disabled(ready):
     clock, seed = ready
-    seed()
-    auto_tick()
+    last = seed()
+    enter(clock, last)
     assert client.post("/api/paper/auto/control", json={"enabled": False}).status_code == 200
     position = client.get("/api/paper/wallet").json()["position"]
     assert position is not None
@@ -229,10 +238,10 @@ def test_pause_keeps_position_and_stops_work_while_auto_is_disabled(ready):
 
 def test_daily_trade_limit_stops_entries_without_closing_position(ready):
     clock, seed = ready
-    seed()
+    last = seed()
     with Session.begin() as session:
         session.get(AutoPaperState, 1).max_daily_trades = 1
-    auto_tick()
+    enter(clock, last)
     auto_tick()
     state = client.get("/api/paper/auto").json()
     assert not state["enabled"] and state["daily_trades"] == 1
@@ -242,7 +251,7 @@ def test_daily_trade_limit_stops_entries_without_closing_position(ready):
 
 def test_daily_loss_cap_and_remaining_budget(ready):
     clock, seed = ready
-    seed()
+    last = seed()
     with Session.begin() as session:
         wallet = session.get(PaperWallet, 1)
         wallet.balance = 9800
@@ -250,7 +259,7 @@ def test_daily_loss_cap_and_remaining_budget(ready):
         state.day = datetime.fromtimestamp(clock[0], timezone.utc).date().isoformat()
         state.day_start_equity = 10000
         state.risk_percent = 5
-    auto_tick()
+    enter(clock, last)
     trade = client.get("/api/paper/wallet").json()["position"]
     assert trade["quantity"] * abs(trade["entry"] - trade["stop"]) <= 100
     with Session.begin() as session:
@@ -298,16 +307,16 @@ def test_waits_for_quote_after_close_and_contiguous_fresh_candles(ready):
     with Session() as session:
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     seed()
-    auto_tick()
+    enter(clock, last)
     assert client.get("/api/paper/wallet").json()["position"] is not None
 
 
 def test_unexpected_auto_failure_keeps_stops_and_position(ready):
     from backend.app.auto_paper import report_auto_failure
 
-    _, seed = ready
-    seed()
-    auto_tick()
+    clock, seed = ready
+    last = seed()
+    enter(clock, last)
     report_auto_failure()
     state = client.get("/api/paper/auto").json()
     assert not state["enabled"] and "lỗi xử lý" in state["status"]
@@ -342,7 +351,7 @@ def test_auto_opens_after_funding_recovers_without_stacking_same_strategy(ready)
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)) is None
     with Session.begin() as session:
         session.get(PaperWallet, 1).funding_error = None
-    auto_tick()
+    enter(clock, last)
     clock[0] += 900
     last = seed()
     auto_tick()
@@ -353,9 +362,9 @@ def test_auto_opens_after_funding_recovers_without_stacking_same_strategy(ready)
 
 
 def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(ready):
-    _, seed = ready
+    clock, seed = ready
     last = seed("short")
-    auto_tick()
+    enter(clock, last, "short")
     trade = client.get("/api/paper/wallet").json()["position"]
     audit = trade["audit"]
     assert audit["strategy"].startswith("rule_tree:")
@@ -373,14 +382,14 @@ def test_trade_audit_preserves_entry_context_after_settings_and_candles_change(r
     candles = client.get(f"/api/paper/trades/{trade['id']}/candles").json()
     assert candles[0]["time"] <= last
     assert any(c["time"] == last for c in candles)
-    assert candles[-1]["time"] == last + 900  # Current observed bar keeps fills visible.
+    assert candles[-1]["time"] >= last + 900
     assert client.get("/api/paper/trades/99999/candles").status_code == 404
 
 
 def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready):
-    _, seed = ready
+    clock, seed = ready
     last = seed()
-    auto_tick()
+    enter(clock, last)
     with Session.begin() as session:
         decision = session.get(AutoPaperDecision, ("BTC_USDT", last))
         decision.parameters = {"risk_percent": 1}
@@ -392,8 +401,8 @@ def test_legacy_auto_trade_has_reason_without_inventing_breakout_snapshot(ready)
 def test_auto_does_not_stack_same_strategy_until_position_closes(ready):
     clock, seed = ready
     for _ in range(4):
-        seed("long")
-        auto_tick()
+        last = seed("long")
+        enter(clock, last)
         clock[0] += 900
     with Session() as session:
         trades = session.scalars(select(PaperTrade).where(PaperTrade.exit_time.is_(None))).all()
@@ -408,7 +417,7 @@ def test_auto_does_not_stack_same_strategy_until_position_closes(ready):
         trade.exit_time = int(clock[0])
         trade.exit, trade.net_pnl = trade.entry, 0.0
     last = seed("long")
-    auto_tick()
+    enter(clock, last)
     with Session() as session:
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
@@ -416,7 +425,7 @@ def test_auto_does_not_stack_same_strategy_until_position_closes(ready):
 def test_auto_unknown_position_owner_fails_closed(ready):
     clock, seed = ready
     last = seed()
-    auto_tick()
+    enter(clock, last)
     with Session.begin() as session:
         session.get(AutoPaperDecision, ("BTC_USDT", last)).parameters = {}
     clock[0] += 900
@@ -430,7 +439,7 @@ def test_auto_unknown_position_owner_fails_closed(ready):
 def test_auto_can_open_different_strategy_on_same_pair(ready):
     clock, seed = ready
     last = seed()
-    auto_tick()
+    enter(clock, last)
     with Session.begin() as session:
         from backend.app.futures_learner import read_state, save_state
         learning = read_state(session, int(clock[0]))
@@ -446,7 +455,7 @@ def test_auto_can_open_different_strategy_on_same_pair(ready):
         learning = read_state(session, int(clock[0]))
         learning["candidates"][other] = dict(next(iter(learning["candidates"].values())))
         save_state(session, learning)
-    auto_tick()
+    enter(clock, last)
     with Session() as session:
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 2
@@ -461,12 +470,12 @@ def test_timeline_counts_actions_and_unrecorded_candles(ready):
                                       reason="Auto Paper đang tắt", parameters={}))
         session.add(AutoPaperDecision(symbol="BTC_USDT", candle_time=last - 97 * 900,
                                       action="skipped", reason="too old", parameters={}))
-    auto_tick()
+    enter(clock, last)
     state = client.get("/api/paper/auto").json()
     assert [row["action"] for row in state["timeline"]] == ["opened", "missed", "no_setup"]
     assert state["timeline"][0]["trade_id"] and state["timeline"][0]["side"] == "long"
-    assert state["coverage"] == {"window_candles": 96, "end_time": last,
-                                 "start_time": last - 95 * 900, "tracked_candles": 96,
+    assert state["coverage"] == {"window_candles": 96, "end_time": last + 900,
+                                 "start_time": last - 94 * 900, "tracked_candles": 96,
                                  "evaluated": 2, "unrecorded": 93, "opened": 1, "skipped": 0,
                                  "no_setup": 1, "missed": 1, "pending": 0}
 
@@ -514,19 +523,18 @@ def test_limit_entry_queues_then_fills_at_level(ready, side, level):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed(side, policy="body50")
+    last = seed(side, policy="body50_confirm")
     auto_tick()
     with Session() as session:
         order = session.scalar(select(PaperPendingOrder))
-        assert (order.status, order.level, order.entry_policy) == ("pending", level, "body50")
+        assert (order.status, order.level, order.entry_policy) == ("pending", level, "body50_confirm")
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "pending"
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
     assert client.get("/api/paper/wallet").json()["pending_orders"][0]["level"] == level
-    # Next bar trades through the level: fills at 100 (no slippage), position opens.
     clock[0] += 900
     with Session.begin() as session:
-        save_candles(session, [Candle(last + 900, 105, 106, 99, 104, 10) if side == "long"
-                               else Candle(last + 900, 85, 91, 84, 86, 10)])
+        save_candles(session, [Candle(last + 900, 100.5, 106, 99, 104, 10) if side == "long"
+                               else Candle(last + 900, 89.5, 91, 84, 86, 10)])
         wallet = session.get(PaperWallet, 1)
         wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
         session.get(MarketState, 1).last_sync = datetime.fromtimestamp(clock[0], timezone.utc)
@@ -534,7 +542,8 @@ def test_limit_entry_queues_then_fills_at_level(ready, side, level):
     with Session() as session:
         order = session.scalar(select(PaperPendingOrder))
         trade = session.get(PaperTrade, order.trade_id)
-        assert order.status == "filled" and trade.entry == level and trade.entry_time == last + 900
+        expected = (105.1 * 1.0002) if side == "long" else (84.9 * 0.9998)
+        assert order.status == "filled" and trade.entry == pytest.approx(expected) and trade.entry_time == clock[0]
         assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "opened"
     sync_pending_orders()
     with Session() as session:
@@ -544,7 +553,7 @@ def test_limit_entry_expires_untouched(ready):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed("long", policy="body50")
+    last = seed("long", policy="body50_confirm")
     auto_tick()
     clock[0] += 5 * 900
     with Session.begin() as session:
@@ -562,7 +571,7 @@ def test_pending_execution_boundaries(ready, case):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed("long", policy="body50")
+    last = seed("long", policy="body50_confirm")
     auto_tick()
     auto_tick()
     with Session() as session:
@@ -570,19 +579,19 @@ def test_pending_execution_boundaries(ready, case):
     clock[0] += 4 * 900 if case == "fourth" else 900
     if case == "old":
         clock[0] += 61
-    bar = Candle(last + 900, 105, 106, 100, 104, 10)
+    bar = Candle(last + 900, 100.5, 106, 100, 104, 10)
     if case in ("stale", "old", "funding", "risk"):
-        bar = Candle(last + 900, 105, 106, 99, 104, 10)
+        bar = Candle(last + 900, 100.5, 106, 99, 104, 10)
     elif case == "target":
         bar = Candle(last + 900, 105, 126, 101, 124, 10)
     elif case == "stop_first":
-        bar = Candle(last + 900, 105, 126, 94, 125.5, 10)
+        bar = Candle(last + 900, 100.5, 126, 94, 104, 10)
     with Session.begin() as session:
         if case == "gap":
-            save_candles(session, [Candle(last + 1800, 105, 106, 99, 104, 10)])
+            save_candles(session, [Candle(last + 1800, 100.5, 106, 99, 104, 10)])
         elif case == "fourth":
             save_candles(session, [Candle(last + 900 * index, 105, 106, 101, 104, 10) for index in range(1, 4)]
-                         + [Candle(last + 3600, 105, 106, 99, 104, 10)])
+                         + [Candle(last + 3600, 100.5, 106, 99, 104, 10)])
         else:
             save_candles(session, [bar])
         wallet = session.get(PaperWallet, 1)
@@ -597,14 +606,12 @@ def test_pending_execution_boundaries(ready, case):
         order = session.scalar(select(PaperPendingOrder))
         expected = {"touch": "pending", "gap": "pending", "stale": "pending", "funding": "pending",
                     "old": "cancelled", "target": "cancelled", "risk": "cancelled",
-                    "stop_first": "filled", "fourth": "filled"}[case]
+                    "stop_first": "cancelled", "fourth": "filled"}[case]
         assert order.status == expected
         if case in ("stale", "funding", "gap"):
             assert order.next_bar == last + 900
         if case == "stop_first":
-            trade = session.get(PaperTrade, order.trade_id)
-            assert trade.exit_reason == "recovered_stop_loss" and trade.net_pnl < 0
-            assert trade.exit == pytest.approx(95 * 0.9998)
+            assert order.reason == "stop_before_confirmation"
         if order.status != "filled":
             assert session.scalar(select(func.count()).select_from(PaperTrade)) == 0
 
@@ -613,7 +620,7 @@ def test_pending_cancel_is_scoped_and_idempotent(ready, cancel):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    seed(policy="body50")
+    seed(policy="body50_confirm")
     auto_tick()
     order = client.get("/api/paper/wallet").json()["pending_orders"][0]
     assert client.post(f"/api/paper/auto/pending/{order['id']}/cancel",
@@ -637,7 +644,7 @@ def test_pending_retest_waits_for_close_then_market(ready, confirm):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed(policy="body50")
+    last = seed(policy="body50_confirm")
     auto_tick()
     with Session.begin() as session:
         session.scalar(select(PaperPendingOrder)).entry_policy = "retest_h1"
@@ -660,11 +667,11 @@ def test_pending_fill_rechecks_daily_limit(ready):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed(policy="body50")
+    last = seed(policy="body50_confirm")
     auto_tick()
     clock[0] += 900
     with Session.begin() as session:
-        save_candles(session, [Candle(last + 900, 105, 106, 99, 104, 10)])
+        save_candles(session, [Candle(last + 900, 100.5, 106, 99, 104, 10)])
         wallet = session.get(PaperWallet, 1)
         wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
         wallet.balance = 1
@@ -677,13 +684,13 @@ def test_pending_runner_does_not_close_at_reference_target(ready):
     from backend.app.auto_paper import sync_pending_orders
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed(policy="body50")
+    last = seed(policy="body50_confirm")
     auto_tick()
     clock[0] += 900
     with Session.begin() as session:
         order = session.scalar(select(PaperPendingOrder))
         order.snapshot = {**order.snapshot, "exit_policy": "runner"}
-        save_candles(session, [Candle(last + 900, 105, 126, 99, 126, 10)])
+        save_candles(session, [Candle(last + 900, 100.5, 124, 99, 104, 10)])
         wallet = session.get(PaperWallet, 1)
         wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
     sync_pending_orders()
@@ -696,11 +703,11 @@ def test_pending_retry_does_not_lose_uncommitted_fill_bar(ready, monkeypatch):
     from backend.app import auto_paper
     from backend.app.db import PaperPendingOrder
     clock, seed = ready
-    last = seed(policy="body50")
+    last = seed(policy="body50_confirm")
     auto_tick()
     clock[0] += 900
     with Session.begin() as session:
-        save_candles(session, [Candle(last + 900, 105, 106, 99, 104, 10)])
+        save_candles(session, [Candle(last + 900, 100.5, 106, 99, 104, 10)])
         wallet = session.get(PaperWallet, 1)
         wallet.quote = {**wallet.quote, "time": clock[0], "received_at": clock[0]}
     original = auto_paper.create_position
@@ -715,3 +722,43 @@ def test_pending_retry_does_not_lose_uncommitted_fill_bar(ready, monkeypatch):
     auto_paper.sync_pending_orders()
     with Session() as session:
         assert session.scalar(select(PaperPendingOrder.status)) == "filled"
+
+
+def test_auto_paper_places_native_immediately_at_boundary(ready):
+    from backend.app.futures_strategies import NATIVE_SEEDS
+    from backend.app.db import PaperPendingOrder, PaperNotification
+    clock, seed = ready
+    clock[0] = 86400 + 5
+    last = seed(policy="htf_close", genome=NATIVE_SEEDS[0])
+    auto_tick()
+    with Session() as session:
+        assert session.scalar(select(func.count(PaperPendingOrder.id))) == 0
+        trade = session.scalar(select(PaperTrade))
+        assert trade is not None
+        assert trade.monitoring["signal_frame"] == "D1"
+        assert trade.monitoring["entry_mode"] == "htf_close"
+        assert trade.target == pytest.approx(trade.entry + 2 * (trade.entry - trade.stop))
+        decision = session.get(AutoPaperDecision, (trade.symbol, last))
+        assert decision.parameters["audit"]["genome"] == NATIVE_SEEDS[0]
+        assert session.scalar(select(func.count(PaperNotification.id))) == 1
+    auto_tick()
+    with Session() as session:
+        assert session.scalar(select(func.count(PaperTrade.id))) == 1
+    clock[0] += 86400
+    seed(policy="htf_close", genome=NATIVE_SEEDS[0])
+    auto_tick()
+    with Session() as session:
+        assert session.scalar(select(func.count(PaperTrade.id))) == 2
+
+
+def test_native_entry_keeps_portfolio_risk_cap(ready):
+    from backend.app.futures_strategies import NATIVE_SEEDS
+    clock, seed = ready
+    clock[0] = 86400 + 5
+    last = seed(policy="htf_close", genome=NATIVE_SEEDS[0])
+    with Session.begin() as session:
+        session.get(AutoPaperState, 1).max_portfolio_risk_percent = 0
+    auto_tick()
+    with Session() as session:
+        assert session.scalar(select(func.count(PaperTrade.id))) == 0
+        assert session.get(AutoPaperDecision, ("BTC_USDT", last)).action == "skipped"

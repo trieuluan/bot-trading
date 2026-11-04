@@ -3,6 +3,8 @@
 import copy
 from uuid import uuid4
 
+from .futures_entries import confirmation_enabled
+from .futures_native import NATIVE_WARMUP
 from .futures_strategies import (
     exit_policy_enabled,
     genome_fingerprint,
@@ -25,6 +27,7 @@ def enqueue(state, genome, now, parents):
     fingerprint, name = genome_fingerprint(genome), genome_name(genome)
     if (sum(row["status"] in PENDING for row in drafts.values()) >= MAX_PENDING
             or not exit_policy_enabled(genome)
+            or not confirmation_enabled(genome)
             or any(genome_fingerprint(row["genome"]) == fingerprint
                    for row in [*known.values(), *drafts.values()])
             or name in known or any(row["strategy"] == name for row in drafts.values())):
@@ -63,7 +66,10 @@ def claim(draft, now):
         draft.update(status="error", phase="done", reason="attempts_exhausted", updated_at=now)
         return None
     end = now // 900 * 900
-    window = draft.get("window") or {"start": end - 90 * 86400, "end": end, "warmup_bars": 1600}
+    window = draft.get("window") or {
+        "start": end - 90 * 86400, "end": end,
+        "warmup_bars": NATIVE_WARMUP if draft["genome"].get("signal_frame") else 1600,
+    }
     token = str(uuid4())
     draft.update(status="running", phase="data", completed=None, total=None,
                  attempts=draft["attempts"] + 1, updated_at=now, started_at=now,

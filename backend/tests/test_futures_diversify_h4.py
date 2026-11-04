@@ -35,6 +35,9 @@ def test_diversify_keeps_control_and_protected():
     
     # Check all new candidates have valid consensus slots
     for name, candidate in state["candidates"].items():
+        if candidate["genome"].get("signal_frame"):
+            assert candidate == learner.new_state(0)["candidates"][name]
+            continue
         slot = candidate["genome"]["rule"]["children"][0]
         assert consensus_slot(slot)
         assert slot["children"][0] == {"feature": "trend", "frame": "H4"}
@@ -52,5 +55,7 @@ def test_diversify_idempotent_on_second_run():
     again = diversify(state, set(), NOW + 900, "test_seed_2")
     assert again["changed"] == 0  # chỉ còn nhóm đối chứng, và nhóm này tự giữ lại
     for candidate in state["candidates"].values():
+        if candidate["genome"].get("signal_frame"):
+            continue
         slot = candidate["genome"]["rule"]["children"][0]
         assert consensus_slot(slot)

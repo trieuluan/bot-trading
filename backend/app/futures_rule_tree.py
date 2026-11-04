@@ -6,6 +6,7 @@ from statistics import fmean
 from .futures_candles import LABELS, PATTERNS, wedge
 from .futures_rules import atr14, ema50, funding_filter, mean_reversion, rsi14
 from .futures_symbols import SYMBOLS
+from .futures_native import NATIVE_FEATURES, native_atr
 from .macro_calendar import is_macro_safe
 from .strategy import aggregate, mtf_retest
 from .strategy import retest as legacy_retest
@@ -44,7 +45,7 @@ FEATURES = ("trend", "breakout", "volume", "compression", "sweep", "rsi", "retes
             "pdh_pdl", "adx_regime", "pdh_pdl_sweep", *H4_FEATURES)
 DAILY_FEATURES = ("pdh_pdl", "adx_regime", "pdh_pdl_sweep")
 LEAF_FEATURES = tuple(feature for feature in FEATURES if feature != "retest")
-FRAMES = {"M15": 900, "H1": 3600, "H4": 14400}
+FRAMES = {"M15": 900, "H1": 3600, "H4": 14400, "D1": 86400}
 MAX_DEPTH, MAX_NODES = 3, 11
 HTF_CONTEXT_FEATURES = tuple(feature for feature in LEAF_FEATURES if feature not in (
     "retest_seq", "mtf_seq", "band_reclaim", "funding_extreme", "trend_optional", *H4_FEATURES))
@@ -56,10 +57,12 @@ def validate_rule(rule, depth=1, retest_allowed=False):
     if not isinstance(rule, dict) or depth > MAX_DEPTH:
         raise ValueError("Invalid rule tree/depth")
     if "feature" in rule:
-        if (set(rule) != {"feature", "frame"} or rule["feature"] not in FEATURES
+        if (set(rule) != {"feature", "frame"} or rule["feature"] not in (*FEATURES, *NATIVE_FEATURES)
                 or not isinstance(rule["frame"], str) or rule["frame"] not in FRAMES
                 or rule["feature"] in DAILY_FEATURES and rule["frame"] == "M15"
                 or rule["feature"] in H4_FEATURES and rule["frame"] != "H4"
+                or rule["feature"] in ("native_squeeze", "native_trend", "daily_bias") and rule["frame"] != "D1"
+                or rule["feature"] == "native_sweep" and rule["frame"] != "H4"
                 or rule["feature"] == "retest" and not retest_allowed):
             raise ValueError("Invalid rule predicate")
         return 1
@@ -484,6 +487,26 @@ def matches(rule, candles, direction, lookback, anchor=None, context=None):
         return False
     rows = frame_rows(candles, rule["frame"])
     feature = rule["feature"]
+    if feature in NATIVE_FEATURES:
+        required = (21 if feature == "daily_bias" else max(31, lookback + 1) if feature != "native_sweep"
+                    else max(61, lookback + 1))
+        if len(rows) < required:
+            return False
+        last = rows[-1]
+        if feature in ("daily_bias", "native_trend"):
+            fast = ema([bar.close for bar in rows], 20)[-1]
+            if feature == "daily_bias":
+                return direction * (last.close - fast) > 0
+            slow = ema([bar.close for bar in rows], 50)[-1]
+            return direction * (last.close - slow) > 0 and direction * (fast - slow) > 0
+        prior = rows[-lookback - 1:-1]
+        upper, lower = max(bar.high for bar in prior), min(bar.low for bar in prior)
+        if direction * (last.close - last.open) <= 0:
+            return False
+        if feature == "native_squeeze":
+            return ((last.close > upper if direction == 1 else last.close < lower)
+                    and upper - lower <= 4.5 * native_atr(rows))
+        return last.low < lower < last.close if direction == 1 else last.close < upper < last.high
     if feature in H4_FEATURES:
         return h4_matches(feature, rows, candles, direction, context or {})
     if feature in CLASSIC_FEATURES:
@@ -679,6 +702,10 @@ def describe_rule(rule):
                   "support_proximity": "Đóng phía hợp lệ và cách pivot hỗ trợ/kháng cự đã xác nhận tối đa 1 ATR14",
                   "session_vwap": "Đóng cắt lại VWAP theo volume nến từ 00:00 UTC (xấp xỉ, không phải từng giao dịch)",
                   "ema_cross": "EMA9 cắt EMA21", "swing_zone": "Giá bật khỏi đỉnh/đáy swing N nến",
+                  "native_squeeze": "N nen truoc rong <= 4.5 ATR14 Wilder; than cung chieu dong pha bien",
+                  "native_sweep": "Rau quet bien N nen H4 roi dong reclaim; than cung chieu",
+                  "native_trend": "Gia dong cung EMA50 va EMA20 cung EMA50",
+                  "daily_bias": "Gia dong D1 cung EMA20 D1 da dong",
                   **LABELS}
         return f'{labels[rule["feature"]]} ({rule["frame"]})'
     descriptions = [describe_rule(child) for child in rule["children"]]

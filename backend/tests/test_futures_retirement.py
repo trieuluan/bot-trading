@@ -91,7 +91,7 @@ def test_lower_positive_r_without_duplicate_proof_survives():
 
 def test_redundant_evidence_and_normalized_execution_defaults():
     state, parent, weak = state_for([0.2] * 50)
-    state["candidates"][weak]["genome"].update(entry_policy="market", exit_profile="default")
+    state["candidates"][weak]["genome"].update(entry_policy="retest_h1", exit_profile="default")
     item = options(state)[weak]
     assert item["reason"] == "redundant_forward"
     assert item["retained_strategy"] == parent
@@ -231,6 +231,7 @@ def test_g0_archive_metadata_no_revival_and_legacy_summary(monkeypatch):
     monkeypatch.setattr(learner, "RULE_SEEDS", [])
     monkeypatch.setattr(learner, "EXIT_SEEDS", [])
     monkeypatch.setattr(learner, "ENTRY_SEEDS", [])
+    monkeypatch.setattr(learner, "NATIVE_SEEDS", [])
     learner.sync_seeds(state, NOW)
     assert not state["candidates"]
     assert learner.summary(state, NOW)["retired_strategies"][0]["retirement"]["samples"] == 50
@@ -248,6 +249,7 @@ def test_archived_real_seeds_never_respawn_or_spawn_children(seed, monkeypatch):
     monkeypatch.setattr(learner, "RULE_SEEDS", [seed])
     monkeypatch.setattr(learner, "EXIT_SEEDS", [seed])
     monkeypatch.setattr(learner, "ENTRY_SEEDS", [seed])
+    monkeypatch.setattr(learner, "NATIVE_SEEDS", [])
     learner.sync_seeds(state, NOW)
     assert state["candidates"] == {}
 

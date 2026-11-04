@@ -9,7 +9,29 @@ import {
   stepKind,
   strategyShortTitle,
   targetCapText,
+  profileOf,
 } from '../src/lib/futures-strategy-info.ts';
+
+test('native trees describe closed-frame entry, native stops and holding clock', () => {
+  for (const frame of ['D1', 'H4']) {
+    const genome = {
+      family: 'rule_tree', lookback: 20, target_r: 2, stop_buffer: 0,
+      signal_frame: frame, entry_policy: 'htf_close',
+      exit_policy: frame === 'D1' ? 'breakeven' : 'fixed',
+      rule: { op: 'all', children: [
+        { feature: frame === 'D1' ? 'native_squeeze' : 'native_sweep', frame },
+        { feature: frame === 'D1' ? 'native_trend' : 'daily_bias', frame: 'D1' },
+      ] },
+    };
+    assert.equal(profileOf(genome), `htf_native_${frame.toLowerCase()}`);
+    const steps = howToPlay(genome, '');
+    assert.equal(steps.some((step) => step.label.startsWith('Huỷ')), false);
+    assert.match(steps.find((step) => step.label === 'Điểm vào').text, /60 giây/);
+    assert.match(riskParts(genome).sl, new RegExp(`Swing 5 nến ${frame}`));
+    assert.match(riskParts(genome).manage, new RegExp(`${frame === 'D1' ? 15 : 5} ngày`));
+    assert.match(riskParts(genome).tp, /giá khớp thực tế/);
+  }
+});
 
 test('howToPlay maps all frames and separates entry, sl, tp, manage', () => {
   const g = {
@@ -180,14 +202,14 @@ test('retest_h1 and sweep_h1 explain M15 confirmation and cancel rules', () => {
   }
   const sweep = howToPlay({ ...base, entry_policy: 'sweep_h1' }, '');
   assert.match(sweep.find((s) => s.label === 'Điểm vào').text, /râu nến M15 quét/);
-  assert.match(sweep.find((s) => s.label === 'Huỷ xác nhận').text, /SL chạm trước/);
+  assert.match(sweep.find((s) => s.label === 'Huỷ xác nhận').text, /SL\/TP chạm trước/);
   assert.equal(entryPolicyLabel('sweep_h1'), 'Sweep M15');
   assert.match(strategyShortTitle({ ...base, entry_policy: 'retest_h1' }), /Retest M15/);
   assert.equal(entryPolicyLabel(), 'Market');
   assert.equal(entryPolicyLabel('future_policy'), 'future_policy');
-  assert.doesNotMatch(
+  assert.match(
     howToPlay({ ...base, entry_policy: 'retest_h1' }, '')
       .find((step) => step.label === 'Huỷ xác nhận').text,
-    /SL chạm trước/,
+    /SL\/TP chạm trước/,
   );
 });

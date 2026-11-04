@@ -22,8 +22,9 @@ def replay_data(monkeypatch):
     monkeypatch.setattr(history, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=100, stop=90, target=104, reason="history test"))
     candles = [Candle(index * 900, 100, 105, 95, 102, 10) for index in range(225)]
-    name = genome_name(SEEDS[0])
-    candidates = {name: {"genome": SEEDS[0]}}
+    genome = {k: v for k, v in SEEDS[0].items() if k != "entry_policy"}
+    name = genome_name(genome)
+    candidates = {name: {"genome": genome}}
     return candidates, candles, copy.deepcopy(candles), [], 25 * 900, 225 * 900
 
 

@@ -168,7 +168,8 @@ def test_v1_migration_archives_old_scores_preserves_open_samples_and_is_idempote
         assert state["rule_archive"][old_name] == frozen["candidates"][old_name]
         assert old_name not in state["candidates"] and state["last_decision"] is None
         for candidate in state["candidates"].values():
-            validate_htf_rule(candidate["genome"]["rule"], consensus=True)
+            if not candidate["genome"].get("signal_frame"):
+                validate_htf_rule(candidate["genome"]["rule"], consensus=True)
             assert candidate["born_at"] == 2700
             assert not candidate["windows"] and not candidate["promoted"]
         assert session.get(FuturesLearningState, 1).payload == frozen

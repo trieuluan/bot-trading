@@ -31,6 +31,7 @@ from .db import (
     utcnow,
 )
 from .feed import load_candles
+from .futures_native import NATIVE_FRAMES, hold_seconds
 from .futures_exits import (
     EXIT_POLICIES,
     adaptive_target,
@@ -336,6 +337,23 @@ def reconcile_stops(session, wallet, trade, now):
                 f"khớp giả lập {fill:.2f} USDT; thời gian trong nến là ước lượng. "
                 "Nếu vẫn cùng chạm cả SL và TP thì ưu tiên SL."
             )))
+            return
+        max_hold = hold_seconds(monitoring.get("signal_frame"))
+        if monitoring.get("signal_frame") and candle.time + 900 - trade.entry_time >= max_hold:
+            fill = candle.close * (1 + (-1 if trade.side == "long" else 1) * wallet.slippage_bps / 10000)
+            exit_time = candle.time + 899
+            reversed_funding = []
+            for funding in session.scalars(select(PaperFunding).where(
+                PaperFunding.trade_id == trade.id, PaperFunding.time > exit_time,
+            )):
+                reversed_funding.append(dict(time=funding.time, cost=funding.cost))
+                master(session).balance = round(master(session).balance + funding.cost, 8)
+                trade.funding_cost = round(trade.funding_cost - funding.cost, 8)
+                funding.cost = 0
+            trade.monitoring = {**monitoring, "next_bar": candle.time + 900, "status": "recovered",
+                                "trigger_bar": candle.time, "recovered_at": int(now),
+                                "time_basis": "bar_end_proxy", "reversed_funding": reversed_funding}
+            close_position(session, wallet, trade, "timeout", now, price=fill, exit_time=exit_time)
             return
         policy = monitoring.get("exit_policy", "fixed")
         if policy != "fixed":
@@ -797,7 +815,7 @@ def replay_command(session, request_id, payload):
 def create_position(
     session, wallet, side, requested_notional, stop, target, origin="manual", signal_time=None,
     exit_policy="fixed", leverage=1, exit_params=None, exit_rule=None,
-    fill_price=None,
+    fill_price=None, signal_frame=None,
 ):
     """Shared sizing/fill/accounting for manual and automatic paper entries.
 
@@ -805,6 +823,11 @@ def create_position(
     """
     if exit_policy not in EXIT_POLICIES:
         raise HTTPException(422, "Invalid futures exit policy")
+    if signal_frame is not None and (
+        not isinstance(signal_frame, str) or signal_frame not in NATIVE_FRAMES
+        or exit_policy not in ("fixed", "breakeven")
+    ):
+        raise HTTPException(422, "Invalid native-frame execution settings")
     try:
         exit_parameters(exit_policy, exit_params)
     except ValueError as exc:
@@ -848,13 +871,15 @@ def create_position(
         symbol=current_symbol(),
         side=side,
         entry_time=int(time.time()),
-        monitoring=dict(
-            next_bar=(int(time.time()) // 900 + 1) * 900,
-            status="watching",
-            maintenance_margin_rate=float(info.get("maintenanceMarginRate") or 0),
-            **({} if exit_policy == "fixed" else {"exit_policy": exit_policy, "risk": abs(price - stop),
-                                                      "exit_params": exit_params, "exit_rule": exit_rule}),
-        ),
+        monitoring={
+            "next_bar": (int(time.time()) // 900 + 1) * 900,
+            "status": "watching",
+            "maintenance_margin_rate": float(info.get("maintenanceMarginRate") or 0),
+            **({"risk": abs(price - stop)} if signal_frame or exit_policy != "fixed" else {}),
+            **({"signal_frame": signal_frame, "entry_mode": "htf_close"} if signal_frame else {}),
+            **({} if exit_policy == "fixed" else {"exit_policy": exit_policy,
+                                                  "exit_params": exit_params, "exit_rule": exit_rule}),
+        },
         origin=origin,
         signal_time=signal_time,
         entry=price,

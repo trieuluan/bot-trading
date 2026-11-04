@@ -3,6 +3,8 @@
 import math
 from dataclasses import asdict, dataclass
 
+from .futures_entries import ENTRY_POLICIES, entry_fields, wait
+from .futures_native import NATIVE_ENTRY, NATIVE_FRAMES, hold_seconds
 from .futures_exits import (
     EXIT_POLICIES,
     adaptive_target,
@@ -37,9 +39,19 @@ def simulate(
     exit_policy: str = "fixed",
     exit_params: dict | None = None,
     exit_rule: dict | None = None,
+    entry_policy: str = "market",
+    signal_frame: str | None = None,
+    target_r: float | None = None,
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
+    if entry_policy not in ("market", *ENTRY_POLICIES, NATIVE_ENTRY):
+        raise ValueError("Invalid futures entry policy")
+    if ((signal_frame is not None and signal_frame not in NATIVE_FRAMES)
+            or (entry_policy == NATIVE_ENTRY) != (signal_frame is not None)):
+        raise ValueError("Native entry requires D1/H4 signal frame")
+    if signal_frame and (target_r is None or not math.isfinite(target_r) or target_r <= 0):
+        raise ValueError("Native entry requires positive target R")
     if exit_policy not in EXIT_POLICIES:
         raise ValueError("Invalid futures exit policy")
     exit_parameters(exit_policy, exit_params)
@@ -53,7 +65,7 @@ def simulate(
     mark = {c.time: c for c in fair_candles}
     rates = {record["time"]: record["rate"] for record in funding}
     pending = None
-    position = None
+    positions = []
     trades = []
     curve = []
     peak = cash
@@ -62,7 +74,7 @@ def simulate(
     for index in range(warmup, len(candles)):
         candle = candles[index]
         # Settlement is before exits/new entries at this bar's open. New positions do not pay.
-        if position is not None and candle.time in rates:
+        for position in positions if candle.time in rates else ():
             payment = (
                 position["direction"]
                 * position["quantity"]
@@ -72,43 +84,56 @@ def simulate(
             cash -= payment
             position["funding_cost"] += payment
 
-        if pending is not None and cash > 0:
-            setup, signal_time = pending
-            direction = 1 if setup.side == "long" else -1
-            entry = candle.open * (1 + direction * slip)
-            if direction * (entry - setup.stop) > 0 and direction * (setup.target - entry) > 0:
-                quantity = min(
-                    cash * config.risk_percent / 100 / abs(entry - setup.stop),
-                    cash / (entry * (1 + fee)),  # Cap notional at 1x available equity.
-                )
-                contracts = min(
-                    math.floor(quantity / size / lot) * lot,
-                    math.floor(float(contract["maxVol"]) / lot) * lot,
-                )
-                quantity = contracts * size
-                if contracts >= float(contract["minVol"]):
-                    entry_fee = entry * quantity * fee
-                    cash -= entry_fee
-                    position = {
-                        "side": setup.side,
-                        "direction": direction,
-                        "signal_time": signal_time,
-                        "entry_time": candle.time,
-                        "entry": entry,
-                        "quantity": quantity,
-                        "contracts": contracts,
-                        "entry_fee": entry_fee,
-                        "funding_cost": 0.0,
-                        "stop": setup.stop,
-                        "target": setup.target,
-                        "risk": abs(entry - setup.stop),
-                        "exit_policy": exit_policy,
-                        "exit_params": exit_params,
-                        "exit_rule": exit_rule,
-                    }
-        pending = None
+        if pending is not None and (entry_policy == "market" or pending.get("confirmed")):
+            if cash <= 0:
+                pending = None
+            else:
+                setup, signal_time = pending["setup"], pending["signal_time"]
+                direction = 1 if setup.side == "long" else -1
+                entry = candle.open * (1 + direction * slip)
+                target = (entry + direction * target_r * abs(entry - setup.stop)
+                          if signal_frame else setup.target)
+                if direction * (candle.open - setup.stop) > 0 and target > 0 and direction * (target - entry) > 0:
+                    available = cash + sum(p["direction"] * (candle.open - p["entry"]) * p["quantity"]
+                                           for p in positions)
+                    quantity = min(
+                        max(0, available) * config.risk_percent / 100 / abs(entry - setup.stop),
+                        cash / (entry * (1 + fee)),  # Cap notional at 1x available equity.
+                    )
+                    contracts = min(
+                        math.floor(quantity / size / lot) * lot,
+                        math.floor(float(contract["maxVol"]) / lot) * lot,
+                    )
+                    quantity = contracts * size
+                    if contracts >= float(contract["minVol"]):
+                        entry_fee = entry * quantity * fee
+                        cash -= entry_fee
+                        position = {
+                            "side": setup.side,
+                            "direction": direction,
+                            "signal_time": signal_time,
+                            "entry_time": candle.time,
+                            "entry": entry,
+                            "quantity": quantity,
+                            "contracts": contracts,
+                            "entry_fee": entry_fee,
+                            "funding_cost": 0.0,
+                            "stop": setup.stop,
+                            "target": target,
+                            "risk": abs(entry - setup.stop),
+                            "signal_frame": signal_frame,
+                            "exit_policy": exit_policy,
+                            "exit_params": exit_params,
+                            "exit_rule": exit_rule,
+                        }
+                        positions.append(position)
+                pending = None
+        elif pending is not None:
+            wait(pending, candle, [], candles[max(0, index + 1 - window):index + 1])
+            if pending.get("status") == "cancelled":
+                pending = None
 
-        if position is not None:
+        for position in list(positions):
             direction = position["direction"]
             stop = position["stop"]
             target = position["target"]
@@ -124,6 +149,8 @@ def simulate(
                 exit_price, reason = stop, "stop"
             elif touch_target:
                 exit_price, reason = target, "target"
+            elif signal_frame and candle.time + 900 - position["entry_time"] >= hold_seconds(signal_frame):
+                exit_price, reason = candle.close, "timeout"
             elif index == len(candles) - 1:
                 exit_price, reason = candle.close, "end_of_period"
             else:
@@ -146,7 +173,7 @@ def simulate(
                         "net_pnl": gross + position.get("realized_gross", 0) - fees - position["funding_cost"],
                     }
                 )
-                position = None
+                positions.remove(position)
             else:
                 quantity = partial_size(position, history, size * lot, size * float(contract["minVol"]))
                 if quantity:
@@ -168,7 +195,7 @@ def simulate(
                 )
 
         equity = cash
-        if position is not None:
+        for position in positions:
             liquidation_price = mark[candle.time].close * (1 - position["direction"] * slip)
             equity += (
                 position["direction"]
@@ -179,10 +206,15 @@ def simulate(
         peak = max(peak, equity)
         max_drawdown = max(max_drawdown, (peak - equity) / peak * 100)
         curve.append({"time": candle.time, "equity": round(equity, 6)})
-        if position is None and index < len(candles) - 1 and cash > 0:
-            setup = signal(candles[max(0, index + 1 - window) : index + 1], allow_short=True)
+        if (signal_frame or not positions) and pending is None and index < len(candles) - 1 and cash > 0:
+            history = candles[max(0, index + 1 - window):index + 1]
+            setup = signal(history, allow_short=True)
             if setup:
-                pending = (setup, candle.time)
+                fields = entry_fields({"entry_policy": entry_policy}, history, setup, candle.time)
+                if fields.get("exit_reason") != "no_valid_level":
+                    pending = {"setup": setup, "signal_time": candle.time, "side": setup.side,
+                               "stop": setup.stop, "target": setup.target,
+                               "entry_time": candle.time + 900, **fields}
 
     profit = sum(max(0, trade["net_pnl"]) for trade in trades)
     loss = -sum(min(0, trade["net_pnl"]) for trade in trades)

@@ -22,7 +22,7 @@ from backend.app.futures_strategies import (
 from backend.app.main import app
 from backend.app.market import Candle
 from backend.app.strategy import Setup
-from backend.tests.test_auto_paper import ready as auto_ready
+from backend.tests.test_auto_paper import enter, ready as auto_ready
 
 client = TestClient(app)
 
@@ -44,9 +44,13 @@ def sample(**changes):
 
 def candidate(**changes):
     window = {"start_time": 0, "end_time": learner.WINDOW_SECONDS, "trade_count": 120, "net_pnl": 5,
-              "max_drawdown_percent": 4, "gains": 200, "losses": 100}
-    return {"genome": SEEDS[0], "born_at": 0, "parents": [], "generation": 0,
-            "windows": [window], "promoted": False, **changes}
+              "max_drawdown_percent": 4, "gains": 200, "losses": 100,
+              "entry_policy": SEEDS[0].get("entry_policy", "market")}
+    out = {"genome": SEEDS[0], "born_at": 0, "parents": [], "generation": 0,
+           "windows": [window], "promoted": False, **changes}
+    if "windows" not in changes and "genome" in changes:
+        out["windows"] = [{**window, "entry_policy": out["genome"].get("entry_policy", "market")}]
+    return out
 
 
 def test_next_open_entry_stop_first_and_delayed_label():
@@ -93,7 +97,7 @@ def test_bounded_unique_children_and_frozen_parents():
     state = learner.new_state(1000)
     before = copy.deepcopy(state["candidates"])
     assert len(before) == len({learner.genome_fingerprint(seed) for seed in
-                          [*SEEDS, *RULE_SEEDS, *learner.EXIT_SEEDS, *learner.ENTRY_SEEDS]})
+                          [*SEEDS, *RULE_SEEDS, *learner.EXIT_SEEDS, *learner.ENTRY_SEEDS, *learner.NATIVE_SEEDS]})
     assert len(state["drafts"]) == 3
     for name, rule in before.items():
         validate_genome(rule["genome"])
@@ -127,15 +131,19 @@ def test_auto_executes_only_explicitly_promoted_qualified_rule(ready, promoted):
     stamp = seed()
     state = learner.new_state(clock[0])
     name = next(iter(state["candidates"]))
-    state["candidates"][name] = candidate(promoted=promoted)
+    state["candidates"][name] = candidate(genome=state["candidates"][name]["genome"], promoted=promoted)
     state["auto_mode"] = "learner"
     state["last_decision"] = {
         "time": stamp, "mode": "qualified" if promoted else "shadow", "selected": name,
-        "setup": {"side": "long", "entry": 105, "stop": 90, "target": 135, "reason": "test learner"},
+        "setup": {"side": "long", "entry": 105, "stop": 95, "target": 125, "reason": "test learner"},
+        "entry_policy": state["candidates"][name]["genome"]["entry_policy"], "level": 100.0,
     }
     with Session.begin() as session:
         learner.save_state(session, state)
-    auto_tick()
+    if promoted:
+        enter(clock, stamp)
+    else:
+        auto_tick()
     with Session() as session:
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == int(promoted)
         decision = session.get(AutoPaperDecision, ("BTC_USDT", stamp))
@@ -219,10 +227,12 @@ def test_strategy_observations_include_waiting_and_signal_states(monkeypatch):
     state = learner.new_state(1)
     names = list(state["candidates"])
     state["candidates"][names[0]]["born_at"] = 3600
+    state["candidates"][names[1]]["genome"]["entry_policy"] = "body50_confirm"
     signal_genome = state["candidates"][names[1]]["genome"]
     monkeypatch.setattr(learner, "strategy_setup", lambda genome, *args, **kwargs:
         Setup("long", 100, 95, 110, "test") if genome == signal_genome else None)
-    learner.step(state, [candle(2)], candle(2), 2705)
+    bar = candle(2, opening=98, closing=100)
+    learner.step(state, [bar], bar, 2705)
     decision = state["last_decision"]
     rows = {row["strategy"]: row for row in decision["strategies"]}
     assert len(rows) == len(state["candidates"])
@@ -270,7 +280,7 @@ def test_paper_learning_uses_unqualified_signal_and_records_selection(ready, mon
     state = learner.new_state(clock[0] - 3600)
     state["auto_mode"] = "paper_learning"
     for cand in state["candidates"].values():
-        cand["genome"]["entry_policy"] = "market"
+        cand["genome"]["entry_policy"] = "body50_confirm"
     monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=105, stop=90, target=135, reason="paper learning test"))
     bars = [Candle(stamp, 100, 106, 99, 105, 1)]
@@ -281,15 +291,15 @@ def test_paper_learning_uses_unqualified_signal_and_records_selection(ready, mon
     assert not learner.qualification(state["candidates"][selected])["eligible"]
     with Session.begin() as session:
         learner.save_state(session, state)
-    auto_tick()
-    auto_tick()
+    enter(clock, stamp)
     with Session() as session:
         assert session.scalar(select(func.count()).select_from(PaperTrade)) == 1
         decision = session.get(AutoPaperDecision, ("BTC_USDT", stamp))
         audit = decision.parameters["audit"]
         assert audit["strategy"] == selected and audit["auto_mode"] == "paper_learning"
         assert audit["selection_reason"] == "explore_unseen_context"
-        assert "CHƯA KIỂM CHỨNG" in decision.reason
+    assert decision.action == "opened"
+    assert decision.parameters["audit"]["auto_mode"] == "paper_learning"
 
 @pytest.mark.parametrize("condition", ["no_signal", "stale_decision", "error", "paused", "daily_limit", "expired"])
 def test_paper_learning_keeps_entry_guards(ready, condition):
@@ -339,12 +349,14 @@ def test_paper_learning_config_explicit_and_preserves_promotion(ready):
 def test_paper_learning_does_not_starve_tied_unseen_candidates(monkeypatch):
     state = learner.new_state(1)
     state["auto_mode"] = "paper_learning"
+    for cand in state["candidates"].values():
+        cand["genome"]["entry_policy"] = "body50_confirm"
     monkeypatch.setattr(learner, "strategy_setup", lambda *args, **kwargs: Setup(
         side="long", entry=100, stop=95, target=110, reason="tie test"))
     picks = set()
     for offset in range(2, 22):
         fresh = copy.deepcopy(state)
-        bars = [candle(offset)]
+        bars = [candle(offset, opening=98, closing=100)]
         learner.step(fresh, bars, bars[-1], offset * 900 + 905)
         picks.add(fresh["last_decision"]["selected"])
     assert len(picks) > 1
@@ -717,15 +729,15 @@ def test_step_skips_no_valid_level_and_prefers_non_busy_paper_candidate(monkeypa
     state["auto_mode"] = "paper_learning"
     names = list(state["candidates"])[:3]
     state["candidates"] = {n: {**state["candidates"][n], "born_at": 0} for n in names}
-    state["candidates"][names[0]]["genome"] = {**RULE_SEEDS[0], "entry_policy": "breakout_h1"}
-    state["candidates"][names[1]]["genome"] = {**RULE_SEEDS[1], "entry_policy": "market"}
-    state["candidates"][names[2]]["genome"] = {**RULE_SEEDS[2], "entry_policy": "body38"}
+    state["candidates"][names[0]]["genome"] = {**RULE_SEEDS[0], "entry_policy": "retest_h1"}
+    state["candidates"][names[1]]["genome"] = {**RULE_SEEDS[1], "entry_policy": "body50_confirm"}
+    state["candidates"][names[2]]["genome"] = {**RULE_SEEDS[2], "entry_policy": "body38_confirm"}
     monkeypatch.setattr(learner, "strategy_setup",
                         lambda g, c, f, **kw: Setup("long", 100, 95, 110, "r"))
     bars = [candle(i, opening=99, high=101, low=98, closing=100) for i in range(10)]
     learner.step(state, bars, bars[-1], 9000, paper_busy={names[1]})
     assert state["last_decision"]["selected"] == names[2]
-    assert state["last_decision"]["entry_policy"] == "body38"
+    assert state["last_decision"]["entry_policy"] == "body38_confirm"
     assert state["last_decision"]["level"] is not None
     assert any(s["strategy"] == names[0] and s.get("exit_reason") == "no_valid_level"
                for s in state["samples"])

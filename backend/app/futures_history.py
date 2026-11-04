@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .db import Session
 from .futures_context import load_signal_context
 from .futures_entries import entry_fields
+from .futures_native import NATIVE_WARMUP
 from .futures_learner import (
     FEE,
     SLIP,
@@ -61,7 +62,9 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
            btc_candles=None, benchmarks=None, oi_history=None, strict_samples=False):
     validate_candles(candles)
     validate_candles(fair)
-    expected = list(range(start - WARMUP * 900, end, 900))
+    max_warmup = max((NATIVE_WARMUP if c["genome"].get("signal_frame") else WARMUP)
+                     for c in candidates.values()) if candidates else WARMUP
+    expected = list(range(start - max_warmup * 900, end, 900))
     if ([bar.time for bar in candles] != expected
             or [bar.time for bar in fair] != expected or end <= start):
         raise ValueError("Incomplete historical trade/fair-price coverage")
@@ -82,30 +85,31 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
     for name, candidate in candidates.items():
         rows[name] = {"strategy": name, "genome": candidate["genome"], "train": [], "validation": []}
     active = {}
-    for index in range(WARMUP, len(candles)):
+    for index in range(max_warmup, len(candles)):
         bar, mark = candles[index], fair[index]
         known_funding = [record for record in funding if record["time"] <= bar.time]
         if bar.time == split:
             for sample in active.values():
                 sample.update(status="excluded", exit_reason="split_boundary")
             active.clear()
-        history = candles[index - WARMUP + 1:index + 1]
+        history = candles[max(0, index - max_warmup + 1):index + 1]
         btc_history = btc_candles[index - WARMUP + 1:index + 1] if btc_candles else None
         peer_history = {name: peer[index - WARMUP + 1:index + 1] for name, peer in benchmarks.items()} if benchmarks else None
-        for name, sample in list(active.items()):
+        for key, sample in list(active.items()):
             advance(sample, bar, mark, known_funding, history)
             if sample["status"] != "open":
-                active.pop(name)
-        context = regime(history)
+                active.pop(key)
+        context = regime(history[-WARMUP:])
         partition = "train" if bar.time < split else "validation"
         for name, candidate in candidates.items():
-            if name in active:
+            if name in active and not candidate["genome"].get("signal_frame"):
                 continue
+            signal_history = history if candidate["genome"].get("signal_frame") else history[-WARMUP:]
             kwargs = {k: v for k, v in (("btc_candles", btc_history),
                                        ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
             if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
                 kwargs["fair_candles"] = [mark]
-            setup = strategy_setup(candidate["genome"], history, known_funding, **kwargs)
+            setup = strategy_setup(candidate["genome"], signal_history, known_funding, **kwargs)
             if setup is None:
                 continue
             sample = {"strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,
@@ -115,10 +119,10 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                       "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
                       "exit_params": candidate["genome"].get("exit_params"),
                       "exit_rule": candidate["genome"].get("rule"),
-                      **entry_fields(candidate["genome"], history, setup, bar.time)}
+                      **entry_fields(candidate["genome"], signal_history, setup, bar.time)}
             rows[name][partition].append(sample)
-            active[name] = sample
-        completed = index - WARMUP + 1
+            active[(name, bar.time) if candidate["genome"].get("signal_frame") else name] = sample
+        completed = index - max_warmup + 1
         if completed % 96 == 0 or completed == total:
             progress(completed, total)
     for sample in active.values():
@@ -140,7 +144,7 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         "oi_history": oi_history or [], "macro_release_times": MACRO_TIMESTAMPS,
     }, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return {"source": "historical", "start_time": start, "end_time": end,
-            "train_before": split, "bars": total, "warmup_bars": WARMUP,
+            "train_before": split, "bars": total, "warmup_bars": max_warmup,
             "fee_bps": FEE * 10000, "slippage_bps": SLIP * 10000,
             "dataset_sha256": digest, "strategies": list(rows.values()),
             "signal_inputs": {"benchmarks": sorted(benchmarks or {}),
@@ -209,12 +213,13 @@ def _run_history(job_id, days, candidates):
         now = adapter.server_time()
         end = now // 900 * 900
         start = end - days * 86400
-        candles = load_history(adapter, start - WARMUP * 900, end, now)
+        warmup = NATIVE_WARMUP if any(c["genome"].get("signal_frame") for c in candidates.values()) else WARMUP
+        candles = load_history(adapter, start - warmup * 900, end, now)
         update_job(job_id, phase="fair_price")
-        fair = load_history(adapter, start - WARMUP * 900, end, now, fair=True)
-        funding = adapter.funding_history(start - WARMUP * 900 - 2 * 86400, end)
+        fair = load_history(adapter, start - warmup * 900, end, now, fair=True)
+        funding = adapter.funding_history(start - warmup * 900 - 2 * 86400, end)
         with Session() as session:
-            signal_context = load_signal_context(session, start - WARMUP * 900, end)
+            signal_context = load_signal_context(session, start - warmup * 900, end)
         used = {node.get("feature") for candidate in candidates.values()
                 for _, node in nodes(candidate["genome"].get("rule", {}))}
         signal_context.pop("benchmarks", None)
@@ -226,7 +231,7 @@ def _run_history(job_id, days, candidates):
                 peer_adapter = MexcFuturesAdapter(symbol=peer)
                 try:
                     signal_context["benchmarks"][peer] = load_history(
-                        peer_adapter, start - WARMUP * 900, end, now)
+                        peer_adapter, start - warmup * 900, end, now)
                 finally:
                     peer_adapter.close()
         update_job(job_id, phase="replay")

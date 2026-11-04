@@ -106,8 +106,8 @@ def aggregation_cache():
 
 def aggregate(candles: list[Candle], seconds: int, *, until: int | None = None) -> list[Candle]:
     """Closed higher-timeframe bars from contiguous 15m bars; partial buckets are dropped."""
-    if seconds not in (3600, 14400):
-        raise ValueError("Higher timeframe must be 1h or 4h")
+    if seconds not in (3600, 14400, 86400):
+        raise ValueError("Higher timeframe must be 1h, 4h, or 1d")
     cache = _aggregations.get()
     key = (id(candles), seconds, until)
     if cache is not None and key in cache:

@@ -21,11 +21,12 @@ from .futures_rule_tree import (
     structure_level,
 )
 from .futures_rules import atr14, rsi14
+from .futures_native import native_atr
 
 CURVE_BARS = 100
 BANDS = ("bb_pierce", "band_reclaim")
 EMAS = {"trend": (50,), "trend_optional": (50,), "ema_touch": (50,), "ema_bounce": (21, 50),
-        "ema_cross": (9, 21)}
+        "ema_cross": (9, 21), "native_trend": (20, 50), "daily_bias": (20,)}
 
 def rule_overlays(rule, candles, lookback, context=None):
     levels, curves, markers, details, seen = [], [], [], [], set()
@@ -82,14 +83,15 @@ def rule_overlays(rule, candles, lookback, context=None):
                    if matches(node, candles, direction, lookback, context=context)] if feat != "retest" else []
         if feat in EMAS or feat == "ema_cross_n":
             periods = ((max(5, lookback // 2), lookback) if feat == "ema_cross_n" else EMAS[feat])
-            if len(bars) >= max(periods):
+            required = 31 if feat == "native_trend" else 21 if feat == "daily_bias" else max(periods)
+            if len(bars) >= required:
                 for period in periods:
                     values = ema([bar.close for bar in bars], period)
                     curve(f"EMA{period} {frame}", [{"time": bars[index].time + shift, "value": values[index]}
-                          for index in range(max(period - 1, len(bars) - CURVE_BARS), len(bars))])
+                          for index in range(max(min(period - 1, required - 1), len(bars) - CURVE_BARS), len(bars))])
             else:
-                message = f"Cần {max(periods)} nến {frame} đã đóng; hiện có {len(bars)}."
-        elif feat in ("breakout", "compression", "compression_current", "sweep", "wick_sweep", "retest", "retest_seq", "mtf_seq", "funding_extreme"):
+                message = f"Cần {required} nến {frame} đã đóng; hiện có {len(bars)}."
+        elif feat in ("breakout", "compression", "compression_current", "sweep", "wick_sweep", "retest", "retest_seq", "mtf_seq", "funding_extreme", "native_squeeze", "native_sweep"):
             if feat == "mtf_seq":
                 bars = frame_rows(candles, "H1")
                 shift, frame = 2700, "H1"
@@ -98,11 +100,19 @@ def rule_overlays(rule, candles, lookback, context=None):
                 bars, frame, shift = candles, "M15", 0
                 prior = bars[-11:-1] if len(bars) >= 11 else []
             if prior:
-                name = ("Vùng nén" if feat.startswith("compression") else
+                name = ("Vùng nén D1" if feat == "native_squeeze" else
+                        "Biên quét H4" if feat == "native_sweep" else
+                        "Vùng nén" if feat.startswith("compression") else
                         "Quét" if "sweep" in feat else "Vùng retest tham chiếu" if "retest" in feat else "Vùng breakout")
                 level(f"{name} {frame} · trên", max(bar.high for bar in prior), prior[0].time)
                 level(f"{name} {frame} · dưới", min(bar.low for bar in prior), prior[0].time)
-                if feat.startswith("compression"):
+                if feat == "native_squeeze":
+                    width = max(bar.high for bar in prior) - min(bar.low for bar in prior)
+                    atr = native_atr(bars)
+                    message = f"Biên D1 {width:.6g}; ngưỡng nén ≤ 4.5 ATR14 Wilder = {4.5 * atr:.6g}."
+                elif feat == "native_sweep":
+                    message = "Đỉnh/đáy H4 tham chiếu cho nến quét râu và reclaim."
+                elif feat.startswith("compression"):
                     width = max(bar.high for bar in prior) - min(bar.low for bar in prior)
                     atr = atr14(bars if feat == "compression_current" else bars[:-1])
                     message = f"Biên {width:.6g}; ngưỡng nén ≤ 3 ATR14 = {3 * atr:.6g}. Hộp tham chiếu chưa đồng nghĩa có nén."

@@ -5,7 +5,7 @@ from collections import defaultdict
 from statistics import mean
 
 from .futures_exits import exit_parameters
-from .futures_strategies import exit_policy_enabled
+from .futures_strategies import NATIVE_SEEDS, exit_policy_enabled, genome_fingerprint
 
 MIN_SAMPLES = 50
 MAX_DRAWDOWN_R = 10
@@ -62,7 +62,8 @@ def execution_config(genome):
     policy = genome.get("exit_policy", "fixed")
     return (genome.get("entry_policy", "market"), policy,
             sorted(exit_parameters(policy, genome.get("exit_params")).items()),
-            genome.get("exit_profile", "default"), genome["target_r"], genome["stop_buffer"])
+            genome.get("exit_profile", "default"), genome["target_r"], genome["stop_buffer"],
+            genome.get("signal_frame"))
 
 
 def redundant(candidate, keeper, samples, retained):
@@ -121,6 +122,8 @@ def retirement_candidates(state, evidence, protected):
     result = []
     for name, candidate in sorted(state["candidates"].items()):
         if name in protected or stats[name]["samples"] < MIN_SAMPLES or not exit_policy_enabled(candidate["genome"]):
+            continue
+        if genome_fingerprint(candidate["genome"]) in {genome_fingerprint(seed) for seed in NATIVE_SEEDS}:
             continue
         reason = failure(stats[name])
         metadata = {"reason": reason, **stats[name], "retained_strategy": None, "overlap": None}

@@ -10,6 +10,7 @@ from .db import Session
 from .feed import load_candles
 from .futures_context import load_signal_context
 from .futures_history import WARMUP, replay
+from .futures_native import NATIVE_WARMUP
 from .futures_rule_tree import nodes
 from .futures_strategies import genome_fingerprint, validate_genome
 from .futures_symbols import SYMBOLS, symbol_scope
@@ -101,7 +102,7 @@ def run_screen(symbol, draft, emit=lambda **changes: None, cache_dir=None):
     cache = Path(cache_dir or os.getenv("FUTURES_REPLAY_CACHE", "/tmp/futures-replay-cache"))
     window = draft["window"]
     start, end = window["start"], window["end"]
-    since = start - WARMUP * 900
+    since = start - (NATIVE_WARMUP if draft["genome"].get("signal_frame") else WARMUP) * 900
     features = {node.get("feature") for _, node in nodes(draft["genome"]["rule"])}
     peers = set(SYMBOLS) - {symbol} if features & {"market_alignment", "relative_strength"} else set()
     with symbol_scope(symbol):
