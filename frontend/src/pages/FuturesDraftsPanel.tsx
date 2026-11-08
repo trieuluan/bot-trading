@@ -350,12 +350,14 @@ export function FuturesDraftsPanel({
                           className={`font-mono text-xs font-semibold ${
                             !hasValidation
                               ? 'text-text-muted'
-                              : result.validation_drawdown_r < 10
-                                ? 'text-bull'
-                                : 'text-bear'
+                              : result.validation_drawdown_r >= 10
+                                ? 'text-bear'
+                                : result.validation_drawdown_r >= 5
+                                  ? 'text-amber-300'
+                                  : 'text-text-secondary'
                           }`}
                         >
-                          {hasValidation ? `${result.validation_drawdown_r.toFixed(1)}R` : '—'}
+                          {hasValidation ? `−${result.validation_drawdown_r.toFixed(1)}R` : '—'}
                         </div>
                       </div>
                     </div>
