@@ -5,8 +5,15 @@ import pytest
 from backend.app import futures_learner as learner
 from backend.app import futures_retirement as retirement
 from backend.app.db import AutoPaperDecision, PaperPendingOrder, PaperTrade, Session
-from backend.app.futures_strategies import ENTRY_SEEDS, EXIT_SEEDS, NATIVE_SEEDS, SEEDS, genome_name
-from backend.app.futures_symbols import symbol_scope
+from backend.app.futures_drafts import UNIVERSE_SCOPE
+from backend.app.futures_strategies import (
+    ENTRY_SEEDS,
+    EXIT_SEEDS,
+    NATIVE_SEEDS,
+    SEEDS,
+    genome_name,
+)
+from backend.app.futures_symbols import SYMBOLS, symbol_scope
 
 NOW = 1000000
 
@@ -41,7 +48,9 @@ def options(state, protected=()):
 def evolve_and_admit(state, now, **kwargs):
     learner.evolve(state, now, **kwargs)
     for draft in state.get("drafts", {}).values():
-        draft.update(status="waiting_slot", replay={"checks": {"passed": True}})
+        draft.update(status="waiting_slot", replay={"checks": {"passed": True},
+                     "scope": UNIVERSE_SCOPE, "symbols": list(SYMBOLS),
+                     "genome_fingerprint": draft["fingerprint"]})
     return learner.admit_drafts(state, now, ())
 
 
