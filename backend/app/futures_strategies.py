@@ -56,7 +56,7 @@ def is_rule_tree(genome):
     return genome.get("family") == RULE_FAMILY
 
 def shadow_only(genome):
-    return genome.get("entry_confirmation") == "h1"
+    return False
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
@@ -393,8 +393,8 @@ def strategy_chart(genome, candles, context=None):
                 "note": "Bot tự ghép: " + describe_rule(genome["rule"])
                 + (" · Vào lệnh 12:00–20:00 UTC (không gồm 20:00)."
                    if genome.get("entry_session") == "utc_12_20" else "")
-                + (" · SHADOW h4_sweep_h1_confirm: chờ tối đa 4 nến H1 đóng cùng chiều; giữ SL H4, TP 3R."
-                   if shadow_only(genome) else "")}
+                + (" · PAPER h4_sweep_h1_confirm: chờ tối đa 4 nến H1 đóng cùng chiều; giữ SL H4."
+                   if genome.get("entry_confirmation") == "h1" else "")}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",

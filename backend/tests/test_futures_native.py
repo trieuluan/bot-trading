@@ -306,12 +306,14 @@ def h1_bars(closes, start=100 * 86400 + 12 * 3600):
     return [Candle(start + index * 900, 100, max(100, close) + 1, min(100, close) - 1, close, 1)
             for index, close in enumerate(closes)]
 
-def test_h4_h1_confirm_is_shadow_only_and_keeps_h4_seed_unchanged():
+def test_h4_h1_confirm_is_paper_enabled_and_can_breed():
     shadow = NATIVE_SEEDS[2]
     validate_genome(shadow)
-    assert learner.shadow_only(shadow) and not learner.shadow_only(NATIVE_SEEDS[1])
+    assert not learner.shadow_only(shadow) and not learner.shadow_only(NATIVE_SEEDS[1])
     assert {key: value for key, value in shadow.items() if key != "entry_confirmation"} == NATIVE_SEEDS[1]
     assert genome_name(shadow) != genome_name(NATIVE_SEEDS[1])
+    child = mutate(shadow, random.Random(1))
+    assert child["entry_confirmation"] == "h1" and child != shadow
     with pytest.raises(ValueError, match="entry confirmation"):
         validate_genome({**NATIVE_SEEDS[0], "entry_confirmation": "h1"})
 
@@ -381,16 +383,59 @@ def test_h4_h1_seed_sync_is_idempotent_and_does_not_reset_old_candidates():
     learner.sync_seeds(state, 3000)
     assert state["candidates"] == after
 
-def test_h4_h1_confirm_paper_never_places_order(monkeypatch):
+def test_h4_h1_confirm_paper_queues_and_fills_after_h1_close(monkeypatch):
+    from datetime import datetime, timezone
+
     from fastapi import HTTPException
+    from sqlalchemy import select
 
     from backend.app import auto_paper
+    from backend.app.db import (
+        AutoPaperDecision,
+        AutoPaperState,
+        BotState,
+        MarketState,
+        PaperPendingOrder,
+        PaperTrade,
+        PaperWallet,
+        Session,
+    )
+    from backend.app.feed import save_candles
+    from backend.app.futures_symbols import state_id
 
     name = genome_name(NATIVE_SEEDS[2])
-    with pytest.raises(HTTPException, match="shadow-only"):
+    with pytest.raises(HTTPException, match="pending paper order"):
         auto_paper.place_native(None, None, None, 86400 + 16 * 3600 - 900, 86400 + 16 * 3600,
                                 Setup("long", 100, 95, 115, "test"), name,
                                 {"candidates": {name: {"genome": NATIVE_SEEDS[2]}}}, {})
+    sig = 100 * 86400 + 16 * 3600 - 900
+    learning = {"auto_mode": "paper_learning", "candidates": {name: {"genome": NATIVE_SEEDS[2]}}}
+    with Session.begin() as session:
+        wallet = session.get(PaperWallet, state_id())
+        wallet.quote = dict(lastPrice=102, fairPrice=102, bid1=101.9, ask1=102.1, time=sig + 905, received_at=sig + 905,
+                            bar=dict(time=sig + 900, open=102, high=102, low=102, close=102, volume=0))
+        wallet.contract = dict(contractSize=1, volUnit=1, minVol=1, maxVol=100000)
+        wallet.funding_error = None
+        market = session.get(MarketState, state_id())
+        market.source, market.last_sync = "mexc_futures", datetime.fromtimestamp(sig + 905, timezone.utc)
+        session.get(BotState, 1).heartbeat = datetime.fromtimestamp(sig + 905, timezone.utc)
+        state = session.get(AutoPaperState, state_id())
+        state.enabled = True
+        auto_paper.place_pending(session, state, wallet, sig, sig + 905,
+                                 Setup("long", 100, 90, 130, "test"), name, learning, {})
+        order_id = session.scalar(select(PaperPendingOrder.id).where(PaperPendingOrder.signal_time == sig))
+        assert order_id and session.get(AutoPaperDecision, ("BTC_USDT", sig)).action == "pending"
+        save_candles(session, h1_bars([101, 101, 101, 102], sig + 900))
+        now = sig + 5 * 900 + 5
+        monkeypatch.setattr("time.time", lambda: now)
+        wallet.quote = {**wallet.quote, "time": now, "received_at": now}
+        market.last_sync = datetime.fromtimestamp(now, timezone.utc)
+    auto_paper.sync_pending_orders(now)
+    with Session() as session:
+        order = session.get(PaperPendingOrder, order_id)
+        trade = session.get(PaperTrade, order.trade_id)
+        assert order.status == "filled" and trade.target == pytest.approx(trade.entry + 3 * (trade.entry - 90))
+        assert trade.monitoring["hold_until"] == sig + 900 + 5 * 86400
 
 def test_backtest_native_h1_confirm_waits_and_keeps_original_deadline():
     base = 100 * 86400 + 12 * 3600

@@ -31,7 +31,6 @@ from .db import (
     utcnow,
 )
 from .feed import load_candles
-from .futures_native import NATIVE_FRAMES, hold_seconds
 from .futures_exits import (
     EXIT_POLICIES,
     adaptive_target,
@@ -41,6 +40,7 @@ from .futures_exits import (
     partial_size,
     protective_stop,
 )
+from .futures_native import NATIVE_FRAMES, hold_seconds
 from .futures_symbols import SYMBOLS, current_symbol, state_id, symbol_scope
 from .mexc import MarketDataError, MexcFuturesAdapter
 from .notifications import notify_close, notify_open, notify_partial, notify_stop_update
@@ -359,7 +359,7 @@ def reconcile_stops(session, wallet, trade, now):
             )))
             return
         max_hold = hold_seconds(monitoring.get("signal_frame"))
-        if monitoring.get("signal_frame") and candle.time + 900 - trade.entry_time >= max_hold:
+        if monitoring.get("signal_frame") and candle.time + 900 >= monitoring.get("hold_until", trade.entry_time + max_hold):
             fill = candle.close * (1 + (-1 if trade.side == "long" else 1) * wallet.slippage_bps / 10000)
             exit_time = candle.time + 899
             reversed_funding = []

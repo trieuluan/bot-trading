@@ -25,7 +25,7 @@ from .db import (
     Session,
 )
 from .feed import load_candles, save_market_signal
-from .futures_entries import WAIT_BARS, confirmation_enabled, wait
+from .futures_entries import WAIT_BARS, confirmation_enabled, entry_fields, wait
 from .futures_learner import active_strategies, read_state, select_for_auto
 from .futures_native import NATIVE_ENTRY
 from .futures_symbols import current_symbol, state_id
@@ -201,9 +201,9 @@ def place_pending(session, state, wallet, candle_time, now, setup, strat_name, l
     """Queue a limit/retest entry for the closed bar; fills happen in sync_pending_orders."""
     genome = learning["candidates"][strat_name]["genome"]
     is_native = bool(genome.get("signal_frame"))
-    if is_native:
+    if is_native and not genome.get("entry_confirmation"):
         return place_native(session, state, wallet, candle_time, now, setup, strat_name, learning, decision)
-    level = decision.get("level")
+    level = setup.entry if is_native else decision.get("level")
     long = setup.side == "long"
     if level is None or not (setup.stop < level < setup.target if long else setup.target < level < setup.stop):
         record_decision(session, state, candle_time, "skipped", "Không có mức chờ hợp lệ", setup)
@@ -233,9 +233,18 @@ def place_pending(session, state, wallet, candle_time, now, setup, strat_name, l
             "parents": learning["candidates"][strat_name].get("parents", []),
         },
     }
+    if is_native:
+        from .futures_native import NATIVE_FRAMES, entry_session_allowed
+        from .futures_strategies import validate_genome
+        validate_genome(genome)
+        if (first % NATIVE_FRAMES[genome["signal_frame"]]
+                or not entry_session_allowed(genome, first) or not entry_session_allowed(genome, now)):
+            record_decision(session, state, candle_time, "skipped", "Invalid native confirmation window", setup)
+            return
+        snapshot["confirm_state"] = entry_fields(genome, [], setup, candle_time)
     session.add(PaperPendingOrder(
         symbol=current_symbol(), signal_time=candle_time, created_at=int(now), next_bar=first,
-        expires_at=first + WAIT_BARS * 900, side=setup.side, entry_policy=policy, level=level,
+        expires_at=first + (14400 if is_native else WAIT_BARS * 900), side=setup.side, entry_policy=policy, level=level,
         stop=setup.stop, target=setup.target, status="pending", snapshot=snapshot))
     record_decision(
         session, state, candle_time, "pending",
@@ -251,7 +260,7 @@ def place_native(session, state, wallet, candle_time, now, setup, strat_name, le
     from .futures_strategies import validate_genome
     validate_genome(genome)
     if genome.get("entry_confirmation"):
-        raise HTTPException(409, "H1 confirmation candidate is shadow-only")
+        raise HTTPException(409, "H1 confirmation requires a pending paper order")
     if (candle_time + 900) % NATIVE_FRAMES[genome["signal_frame"]]:
         raise HTTPException(409, "Native signal must be at closed frame boundary")
     if not entry_session_allowed(genome, candle_time + 900) or not entry_session_allowed(genome, now):
@@ -302,13 +311,23 @@ def close_pending(session, order, status, reason):
 
 def fill_pending(session, wallet, state, order, bar, now):
     snap = order.snapshot
+    native = order.entry_policy == NATIVE_ENTRY
     busy = active_strategies(session, read_state(session, int(now)), exclude_order_id=order.id)
-    if busy is None or snap["strategy"] in busy:
+    if busy is None or (not native and snap["strategy"] in busy):
         close_pending(session, order, "cancelled",
                       "Không rõ cây sở hữu hoặc cây đã có vị thế/lệnh chờ khác trên cặp; không mở trùng")
         return
     setup = Setup(order.side, order.level, order.stop, order.target, snap["reason"])
     entry = execution_price(wallet, order.side, opening=True)
+    target = order.target
+    genome = snap["audit"]["genome"]
+    if native:
+        from .futures_native import entry_session_allowed
+        direction = 1 if order.side == "long" else -1
+        if not entry_session_allowed(genome, now) or direction * (entry - order.stop) <= 0:
+            close_pending(session, order, "cancelled", "Invalid native fill geometry or session")
+            return
+        target = entry + direction * genome["target_r"] * abs(entry - order.stop)
     notional, risk_cash, blocked_by = size_order(session, wallet, state, now, order.side, entry, order.stop)
     if blocked_by:
         close_pending(session, order, "cancelled", blocked_by[1])
@@ -318,19 +337,24 @@ def fill_pending(session, wallet, state, order, bar, now):
         return
     try:
         trade = create_position(
-            session, wallet, order.side, notional, order.stop, order.target, origin="auto",
+            session, wallet, order.side, notional, order.stop, target, origin="auto",
             signal_time=order.signal_time, exit_policy=snap["exit_policy"], leverage=state.leverage,
-            exit_params=snap["exit_params"], exit_rule=snap["exit_rule"])
+            exit_params=snap["exit_params"], exit_rule=snap["exit_rule"],
+            **({"signal_frame": genome["signal_frame"], "fill_price": entry} if native else {}))
     except HTTPException as exc:
         if exc.status_code == 409:
             raise
         close_pending(session, order, "cancelled", exc.detail)
         return
     trade.monitoring = {**trade.monitoring, "entry_mode": order.entry_policy, "pending_id": order.id}
+    if native:
+        trade.monitoring = {**trade.monitoring, "hold_until": snap["confirm_state"]["hold_until"],
+                            "entry_confirmation": "h1"}
     order.status, order.trade_id = "filled", trade.id
     decision = session.get(AutoPaperDecision, (order.symbol, order.signal_time))
     audit = {**snap["audit"], "entry_fill": trade.entry, "confirmation_time": bar.time,
              "confirmation_close": bar.close,
+             "initial_stop": trade.stop, "initial_target": trade.target,
              "risk_budget": risk_cash}
     if decision:
         decision.action, decision.trade_id = "opened", trade.id
@@ -373,22 +397,25 @@ def sync_pending_orders(now=None):
             if reason:
                 close_pending(session, order, "cancelled", reason)
                 continue
-            first = order.expires_at - WAIT_BARS * 900
             meta = (order.snapshot or {}).get("confirm_state") or {}
+            native = order.entry_policy == NATIVE_ENTRY
+            first = meta["first_entry_time"] if native else order.expires_at - WAIT_BARS * 900
             sample = {"side": order.side, "level": order.level, "stop": order.stop, "target": order.target,
                       "entry_policy": order.entry_policy, "entry_time": first, "first_entry_time": first, **meta}
             cursor = order.next_bar
             snapshot_before = order.snapshot
             try:
                 history = (load_candles(session, since=first - 240 * 900, until=order.next_bar)
-                           if order.entry_policy == "micro_bos_m15" else [])
+                           if order.entry_policy == "micro_bos_m15" or native else [])
                 for bar in load_candles(session, since=order.next_bar, until=end):
                     if bar.time != order.next_bar:
                         break
-                    if order.entry_policy == "micro_bos_m15":
+                    if order.entry_policy == "micro_bos_m15" or native:
                         history.append(bar)
                     wait(sample, bar, [], history)
                     order.next_bar = bar.time + 900
+                    if native:
+                        order.snapshot = {**order.snapshot, "confirm_state": sample.copy()}
                     if sample.get("zone_touched"):
                         order.snapshot = {**order.snapshot, "confirm_state": {
                             "zone_touched": True, "bos_trigger": sample.get("bos_trigger")}}
