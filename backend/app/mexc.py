@@ -195,11 +195,16 @@ class MexcFuturesAdapter:
         sign = hmac.new(secret.encode(), (key + stamp + query).encode(), hashlib.sha256).hexdigest()
         try:
             response = self.client.get(
-                "https://contract.mexc.com/api/v1/private/account/tiered_fee_rate/v2?" + query,
+                BASE_URL + "/api/v1/private/account/tiered_fee_rate/v2?" + query,
                 headers={"ApiKey": key, "Request-Time": stamp, "Signature": sign,
                          "User-Agent": "Mozilla/5.0"})
             response.raise_for_status()
-            data = response.json()["data"]
+            payload = response.json()
+            if not isinstance(payload, dict) or payload.get("success") is not True:
+                raise ValueError("Unsuccessful fee response")
+            data = payload["data"]
+            if data["symbol"] != self.symbol:
+                raise ValueError("Fee response symbol mismatch")
             maker, taker = float(data["realMakerFee"]) * 1e4, float(data["realTakerFee"]) * 1e4
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise MarketDataError("Cannot fetch MEXC fee rates", 3600) from exc

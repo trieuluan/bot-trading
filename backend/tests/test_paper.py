@@ -361,7 +361,9 @@ def test_fee_sync_signed_request_updates_shared_fee(monkeypatch):
     def handler(request):
         seen.append(request)
         taker = "0.0010" if request.url.params["symbol"] == "SOL_USDT" else "0.0008"
-        return httpx.Response(200, json={"data": {"realMakerFee": "0.0006", "realTakerFee": taker}})
+        assert request.url.host == "api.mexc.com"
+        return httpx.Response(200, json={"success": True, "data": {
+            "symbol": request.url.params["symbol"], "realMakerFee": "0.0006", "realTakerFee": taker}})
 
     def factory(symbol):
         return MexcFuturesAdapter(httpx.Client(transport=httpx.MockTransport(handler)), symbol=symbol)
