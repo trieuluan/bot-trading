@@ -250,6 +250,8 @@ def place_native(session, state, wallet, candle_time, now, setup, strat_name, le
     from .futures_native import NATIVE_FRAMES, entry_session_allowed
     from .futures_strategies import validate_genome
     validate_genome(genome)
+    if genome.get("entry_confirmation"):
+        raise HTTPException(409, "H1 confirmation candidate is shadow-only")
     if (candle_time + 900) % NATIVE_FRAMES[genome["signal_frame"]]:
         raise HTTPException(409, "Native signal must be at closed frame boundary")
     if not entry_session_allowed(genome, candle_time + 900) or not entry_session_allowed(genome, now):

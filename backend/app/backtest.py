@@ -4,7 +4,6 @@ import math
 from dataclasses import asdict, dataclass
 
 from .futures_entries import ENTRY_POLICIES, entry_fields, wait
-from .futures_native import NATIVE_ENTRY, NATIVE_FRAMES, hold_seconds
 from .futures_exits import (
     EXIT_POLICIES,
     adaptive_target,
@@ -14,6 +13,7 @@ from .futures_exits import (
     partial_size,
     protective_stop,
 )
+from .futures_native import NATIVE_ENTRY, NATIVE_FRAMES, hold_seconds
 from .market import Candle
 from .mexc import validate_candles
 from .strategy import breakout, retest
@@ -42,6 +42,8 @@ def simulate(
     entry_policy: str = "market",
     signal_frame: str | None = None,
     target_r: float | None = None,
+    entry_confirmation: str | None = None,
+    entry_session: str | None = None,
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
@@ -52,6 +54,9 @@ def simulate(
         raise ValueError("Native entry requires D1/H4 signal frame")
     if signal_frame and (target_r is None or not math.isfinite(target_r) or target_r <= 0):
         raise ValueError("Native entry requires positive target R")
+    if entry_confirmation is not None and (
+            entry_confirmation != "h1" or signal_frame != "H4" or entry_session != "utc_12_20"):
+        raise ValueError("Invalid native entry confirmation")
     if exit_policy not in EXIT_POLICIES:
         raise ValueError("Invalid futures exit policy")
     exit_parameters(exit_policy, exit_params)
@@ -122,6 +127,7 @@ def simulate(
                             "target": target,
                             "risk": abs(entry - setup.stop),
                             "signal_frame": signal_frame,
+                            "hold_until": pending.get("hold_until", candle.time + hold_seconds(signal_frame)),
                             "exit_policy": exit_policy,
                             "exit_params": exit_params,
                             "exit_rule": exit_rule,
@@ -149,7 +155,7 @@ def simulate(
                 exit_price, reason = stop, "stop"
             elif touch_target:
                 exit_price, reason = target, "target"
-            elif signal_frame and candle.time + 900 - position["entry_time"] >= hold_seconds(signal_frame):
+            elif signal_frame and candle.time + 900 >= position["hold_until"]:
                 exit_price, reason = candle.close, "timeout"
             elif index == len(candles) - 1:
                 exit_price, reason = candle.close, "end_of_period"
@@ -210,7 +216,9 @@ def simulate(
             history = candles[max(0, index + 1 - window):index + 1]
             setup = signal(history, allow_short=True)
             if setup:
-                fields = entry_fields({"entry_policy": entry_policy}, history, setup, candle.time)
+                fields = entry_fields({"entry_policy": entry_policy, "signal_frame": signal_frame,
+                                       "target_r": target_r, "entry_confirmation": entry_confirmation,
+                                       "entry_session": entry_session}, history, setup, candle.time)
                 if fields.get("exit_reason") != "no_valid_level":
                     pending = {"setup": setup, "signal_time": candle.time, "side": setup.side,
                                "stop": setup.stop, "target": setup.target,

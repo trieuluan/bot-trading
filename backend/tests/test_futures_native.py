@@ -295,3 +295,113 @@ def test_native_paper_checks_signal_and_execution_session(monkeypatch, signal_ho
     else:
         auto_paper.place_native(*args)
         assert recorded == ["Outside native entry session"]
+
+def h1_sample(side="long", stop=90):
+    base = 100 * 86400 + 12 * 3600
+    seed = NATIVE_SEEDS[2]
+    fields = entry_fields(seed, [], Setup(side, 100, stop, 130, "test"), base - 900)
+    return dict(side=side, stop=stop, target=130, entry_time=base, **fields)
+
+def h1_bars(closes, start=100 * 86400 + 12 * 3600):
+    return [Candle(start + index * 900, 100, max(100, close) + 1, min(100, close) - 1, close, 1)
+            for index, close in enumerate(closes)]
+
+def test_h4_h1_confirm_is_shadow_only_and_keeps_h4_seed_unchanged():
+    shadow = NATIVE_SEEDS[2]
+    validate_genome(shadow)
+    assert learner.shadow_only(shadow) and not learner.shadow_only(NATIVE_SEEDS[1])
+    assert {key: value for key, value in shadow.items() if key != "entry_confirmation"} == NATIVE_SEEDS[1]
+    assert genome_name(shadow) != genome_name(NATIVE_SEEDS[1])
+    with pytest.raises(ValueError, match="entry confirmation"):
+        validate_genome({**NATIVE_SEEDS[0], "entry_confirmation": "h1"})
+
+def test_h4_h1_confirm_waits_for_closed_h1_and_enters_next_open():
+    sample, bars = h1_sample(), h1_bars([101, 101, 101, 102])
+    for index, bar in enumerate(bars):
+        wait_confirmed = sample.get("confirmed")
+        learner.wait(sample, bar, [], bars[:index + 1])
+        assert sample.get("confirmed", False) is (index == 3) and not wait_confirmed
+    assert sample["entry_time"] == bars[-1].time + 900
+
+def test_h4_h1_confirm_cancels_on_stop_opposite_h1_or_session_end():
+    for closes, reason in (([99] * 16, "expired"), ([90], "stop_before_confirmation")):
+        sample, bars = h1_sample(), h1_bars(closes)
+        for index, bar in enumerate(bars):
+            learner.wait(sample, bar, [], bars[:index + 1])
+        assert sample.get("status") == "cancelled" and sample.get("exit_reason") == reason
+    sample = h1_sample()
+    late = h1_bars([101], sample["entry_time"] + 900)
+    learner.wait(sample, late[0], [], late)
+    assert sample["exit_reason"] == "missing_confirmation_bar"
+
+@pytest.mark.parametrize("side,stop,closes", [("long", 90, [99] * 12 + [101] * 4),
+                                             ("short", 110, [101] * 12 + [99] * 4)])
+def test_h4_h1_confirm_fourth_hour_is_allowed_without_future_data(side, stop, closes):
+    sample, bars = h1_sample(side, stop), h1_bars(closes)
+    for index, bar in enumerate(bars):
+        learner.wait(sample, bar, [], bars[:index + 1])
+    assert sample["confirmed"] and sample["entry_time"] == bars[-1].time + 900
+
+def test_h4_h1_confirm_cannot_fill_at_20_utc():
+    sample = h1_sample()
+    shift = 4 * 3600
+    for field in ("entry_time", "first_entry_time", "next_confirmation_bar", "hold_until"):
+        sample[field] += shift
+    bars = h1_bars([99] * 12 + [101] * 4, sample["entry_time"])
+    for index, bar in enumerate(bars):
+        learner.wait(sample, bar, [], bars[:index + 1])
+    assert not sample["confirmed"]
+    assert sample["exit_reason"] == "confirmation_outside_session_or_expired"
+
+def test_h4_h1_label_fill_reprices_target_and_preserves_holding_deadline():
+    sample = {**h1_sample(), "status": "open", "entry": None, "net_r": None}
+    original_stop, deadline = sample["stop"], sample["hold_until"]
+    bars = h1_bars([101] * 4)
+    for index, bar in enumerate(bars):
+        learner.advance(sample, bar, bar, [], bars[:index + 1])
+        assert sample["entry"] is None
+    fill = Candle(sample["entry_time"], 102, 103, 101, 102, 1)
+    learner.advance(sample, fill, fill, [])
+    assert sample["entry"] == pytest.approx(102 * (1 + learner.SLIP))
+    assert sample["target"] == pytest.approx(sample["entry"] + 3 * sample["risk"])
+    assert sample["stop"] == original_stop and sample["hold_until"] == deadline
+    last = replace(fill, time=deadline - 900)
+    learner.advance(sample, last, last, [])
+    assert sample["exit_reason"] == "timeout"
+
+def test_h4_h1_seed_sync_is_idempotent_and_does_not_reset_old_candidates():
+    state = learner.new_state(1000)
+    name = genome_name(NATIVE_SEEDS[2])
+    state["candidates"].pop(name)
+    before = copy.deepcopy(state["candidates"])
+    learner.sync_seeds(state, 2000)
+    assert state["candidates"][name]["born_at"] == 2700
+    assert {key: state["candidates"][key] for key in before} == before
+    after = copy.deepcopy(state["candidates"])
+    learner.sync_seeds(state, 3000)
+    assert state["candidates"] == after
+
+def test_h4_h1_confirm_paper_never_places_order(monkeypatch):
+    from fastapi import HTTPException
+
+    from backend.app import auto_paper
+
+    name = genome_name(NATIVE_SEEDS[2])
+    with pytest.raises(HTTPException, match="shadow-only"):
+        auto_paper.place_native(None, None, None, 86400 + 16 * 3600 - 900, 86400 + 16 * 3600,
+                                Setup("long", 100, 95, 115, "test"), name,
+                                {"candidates": {name: {"genome": NATIVE_SEEDS[2]}}}, {})
+
+def test_backtest_native_h1_confirm_waits_and_keeps_original_deadline():
+    base = 100 * 86400 + 12 * 3600
+    candles = [Candle(base - (25 - index) * 900, 100, 101, 99, 101 if index == 28 else 100, 1)
+               for index in range(520)]
+    sig_time = candles[24].time
+    args = dict(candles=candles, config=BacktestConfig(), funding=[], fair_candles=candles,
+                contract=dict(contractSize=1, volUnit=1, minVol=1, maxVol=10000),
+                signal=lambda bars, **_: Setup("long", 100, 90, 130, "test") if bars[-1].time == sig_time else None,
+                warmup=21, entry_policy=NATIVE_ENTRY, target_r=3, entry_confirmation="h1", entry_session="utc_12_20")
+    with pytest.raises(ValueError, match="entry confirmation"):
+        simulate(**args, signal_frame="D1")
+    trade = simulate(**args, signal_frame="H4")["trades"][0]
+    assert trade["entry_time"] == sig_time + 5 * 900 and trade["exit_time"] == sig_time + 5 * 86400

@@ -56,11 +56,11 @@ def is_rule_tree(genome):
     return genome.get("family") == RULE_FAMILY
 
 def shadow_only(genome):
-    return False
+    return genome.get("entry_confirmation") == "h1"
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame", "entry_session"} if rule_tree else {"exit_policy", "exit_params"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame", "entry_session", "entry_confirmation"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
@@ -69,6 +69,10 @@ def validate_genome(genome):
     if "entry_session" in genome and (genome["entry_session"] != "utc_12_20"
                                       or genome.get("signal_frame") != "H4"):
         raise ValueError("Invalid native entry session")
+    if "entry_confirmation" in genome and (
+            genome["entry_confirmation"] != "h1" or genome.get("signal_frame") != "H4"
+            or genome.get("entry_session") != "utc_12_20"):
+        raise ValueError("Invalid native entry confirmation")
     if rule_tree:
         validate_rule(genome["rule"])
         native = genome.get("signal_frame")
@@ -153,6 +157,7 @@ NATIVE_SEEDS = [
     for frame, trigger, bias, policy in (("D1", "native_squeeze", "native_trend", "breakeven"),
                                        ("H4", "native_sweep", "daily_bias", "fixed"))
 ]
+NATIVE_SEEDS.append({**copy.deepcopy(NATIVE_SEEDS[1]), "entry_confirmation": "h1"})
 
 def profile_exit(profile, candles, direction, lookback, genome, funding):
     """Stop/target of a legacy family, so its tree twin exits identically. None = use default."""
@@ -387,7 +392,9 @@ def strategy_chart(genome, candles, context=None):
         return {**rule_overlays(genome["rule"], candles, lookback, context),
                 "note": "Bot tự ghép: " + describe_rule(genome["rule"])
                 + (" · Vào lệnh 12:00–20:00 UTC (không gồm 20:00)."
-                   if genome.get("entry_session") == "utc_12_20" else "")}
+                   if genome.get("entry_session") == "utc_12_20" else "")
+                + (" · SHADOW h4_sweep_h1_confirm: chờ tối đa 4 nến H1 đóng cùng chiều; giữ SL H4, TP 3R."
+                   if shadow_only(genome) else "")}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",

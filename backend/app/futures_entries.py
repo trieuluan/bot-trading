@@ -3,8 +3,8 @@
 import math
 from dataclasses import replace
 
+from .futures_native import NATIVE_ENTRY, entry_session_allowed, hold_seconds
 from .futures_rule_tree import confirmed_pivots, frame_rows, structure_level
-from .futures_native import NATIVE_ENTRY
 
 ENTRY_POLICIES = ("retest_h1", "sweep_h1", "pivot_retest_h1", "pivot_sweep_h1",
                   "micro_bos_m15", "sweep_m15", "body38_confirm", "body50_confirm", "ema20_m15_confirm")
@@ -69,8 +69,13 @@ def entry_fields(genome, history, setup, stamp):
     if policy == "market":
         return {}
     if policy == NATIVE_ENTRY:
-        return {"entry_policy": policy, "confirmed": True,
-                "signal_frame": genome.get("signal_frame"), "target_r": genome.get("target_r", 2.0)}
+        fields = {"entry_policy": policy, "confirmed": True,
+                  "signal_frame": genome.get("signal_frame"), "target_r": genome.get("target_r", 2.0)}
+        if genome.get("entry_confirmation") == "h1":
+            fields.update(confirmed=False, entry_confirmation="h1", first_entry_time=stamp + 900,
+                          entry_session=genome["entry_session"], next_confirmation_bar=stamp + 900,
+                          hold_until=stamp + 900 + hold_seconds("H4"))
+        return fields
     level = entry_level(policy, history, setup.side, setup.stop)
     fields = {"entry_policy": policy, "level": level, "first_entry_time": stamp + 900}
     if level is None:
@@ -104,6 +109,31 @@ def wait_confirmation(sample, bar, history):
     elif touched and direction * (bar.close - level) > 0 and (sweep or direction * (bar.close - bar.open) > 0):
         sample.update(confirmed=True, entry_time=bar.time + 900, confirmation_time=bar.time)
 
+def wait_native_h1(sample, bar, history):
+    """Stop-first, closed H1 confirmation within four hours of the H4 signal."""
+    first = sample["first_entry_time"]
+    if bar.time != sample.get("next_confirmation_bar", first):
+        sample.update(status="cancelled", exit_reason="missing_confirmation_bar")
+        return
+    sample["next_confirmation_bar"] = bar.time + 900
+    direction = 1 if sample["side"] == "long" else -1
+    if (bar.low <= sample["stop"] if direction == 1 else bar.high >= sample["stop"]):
+        sample.update(status="cancelled", exit_reason="stop_before_confirmation")
+        return
+    close = bar.time + 900
+    if close > first + 14400 or not entry_session_allowed(sample, close):
+        sample.update(status="cancelled", exit_reason="confirmation_outside_session_or_expired")
+        return
+    if close % 3600:
+        return
+    hour = [row for row in (history or []) if close - 3600 <= row.time < close]
+    if [row.time for row in hour] != list(range(close - 3600, close, 900)) or hour[0].time < first:
+        sample.update(status="cancelled", exit_reason="incomplete_confirmation_hour")
+    elif direction * (bar.close - hour[0].open) > 0:
+        sample.update(confirmed=True, entry_time=close, confirmation_time=bar.time)
+    elif close == first + 14400:
+        sample.update(status="cancelled", exit_reason="expired")
+
 def wait(sample, bar, funding, history=None):
     """Pre-fill phase of a limit/retest entry.
 
@@ -113,6 +143,9 @@ def wait(sample, bar, funding, history=None):
     the bar closed beyond it.
     """
     if bar.time < sample["entry_time"]:
+        return None
+    if sample.get("entry_confirmation") == "h1" and sample["entry_policy"] == NATIVE_ENTRY:
+        wait_native_h1(sample, bar, history)
         return None
     if bar.time >= sample["first_entry_time"] + WAIT_BARS * 900:
         sample.update(status="cancelled", exit_reason="expired")

@@ -325,7 +325,7 @@ def advance(sample, bar, fair, funding, candles=None):
         price, why = stop, "stop"
     elif has_target(sample) and (bar.high >= target if direction == 1 else bar.low <= target):
         price, why = target, "target"
-    elif ((bar.time + 900 - sample["entry_time"] >= hold_seconds(sample["signal_frame"]))
+    elif ((bar.time + 900 >= sample.get("hold_until", sample["entry_time"] + hold_seconds(sample["signal_frame"])))
           if sample.get("signal_frame") else bar.time - sample["entry_time"] >= MAX_HOLD):
         price, why = bar.close, "timeout"
     else:
@@ -444,6 +444,7 @@ def evolve(state, now, max_children=1, force=False):
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
                      and not failure(metrics(evidence.get(name, [])))
                      and confirmation_enabled(state["candidates"][name]["genome"])
+                     and not shadow_only(state["candidates"][name]["genome"])
                      and exit_policy_enabled(state["candidates"][name]["genome"])),
                     key=lambda name: results[name][1] - 0.01 * complexity(
                         state["candidates"][name]["genome"]), reverse=True)
@@ -629,6 +630,8 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
         entry_policy=candidate["genome"].get("entry_policy", "market"),
         signal_frame=candidate["genome"].get("signal_frame"),
         target_r=candidate["genome"]["target_r"],
+        entry_confirmation=candidate["genome"].get("entry_confirmation"),
+        entry_session=candidate["genome"].get("entry_session"),
     )
     candidate["windows"].append({
         **{key: result[key] for key in ("start_time", "end_time", "trade_count", "net_pnl", "max_drawdown_percent")},
@@ -830,6 +833,8 @@ def genes(genome):
             out[key] = genome[key]
     out["exit_policy"] = genome.get("exit_policy", "fixed")
     out["exit_params"] = genome.get("exit_params")
+    if genome.get("entry_confirmation"):
+        out["entry_confirmation"] = genome["entry_confirmation"]
     return out
 
 
