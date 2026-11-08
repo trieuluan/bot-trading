@@ -25,7 +25,7 @@ from .db import (
 )
 from .feed import load_candles
 from .futures_context import load_signal_context
-from .futures_drafts import MAX_PENDING, PENDING, enqueue
+from .futures_drafts import MAX_PENDING, PENDING, UNIVERSE_SCOPE, enqueue
 from .futures_entries import ENTRY_POLICIES, confirmation_enabled, entry_fields, wait
 from .futures_exits import (
     adaptive_target,
@@ -57,7 +57,7 @@ from .futures_strategies import (
     to_rule_tree,
     validate_genome,
 )
-from .futures_symbols import current_symbol, state_id
+from .futures_symbols import SYMBOLS, current_symbol, state_id
 from .futures_wakeup import notify
 from .market import Candle
 from .mexc import SOURCE, MarketDataError, MexcFuturesAdapter, validate_candles
@@ -430,6 +430,30 @@ def performance(state, now):
                     totals[row["strategy"]][1] += bucket["total_r"]
     return {name: (count, total / count) for name, (count, total) in totals.items() if count}
 
+def breeding_performance(state, now):
+    results = performance(state, now)
+    forward = performance({**state, "historical": None}, now)
+    report = (state.get("breeding_history") or {}).get("report") or {}
+    universe = (report.get("scope") == UNIVERSE_SCOPE and report.get("symbols") == list(SYMBOLS)
+                and report.get("end_time", now + 1) <= now)
+    for name, candidate in state["candidates"].items():
+        if candidate["genome"].get("signal_frame") not in ("D1", "H4"):
+            continue
+        row = next((row for row in report.get("strategies", []) if row["strategy"] == name
+                    and genome_fingerprint(row["genome"]) == genome_fingerprint(candidate["genome"])), None)
+        screened = (state.get("drafts", {}).get(candidate.get("draft_id")) or {}).get("replay") or {}
+        if universe and row:
+            training = row["train"]
+            results[name] = (training["resolved"], training["mean_r"] or 0.0)
+        elif (screened.get("scope") == UNIVERSE_SCOPE
+              and screened.get("symbols") == list(SYMBOLS)
+              and screened.get("end_time", now + 1) <= now
+              and screened.get("genome_fingerprint") == genome_fingerprint(candidate["genome"])):
+            results[name] = (screened["train_samples"], screened["train_mean_r"] or 0.0)
+        else:
+            results[name] = forward.get(name, (0, 0.0))
+    return results
+
 def complexity(genome):
     return validate_rule(genome["rule"]) if is_rule_tree(genome) else 0
 
@@ -440,7 +464,7 @@ def evolve(state, now, max_children=1, force=False):
     if not force and now - state["evolved_at"] < EVOLVE_SECONDS:
         return 0
     state["evolved_at"] = now
-    results = performance(state, now)
+    results = breeding_performance(state, now)
     evidence = forward_evidence(state, now)
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
@@ -488,7 +512,11 @@ def admit_drafts(state, now, protected):
         if (genome_fingerprint(draft["genome"]) != draft["fingerprint"]
                 or not exit_policy_enabled(draft["genome"])
                 or not confirmation_enabled(draft["genome"])
-                or not draft.get("replay") or not all(draft["replay"]["checks"].values())):
+                or not draft.get("replay") or not all(draft["replay"]["checks"].values())
+                or draft["genome"].get("signal_frame") in ("D1", "H4") and (
+                    draft["replay"].get("scope") != UNIVERSE_SCOPE
+                    or draft["replay"].get("symbols") != list(SYMBOLS)
+                    or draft["replay"].get("genome_fingerprint") != draft["fingerprint"])):
             draft.update(status="error", reason="invalid_screened_genome", updated_at=now)
             continue
         known = {**state.get("rule_archive", {}), **state["candidates"]}

@@ -1,3 +1,4 @@
+import copy
 import random
 
 from backend.app import futures_drafts as drafts
@@ -73,6 +74,55 @@ def test_gate_criteria_thresholds():
     status, result = drafts.gate(dummy_report(total=40, val=15, mean_r=0.5, dd=10.0))
     assert status == "rejected"
     assert result["checks"]["validation_dd_lt_10r"] is False
+
+
+def test_universe_gate_checks():
+    from backend.app.futures_symbols import SYMBOLS
+    report = {
+        "scope": drafts.UNIVERSE_SCOPE,
+        "symbols": list(SYMBOLS),
+        "per_symbol": {sym: {} for sym in SYMBOLS},
+        "start_time": NOW - 340 * 86400,
+        "end_time": NOW,
+        "train_before": NOW - 102 * 86400,
+        "bars": 32640,
+        "warmup_bars": 6000,
+        "fee_bps": 8,
+        "slippage_bps": 2,
+        "dataset_sha256": "universe_sha",
+        "screening_note": "note",
+        "signal_inputs": {"universe": list(SYMBOLS)},
+        "strategies": [{
+            "genome": learner.NATIVE_SEEDS[1],
+            "train": {"resolved": 40, "mean_r": 0.3},
+            "validation": {"resolved": 15, "mean_r": 0.25, "max_drawdown_r": 4.0,
+                           "contributing_symbols": 4, "max_pair_drawdown_r": 5.0},
+        }],
+    }
+    status, result = drafts.gate(report)
+    assert status == "waiting_slot"
+    assert result["checks"]["universe_complete"] is True
+    assert result["checks"]["validation_symbols_gte_3"] is True
+    assert result["checks"]["validation_pair_dd_lt_10r"] is True
+    assert result["scope"] == drafts.UNIVERSE_SCOPE
+
+    missing_one = copy.deepcopy(report)
+    missing_one["symbols"].pop()
+    status, result = drafts.gate(missing_one)
+    assert status == "rejected"
+    assert result["checks"]["universe_complete"] is False
+
+    concentrated = copy.deepcopy(report)
+    concentrated["strategies"][0]["validation"]["contributing_symbols"] = 2
+    status, result = drafts.gate(concentrated)
+    assert status == "rejected"
+    assert result["checks"]["validation_symbols_gte_3"] is False
+
+    blown_pair = copy.deepcopy(report)
+    blown_pair["strategies"][0]["validation"]["max_pair_drawdown_r"] = 12.0
+    status, result = drafts.gate(blown_pair)
+    assert status == "rejected"
+    assert result["checks"]["validation_pair_dd_lt_10r"] is False
 
 
 def test_enqueue_and_queue_limit():

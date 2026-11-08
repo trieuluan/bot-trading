@@ -20,7 +20,10 @@ export type Draft = {
   reason: string | null;
   admitted_at: number | null;
   admitted_strategy: string | null;
+  window?: { scope?: string };
   replay: {
+    scope?: string;
+    symbols?: string[];
     checks: Record<string, boolean>;
     total_samples: number;
     validation_samples: number;
@@ -47,7 +50,8 @@ const PHASES: Record<string, string> = {
   fair_price: 'Tải fair price',
   funding: 'Tải funding',
   open_interest: 'Kiểm tra OI',
-  replay: 'Replay 90 ngày',
+  replay: 'Replay',
+  cached: 'Đọc kết quả đã lưu',
   done: 'Xong',
 };
 const CHECKS: Record<string, string> = {
@@ -55,6 +59,9 @@ const CHECKS: Record<string, string> = {
   validation_samples_gte_10: '≥10 mẫu kiểm tra',
   validation_mean_gt_0: 'R kiểm tra > 0',
   validation_dd_lt_10r: 'DD kiểm tra < 10R',
+  universe_complete: 'Đủ 10 cặp',
+  validation_symbols_gte_3: '≥3 cặp có mẫu kiểm tra',
+  validation_pair_dd_lt_10r: 'DD từng cặp < 10R',
 };
 const STATUS: Record<string, string> = {
   queued: 'Chờ replay',
@@ -66,7 +73,12 @@ const STATUS: Record<string, string> = {
   admitted: 'Đã vào forward',
 };
 
-function phaseText(phase: string) {
+function phaseText(phase: string): string {
+  if (phase.startsWith('parents:')) return `Bố mẹ · ${phaseText(phase.slice(8))}`;
+  const split = phase.indexOf(':');
+  if (split > 0 && phase.slice(0, split).endsWith('_USDT')) {
+    return `${phase.slice(0, split).replace('_USDT', '')} · ${phaseText(phase.slice(split + 1))}`;
+  }
   return phase.startsWith('benchmark:')
     ? `Tải benchmark ${phase.slice(10).replace('_USDT', '')}`
     : (PHASES[phase] ?? phase);
@@ -90,9 +102,13 @@ export function FuturesDraftsPanel({
   return (
     <>
       <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
-        Con mới: Con nháp → Replay 90 ngày (70/30) → Đạt/chờ slot → Forward. Replay chỉ sàng lọc,
-        không cộng vào mẫu forward. Thiếu mẫu tự thử lại sau 7 ngày; không đạt thì dừng.
+        D1/H4: cùng cây replay 340 ngày trên đủ 10 cặp, cùng mốc chia 70/30 → Đạt/chờ slot → Forward.
+        Nháp cũ khung nhỏ dùng 90 ngày. Replay không cộng vào mẫu forward; các cặp có thể tương quan.
+        Thiếu mẫu tự thử lại sau 7 ngày; không đạt thì dừng.
       </p>
+      {worker?.phase?.startsWith('parents:') && !worker.stale && (
+        <p className="evo-note text-xs text-text-secondary" role="status">{phaseText(worker.phase)}</p>
+      )}
       {worker?.consumer_enabled === false && !worker.stale && (
         <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker replay đang tắt; con nháp chờ cho đến khi bật.

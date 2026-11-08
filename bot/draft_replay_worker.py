@@ -7,19 +7,39 @@ import os
 import signal
 import time
 from threading import Event
+from uuid import uuid4
 
 from sqlalchemy import select, text
 
 from backend.app.db import FuturesLearningState, Session
-from backend.app.futures_draft_replay import MissingInputError, ReplayDataError, run_screen
-from backend.app.futures_drafts import TIMEOUT_SECONDS, claim, complete, ready
+from backend.app.futures_draft_replay import (
+    MissingInputError,
+    ReplayDataError,
+    run_screen,
+    run_universe,
+)
+from backend.app.futures_drafts import (
+    BACKOFF_SECONDS,
+    MAX_ATTEMPTS,
+    RETRY_SECONDS,
+    TIMEOUT_SECONDS,
+    UNIVERSE_DAYS,
+    UNIVERSE_SCOPE,
+    UNIVERSE_TIMEOUT_SECONDS,
+    claim,
+    complete,
+    ready,
+)
 from backend.app.futures_learner import (
     active_strategies,
     admit_drafts,
+    evolve,
     read_state,
     save_state,
 )
+from backend.app.futures_native import NATIVE_WARMUP
 from backend.app.futures_research_lock import acquire, hold_worker
+from backend.app.futures_strategies import NATIVE_SEEDS, genome_fingerprint, genome_name
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
 from backend.app.paper import lock_wallet
 
@@ -101,7 +121,10 @@ def retryable(exc):
 
 def compute(send, symbol, frozen):
     try:
-        report = run_screen(symbol, frozen, lambda **changes: send.send(("progress", changes)))
+        def emit(**changes):
+            send.send(("progress", changes))
+        report = (run_universe(frozen["candidates"], frozen["window"], emit)
+                  if frozen.get("purpose") == "native_parents" else run_screen(symbol, frozen, emit))
         send.send(("result", report))
     except Exception as exc:
         logger.exception("Replay calculation failed")
@@ -112,6 +135,8 @@ def compute(send, symbol, frozen):
 
 
 def supervise(lease, symbol, frozen, emit):
+    universe = frozen["window"].get("scope") == UNIVERSE_SCOPE
+    timeout = UNIVERSE_TIMEOUT_SECONDS if universe else TIMEOUT_SECONDS
     context = multiprocessing.get_context("spawn")
     receive, send = context.Pipe(duplex=False)
     child = context.Process(target=compute, args=(send, symbol, frozen))
@@ -123,8 +148,8 @@ def supervise(lease, symbol, frozen, emit):
         while True:
             if stop.is_set():
                 raise InterruptedError("Replay worker stopping")
-            if time.monotonic() - started >= TIMEOUT_SECONDS:
-                return None, "Replay exceeded 20 minutes", True
+            if time.monotonic() - started >= timeout:
+                return None, f"Replay exceeded {int(timeout // 60)} minutes", True
             lease.check()
             if receive.poll(1):
                 try:
@@ -149,6 +174,78 @@ def supervise(lease, symbol, frozen, emit):
             child.kill()
             child.join()
         receive.close()
+
+def parent_progress(token, **changes):
+    now = int(time.time())
+    with symbol_scope(SYMBOLS[0]), Session.begin() as session:
+        lock_wallet(session)
+        state = read_state(session, now)
+        job = state.get("universe_parent_job") or {}
+        if job.get("token") == token and job.get("status") == "running":
+            job.update(changes, updated_at=now)
+            save_state(session, state)
+            touch(session, now, phase=f"parents:{job.get('phase', 'data')}")
+
+def refresh_native_parents(lease, now):
+    with symbol_scope(SYMBOLS[0]), Session.begin() as session:
+        lock_wallet(session)
+        state = read_state(session, now)
+        job = state.get("universe_parent_job") or {}
+        if now < job.get("next_retry_at", 0):
+            return False
+        enabled = session.scalars(select(FuturesLearningState.payload["enabled"])).all()
+        if not any(enabled):
+            return False
+        previous = job.get("status") == "running" or (job.get("attempts", 0) < MAX_ATTEMPTS
+                                                     and job.get("status") == "failed")
+        end = now // 86400 * 86400
+        window = job["window"] if previous else {
+            "start": end - UNIVERSE_DAYS * 86400, "end": end,
+            "warmup_bars": NATIVE_WARMUP, "scope": UNIVERSE_SCOPE, "symbols": list(SYMBOLS)}
+        token = str(uuid4())
+        candidates = (job["candidates"] if previous else
+                      {genome_name(genome): {"genome": genome} for genome in NATIVE_SEEDS})
+        job = {"token": token, "status": "running", "phase": "data", "window": window,
+               "candidates": candidates, "attempts": job["attempts"] + 1 if previous else 1,
+               "started_at": now, "updated_at": now, "next_retry_at": 0}
+        state["universe_parent_job"] = job
+        save_state(session, state)
+        touch(session, now, phase="parents:data")
+    frozen = {"purpose": "native_parents", "window": window, "candidates": candidates}
+    report, error, can_retry = supervise(lease, SYMBOLS[0], frozen,
+                                        lambda **changes: parent_progress(token, **changes))
+    lease.check()
+    finished = int(time.time())
+    if error is None and (
+        not isinstance(report, dict)
+        or report.get("scope") != UNIVERSE_SCOPE
+        or report.get("symbols") != list(SYMBOLS)
+        or set(report.get("per_symbol", {})) != set(SYMBOLS)
+        or report.get("start_time") != window["start"]
+        or report.get("end_time") != window["end"]
+        or {row["strategy"]: genome_fingerprint(row["genome"])
+            for row in report.get("strategies", [])}
+        != {name: genome_fingerprint(row["genome"]) for name, row in candidates.items()}
+    ):
+        error, can_retry = "Invalid frozen native parent universe report", False
+    if error is None:
+        for symbol in SYMBOLS:
+            with symbol_scope(symbol), Session.begin() as session:
+                lock_wallet(session)
+                state = read_state(session, finished)
+                state["breeding_history"] = {"report": report, "updated_at": finished}
+                evolve(state, finished, max_children=3, force=True)
+                save_state(session, state)
+    with symbol_scope(SYMBOLS[0]), Session.begin() as session:
+        lock_wallet(session)
+        state = read_state(session, finished)
+        job = state["universe_parent_job"]
+        retry = error is not None and can_retry and job["attempts"] < MAX_ATTEMPTS
+        job.update(status="failed" if error else "completed", error=error, phase="done",
+                   updated_at=finished, next_retry_at=finished + (BACKOFF_SECONDS if retry else RETRY_SECONDS))
+        save_state(session, state)
+        touch(session, finished, phase="idle")
+    return True
 
 
 def process(lease, symbol, draft_id):
@@ -204,6 +301,8 @@ def main():
                 if lease:
                     try:
                         admit_waiting(now)
+                        if refresh_native_parents(lease, now):
+                            continue
                         symbol, draft_id = next_draft(int(time.time()))
                         if symbol and draft_id:
                             process(lease, symbol, draft_id)

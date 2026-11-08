@@ -59,7 +59,8 @@ def historical_stats(samples, cutoff=None):
 
 
 def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None,
-           btc_candles=None, benchmarks=None, oi_history=None, strict_samples=False):
+           btc_candles=None, benchmarks=None, oi_history=None, strict_samples=False,
+           include_samples=False):
     validate_candles(candles)
     validate_candles(fair)
     max_warmup = max((NATIVE_WARMUP if c["genome"].get("signal_frame") else WARMUP)
@@ -128,6 +129,11 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
     for sample in active.values():
         sample.update(status="excluded", exit_reason="dataset_boundary")
     for row in rows.values():
+        if include_samples:
+            row["samples"] = {
+                partition: [sample for values in forward_evidence({"samples": row[partition]}, end).values()
+                            for sample in values]
+                for partition in ("train", "validation")}
         for partition in ("train", "validation"):
             row[partition] = historical_stats(row[partition], end if strict_samples else None)
         row["prior_eligible"] = all(
