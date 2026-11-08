@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { formatTime } from '../lib/time-format';
-import { entryPolicyLabel, exitLabel, strategyShortTitle, type Genome } from '../lib/futures-strategy-info';
+import {
+  entryPolicyLabel,
+  exitLabel,
+  strategyShortTitle,
+  type Genome,
+} from '../lib/futures-strategy-info';
 
 export type Draft = {
   id: string;
@@ -9,7 +14,13 @@ export type Draft = {
   generation: number;
   parents: string[];
   status:
-    'queued' | 'running' | 'insufficient' | 'waiting_slot' | 'rejected' | 'error' | 'admitted';
+    | 'queued'
+    | 'running'
+    | 'insufficient'
+    | 'waiting_slot'
+    | 'rejected'
+    | 'error'
+    | 'admitted';
   phase: string;
   completed: number | null;
   total: number | null;
@@ -43,6 +54,7 @@ const FILTERS: [string, string, (draft: Draft) => boolean][] = [
   ['error', 'Lỗi', (d) => d.status === 'error'],
   ['admitted', 'Đã vào forward', (d) => d.status === 'admitted'],
 ];
+
 const PHASES: Record<string, string> = {
   queued: 'Chờ worker',
   data: 'Chuẩn bị dữ liệu',
@@ -51,26 +63,56 @@ const PHASES: Record<string, string> = {
   funding: 'Tải funding',
   open_interest: 'Kiểm tra OI',
   replay: 'Replay',
-  cached: 'Đọc kết quả đã lưu',
-  done: 'Xong',
+  cached: 'Đọc kết quả lưu sẵn',
+  done: 'Hoàn tất',
 };
+
 const CHECKS: Record<string, string> = {
-  total_samples_gte_30: '≥30 mẫu tổng',
-  validation_samples_gte_10: '≥10 mẫu kiểm tra',
+  total_samples_gte_30: 'Mẫu tổng ≥ 30',
+  validation_samples_gte_10: 'Mẫu kiểm tra ≥ 10',
   validation_mean_gt_0: 'R kiểm tra > 0',
-  validation_dd_lt_10r: 'DD kiểm tra < 10R',
-  universe_complete: 'Đủ 10 cặp',
-  validation_symbols_gte_3: '≥3 cặp có mẫu kiểm tra',
-  validation_pair_dd_lt_10r: 'DD từng cặp < 10R',
+  validation_dd_lt_10r: 'Drawdown kiểm tra < 10R',
+  universe_complete: 'Đủ 10 cặp tiền',
+  validation_symbols_gte_3: '≥ 3 cặp có mẫu kiểm tra',
+  validation_pair_dd_lt_10r: 'Drawdown từng cặp < 10R',
 };
-const STATUS: Record<string, string> = {
-  queued: 'Chờ replay',
-  running: 'Đang chạy',
-  insufficient: 'Chưa đủ bằng chứng',
-  waiting_slot: 'Đạt · chờ slot',
-  rejected: 'Không đạt',
-  error: 'Lỗi',
-  admitted: 'Đã vào forward',
+
+const STATUS_CONFIG: Record<Draft['status'], { label: string; badge: string; cardBorder: string }> = {
+  queued: {
+    label: 'Chờ replay',
+    badge: 'border-border-base bg-surface-2 text-text-muted',
+    cardBorder: 'border-border-base',
+  },
+  running: {
+    label: 'Đang replay',
+    badge: 'border-sky-400/40 bg-sky-500/10 text-sky-300 animate-pulse',
+    cardBorder: 'border-sky-500/40',
+  },
+  insufficient: {
+    label: 'Chưa đủ mẫu',
+    badge: 'border-amber-400/40 bg-amber-500/10 text-amber-300',
+    cardBorder: 'border-amber-500/30',
+  },
+  waiting_slot: {
+    label: 'Đạt · Chờ slot',
+    badge: 'border-bull/40 bg-bull-bg text-bull',
+    cardBorder: 'border-bull/60',
+  },
+  rejected: {
+    label: 'Không đạt',
+    badge: 'border-bear/40 bg-bear-bg text-bear',
+    cardBorder: 'border-bear/30',
+  },
+  error: {
+    label: 'Lỗi',
+    badge: 'border-bear/40 bg-bear-bg text-bear',
+    cardBorder: 'border-bear/40',
+  },
+  admitted: {
+    label: 'Đã vào forward',
+    badge: 'border-bull/40 bg-surface-2 text-bull',
+    cardBorder: 'border-bull/30',
+  },
 };
 
 function phaseText(phase: string): string {
@@ -97,125 +139,278 @@ export function FuturesDraftsPanel({
 }) {
   const [filter, setFilter] = useState('all');
   const match = FILTERS.find(([key]) => key === filter)![2];
-  const rows = [...drafts].filter(match).sort((a, b) => a.created_at - b.created_at);
+  const rows = [...drafts].filter(match).sort((a, b) => b.created_at - a.created_at);
   const stalled = (d: Draft) => d.status === 'running' && now - d.updated_at > 90;
+
   return (
-    <>
-      <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
-        D1/H4: cùng cây replay 340 ngày trên đủ 10 cặp, cùng mốc chia 70/30 → Đạt/chờ slot → Forward.
-        Nháp cũ khung nhỏ dùng 90 ngày. Replay không cộng vào mẫu forward; các cặp có thể tương quan.
-        Thiếu mẫu tự thử lại sau 7 ngày; không đạt thì dừng.
-      </p>
+    <div className="space-y-4">
+      {/* Banner hướng dẫn gọn gàng */}
+      <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-2/60 p-3 sm:flex-row sm:items-center sm:justify-between text-xs text-text-secondary">
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-bull" />
+          <span>
+            <b>Sàng lọc Universe 340 ngày (D1/H4)</b>: Cùng genome chạy trên cả 10 cặp, chia 70% huấn luyện / 30% kiểm tra.
+          </span>
+        </div>
+        <div className="text-text-muted">
+          Tiêu chuẩn qua cổng: ≥30 mẫu tổng, ≥10 mẫu kiểm tra, R &gt; 0, Drawdown &lt; 10R.
+        </div>
+      </div>
+
+      {/* Trạng thái Worker */}
       {worker?.phase?.startsWith('parents:') && !worker.stale && (
-        <p className="evo-note text-xs text-text-secondary" role="status">{phaseText(worker.phase)}</p>
+        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
+          <span className="inline-block h-2 w-2 animate-ping rounded-full bg-sky-400" />
+          <span>Tiến trình bố mẹ nền: <b>{phaseText(worker.phase)}</b></span>
+        </div>
       )}
       {worker?.consumer_enabled === false && !worker.stale && (
-        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker replay đang tắt; con nháp chờ cho đến khi bật.
         </p>
       )}
       {worker?.stale !== false && (
-        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker replay chậm hoặc mất kết nối; con nháp sẽ chờ.
         </p>
       )}
       {rows.some(stalled) && (
-        <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
           Worker chậm: có job không cập nhật quá 90 giây.
         </p>
       )}
-      <div className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs" role="group" aria-label="Lọc con nháp">
-        {FILTERS.map(([key, label, test]) => (
-          <button key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-            {label} <span className="evo-count ml-auto text-xs text-text-muted">{drafts.filter(test).length}</span>
-          </button>
-        ))}
+
+      {/* Thanh bộ lọc thiết kế theo pill tab rõ ràng */}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Lọc con nháp">
+        {FILTERS.map(([key, label, test]) => {
+          const count = drafts.filter(test).length;
+          const active = filter === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setFilter(key)}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? 'border border-border-active bg-surface-3 text-text-primary shadow-sm'
+                  : 'border border-border-subtle bg-surface-1/60 text-text-muted hover:bg-surface-2 hover:text-text-secondary'
+              }`}
+            >
+              <span>{label}</span>
+              <span
+                className={`rounded px-1.5 py-0.2 text-[10px] tabular-nums ${
+                  active ? 'bg-surface-1 text-text-primary' : 'bg-surface-2 text-text-muted'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
-      {rows.length === 0 && <p className="evo-empty text-center text-text-muted">Không có con nháp trong bộ lọc này.</p>}
-      <div className="evo-grid grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+
+      {rows.length === 0 && (
+        <div className="rounded-lg border border-border-subtle bg-surface-1/50 py-12 text-center text-xs text-text-muted">
+          Không có con nháp trong bộ lọc này.
+        </div>
+      )}
+
+      {/* Grid thẻ con nháp */}
+      <div className="grid min-w-0 gap-3.5 md:grid-cols-2 2xl:grid-cols-3">
         {rows.map((draft) => {
           const pct =
             draft.total && draft.completed !== null
               ? Math.min(100, Math.floor((100 * draft.completed) / draft.total))
               : null;
           const result = draft.replay;
+          const config = STATUS_CONFIG[draft.status] || STATUS_CONFIG.queued;
+          const passedCount = result ? Object.values(result.checks).filter(Boolean).length : 0;
+          const totalChecks = result ? Object.keys(result.checks).length : 0;
+
           return (
-            <article key={draft.id} className={`evo-card draft-${draft.status} min-w-0 rounded-lg border border-border-base bg-surface-1 space-y-3 p-3 [&.selected]:border-bull [&.holding]:border-bull/50 [&.signaling]:border-amber-300/50`}>
-              <div className="evo-card-top flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <strong title={draft.strategy}>
-                    {strategyShortTitle(draft.genome, draft.strategy)}
-                  </strong>
-                  <code>{draft.strategy.split(':')[1]}</code>
-                </div>
-                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">G{draft.generation}</span>
-              </div>
-              <p className="evo-pills flex min-w-0 flex-wrap items-center gap-2 text-xs">
-                <span className={`pill ${draft.status === 'waiting_slot' ? 'green' : ''} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>
-                  {STATUS[draft.status]}
-                </span>
-                <span className="pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">{entryPolicyLabel(draft.genome.entry_policy)}</span>
-                <span className="pill blue inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-sky-300">{exitLabel(draft.genome.exit_policy)}</span>
-              </p>
-              <p className="evo-rule border-y border-border-subtle py-2 text-text-secondary">
-                Bố mẹ: {draft.parents.map((p) => p.split(':')[1]).join(' × ')}
-              </p>
-              {draft.status === 'running' && (
-                <div className="draft-progress relative h-1.5 overflow-hidden rounded-full bg-surface-3 [&>i]:block [&>i]:h-full [&>i]:bg-bull" role="progressbar" aria-valuenow={pct ?? undefined}>
-                  <span>
-                    {phaseText(draft.phase)}
-                    {pct === null
-                      ? ' · đang chờ số liệu'
-                      : ` · ${draft.completed}/${draft.total} nến · ${pct}%`}
+            <article
+              key={draft.id}
+              className={`relative flex flex-col justify-between rounded-xl border bg-surface-1 p-4 shadow-sm transition-all hover:border-border-active ${config.cardBorder}`}
+            >
+              <div className="space-y-3">
+                {/* Header card: Tên, mã rút gọn, Gx và Trạng thái */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-text-secondary">
+                        G{draft.generation}
+                      </span>
+                      <h4
+                        className="truncate text-sm font-semibold text-text-primary"
+                        title={draft.strategy}
+                      >
+                        {strategyShortTitle(draft.genome, draft.strategy)}
+                      </h4>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-text-muted">
+                      <span className="truncate">{draft.strategy.split(':')[1]}</span>
+                      {draft.attempts > 0 && (
+                        <span>· Lần chạy {draft.attempts}/3</span>
+                      )}
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.badge}`}
+                  >
+                    {config.label}
                   </span>
-                  <i style={{ width: `${pct ?? 0}%` }} data-indeterminate={pct === null} />
                 </div>
-              )}
-              {draft.attempts > 0 && <small>Lần chạy {draft.attempts}/3</small>}
-              {result && (
-                <ul className="draft-checks">
-                  <li>
-                    Mẫu {result.total_samples} · kiểm tra {result.validation_samples} · R{' '}
-                    {result.validation_mean_r?.toFixed(2) ?? '—'} · DD{' '}
-                    {result.validation_drawdown_r.toFixed(2)}R
-                  </li>
-                  {Object.entries(result.checks).map(([key, ok]) => (
-                    <li key={key} className={ok ? "positive text-bull" : "negative text-bear"}>
-                      {ok ? '✓' : '✗'} {CHECKS[key] ?? key}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {draft.status === 'waiting_slot' && (
-                <small>
-                  Chờ slot:{' '}
-                  {draft.reason === 'no_retirement_candidate'
-                    ? 'quần thể đầy, chưa có cây đủ điều kiện loại'
-                    : draft.reason === 'ownership_unknown'
-                      ? 'chưa xác định chắc quyền sở hữu lệnh đang hoạt động'
-                      : 'đang chờ lượt nhận theo thứ tự'}
-                </small>
-              )}
-              {draft.status === 'insufficient' && draft.next_retry_at && (
-                <small>Thiếu mẫu · thử lại {formatTime(draft.next_retry_at)}</small>
-              )}
-              {draft.status === 'queued' && draft.next_retry_at && (
-                <small>
-                  Thử lại {formatTime(draft.next_retry_at)}
-                  {draft.reason ? ` · ${draft.reason}` : ''}
-                </small>
-              )}
-              {draft.status === 'error' && <small className="negative text-bear">{draft.reason}</small>}
-              {stalled(draft) && <small className="negative text-bear">Worker chậm hoặc mất kết nối</small>}
-              {draft.status === 'admitted' && draft.admitted_strategy && (
-                <button type="button" onClick={() => onViewTree(draft.admitted_strategy!)}>
-                  Xem cây forward
-                </button>
-              )}
+
+                {/* Entry & Exit Tags */}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 text-text-secondary">
+                    Vào: <b>{entryPolicyLabel(draft.genome.entry_policy)}</b>
+                  </span>
+                  <span className="rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 text-sky-300">
+                    Thoát: <b>{exitLabel(draft.genome.exit_policy)}</b>
+                  </span>
+                </div>
+
+                {/* Quan hệ bố mẹ */}
+                <div className="rounded-md bg-surface-2/40 px-2.5 py-1.5 text-xs text-text-muted">
+                  Bố mẹ:{' '}
+                  <span className="font-mono text-text-secondary">
+                    {draft.parents.map((p) => p.split(':')[1]).join(' × ') || 'Gốc (G0)'}
+                  </span>
+                </div>
+
+                {/* Tiến độ Replay nếu đang chạy */}
+                {draft.status === 'running' && (
+                  <div className="space-y-1.5 rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5 text-xs">
+                    <div className="flex justify-between font-medium text-sky-200">
+                      <span>{phaseText(draft.phase)}</span>
+                      <span>{pct !== null ? `${pct}%` : 'Đang xử lý'}</span>
+                    </div>
+                    <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-3">
+                      <div
+                        className="h-full rounded-full bg-sky-400 transition-all duration-300"
+                        style={{ width: `${pct ?? 20}%` }}
+                      />
+                    </div>
+                    {draft.total && draft.completed !== null && (
+                      <div className="text-right text-[11px] text-text-muted">
+                        {draft.completed.toLocaleString()} / {draft.total.toLocaleString()} nến
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Kết quả số liệu & tiêu chí Replay */}
+                {result && (
+                  <div className="space-y-2 rounded-lg border border-border-subtle bg-surface-2/30 p-2.5">
+                    {/* Hàng KPI chính */}
+                    <div className="grid grid-cols-4 gap-1 border-b border-border-subtle/80 pb-2 text-center">
+                      <div>
+                        <div className="text-[10px] text-text-muted">Mẫu tổng</div>
+                        <div className="font-mono text-xs font-semibold text-text-primary">
+                          {result.total_samples}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-muted">Kiểm tra</div>
+                        <div className="font-mono text-xs font-semibold text-text-primary">
+                          {result.validation_samples}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-muted">R kiểm tra</div>
+                        <div
+                          className={`font-mono text-xs font-semibold ${
+                            (result.validation_mean_r ?? 0) > 0 ? 'text-bull' : 'text-bear'
+                          }`}
+                        >
+                          {result.validation_mean_r !== null
+                            ? `${result.validation_mean_r.toFixed(2)}R`
+                            : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-text-muted">Max DD</div>
+                        <div
+                          className={`font-mono text-xs font-semibold ${
+                            result.validation_drawdown_r < 10 ? 'text-bull' : 'text-bear'
+                          }`}
+                        >
+                          {result.validation_drawdown_r.toFixed(1)}R
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Danh sách tiêu chí kiểm tra */}
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between text-[11px] text-text-muted">
+                        <span>Tiêu chuẩn cổng kiểm tra:</span>
+                        <span className="font-mono font-medium text-text-secondary">
+                          {passedCount}/{totalChecks} đạt
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                        {Object.entries(result.checks).map(([key, ok]) => (
+                          <div
+                            key={key}
+                            className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] ${
+                              ok ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'
+                            }`}
+                          >
+                            <span className="font-bold">{ok ? '✓' : '✗'}</span>
+                            <span className="truncate">{CHECKS[key] ?? key}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer card: Ghi chú, lý do, nút xem cây */}
+              <div className="mt-3 border-t border-border-subtle pt-2 text-xs">
+                {draft.status === 'waiting_slot' && (
+                  <div className="text-bull">
+                    Đạt điều kiện ·{' '}
+                    {draft.reason === 'no_retirement_candidate'
+                      ? 'quần thể forward đã đầy, chờ có cây yếu thế chỗ'
+                      : draft.reason === 'ownership_unknown'
+                        ? 'chờ lệnh forward hiện hành hoàn tất kiểm tra'
+                        : 'chờ kết nạp theo hàng đợi'}
+                  </div>
+                )}
+                {draft.status === 'insufficient' && draft.next_retry_at && (
+                  <div className="text-amber-300">
+                    Chưa đủ mẫu · Tự thử lại vào: {formatTime(draft.next_retry_at)}
+                  </div>
+                )}
+                {draft.status === 'queued' && draft.next_retry_at && (
+                  <div className="text-text-muted">
+                    Hẹn giờ chạy: {formatTime(draft.next_retry_at)}
+                    {draft.reason ? ` (${draft.reason})` : ''}
+                  </div>
+                )}
+                {draft.status === 'error' && (
+                  <div className="font-mono text-bear">{draft.reason}</div>
+                )}
+                {stalled(draft) && (
+                  <div className="text-bear">Quá thời gian cập nhật (worker chậm)</div>
+                )}
+                {draft.status === 'admitted' && draft.admitted_strategy && (
+                  <button
+                    type="button"
+                    onClick={() => onViewTree(draft.admitted_strategy!)}
+                    className="inline-flex w-full items-center justify-center rounded-md border border-bull/40 bg-bull/10 py-1.5 font-medium text-bull transition-colors hover:bg-bull/20"
+                  >
+                    Xem chi tiết cây forward →
+                  </button>
+                )}
+              </div>
             </article>
           );
         })}
       </div>
-    </>
+    </div>
   );
 }
