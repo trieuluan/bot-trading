@@ -9,7 +9,6 @@ from statistics import fmean, pstdev
 
 from .futures_chart import rule_overlays
 from .futures_entries import ENTRY_POLICIES, LEGACY_POLICIES
-from .futures_native import NATIVE_ENTRY, NATIVE_FEATURES, NATIVE_FRAMES, native_levels
 from .futures_exits import (
     EVOLVABLE_EXITS,
     EXIT_BOUNDS,
@@ -19,6 +18,13 @@ from .futures_exits import (
     exit_parameters,
     has_target,
     structural_target,
+)
+from .futures_native import (
+    NATIVE_ENTRY,
+    NATIVE_FEATURES,
+    NATIVE_FRAMES,
+    entry_session_allowed,
+    native_levels,
 )
 from .futures_rule_tree import (
     FAMILY_RULES,
@@ -54,12 +60,15 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame"} if rule_tree else {"exit_policy", "exit_params"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame", "entry_session"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
     if genome.get("entry_policy", "market") not in (*ENTRY_POLICIES, *LEGACY_POLICIES, NATIVE_ENTRY):
         raise ValueError("Invalid futures entry policy")
+    if "entry_session" in genome and (genome["entry_session"] != "utc_12_20"
+                                      or genome.get("signal_frame") != "H4"):
+        raise ValueError("Invalid native entry session")
     if rule_tree:
         validate_rule(genome["rule"])
         native = genome.get("signal_frame")
@@ -135,9 +144,10 @@ def _exit_seeds():
 EXIT_SEEDS = _exit_seeds()
 ENTRY_SEEDS = [{**RULE_SEEDS[0], "entry_policy": "body50_confirm"}]
 NATIVE_SEEDS = [
-    {"family": RULE_FAMILY, "lookback": 20, "target_r": 2.0, "stop_buffer": 0.0,
+    {"family": RULE_FAMILY, "lookback": 20, "target_r": 3.0 if frame == "H4" else 2.0, "stop_buffer": 0.0,
      "max_er": 0.30, "funding_threshold": 0.0003, "exit_policy": policy,
      "entry_policy": NATIVE_ENTRY, "signal_frame": frame,
+     **({"entry_session": "utc_12_20"} if frame == "H4" else {}),
      "rule": {"op": "all", "children": [{"feature": trigger, "frame": frame},
                                          {"feature": bias, "frame": "D1"}]}}
     for frame, trigger, bias, policy in (("D1", "native_squeeze", "native_trend", "breakeven"),
@@ -339,6 +349,8 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
     frame = genome.get("signal_frame")
     if frame and (candles[-1].time + 900) % NATIVE_FRAMES[frame]:
         return None
+    if not entry_session_allowed(genome, candles[-1].time + 900):
+        return None
     tree = genome if is_rule_tree(genome) else to_rule_tree(genome)
     lookback = genome["lookback"]
     context = {"funding": funding, "funding_threshold": genome["funding_threshold"],
@@ -373,7 +385,9 @@ def strategy_chart(genome, candles, context=None):
     profile = genome.get("exit_profile", "default") if is_rule_tree(genome) else family
     if family == RULE_FAMILY:
         return {**rule_overlays(genome["rule"], candles, lookback, context),
-                "note": "Bot tự ghép: " + describe_rule(genome["rule"])}
+                "note": "Bot tự ghép: " + describe_rule(genome["rule"])
+                + (" · Vào lệnh 12:00–20:00 UTC (không gồm 20:00)."
+                   if genome.get("entry_session") == "utc_12_20" else "")}
     descriptions = {
         "breakout": f"Chờ nến M15 đóng vượt đỉnh/đáy {lookback} nến trước.",
         "retest": f"Chờ phá vùng {lookback} nến rồi retest; chạm vùng chưa phải tín hiệu.",

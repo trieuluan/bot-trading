@@ -27,7 +27,6 @@ from .feed import load_candles
 from .futures_context import load_signal_context
 from .futures_drafts import MAX_PENDING, PENDING, enqueue
 from .futures_entries import ENTRY_POLICIES, confirmation_enabled, entry_fields, wait
-from .futures_native import NATIVE_ENTRY, NATIVE_WARMUP, hold_seconds
 from .futures_exits import (
     adaptive_target,
     discretionary_exit,
@@ -35,13 +34,14 @@ from .futures_exits import (
     partial_size,
     protective_stop,
 )
+from .futures_native import NATIVE_ENTRY, NATIVE_WARMUP, hold_seconds
 from .futures_research_lock import worker_status
 from .futures_retirement import failure, forward_evidence, metrics, retirement_candidates
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
 from .futures_strategies import (
     ENTRY_SEEDS,
-    NATIVE_SEEDS,
     EXIT_SEEDS,
+    NATIVE_SEEDS,
     RULE_SEEDS,
     SEEDS,
     crossover,
@@ -137,6 +137,7 @@ def new_state(now):
         "cursor": None, "candidates": {}, "samples": [], "funding": [],
         "evolved_at": now, "last_decision": None, "error": None, "updated_at": None,
         "native_seeds_started_at": now,
+        "h4_session_3r_started_at": now,
     }
     born = (now // 900 + 1) * 900
     for seed in [*SEEDS, *RULE_SEEDS]:
@@ -209,7 +210,37 @@ def read_state(session, now, *, copy_payload=True):
         for seed in NATIVE_SEEDS:
             add_candidate(state, seed, born)
         state["native_seeds_started_at"] = now
+    if "h4_session_3r_started_at" not in state:
+        migrate_h4_session(state, now)
     return state
+
+
+def migrate_h4_session(state, now):
+    seed = next(seed for seed in NATIVE_SEEDS if seed["signal_frame"] == "H4")
+    replacement = genome_name(seed)
+    retired = set()
+    for name, candidate in list(state["candidates"].items()):
+        genome = candidate["genome"]
+        if genome.get("signal_frame") != "H4" or genome.get("entry_session") == "utc_12_20":
+            continue
+        state.setdefault("rule_archive", {})[name] = {
+            **state["candidates"].pop(name),
+            "retirement": {"at": now, "reason": "h4_session_3r_replaced", "samples": 0,
+                           "mean_r": 0.0, "max_drawdown_r": 0.0,
+                           "retained_strategy": replacement, "overlap": None}}
+        retired.add(name)
+    for draft in state.get("drafts", {}).values():
+        genome = draft["genome"]
+        if (draft["status"] in PENDING and genome.get("signal_frame") == "H4"
+                and genome.get("entry_session") != "utc_12_20"):
+            draft.update(status="rejected", phase="done", reason="h4_session_3r_replaced", updated_at=now)
+    for sample in state["samples"]:
+        if sample["strategy"] in retired and sample["status"] == "open" and sample.get("entry") is None:
+            sample.update(status="excluded", exit_reason="h4_session_3r_replaced")
+    if (state.get("last_decision") or {}).get("selected") in retired:
+        state["last_decision"] = None
+    add_candidate(state, seed, (now // 900 + 1) * 900)
+    state["h4_session_3r_started_at"] = now
 
 
 def save_state(session, state):
@@ -726,7 +757,7 @@ def select_for_auto(session, candle_time, now):
 
 
 def active_strategies(session, state, *, exclude_order_id=None):
-    known = state["candidates"]
+    known = {**state.get("rule_archive", {}), **state["candidates"]}
     protected, owners = set(), {}
     positions = session.execute(
         select(PaperTrade.id, AutoPaperDecision.parameters)

@@ -26,8 +26,8 @@ from .db import (
 )
 from .feed import load_candles, save_market_signal
 from .futures_entries import WAIT_BARS, confirmation_enabled, wait
-from .futures_native import NATIVE_ENTRY
 from .futures_learner import active_strategies, read_state, select_for_auto
+from .futures_native import NATIVE_ENTRY
 from .futures_symbols import current_symbol, state_id
 from .mexc import SOURCE, MarketDataError, validate_candles
 from .notifications import notify_blocked, notify_open
@@ -247,11 +247,14 @@ def place_native(session, state, wallet, candle_time, now, setup, strat_name, le
     genome = learning["candidates"][strat_name]["genome"]
     if not confirmation_enabled(genome) or genome.get("entry_policy") != NATIVE_ENTRY:
         raise HTTPException(409, "Invalid native confirmation policy")
+    from .futures_native import NATIVE_FRAMES, entry_session_allowed
     from .futures_strategies import validate_genome
-    from .futures_native import NATIVE_FRAMES
     validate_genome(genome)
     if (candle_time + 900) % NATIVE_FRAMES[genome["signal_frame"]]:
         raise HTTPException(409, "Native signal must be at closed frame boundary")
+    if not entry_session_allowed(genome, candle_time + 900) or not entry_session_allowed(genome, now):
+        record_decision(session, state, candle_time, "skipped", "Outside native entry session", setup)
+        return
     entry = execution_price(wallet, setup.side, opening=True)
     direction = 1 if setup.side == "long" else -1
     if direction * (entry - setup.stop) <= 0:

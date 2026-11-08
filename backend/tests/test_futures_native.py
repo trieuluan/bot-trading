@@ -1,5 +1,6 @@
 import copy
 import random
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import select
@@ -7,12 +8,25 @@ from sqlalchemy import select
 from backend.app import futures_history as history
 from backend.app import futures_learner as learner
 from backend.app.backtest import BacktestConfig, simulate
-from backend.app.db import PaperFunding, PaperTrade, PaperWallet, Session
+from backend.app.db import (
+    AutoPaperDecision,
+    FuturesLearningState,
+    PaperFunding,
+    PaperTrade,
+    PaperWallet,
+    Session,
+)
 from backend.app.futures_entries import entry_fields
-from backend.app.futures_native import NATIVE_ENTRY, hold_seconds, native_atr, native_levels
+from backend.app.futures_native import NATIVE_ENTRY, entry_session_allowed, hold_seconds, native_atr
 from backend.app.futures_rule_tree import matches
 from backend.app.futures_strategies import (
-    NATIVE_SEEDS, SEEDS, crossover, genome_name, mutate, strategy_chart, strategy_setup,
+    NATIVE_SEEDS,
+    SEEDS,
+    crossover,
+    genome_name,
+    mutate,
+    strategy_chart,
+    strategy_setup,
     validate_genome,
 )
 from backend.app.market import Candle
@@ -58,13 +72,22 @@ def test_d1_signal_native_stop_clock_and_overlay(direction):
 
 
 def test_h4_sweep_uses_only_fully_closed_daily_bias():
-    bars = [Candle(index * 14400, 100 + index / 100 - .05, 100 + index / 100 + .2,
+    bars = [Candle(index * 14400 + 14400, 100 + index / 100 - .05, 100 + index / 100 + .2,
                    100 + index / 100 - .2, 100 + index / 100, 1) for index in range(192)]
     last = bars[-1]
     bars[-1] = Candle(last.time, last.open, last.high, 99, last.close, 1)
     candles = expand(bars, 14400)
-    setup = strategy_setup(NATIVE_SEEDS[1], candles, [])
+    assert (candles[-1].time + 900) % 86400 == 4 * 3600
+    assert strategy_setup(NATIVE_SEEDS[1], candles, []) is None
+    shifted = [replace(bar, time=bar.time + 8 * 3600) for bar in candles]
+    setup = strategy_setup(NATIVE_SEEDS[1], shifted, [])
     assert setup and setup.side == "long"
+    assert setup.target == pytest.approx(setup.entry + 3 * (setup.entry - setup.stop))
+    assert NATIVE_SEEDS[0]["target_r"] == 2
+    edge = [replace(bar, time=bar.time + 4 * 3600) for bar in candles]
+    assert (edge[-1].time + 900) % 86400 == 8 * 3600
+    assert strategy_setup(NATIVE_SEEDS[1], edge, []) is None
+    candles = shifted
     bias = {"feature": "daily_bias", "frame": "D1"}
     assert matches(bias, candles, 1, 20)
     partial = expand([Candle(32 * 86400, 1, 2, .5, 1, 1)], 14400)
@@ -184,3 +207,91 @@ def test_paper_timeout_reverses_funding_after_historical_exit(monkeypatch):
         assert trade.exit_reason == "timeout" and trade.exit_time == expiry + 899
         assert trade.funding_cost == 0 and trade.monitoring["status"] == "recovered"
         assert session.scalar(select(PaperFunding.cost).where(PaperFunding.trade_id == trade.id)) == 0
+
+
+@pytest.mark.parametrize("seconds,allowed", [(12 * 3600 - 1, False), (12 * 3600, True),
+                                          (16 * 3600, True), (20 * 3600 - 1, True),
+                                          (20 * 3600, False), (0, False)])
+def test_native_session_boundaries(seconds, allowed):
+    assert entry_session_allowed(NATIVE_SEEDS[1], 100 * 86400 + seconds) is allowed
+    assert entry_session_allowed(NATIVE_SEEDS[0], 100 * 86400 + seconds)
+
+
+@pytest.mark.parametrize("value", [None, [], "all", "12_20"])
+def test_native_rejects_unknown_session(value):
+    with pytest.raises(ValueError, match="entry session"):
+        validate_genome({**NATIVE_SEEDS[1], "entry_session": value})
+    with pytest.raises(ValueError, match="entry session"):
+        validate_genome({**NATIVE_SEEDS[0], "entry_session": "utc_12_20"})
+
+
+def test_h4_session_migration_preserves_history_and_open_trade_ownership():
+    old = {key: value for key, value in NATIVE_SEEDS[1].items() if key != "entry_session"}
+    old["target_r"] = 2.0
+    old_name = genome_name(old)
+    new_name, d1_name = map(genome_name, (NATIVE_SEEDS[1], NATIVE_SEEDS[0]))
+    state = learner.new_state(1000)
+    state.pop("h4_session_3r_started_at")
+    state["candidates"].pop(new_name)
+    state["candidates"][old_name] = dict(genome=old, born_at=900, parents=[],
+                                         generation=0, windows=[{"entry_policy": NATIVE_ENTRY}], promoted=False)
+    d1_before = copy.deepcopy(state["candidates"][d1_name])
+    state["samples"] = [
+        dict(strategy=old_name, status="open", entry=None, side="long"),
+        dict(strategy=old_name, status="open", entry=100, side="long"),
+        dict(strategy=old_name, status="resolved", entry=100, net_r=1),
+    ]
+    state["drafts"] = {"old_h4": dict(genome=old, status="waiting_slot")}
+    state["last_decision"] = {"selected": old_name}
+    with Session.begin() as session:
+        session.get(FuturesLearningState, 1).payload = state
+        trade = PaperTrade(symbol="BTC_USDT", side="long", entry_time=900,
+                           entry=100, quantity=1, contracts=1, leverage=1, stop=95, target=110,
+                           entry_fee=0.08)
+        session.add(trade)
+        session.flush()
+        trade_id = trade.id
+        session.add(AutoPaperDecision(symbol="BTC_USDT", candle_time=900, action="opened",
+                                      reason="test", trade_id=trade.id,
+                                      parameters={"audit": {"strategy": old_name}}))
+    with Session.begin() as session:
+        migrated = learner.read_state(session, 1800)
+        assert new_name in migrated["candidates"] and old_name not in migrated["candidates"]
+        assert migrated["candidates"][d1_name] == d1_before
+        assert migrated["candidates"][new_name]["windows"] == []
+        assert migrated["candidates"][new_name]["born_at"] == 2700
+        assert migrated["rule_archive"][old_name]["genome"] == old
+        assert len(migrated["rule_archive"][old_name]["windows"]) == 1
+        assert migrated["samples"][0]["status"] == "excluded"
+        assert migrated["samples"][1]["status"] == "open"
+        assert migrated["samples"][2]["net_r"] == 1
+        assert migrated["last_decision"] is None
+        assert migrated["drafts"]["old_h4"]["status"] == "rejected"
+        assert learner.active_strategies(session, migrated) == {old_name}
+        assert session.get(PaperTrade, trade_id).target == 110
+        learner.save_state(session, migrated)
+    with Session() as session:
+        assert learner.read_state(session, 3600) == migrated
+
+
+@pytest.mark.parametrize("signal_hour,now_hour,opens", [(12, 12, True), (16, 16, True),
+                                                       (8, 12, False), (20, 20, False),
+                                                       (16, 20, False)])
+def test_native_paper_checks_signal_and_execution_session(monkeypatch, signal_hour, now_hour, opens):
+    from backend.app import auto_paper
+
+    name = genome_name(NATIVE_SEEDS[1])
+    recorded = []
+    monkeypatch.setattr(auto_paper, "record_decision", lambda *args: recorded.append(args[4]))
+    def quoted(*args, **kwargs):
+        raise RuntimeError("entry reached")
+    monkeypatch.setattr(auto_paper, "execution_price", quoted)
+    args = (None, None, None, 86400 + signal_hour * 3600 - 900, 86400 + now_hour * 3600,
+            Setup("long", 100, 95, 115, "test"), name,
+            {"candidates": {name: {"genome": NATIVE_SEEDS[1]}}}, {})
+    if opens:
+        with pytest.raises(RuntimeError, match="entry reached"):
+            auto_paper.place_native(*args)
+    else:
+        auto_paper.place_native(*args)
+        assert recorded == ["Outside native entry session"]

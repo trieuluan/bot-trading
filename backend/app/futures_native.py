@@ -8,6 +8,10 @@ NATIVE_WARMUP = 6000
 NATIVE_FEATURES = ("native_squeeze", "native_sweep", "native_trend", "daily_bias")
 
 
+def entry_session_allowed(genome, timestamp):
+    return genome.get("entry_session") != "utc_12_20" or 12 * 3600 <= timestamp % 86400 < 20 * 3600
+
+
 def native_atr(rows):
     value = rows[0].high - rows[0].low
     previous = rows[0].close
