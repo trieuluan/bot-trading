@@ -131,6 +131,26 @@ def lock_wallet(session):
     return wallet
 
 
+def sync_paper_fees(adapter_factory=MexcFuturesAdapter):
+    """Daily: shared fee_bps = max taker across pairs (wallet fee is shared). Keeps old value on failure.
+
+    ponytail: one shared taker fee; split per-pair maker/taker when limit entries are adopted.
+    """
+    fees = {}
+    for symbol in SYMBOLS:
+        adapter = adapter_factory(symbol=symbol)
+        try:
+            fees[symbol] = adapter.fee_rates()
+        finally:
+            adapter.close()
+    taker = max(t for _, t in fees.values())
+    with Session.begin() as session:
+        account = session.scalar(select(PaperWallet).where(PaperWallet.id == 1).with_for_update())
+        if account is not None and account.fee_bps != taker:
+            session.add(Event(kind="paper", message=f"Phí taker MEXC đổi {account.fee_bps:g} -> {taker:g} bps"))
+            account.fee_bps = taker
+    return fees
+
 def lock_symbol_wallet(session):
     """Lock pair metadata only; BTC still shares row 1 with the account balance."""
     wallet = session.scalar(select(PaperWallet).where(PaperWallet.id == state_id()).with_for_update())

@@ -17,7 +17,12 @@ from backend.app.market import DemoAdapter
 from backend.app.mexc import MarketDataError
 from backend.app.mexc_stream import stream_paper_quotes
 from backend.app.observation import observation_tick
-from backend.app.paper import sync_paper_funding, sync_paper_quote, sync_paper_stops
+from backend.app.paper import (
+    sync_paper_fees,
+    sync_paper_funding,
+    sync_paper_quote,
+    sync_paper_stops,
+)
 from backend.app.settings import validate_mode
 from backend.app.strategy import breakout
 
@@ -150,6 +155,7 @@ def main():
     jobs = [
         ("heartbeat", tick, 5),
         ("mtf-observation", observation_tick, 15),
+        ("fee-sync", sync_paper_fees, 86400),
     ]
     threads = [threading.Thread(target=run_loop, args=job, name=job[0]) for job in jobs]
     threads.append(threading.Thread(target=listen, args=(stop,), name="futures-wakeup"))

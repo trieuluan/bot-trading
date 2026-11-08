@@ -1,6 +1,9 @@
-"""Public MEXC USDT perpetual market data. No credentials or order endpoints."""
+"""MEXC USDT perpetual market data plus signed read-only fee lookup. No order endpoints."""
 
+import hashlib
+import hmac
 import math
+import os
 import time
 from collections.abc import Callable
 
@@ -181,6 +184,28 @@ class MexcFuturesAdapter:
             return data
         except (KeyError, TypeError, ValueError) as exc:
             raise MarketDataError("Invalid MEXC contract metadata") from exc
+
+    def fee_rates(self) -> tuple[float, float]:
+        """(maker, taker) in bps from the signed read-only API; needs MEXC_API_KEY/SECRET."""
+        key, secret = os.environ.get("MEXC_API_KEY", ""), os.environ.get("MEXC_API_SECRET", "")
+        if not key or not secret:
+            raise MarketDataError("MEXC_API_KEY/MEXC_API_SECRET not set", 3600)
+        stamp = str(int(time.time() * 1000))
+        query = "symbol=" + self.symbol
+        sign = hmac.new(secret.encode(), (key + stamp + query).encode(), hashlib.sha256).hexdigest()
+        try:
+            response = self.client.get(
+                "https://contract.mexc.com/api/v1/private/account/tiered_fee_rate/v2?" + query,
+                headers={"ApiKey": key, "Request-Time": stamp, "Signature": sign,
+                         "User-Agent": "Mozilla/5.0"})
+            response.raise_for_status()
+            data = response.json()["data"]
+            maker, taker = float(data["realMakerFee"]) * 1e4, float(data["realTakerFee"]) * 1e4
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise MarketDataError("Cannot fetch MEXC fee rates", 3600) from exc
+        if not all(math.isfinite(v) and 0 <= v <= 100 for v in (maker, taker)):
+            raise MarketDataError("Invalid MEXC fee rates", 3600)
+        return maker, taker
 
     def funding_history(self, start: int, end: int) -> list[dict]:
         records = {}

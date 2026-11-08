@@ -73,6 +73,10 @@ services:
       retries: 6
   bot:
     <<: *python
+    environment:
+      <<: *python-environment
+      MEXC_API_KEY: ${MEXC_API_KEY:-}
+      MEXC_API_SECRET: ${MEXC_API_SECRET:-}
     command: [python, -m, bot.worker]
     depends_on:
       migrate:

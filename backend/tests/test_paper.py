@@ -350,3 +350,33 @@ def test_password_gate(monkeypatch):
     monkeypatch.setattr("backend.app.main.time.time", lambda: 2000000000)
     anon.cookies.set("signal_desk_auth", token)
     assert anon.get("/api/paper/wallet").status_code == 401
+
+def test_fee_sync_signed_request_updates_shared_fee(monkeypatch):
+    from backend.app.paper import sync_paper_fees
+
+    monkeypatch.setenv("MEXC_API_KEY", "k")
+    monkeypatch.setenv("MEXC_API_SECRET", "s")
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        taker = "0.0010" if request.url.params["symbol"] == "SOL_USDT" else "0.0008"
+        return httpx.Response(200, json={"data": {"realMakerFee": "0.0006", "realTakerFee": taker}})
+
+    def factory(symbol):
+        return MexcFuturesAdapter(httpx.Client(transport=httpx.MockTransport(handler)), symbol=symbol)
+
+    fees = sync_paper_fees(factory)
+    assert len(fees) == 10 and fees["BTC_USDT"] == pytest.approx((6, 8))
+    assert len(seen[0].headers["Signature"]) == 64 and seen[0].headers["ApiKey"] == "k"
+    with Session() as session:
+        assert session.get(PaperWallet, 1).fee_bps == pytest.approx(10)
+
+    def broken(request):
+        return httpx.Response(403, text="Access Denied")
+
+    with pytest.raises(MarketDataError):
+        sync_paper_fees(lambda symbol: MexcFuturesAdapter(
+            httpx.Client(transport=httpx.MockTransport(broken)), symbol=symbol))
+    with Session() as session:
+        assert session.get(PaperWallet, 1).fee_bps == pytest.approx(10)
