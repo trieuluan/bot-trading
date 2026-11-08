@@ -34,6 +34,17 @@ export type Draft = {
     validation_samples: number;
     validation_mean_r: number | null;
     validation_drawdown_r: number;
+    per_symbol?: Record<
+      string,
+      {
+        dataset_sha256?: string;
+        strategies?: Array<{
+          strategy: string;
+          train?: { resolved: number; mean_r: number | null; max_drawdown_r: number };
+          validation?: { resolved: number; mean_r: number | null; max_drawdown_r: number };
+        }>;
+      }
+    >;
   } | null;
 };
 export type DraftWorker = { stale?: boolean; consumer_enabled?: boolean; phase?: string };
@@ -405,6 +416,114 @@ export function FuturesDraftsPanel({
                         })}
                       </div>
                     </div>
+                    {result.per_symbol && Object.keys(result.per_symbol).length > 0 && (
+                      <details className="group pt-1">
+                        <summary className="cursor-pointer text-[11px] text-text-muted hover:text-text-primary select-none flex items-center justify-between">
+                          <span>Kết quả riêng từng cặp</span>
+                          <span className="text-[10px] text-text-muted group-open:rotate-180 transition-transform">
+                            ▼
+                          </span>
+                        </summary>
+                        <div className="mt-2 overflow-x-auto rounded border border-border-subtle bg-surface-1/60">
+                          <table className="w-full text-left font-mono text-[11px]">
+                            <caption className="sr-only">
+                              Kết quả replay riêng từng cặp tiền
+                            </caption>
+                            <thead>
+                              <tr className="border-b border-border-subtle text-[10px] text-text-muted">
+                                <th scope="col" className="px-2 py-1 font-medium">
+                                  Cặp
+                                </th>
+                                <th scope="col" className="px-2 py-1 text-right font-medium">
+                                  Mẫu train
+                                </th>
+                                <th scope="col" className="px-2 py-1 text-right font-medium">
+                                  R train
+                                </th>
+                                <th scope="col" className="px-2 py-1 text-right font-medium">
+                                  Mẫu val
+                                </th>
+                                <th scope="col" className="px-2 py-1 text-right font-medium">
+                                  R val
+                                </th>
+                                <th scope="col" className="px-2 py-1 text-right font-medium">
+                                  DD val
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border-subtle/40">
+                              {(result.symbols ?? Object.keys(result.per_symbol)).map((symbol) => {
+                                const data = result.per_symbol?.[symbol] ?? {};
+                                const strat =
+                                  data.strategies?.find((s) => s.strategy === draft.strategy) ??
+                                  data.strategies?.[0];
+                                const tr = strat?.train;
+                                const val = strat?.validation;
+                                const valCount = val?.resolved ?? 0;
+                                const valMean = val?.mean_r ?? null;
+                                const valDd = val?.max_drawdown_r ?? 0;
+                                return (
+                                  <tr key={symbol} className="hover:bg-surface-2/40">
+                                    <td className="px-2 py-1 font-semibold text-text-primary">
+                                      {symbol.replace('_USDT', '')}
+                                    </td>
+                                    <td className="px-2 py-1 text-right text-text-secondary">
+                                      {tr?.resolved ?? 0}
+                                    </td>
+                                    <td
+                                      className={`px-2 py-1 text-right ${
+                                        tr && tr.mean_r !== null && tr.mean_r !== undefined
+                                          ? tr.mean_r > 0
+                                            ? 'text-bull'
+                                            : tr.mean_r < 0
+                                              ? 'text-bear'
+                                              : 'text-text-muted'
+                                          : 'text-text-muted'
+                                      }`}
+                                    >
+                                      {tr && tr.mean_r !== null && tr.mean_r !== undefined
+                                        ? `${tr.mean_r > 0 ? '+' : ''}${tr.mean_r.toFixed(2)}R`
+                                        : '—'}
+                                    </td>
+                                    <td className="px-2 py-1 text-right text-text-secondary">
+                                      {valCount}
+                                    </td>
+                                    <td
+                                      className={`px-2 py-1 text-right font-semibold ${
+                                        valCount > 0 && valMean !== null
+                                          ? valMean > 0
+                                            ? 'text-bull'
+                                            : valMean < 0
+                                              ? 'text-bear'
+                                              : 'text-text-muted'
+                                          : 'text-text-muted'
+                                      }`}
+                                    >
+                                      {valCount > 0 && valMean !== null
+                                        ? `${valMean > 0 ? '+' : ''}${valMean.toFixed(2)}R`
+                                        : '—'}
+                                    </td>
+                                    <td
+                                      className={`px-2 py-1 text-right ${
+                                        valCount === 0
+                                          ? 'text-text-muted'
+                                          : valDd >= 10
+                                            ? 'text-bear'
+                                            : valDd >= 5
+                                              ? 'text-amber-300'
+                                              : 'text-text-secondary'
+                                      }`}
+                                    >
+                                      {valCount > 0 ? `−${valDd.toFixed(1)}R` : '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    )}
                   </div>
                 )}
               </div>
