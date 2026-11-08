@@ -196,12 +196,15 @@ def refresh_native_parents(lease, now):
         enabled = session.scalars(select(FuturesLearningState.payload["enabled"])).all()
         if not any(enabled):
             return False
-        previous = job.get("status") == "running" or (job.get("attempts", 0) < MAX_ATTEMPTS
-                                                     and job.get("status") == "failed")
+        previous = "data_start" in job.get("window", {}) and (
+            job.get("status") == "running"
+            or (job.get("attempts", 0) < MAX_ATTEMPTS and job.get("status") == "failed"))
         end = now // 86400 * 86400
+        data_start = end - UNIVERSE_DAYS * 86400
         window = job["window"] if previous else {
-            "start": end - UNIVERSE_DAYS * 86400, "end": end,
-            "warmup_bars": NATIVE_WARMUP, "scope": UNIVERSE_SCOPE, "symbols": list(SYMBOLS)}
+            "start": data_start + NATIVE_WARMUP * 900, "end": end,
+            "warmup_bars": NATIVE_WARMUP, "scope": UNIVERSE_SCOPE,
+            "symbols": list(SYMBOLS), "data_start": data_start}
         token = str(uuid4())
         candidates = (job["candidates"] if previous else
                       {genome_name(genome): {"genome": genome} for genome in NATIVE_SEEDS})

@@ -72,12 +72,15 @@ def claim(draft, now):
     native = draft["genome"].get("signal_frame") in ("D1", "H4")
     interval = 86400 if native else 900
     end = now // interval * interval
-    if native and (draft.get("window") or {}).get("scope") != UNIVERSE_SCOPE:
+    if native and "data_start" not in (draft.get("window") or {}):
         draft["window"] = None
+    warmup_bars = NATIVE_WARMUP if draft["genome"].get("signal_frame") else 1600
+    data_start = end - (UNIVERSE_DAYS if native else 90) * 86400
     window = draft.get("window") or {
-        "start": end - (UNIVERSE_DAYS if native else 90) * 86400, "end": end,
-        "warmup_bars": NATIVE_WARMUP if draft["genome"].get("signal_frame") else 1600,
-        **({"scope": UNIVERSE_SCOPE, "symbols": list(SYMBOLS)} if native else {}),
+        "start": data_start + warmup_bars * 900 if native else data_start,
+        "end": end,
+        "warmup_bars": warmup_bars,
+        **({"scope": UNIVERSE_SCOPE, "symbols": list(SYMBOLS), "data_start": data_start} if native else {}),
     }
     token = str(uuid4())
     draft.update(status="running", phase="data", completed=None, total=None,

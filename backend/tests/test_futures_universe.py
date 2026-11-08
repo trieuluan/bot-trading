@@ -17,19 +17,19 @@ from bot import draft_replay_worker as worker
 NOW = 400 * 86400
 GENOME = NATIVE_SEEDS[1]
 NAME = genome_name(GENOME)
-WINDOW = {"start": NOW - 340 * 86400, "end": NOW, "warmup_bars": 6000,
-          "scope": drafts.UNIVERSE_SCOPE, "symbols": list(SYMBOLS)}
+WINDOW = {"start": NOW - 340 * 86400 + 6000 * 900, "end": NOW, "warmup_bars": 6000,
+          "scope": drafts.UNIVERSE_SCOPE, "symbols": list(SYMBOLS), "data_start": NOW - 340 * 86400}
 
 def pair_report():
     def sample(stamp, value):
         return {"strategy": NAME, "status": "resolved", "net_r": value, "side": "long",
                 "regime": "trend_up", "candle_time": stamp - 1800, "entry_time": stamp - 900,
                 "entry": 100, "risk": 5, "label_available_at": stamp}
-    split = WINDOW["start"] + 22848 * 900
+    split = WINDOW["start"] + 18648 * 900
     training = [sample(split - 9000 + index * 900, 0.5) for index in range(3)]
     validation = [sample(split + 9000, -0.5), sample(split + 18000, 1)]
     return {"start_time": WINDOW["start"], "end_time": NOW, "train_before": split,
-            "bars": 32640, "warmup_bars": 6000, "fee_bps": 8, "slippage_bps": 2,
+            "bars": 26640, "warmup_bars": 6000, "fee_bps": 8, "slippage_bps": 2,
             "dataset_sha256": "a" * 64, "signal_inputs": {}, "strategies": [{
                 "strategy": NAME, "genome": copy.deepcopy(GENOME), "prior_eligible": False,
                 "train": history.historical_stats(training),
@@ -103,6 +103,7 @@ def test_native_claim_is_340_days_and_retry_keeps_frozen_window():
     draft = state["drafts"][draft_id]
     token = drafts.claim(draft, NOW + 900)
     assert draft["window"] == WINDOW
+    assert draft["window"]["end"] - draft["window"]["data_start"] == 340 * 86400
     drafts.complete(draft, token, NOW + 1000, error="timeout")
     drafts.claim(draft, NOW + 1000 + drafts.BACKOFF_SECONDS)
     assert draft["window"] == WINDOW

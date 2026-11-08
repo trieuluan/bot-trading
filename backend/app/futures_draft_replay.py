@@ -208,8 +208,10 @@ def pool_reports(reports):
                               "Validation is time-separated, not independent of strategy selection."}
 
 def run_universe(candidates, window, emit=lambda **changes: None, cache_dir=None):
+    data_start = window.get("data_start", 0)
     if (window.get("scope") != UNIVERSE_SCOPE or window.get("symbols") != list(SYMBOLS)
-            or window["end"] - window["start"] != UNIVERSE_DAYS * 86400):
+            or window["end"] - data_start != UNIVERSE_DAYS * 86400
+            or window["start"] != data_start + window.get("warmup_bars", NATIVE_WARMUP) * 900):
         raise ReplayDataError("Native universe requires a frozen 340-day, ten-pair window")
     if not candidates:
         raise ValueError("Empty native universe candidates")
