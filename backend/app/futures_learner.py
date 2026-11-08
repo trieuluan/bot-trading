@@ -144,11 +144,6 @@ def new_state(now):
         add_candidate(state, seed, born)
     for seed in [*EXIT_SEEDS, *ENTRY_SEEDS, *NATIVE_SEEDS]:
         add_candidate(state, seed, born)
-    rng = random.Random(now)
-    for seed in [*SEEDS, *RULE_SEEDS]:
-        if len(state["candidates"]) >= CAP - 1:
-            break
-        enqueue(state, mutate(seed, rng), now, (genome_name(seed),))
     return state
 
 
@@ -212,6 +207,16 @@ def read_state(session, now, *, copy_payload=True):
         state["native_seeds_started_at"] = now
     if "h4_session_3r_started_at" not in state:
         migrate_h4_session(state, now)
+    for draft in state.get("drafts", {}).values():
+        if draft["status"] in PENDING and not draft["genome"].get("signal_frame"):
+            draft.update(status="rejected", phase="done", reason="legacy_breeding_retired",
+                         next_retry_at=None, updated_at=now)
+        elif draft["status"] == "insufficient":
+            report = draft.get("replay") or {}
+            if (report.get("end_time", 0) - report.get("start_time", 0) >= 90 * 86400
+                    and report.get("total_samples", 5) < 5):
+                draft.update(status="rejected", phase="done", reason="sparse_90d_replay",
+                             next_retry_at=None, updated_at=now)
     return state
 
 
@@ -395,9 +400,9 @@ def migrate_to_trees(state):
             row["genome"] = to_rule_tree(row["genome"])
 
 def sync_seeds(state, now):
-    """Add seed families introduced after this state was created, each with one mutated child."""
+    """Add new roots without bypassing parent evidence requirements."""
     migrate_to_trees(state)
-    born, rng = (now // 900 + 1) * 900, random.Random(now)
+    born = (now // 900 + 1) * 900
     existing = {genome_fingerprint(candidate["genome"]) for candidate in
                 [*state["candidates"].values(), *state.get("rule_archive", {}).values()]}
     for seed in [*EXIT_SEEDS, *ENTRY_SEEDS, *NATIVE_SEEDS]:
@@ -405,12 +410,9 @@ def sync_seeds(state, now):
             add_candidate(state, seed, born)
             existing.add(genome_fingerprint(seed))
     for seed in [*SEEDS, *RULE_SEEDS]:
-        name = genome_name(seed)
         if genome_fingerprint(seed) not in existing and len(state["candidates"]) < CAP:
             add_candidate(state, seed, born)
             existing.add(genome_fingerprint(seed))
-            if len(state["candidates"]) < CAP:
-                enqueue(state, mutate(seed, rng), now, (name,))
 
 def performance(state, now):
     """Resolved forward samples plus historical replay (train + validation) per strategy."""
@@ -442,6 +444,7 @@ def evolve(state, now, max_children=1, force=False):
     evidence = forward_evidence(state, now)
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
+                     and state["candidates"][name]["genome"].get("signal_frame") in ("D1", "H4")
                      and not failure(metrics(evidence.get(name, [])))
                      and confirmation_enabled(state["candidates"][name]["genome"])
                      and not shadow_only(state["candidates"][name]["genome"])

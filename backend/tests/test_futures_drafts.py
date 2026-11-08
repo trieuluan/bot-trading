@@ -57,6 +57,10 @@ def test_gate_criteria_thresholds():
     assert status == "insufficient"
     assert result["checks"]["validation_samples_gte_10"] is False
 
+    # Sparse 90d replay (<5 resolved trades) rejects immediately instead of holding a slot for 7d
+    status, result = drafts.gate(dummy_report(total=4, val=1, mean_r=0.5, dd=1.0))
+    assert status == "rejected"
+
     # Rejected: mean_r <= 0
     status, result = drafts.gate(dummy_report(total=40, val=15, mean_r=0.0, dd=2.0))
     assert status == "rejected"

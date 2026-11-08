@@ -316,6 +316,16 @@ def test_h4_h1_confirm_is_paper_enabled_and_can_breed():
     assert child["entry_confirmation"] == "h1" and child != shadow
     with pytest.raises(ValueError, match="entry confirmation"):
         validate_genome({**NATIVE_SEEDS[0], "entry_confirmation": "h1"})
+    state = learner.new_state(1000)
+    legacy = genome_name(SEEDS[0])
+    h1_name = genome_name(shadow)
+    state["samples"] = [
+        dict(strategy=legacy, status="resolved", net_r=2.0, label_available_at=1500),
+        dict(strategy=h1_name, status="resolved", net_r=1.0, label_available_at=1500),
+    ] * 10
+    assert learner.evolve(state, 99999, force=True) == 1
+    child = next(iter(state["drafts"].values()))
+    assert child["parents"] == [h1_name] and child["genome"]["entry_confirmation"] == "h1"
 
 def test_h4_h1_confirm_waits_for_closed_h1_and_enters_next_open():
     sample, bars = h1_sample(), h1_bars([101, 101, 101, 102])
@@ -382,6 +392,23 @@ def test_h4_h1_seed_sync_is_idempotent_and_does_not_reset_old_candidates():
     after = copy.deepcopy(state["candidates"])
     learner.sync_seeds(state, 3000)
     assert state["candidates"] == after
+
+def test_legacy_drafts_retire_without_deleting_evidence_or_candidates():
+    state = learner.new_state(1000)
+    legacy = genome_name(SEEDS[0])
+    state["drafts"] = {"old": {"genome": SEEDS[0], "status": "insufficient", "runs": [{"evidence": 1}],
+                               "replay": {"total_samples": 0}, "next_retry_at": 900000}}
+    candidates = copy.deepcopy(state["candidates"])
+    with Session.begin() as session:
+        learner.save_state(session, state)
+    with Session.begin() as session:
+        current = learner.read_state(session, 2000)
+        assert current["drafts"]["old"]["status"] == "rejected"
+        assert current["drafts"]["old"]["runs"] == [{"evidence": 1}]
+        assert current["candidates"] == candidates and legacy in current["candidates"]
+        learner.save_state(session, current)
+    with Session() as session:
+        assert learner.read_state(session, 3000)["drafts"]["old"]["updated_at"] == 2000
 
 def test_h4_h1_confirm_paper_queues_and_fills_after_h1_close(monkeypatch):
     from datetime import datetime, timezone

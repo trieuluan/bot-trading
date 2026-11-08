@@ -22,7 +22,8 @@ from backend.app.futures_strategies import (
 from backend.app.main import app
 from backend.app.market import Candle
 from backend.app.strategy import Setup
-from backend.tests.test_auto_paper import enter, ready as auto_ready
+from backend.tests.test_auto_paper import enter
+from backend.tests.test_auto_paper import ready as auto_ready
 
 client = TestClient(app)
 
@@ -98,7 +99,7 @@ def test_bounded_unique_children_and_frozen_parents():
     before = copy.deepcopy(state["candidates"])
     assert len(before) == len({learner.genome_fingerprint(seed) for seed in
                           [*SEEDS, *RULE_SEEDS, *learner.EXIT_SEEDS, *learner.ENTRY_SEEDS, *learner.NATIVE_SEEDS]})
-    assert len(state["drafts"]) == 3
+    assert not state.get("drafts")
     for name, rule in before.items():
         validate_genome(rule["genome"])
         assert genome_name(rule["genome"]) == name and rule["born_at"] > 1000
@@ -107,7 +108,7 @@ def test_bounded_unique_children_and_frozen_parents():
     learner.evolve(state, 30000)
     assert len(state["candidates"]) <= learner.CAP
     assert state["candidates"] == before
-    assert len(state["drafts"]) <= 3
+    assert len(state.get("drafts", {})) <= 3
     assert all(state["candidates"][key] == value for key, value in before.items())
     assert mutate(SEEDS[0], random.Random(1)) != SEEDS[0]
 
@@ -383,7 +384,8 @@ def test_evolution_uses_history_queues_child_without_retiring_parent():
     state["drafts"] = {}
     state["candidates"] = dict(list(state["candidates"].items())[:learner.CAP])
     seeds = [n for n, c in state["candidates"].items() if not c["parents"]]
-    state["samples"] = [sample(strategy=seeds[0], status="resolved", net_r=2, label_available_at=2000)] * 10
+    native = genome_name(learner.NATIVE_SEEDS[1])
+    state["samples"] = [sample(strategy=native, status="resolved", net_r=2, label_available_at=2000)] * 10
     for index in range(1000):
         if len(state["candidates"]) >= learner.CAP:
             break
@@ -405,7 +407,9 @@ def test_evolution_records_distinct_parents_or_single_mutation(monkeypatch, pare
     state["drafts"] = {}
     state["candidates"] = {name: row for name, row in state["candidates"].items()
                            if row["generation"] == 0}
-    parents = list(state["candidates"])[:parent_count]
+    extra = {**learner.NATIVE_SEEDS[1], "lookback": 25}
+    learner.add_candidate(state, extra, 0)
+    parents = [name for name, row in state["candidates"].items() if row["genome"].get("signal_frame")][:parent_count]
     monkeypatch.setattr(learner, "performance", lambda *args: {name: (20, 1) for name in parents})
     if parent_count == 1:
         monkeypatch.setattr(learner, "crossover", lambda *args: pytest.fail("Single parent must only mutate"))
@@ -433,7 +437,7 @@ def test_duplicate_children_ignore_boolean_order_and_default_fields():
 
 def test_evolution_rejects_unchanged_child(monkeypatch):
     state = learner.new_state(1000)
-    parent = next(iter(state["candidates"]))
+    parent = genome_name(learner.NATIVE_SEEDS[1])
     monkeypatch.setattr(learner, "performance", lambda *args: {parent: (20, 1)})
     monkeypatch.setattr(learner, "mutate", lambda genome, rng: copy.deepcopy(genome))
     before = copy.deepcopy(state["candidates"])
@@ -555,7 +559,7 @@ def test_evolution_not_blocked_by_archive_growth():
     state["evolved_at"] = 0
     # Simulate an archive that exceeded previous trial cap of 256
     state["rule_archive"] = {f"old_{i}": candidate() for i in range(300)}
-    first = next(iter(state["candidates"]))
+    first = genome_name(learner.NATIVE_SEEDS[1])
     state["samples"] = [
         sample(strategy=first, status="resolved", net_r=1.5, candle_time=0, entry_time=900, label_available_at=now - 1)
         for _ in range(12)

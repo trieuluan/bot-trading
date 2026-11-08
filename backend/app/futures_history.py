@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from .db import Session
 from .futures_context import load_signal_context
 from .futures_entries import entry_fields
-from .futures_native import NATIVE_WARMUP
 from .futures_learner import (
     FEE,
     SLIP,
@@ -26,6 +25,7 @@ from .futures_learner import (
     stats,
     sync_seeds,
 )
+from .futures_native import NATIVE_WARMUP
 from .futures_research_lock import acquire
 from .futures_retirement import forward_evidence, metrics
 from .futures_rule_tree import nodes
@@ -264,6 +264,7 @@ def job_status(job):
 class HistoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     days: int = Field(default=30, ge=7, le=90, strict=True)
+    native_only: bool = False
 
 
 @router.get("")
@@ -290,13 +291,16 @@ def start_history(payload: HistoryRequest, background: BackgroundTasks):
             previous = job_status(state.get("historical"))
             if previous and previous["status"] == "running":
                 raise HTTPException(409, "Một phiên học lịch sử đang chạy.")
+            if payload.native_only and previous:
+                state.setdefault("historical_archive", []).append(copy.deepcopy(previous))
             job = {"id": str(uuid4()), "status": "running", "phase": "candles",
                    "days": payload.days, "started_at": now, "updated_at": now,
                    "completed": 0, "total": payload.days * 96, "error": None,
                    "report": (previous or {}).get("report")}
             state["historical"] = job
             candidates = copy.deepcopy({name: candidate for name, candidate in state["candidates"].items()
-                                        if exit_policy_enabled(candidate["genome"])})
+                                        if exit_policy_enabled(candidate["genome"])
+                                        and (not payload.native_only or candidate["genome"].get("signal_frame"))})
             save_state(session, state)
         background.add_task(run_reserved_history, lease, job["id"], payload.days, candidates, current_symbol())
         return job

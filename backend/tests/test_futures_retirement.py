@@ -5,7 +5,7 @@ import pytest
 from backend.app import futures_learner as learner
 from backend.app import futures_retirement as retirement
 from backend.app.db import AutoPaperDecision, PaperPendingOrder, PaperTrade, Session
-from backend.app.futures_strategies import ENTRY_SEEDS, EXIT_SEEDS, SEEDS, genome_name
+from backend.app.futures_strategies import ENTRY_SEEDS, EXIT_SEEDS, NATIVE_SEEDS, SEEDS, genome_name
 from backend.app.futures_symbols import symbol_scope
 
 NOW = 1000000
@@ -19,11 +19,12 @@ def samples(name, values, start=0, regime="range"):
             for index, value in enumerate(values)]
 
 
-def state_for(weak_values, good_values=None, generation=0, promoted=False):
+def state_for(weak_values, good_values=None, generation=0, promoted=False, base=None):
     state = learner.new_state(0)
     state["drafts"] = {}
-    parent = genome_name(SEEDS[0])
-    weak_genome = {**SEEDS[0], "lookback": 25}
+    seed = base or SEEDS[0]
+    parent = genome_name(seed)
+    weak_genome = {**seed, "lookback": 25}
     weak = genome_name(weak_genome)
     state["candidates"] = {parent: state["candidates"][parent]}
     learner.add_candidate(state, weak_genome, 0)
@@ -219,7 +220,7 @@ def test_full_population_without_bad_candidate_stops(monkeypatch):
 
 
 def test_g0_archive_metadata_no_revival_and_legacy_summary(monkeypatch):
-    state, _, weak = state_for([-1] * 50)
+    state, _, weak = state_for([-1] * 50, base=NATIVE_SEEDS[0])
     monkeypatch.setattr(learner, "CAP", 2)
     assert evolve_and_admit(state, NOW, force=True) == 1
     archived = state["rule_archive"][weak]
@@ -255,7 +256,7 @@ def test_archived_real_seeds_never_respawn_or_spawn_children(seed, monkeypatch):
 
 
 def test_failed_forward_parent_is_not_used_even_if_replay_profitable(monkeypatch):
-    state, parent, weak = state_for([-1] * 50)
+    state, parent, weak = state_for([-1] * 50, base=NATIVE_SEEDS[0])
     monkeypatch.setattr(learner, "performance", lambda *_: {parent: (50, 1), weak: (1000, 5)})
     assert evolve_and_admit(state, NOW, force=True) == 1
     child = next(row for name, row in state["candidates"].items() if name not in (parent, weak))
@@ -263,7 +264,7 @@ def test_failed_forward_parent_is_not_used_even_if_replay_profitable(monkeypatch
 
 
 def test_retirement_metadata_ignores_replay_results(monkeypatch):
-    base, parent, weak = state_for([-0.1] * 50)
+    base, parent, weak = state_for([-0.1] * 50, base=NATIVE_SEEDS[0])
     monkeypatch.setattr(learner, "CAP", 2)
     for historical_r in (-100, 100):
         state = copy.deepcopy(base)
@@ -274,8 +275,8 @@ def test_retirement_metadata_ignores_replay_results(monkeypatch):
 
 
 def test_batch_replacement_does_not_reuse_removed_parent(monkeypatch):
-    state, parent, weak = state_for([-0.1] * 50)
-    other_genome = {**SEEDS[0], "lookback": 30}
+    state, parent, weak = state_for([-0.1] * 50, base=NATIVE_SEEDS[0])
+    other_genome = {**NATIVE_SEEDS[0], "lookback": 30}
     learner.add_candidate(state, other_genome, 0)
     other = genome_name(other_genome)
     state["samples"] += samples(other, [-0.2] * 50)
@@ -286,7 +287,7 @@ def test_batch_replacement_does_not_reuse_removed_parent(monkeypatch):
 
 
 def test_duplicate_parent_can_retire_without_changing_survivor_genome(monkeypatch):
-    state, parent, weak = state_for([0.2] * 50)
+    state, parent, weak = state_for([0.2] * 50, base=NATIVE_SEEDS[0])
     survivor = copy.deepcopy(state["candidates"][parent])
     monkeypatch.setattr(learner, "CAP", 2)
     assert evolve_and_admit(state, NOW, force=True) == 1
