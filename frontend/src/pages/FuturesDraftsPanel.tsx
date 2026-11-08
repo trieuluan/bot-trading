@@ -144,22 +144,19 @@ export function FuturesDraftsPanel({
 
   return (
     <div className="space-y-4">
-      {/* Banner hướng dẫn gọn gàng */}
       <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-2/60 p-3 sm:flex-row sm:items-center sm:justify-between text-xs text-text-secondary">
         <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-bull" />
           <span>
-            <b>Sàng lọc Universe 340 ngày (D1/H4)</b>: Cùng genome chạy trên cả 10 cặp, chia 70% huấn luyện / 30% kiểm tra.
+            <b>Sàng lọc con nháp</b> · D1/H4 mới: 340 ngày, 10 cặp, chia 70% huấn luyện / 30% kiểm tra.
           </span>
         </div>
         <div className="text-text-muted">
-          Tiêu chuẩn qua cổng: ≥30 mẫu tổng, ≥10 mẫu kiểm tra, R &gt; 0, Drawdown &lt; 10R.
+          Replay tách biệt forward. Các cặp có thể tương quan.
         </div>
       </div>
 
-      {/* Trạng thái Worker */}
       {worker?.phase?.startsWith('parents:') && !worker.stale && (
-        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
+        <div role="status" className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-sky-400" />
           <span>Tiến trình bố mẹ nền: <b>{phaseText(worker.phase)}</b></span>
         </div>
@@ -180,7 +177,6 @@ export function FuturesDraftsPanel({
         </p>
       )}
 
-      {/* Thanh bộ lọc thiết kế theo pill tab rõ ràng */}
       <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Lọc con nháp">
         {FILTERS.map(([key, label, test]) => {
           const count = drafts.filter(test).length;
@@ -199,7 +195,7 @@ export function FuturesDraftsPanel({
             >
               <span>{label}</span>
               <span
-                className={`rounded px-1.5 py-0.2 text-[10px] tabular-nums ${
+                className={`rounded px-1.5 py-0.5 text-xs tabular-nums ${
                   active ? 'bg-surface-1 text-text-primary' : 'bg-surface-2 text-text-muted'
                 }`}
               >
@@ -216,26 +212,25 @@ export function FuturesDraftsPanel({
         </div>
       )}
 
-      {/* Grid thẻ con nháp */}
       <div className="grid min-w-0 gap-3.5 md:grid-cols-2 2xl:grid-cols-3">
         {rows.map((draft) => {
           const pct =
             draft.total && draft.completed !== null
-              ? Math.min(100, Math.floor((100 * draft.completed) / draft.total))
+              ? Math.max(0, Math.min(100, Math.floor((100 * draft.completed) / draft.total)))
               : null;
           const result = draft.replay;
           const config = STATUS_CONFIG[draft.status] || STATUS_CONFIG.queued;
           const passedCount = result ? Object.values(result.checks).filter(Boolean).length : 0;
           const totalChecks = result ? Object.keys(result.checks).length : 0;
+          const hasValidation = (result?.validation_samples ?? 0) > 0;
 
           return (
             <article
               key={draft.id}
-              className={`relative flex flex-col justify-between rounded-xl border bg-surface-1 p-4 shadow-sm transition-all hover:border-border-active ${config.cardBorder}`}
+              className={`relative min-w-0 flex flex-col justify-between rounded-xl border bg-surface-1 p-4 shadow-sm ${config.cardBorder}`}
             >
               <div className="space-y-3">
-                {/* Header card: Tên, mã rút gọn, Gx và Trạng thái */}
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-text-secondary">
@@ -245,11 +240,12 @@ export function FuturesDraftsPanel({
                         className="truncate text-sm font-semibold text-text-primary"
                         title={draft.strategy}
                       >
-                        {strategyShortTitle(draft.genome, draft.strategy)}
+                        {strategyShortTitle(draft.genome)}
                       </h4>
                     </div>
-                    <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-text-muted">
-                      <span className="truncate">{draft.strategy.split(':')[1]}</span>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                      <code title={draft.strategy}>#{(draft.strategy.split(':')[1] ?? draft.strategy).slice(0, 8)}</code>
+                      <span>{(result?.scope ?? draft.window?.scope) === 'native_universe_v1' ? '340 ngày · 10 cặp' : 'Nháp cũ · từng cặp'}</span>
                       {draft.attempts > 0 && (
                         <span>· Lần chạy {draft.attempts}/3</span>
                       )}
@@ -262,7 +258,6 @@ export function FuturesDraftsPanel({
                   </span>
                 </div>
 
-                {/* Entry & Exit Tags */}
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   <span className="rounded-md border border-border-subtle bg-surface-2 px-2 py-0.5 text-text-secondary">
                     Vào: <b>{entryPolicyLabel(draft.genome.entry_policy)}</b>
@@ -272,25 +267,16 @@ export function FuturesDraftsPanel({
                   </span>
                 </div>
 
-                {/* Quan hệ bố mẹ */}
-                <div className="rounded-md bg-surface-2/40 px-2.5 py-1.5 text-xs text-text-muted">
-                  Bố mẹ:{' '}
-                  <span className="font-mono text-text-secondary">
-                    {draft.parents.map((p) => p.split(':')[1]).join(' × ') || 'Gốc (G0)'}
-                  </span>
-                </div>
-
-                {/* Tiến độ Replay nếu đang chạy */}
                 {draft.status === 'running' && (
                   <div className="space-y-1.5 rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5 text-xs">
                     <div className="flex justify-between font-medium text-sky-200">
                       <span>{phaseText(draft.phase)}</span>
                       <span>{pct !== null ? `${pct}%` : 'Đang xử lý'}</span>
                     </div>
-                    <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-3">
+                    <div role="progressbar" aria-label={phaseText(draft.phase)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} className="relative h-1.5 overflow-hidden rounded-full bg-surface-3">
                       <div
                         className="h-full rounded-full bg-sky-400 transition-all duration-300"
-                        style={{ width: `${pct ?? 20}%` }}
+                        style={{ width: pct === null ? '100%' : `${pct}%`, opacity: pct === null ? 0.3 : 1 }}
                       />
                     </div>
                     {draft.total && draft.completed !== null && (
@@ -301,48 +287,46 @@ export function FuturesDraftsPanel({
                   </div>
                 )}
 
-                {/* Kết quả số liệu & tiêu chí Replay */}
                 {result && (
                   <div className="space-y-2 rounded-lg border border-border-subtle bg-surface-2/30 p-2.5">
-                    {/* Hàng KPI chính */}
-                    <div className="grid grid-cols-4 gap-1 border-b border-border-subtle/80 pb-2 text-center">
+                    <div className="grid grid-cols-2 gap-3 border-b border-border-subtle/80 pb-3 text-center sm:grid-cols-4">
                       <div>
-                        <div className="text-[10px] text-text-muted">Mẫu tổng</div>
+                        <div className="text-xs text-text-muted">Mẫu tổng</div>
                         <div className="font-mono text-xs font-semibold text-text-primary">
                           {result.total_samples}
                         </div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-text-muted">Kiểm tra</div>
+                        <div className="text-xs text-text-muted">Kiểm tra</div>
                         <div className="font-mono text-xs font-semibold text-text-primary">
                           {result.validation_samples}
                         </div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-text-muted">R kiểm tra</div>
+                        <div className="text-xs text-text-muted">R TB kiểm tra</div>
                         <div
                           className={`font-mono text-xs font-semibold ${
-                            (result.validation_mean_r ?? 0) > 0 ? 'text-bull' : 'text-bear'
+                            !hasValidation || result.validation_mean_r === null ? 'text-text-muted' : (result.validation_mean_r > 0 ? 'text-bull' : 'text-bear')
                           }`}
                         >
-                          {result.validation_mean_r !== null
+                          {hasValidation && result.validation_mean_r !== null
                             ? `${result.validation_mean_r.toFixed(2)}R`
                             : '—'}
                         </div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-text-muted">Max DD</div>
+                        <div className="text-xs text-text-muted">DD kiểm tra</div>
                         <div
                           className={`font-mono text-xs font-semibold ${
-                            result.validation_drawdown_r < 10 ? 'text-bull' : 'text-bear'
+                            !hasValidation ? 'text-text-muted' : result.validation_drawdown_r < 10 ? 'text-bull' : 'text-bear'
                           }`}
                         >
-                          {result.validation_drawdown_r.toFixed(1)}R
+                          {hasValidation ? `${result.validation_drawdown_r.toFixed(1)}R` : '—'}
                         </div>
                       </div>
                     </div>
 
-                    {/* Danh sách tiêu chí kiểm tra */}
+                    {!hasValidation && <p className="text-xs leading-relaxed text-text-secondary">Chưa có lệnh kiểm tra đã đóng. Chưa thể kết luận lợi nhuận hoặc drawdown.</p>}
                     <div className="space-y-1 pt-1">
                       <div className="flex items-center justify-between text-[11px] text-text-muted">
                         <span>Tiêu chuẩn cổng kiểm tra:</span>
@@ -351,25 +335,34 @@ export function FuturesDraftsPanel({
                         </span>
                       </div>
                       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                        {Object.entries(result.checks).map(([key, ok]) => (
+                        {Object.entries(result.checks).map(([key, ok]) => {
+                          const noData = !hasValidation && key !== 'total_samples_gte_30' && key !== 'validation_samples_gte_10' && key !== 'universe_complete' && key !== 'validation_symbols_gte_3';
+                          return (
                           <div
                             key={key}
-                            className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] ${
-                              ok ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'
+                            className={`flex items-start gap-1.5 rounded px-2 py-1 text-xs ${
+                              noData ? 'bg-surface-2 text-text-muted' : ok ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'
                             }`}
                           >
-                            <span className="font-bold">{ok ? '✓' : '✗'}</span>
-                            <span className="truncate">{CHECKS[key] ?? key}</span>
+                            <span className="font-bold" aria-label={noData ? 'Chưa có mẫu' : ok ? 'Đạt' : 'Không đạt'}>{noData ? '—' : ok ? '✓' : '✗'}</span>
+                            <span className="min-w-0 break-words">{CHECKS[key] ?? key}</span>
                           </div>
-                        ))}
+                        );})}
                       </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Footer card: Ghi chú, lý do, nút xem cây */}
-              <div className="mt-3 border-t border-border-subtle pt-2 text-xs">
+              <div className="mt-3 space-y-2 border-t border-border-subtle pt-2 text-xs [&>*]:break-words">
+                <details className="text-text-muted">
+                  <summary className="py-1 hover:text-text-primary">Dòng dõi & mã chiến thuật</summary>
+                  <dl className="mt-2 space-y-2">
+                    <div><dt>Chiến thuật</dt><dd className="break-all font-mono text-text-secondary">{draft.strategy}</dd></div>
+                    <div><dt>Bố mẹ</dt><dd className="break-all font-mono text-text-secondary">{draft.parents.join(' × ') || 'Gốc (G0)'}</dd></div>
+                  </dl>
+                </details>
+                {draft.status === 'rejected' && <p className="text-text-muted">Đã dừng sàng lọc · không tự thử lại.</p>}
                 {draft.status === 'waiting_slot' && (
                   <div className="text-bull">
                     Đạt điều kiện ·{' '}
