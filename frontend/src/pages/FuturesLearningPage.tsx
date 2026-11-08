@@ -3,7 +3,19 @@ import { fetchFuturesHistory } from '../lib/api';
 import type { FuturesHistoryJob } from '../types/paper';
 import { formatTime } from '../lib/time-format';
 import { useEffect, useRef, useState } from 'react';
-import { Activity, Archive, Brain, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Dna, Power, X } from 'lucide-react';
+import {
+  Activity,
+  Archive,
+  Brain,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Dna,
+  Power,
+  X,
+} from 'lucide-react';
 import { FuturesDraftsPanel, type Draft, type DraftWorker } from './FuturesDraftsPanel';
 import { Drawer } from '../components/Drawer';
 import {
@@ -178,12 +190,22 @@ function ParentChip({
 }) {
   return (
     <span className="evo-chip-wrap inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
-      <code className="evo-parent-chip flex min-w-0 flex-wrap items-center gap-2 text-xs" tabIndex={0} aria-describedby={id}>
+      <code
+        className="evo-parent-chip flex min-w-0 flex-wrap items-center gap-2 text-xs"
+        tabIndex={0}
+        aria-describedby={id}
+      >
         {tag && <b>{tag}</b>} {label}
       </code>
-      <span id={id} className="evo-tooltip fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg" role="tooltip">
+      <span
+        id={id}
+        className="evo-tooltip fixed z-[80] max-h-[70dvh] max-w-[min(360px,calc(100vw-24px))] overflow-auto rounded-lg border border-border-active bg-surface-2 p-3 text-xs text-text-secondary shadow-lg"
+        role="tooltip"
+      >
         <span className="evo-tooltip-title mb-2 font-semibold text-text-primary">{label}</span>
-        <span className="evo-tooltip-body text-xs leading-relaxed text-text-secondary">{title}</span>
+        <span className="evo-tooltip-body text-xs leading-relaxed text-text-secondary">
+          {title}
+        </span>
       </span>
     </span>
   );
@@ -210,9 +232,15 @@ function Pager({
   if (total <= size) return null;
   const from = (page - 1) * size + 1;
   return (
-    <nav className="evo-pager flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-2/40 px-3 py-2.5 text-xs" aria-label={`Phân trang ${unit}`}>
+    <nav
+      className="evo-pager flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-2/40 px-3 py-2.5 text-xs"
+      aria-label={`Phân trang ${unit}`}
+    >
       <span className="text-text-muted" role="status" aria-live="polite">
-        <b className="font-medium tabular-nums text-text-primary">{from}–{Math.min(page * size, total)}</b> / {total} {unit}
+        <b className="font-medium tabular-nums text-text-primary">
+          {from}–{Math.min(page * size, total)}
+        </b>{' '}
+        / {total} {unit}
       </span>
       <div className="flex items-center gap-1.5 [&>button]:inline-flex [&>button]:min-h-9 [&>button]:min-w-9 [&>button]:items-center [&>button]:justify-center [&>button]:gap-1 [&>button]:rounded-md [&>button]:border [&>button]:border-border-base [&>button]:bg-surface-1 [&>button]:px-2 [&>button]:text-text-secondary [&>button]:transition-colors [&>button:enabled:hover]:border-sky-400/40 [&>button:enabled:hover]:bg-sky-400/10 [&>button:enabled:hover]:text-sky-200 [&>button:disabled]:cursor-not-allowed [&>button:disabled]:opacity-35">
         <button type="button" disabled={page <= 1} onClick={() => onPage(1)} aria-label="Trang đầu">
@@ -221,8 +249,14 @@ function Pager({
         <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           <ChevronLeft size={15} aria-hidden="true" /> Trước
         </button>
-        <b className="inline-flex min-h-9 items-center rounded-md border border-sky-400/25 bg-sky-400/10 px-3 font-medium tabular-nums text-sky-200" aria-current="page">
-          <span className="sr-only">Trang </span>{page}<span className="mx-1.5 text-text-muted">/</span>{pages}
+        <b
+          className="inline-flex min-h-9 items-center rounded-md border border-sky-400/25 bg-sky-400/10 px-3 font-medium tabular-nums text-sky-200"
+          aria-current="page"
+        >
+          <span className="sr-only">Trang </span>
+          {page}
+          <span className="mx-1.5 text-text-muted">/</span>
+          {pages}
         </b>
         <button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>
           Tiếp <ChevronRight size={15} aria-hidden="true" />
@@ -401,7 +435,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             trigger đóng nến. Cây luật tự sinh biến đổi cấu trúc và điều kiện.
           </p>
         </div>
-        <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">Paper · không gửi lệnh sàn</span>
+        <span className="pill amber inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary text-amber-300">
+          Paper · không gửi lệnh sàn
+        </span>
       </header>
       {error && (
         <p className="negative text-bear" role="alert">
@@ -412,9 +448,14 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
         <>
           <div className="evo-kpis grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
             {kpis.map(([label, value]) => (
-              <div key={label} className="min-w-0 rounded-lg border border-border-subtle bg-surface-2/60 px-3 py-2.5">
+              <div
+                key={label}
+                className="min-w-0 rounded-lg border border-border-subtle bg-surface-2/60 px-3 py-2.5"
+              >
                 <span className="block text-xs text-text-muted">{label}</span>
-                <strong className="mt-1 block break-words font-display text-lg font-semibold tabular-nums text-text-primary">{value}</strong>
+                <strong className="mt-1 block break-words font-display text-lg font-semibold tabular-nums text-text-primary">
+                  {value}
+                </strong>
               </div>
             ))}
           </div>
@@ -430,13 +471,20 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             </p>
           )}
           {(data.stale || data.error) && (
-            <p className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+            <p
+              className="evo-warn rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"
+              role="status"
+            >
               {data.stale && 'Dữ liệu học đang chậm hoặc chưa chạy. '}
               {data.error}
             </p>
           )}
           <div className="evo-controls flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="evo-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1" role="group" aria-label="Chế độ chọn chiến thuật">
+            <div
+              className="evo-seg flex flex-wrap items-center gap-1 [&>button]:rounded [&>button]:px-2 [&>button]:py-1 [&>button]:text-xs [&>button]:text-text-secondary [&>button:hover]:bg-surface-3 [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-bull border-b border-border-subtle py-1"
+              role="group"
+              aria-label="Chế độ chọn chiến thuật"
+            >
               {modes.map(([key, label, body]) => (
                 <button
                   key={key}
@@ -470,9 +518,14 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 : ''}{' '}
             Đổi chế độ khi Auto Paper đang dừng.
           </p>
-          <div className="evo-tabs flex flex-wrap items-center gap-1 border-b border-border-base [&>button]:inline-flex [&>button]:min-h-10 [&>button]:items-center [&>button]:gap-2 [&>button]:border-b-2 [&>button]:border-transparent [&>button]:px-3 [&>button]:text-xs [&>button]:font-medium [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-selected=true]]:border-bull [&>button[aria-selected=true]]:text-text-primary" role="tablist" aria-label="Bảng tiến hóa">
+          <div
+            className="evo-tabs flex flex-wrap items-center gap-1 border-b border-border-base [&>button]:inline-flex [&>button]:min-h-10 [&>button]:items-center [&>button]:gap-2 [&>button]:border-b-2 [&>button]:border-transparent [&>button]:px-3 [&>button]:text-xs [&>button]:font-medium [&>button]:text-text-muted [&>button:hover]:text-text-primary [&>button[aria-selected=true]]:border-bull [&>button[aria-selected=true]]:text-text-primary"
+            role="tablist"
+            aria-label="Bảng tiến hóa"
+          >
             <button role="tab" aria-selected={tab === 'forward'} onClick={() => setTab('forward')}>
-              Đang forward <span className="evo-count ml-auto text-xs text-text-muted">{data.population}</span>
+              Đang forward{' '}
+              <span className="evo-count ml-auto text-xs text-text-muted">{data.population}</span>
             </button>
             <button role="tab" aria-selected={tab === 'drafts'} onClick={() => setTab('drafts')}>
               Con nháp{' '}
@@ -497,7 +550,11 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           )}
           {tab === 'forward' && (
             <>
-              <div className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs [&>button]:inline-flex [&>button]:min-h-8 [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-md [&>button]:border [&>button]:border-border-subtle [&>button]:px-2.5 [&>button]:text-text-muted [&>button:hover]:bg-surface-2 [&>button[aria-pressed=true]]:border-border-active [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary" role="group" aria-label="Lọc theo trạng thái">
+              <div
+                className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs [&>button]:inline-flex [&>button]:min-h-8 [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-md [&>button]:border [&>button]:border-border-subtle [&>button]:px-2.5 [&>button]:text-text-muted [&>button:hover]:bg-surface-2 [&>button[aria-pressed=true]]:border-border-active [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary"
+                role="group"
+                aria-label="Lọc theo trạng thái"
+              >
                 {statuses.map(([key, label, match]) => {
                   const count = scoped.filter(match).length;
                   return (
@@ -507,7 +564,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       disabled={count === 0 && status !== key}
                       onClick={() => setStatus(key)}
                     >
-                      {label} <span className="evo-count ml-auto text-xs text-text-muted">{count}</span>
+                      {label}{' '}
+                      <span className="evo-count ml-auto text-xs text-text-muted">{count}</span>
                     </button>
                   );
                 })}
@@ -576,7 +634,11 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   </select>
                 </label>
               </div>
-              <div className="evo-result flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted [&_b]:text-text-primary [&>button]:text-bull [&>button:hover]:underline" role="status" aria-live="polite">
+              <div
+                className="evo-result flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted [&_b]:text-text-primary [&>button]:text-bull [&>button:hover]:underline"
+                role="status"
+                aria-live="polite"
+              >
                 <span>
                   Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
                 </span>
@@ -605,86 +667,89 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
                 </p>
               )}
-              {detail && (() => {
-                const row = all.find((r) => r.strategy === detail);
-                if (!row) return null;
-                const info = strategyInfo(row.genome);
-                return (
-                  <Drawer label="Cách đánh chiến thuật" onClose={() => setDetail(null)}>
-                    <div className="evo-drawer-body space-y-4">
-                      <header className="flex items-start justify-between border-b border-border-base pb-3">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <strong className="font-display text-base font-bold text-text-primary">
-                              {strategyShortTitle(row.genome, row.strategy)}
-                            </strong>
-                            <span className="inline-flex items-center gap-1 rounded bg-surface-3 px-2 py-0.5 text-xs font-semibold text-bull">
-                              G{row.generation}
-                            </span>
-                          </div>
-                          <code className="block text-xs font-mono text-text-muted">
-                            ID: {row.strategy.split(':')[1]}
-                          </code>
-                        </div>
-                        <button
-                          type="button"
-                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-2 hover:text-text-primary"
-                          onClick={() => setDetail(null)}
-                          aria-label="Đóng"
-                        >
-                          <X size={18} />
-                        </button>
-                      </header>
-                      <ol className="evo-steps space-y-3 text-xs leading-relaxed">
-                        {howToPlay(row.genome, info.stop).map((step, index) => {
-                          const kind = stepKind(step.label);
-                          const borderClass =
-                            kind === 'entry'
-                              ? 'border-sky-500/30 bg-sky-950/20'
-                              : kind === 'sl'
-                                ? 'border-bear/30 bg-bear-bg/30'
-                                : kind === 'tp'
-                                  ? 'border-bull/30 bg-bull-bg/30'
-                                  : 'border-border-base bg-surface-2/40';
-                          const badgeClass =
-                            kind === 'entry'
-                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                              : kind === 'sl'
-                                ? 'bg-bear/20 text-bear border border-bear/40'
-                                : kind === 'tp'
-                                  ? 'bg-bull/20 text-bull border border-bull/40'
-                                  : 'bg-surface-3 text-text-secondary border border-border-subtle';
-                          return (
-                            <li key={index} className={`rounded-lg border p-3 ${borderClass}`}>
-                              <div className="mb-1.5 flex items-center gap-2">
-                                <span className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold ${badgeClass}`}>
-                                  {step.label}
-                                </span>
-                              </div>
-                              <span className="block text-text-secondary">
-                                {step.text}
-                                {step.items && step.items.length > 0 && (
-                                  <ul className="mt-2 space-y-1 pl-4 list-disc text-text-muted">
-                                    {step.items.map((item) => (
-                                      <li key={item}>{item}</li>
-                                    ))}
-                                  </ul>
-                                )}
+              {detail &&
+                (() => {
+                  const row = all.find((r) => r.strategy === detail);
+                  if (!row) return null;
+                  const info = strategyInfo(row.genome);
+                  return (
+                    <Drawer label="Cách đánh chiến thuật" onClose={() => setDetail(null)}>
+                      <div className="evo-drawer-body space-y-4">
+                        <header className="flex items-start justify-between border-b border-border-base pb-3">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <strong className="font-display text-base font-bold text-text-primary">
+                                {strategyShortTitle(row.genome, row.strategy)}
+                              </strong>
+                              <span className="inline-flex items-center gap-1 rounded bg-surface-3 px-2 py-0.5 text-xs font-semibold text-bull">
+                                G{row.generation}
                               </span>
-                            </li>
-                          );
-                        })}
-                      </ol>
-                      <p className="evo-drawer-src rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
-                        <b>Nguồn:</b>{' '}
-                        {row.generation === 0
-                          ? 'Chiến thuật gốc, tham số mặc định.'
-                          : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
-                      </p>
-                    </div>
-                  </Drawer>
-                );
-              })()}
+                            </div>
+                            <code className="block text-xs font-mono text-text-muted">
+                              ID: {row.strategy.split(':')[1]}
+                            </code>
+                          </div>
+                          <button
+                            type="button"
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-2 hover:text-text-primary"
+                            onClick={() => setDetail(null)}
+                            aria-label="Đóng"
+                          >
+                            <X size={18} />
+                          </button>
+                        </header>
+                        <ol className="evo-steps space-y-3 text-xs leading-relaxed">
+                          {howToPlay(row.genome, info.stop).map((step, index) => {
+                            const kind = stepKind(step.label);
+                            const borderClass =
+                              kind === 'entry'
+                                ? 'border-sky-500/30 bg-sky-950/20'
+                                : kind === 'sl'
+                                  ? 'border-bear/30 bg-bear-bg/30'
+                                  : kind === 'tp'
+                                    ? 'border-bull/30 bg-bull-bg/30'
+                                    : 'border-border-base bg-surface-2/40';
+                            const badgeClass =
+                              kind === 'entry'
+                                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                : kind === 'sl'
+                                  ? 'bg-bear/20 text-bear border border-bear/40'
+                                  : kind === 'tp'
+                                    ? 'bg-bull/20 text-bull border border-bull/40'
+                                    : 'bg-surface-3 text-text-secondary border border-border-subtle';
+                            return (
+                              <li key={index} className={`rounded-lg border p-3 ${borderClass}`}>
+                                <div className="mb-1.5 flex items-center gap-2">
+                                  <span
+                                    className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold ${badgeClass}`}
+                                  >
+                                    {step.label}
+                                  </span>
+                                </div>
+                                <span className="block text-text-secondary">
+                                  {step.text}
+                                  {step.items && step.items.length > 0 && (
+                                    <ul className="mt-2 space-y-1 pl-4 list-disc text-text-muted">
+                                      {step.items.map((item) => (
+                                        <li key={item}>{item}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                        <p className="evo-drawer-src rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
+                          <b>Nguồn:</b>{' '}
+                          {row.generation === 0
+                            ? 'Chiến thuật gốc, tham số mặc định.'
+                            : `Biến thể G${row.generation}; chưa chứng minh tốt hơn cha mẹ.`}
+                        </p>
+                      </div>
+                    </Drawer>
+                  );
+                })()}
               <div className="evo-grid grid min-w-0 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {sorted.slice((cardPage - 1) * PAGE.cards, cardPage * PAGE.cards).map((row) => {
                   const learned = row.learned_mean_r;
@@ -699,15 +764,20 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       <div className="evo-card-top flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-baseline gap-2">
-                            <strong className="font-display text-sm font-semibold leading-snug text-text-primary" title={strategyName(row.genome)}>
+                            <strong
+                              className="font-display text-sm font-semibold leading-snug text-text-primary"
+                              title={strategyName(row.genome)}
+                            >
                               {strategyShortTitle(row.genome)}
                             </strong>
                             <span className="rounded bg-canvas/60 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
-                              #{row.strategy.split(":")[1]?.slice(0, 6)}
+                              #{row.strategy.split(':')[1]?.slice(0, 6)}
                             </span>
                           </div>
                         </div>
-                        <span className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${row.generation ? 'border-amber-400/25 bg-amber-400/10 text-amber-300' : 'border-sky-400/25 bg-sky-400/10 text-sky-300'}`}>
+                        <span
+                          className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${row.generation ? 'border-amber-400/25 bg-amber-400/10 text-amber-300' : 'border-sky-400/25 bg-sky-400/10 text-sky-300'}`}
+                        >
                           <Dna size={11} /> G{row.generation}
                         </span>
                       </div>
@@ -748,23 +818,35 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                             Ngừng thử · thoát {row.genome.exit_policy ?? 'fixed'} chưa bật
                           </span>
                         )}
-                        <span className="inline-flex items-center rounded border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 text-[11px] text-teal-300">{row.shadow_only ? 'Shadow' : 'Thử Paper'}</span>
-                        <span className="rounded border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[11px] leading-relaxed text-sky-200">{exitLabel(row.genome.exit_policy)}</span>
+                        <span className="inline-flex items-center rounded border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 text-[11px] text-teal-300">
+                          {row.shadow_only ? 'Shadow' : 'Thử Paper'}
+                        </span>
+                        <span className="rounded border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[11px] leading-relaxed text-sky-200">
+                          {exitLabel(row.genome.exit_policy)}
+                        </span>
                       </p>
                       {row.rule_text && (
-                        <p className="evo-rule line-clamp-2 text-xs leading-relaxed text-text-muted" title={row.rule_text}>
+                        <p
+                          className="evo-rule line-clamp-2 text-xs leading-relaxed text-text-muted"
+                          title={row.rule_text}
+                        >
                           {row.rule_text}
                         </p>
                       )}
                       {row.parents.length > 0 && (
                         <details className="evo-origin min-w-0 rounded-md border border-border-subtle p-2 text-xs leading-relaxed text-text-muted [&_p]:mt-2 [&_p]:break-words">
-                          <summary className="cursor-pointer font-medium text-text-secondary">Nguồn gốc & biến đổi</summary>
+                          <summary className="cursor-pointer font-medium text-text-secondary">
+                            Nguồn gốc & biến đổi
+                          </summary>
                           <div className="evo-origin-head flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
                             <span>{row.parents.length === 1 ? 'Đột biến từ' : 'Lai'}</span>
                             {row.parents.map((parent, idx) => {
                               const pRow = all.find((r) => r.strategy === parent);
                               return (
-                                <span key={`${parent}-${idx}`} className="evo-origin-parent text-xs text-text-muted">
+                                <span
+                                  key={`${parent}-${idx}`}
+                                  className="evo-origin-parent text-xs text-text-muted"
+                                >
                                   {idx > 0 && <span aria-hidden="true">×</span>}
                                   <ParentChip
                                     id={`parent-tooltip-${row.strategy}-${idx}`}
@@ -782,7 +864,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </div>
                           {row.lineage?.from_mate.length ? (
                             <p>
-                              <span className="evo-origin-tag text-xs text-text-muted">Lấy từ B</span>
+                              <span className="evo-origin-tag text-xs text-text-muted">
+                                Lấy từ B
+                              </span>
                               {row.lineage.from_mate
                                 .map(
                                   (item) =>
@@ -793,7 +877,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           ) : null}
                           {row.lineage?.mutated.map((item) => (
                             <p key={item.gene}>
-                              <span className="evo-origin-tag mutated text-xs text-text-muted">✦ Đột biến</span>
+                              <span className="evo-origin-tag mutated text-xs text-text-muted">
+                                ✦ Đột biến
+                              </span>
                               {GENE_LABELS[item.gene] ?? item.gene}:{' '}
                               {geneText(item.gene, item.before)} →{' '}
                               <b>{geneText(item.gene, item.after)}</b>
@@ -808,12 +894,14 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       )}
                       <div className="evo-score mt-auto grid min-w-0 grid-cols-2 items-center gap-2 rounded-lg border border-sky-400/10 bg-canvas/60 p-2.5 text-[11px]">
                         <div>
-                        <span className="mb-1 block text-text-muted">R học trung bình</span>
-                        {row.learned_samples > 0 ? (
-                          <b className={`font-mono text-xl tabular-nums ${learned! > 0 ? 'text-bull' : learned! < 0 ? 'text-bear' : 'text-text-primary'}`}>{`${learned! > 0 ? '+' : ''}${fmt(learned)}R`}</b>
-                        ) : (
-                          <span className="text-sm text-text-muted">Chưa có mẫu học</span>
-                        )}
+                          <span className="mb-1 block text-text-muted">R học trung bình</span>
+                          {row.learned_samples > 0 ? (
+                            <b
+                              className={`font-mono text-xl tabular-nums ${learned! > 0 ? 'text-bull' : learned! < 0 ? 'text-bear' : 'text-text-primary'}`}
+                            >{`${learned! > 0 ? '+' : ''}${fmt(learned)}R`}</b>
+                          ) : (
+                            <span className="text-sm text-text-muted">Chưa có mẫu học</span>
+                          )}
                         </div>
                         <span className="self-center text-right leading-relaxed text-text-muted">
                           {row.learned_samples > 0 && `${row.learned_samples} mẫu · `}Replay{' '}
@@ -828,7 +916,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       >
                         <span>Auto Paper</span>
                         {row.paper?.closed ? (
-                          <b className={row.paper.net_pnl >= 0 ? "good text-bull" : "bad text-bear"}>
+                          <b
+                            className={row.paper.net_pnl >= 0 ? 'good text-bull' : 'bad text-bear'}
+                          >
                             {usdt(row.paper.net_pnl)}
                           </b>
                         ) : null}
@@ -932,10 +1022,18 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               {(data.retired_strategies?.length ?? 0) > 0 && (
                 <details className="evo-retired group min-w-0 rounded-xl border border-border-base bg-surface-2/25 open:border-amber-400/25">
                   <summary className="flex min-h-14 list-none items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-400/10 text-amber-300"><Archive size={16} aria-hidden="true" /></span>
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-400/10 text-amber-300">
+                      <Archive size={16} aria-hidden="true" />
+                    </span>
                     <span className="min-w-0 flex-1">Cây đã loại</span>
-                    <span className="evo-count rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs tabular-nums text-amber-200">{data.retired_strategies!.length}</span>
-                    <ChevronDown size={16} className="shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+                    <span className="evo-count rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs tabular-nums text-amber-200">
+                      {data.retired_strategies!.length}
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className="shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
                   </summary>
                   <div className="evo-retired-body min-w-0 space-y-3 border-t border-border-subtle p-3 [&_table]:w-full [&_table]:min-w-[720px] [&_table]:text-xs [&_th]:whitespace-nowrap [&_small]:mt-1 [&_small]:block [&_small]:text-text-muted [&_td]:break-words [&_td]:align-middle [&_tr:hover]:bg-surface-2/60">
                     <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
@@ -970,14 +1068,22 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                   <td>
                                     {r ? (
                                       <>
-                                        <span className={`evo-pill ${tone} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}>{label}</span>
+                                        <span
+                                          className={`evo-pill ${tone} inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary`}
+                                        >
+                                          {label}
+                                        </span>
                                         <small>{formatTime(r.at)}</small>
                                       </>
                                     ) : (
-                                      <span className="evo-pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">Lịch sử cũ · chưa ghi lý do</span>
+                                      <span className="evo-pill inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
+                                        Lịch sử cũ · chưa ghi lý do
+                                      </span>
                                     )}
                                   </td>
-                                  <td className="num font-mono tabular-nums text-right">{r?.samples ?? '—'}</td>
+                                  <td className="num font-mono tabular-nums text-right">
+                                    {r?.samples ?? '—'}
+                                  </td>
                                   <td
                                     className={`num ${r ? (r.mean_r >= 0 ? 'positive' : 'negative') : ''} font-mono tabular-nums text-right`}
                                   >
@@ -1016,10 +1122,18 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               {(data.retired_paper?.length ?? 0) > 0 && (
                 <details className="evo-retired group min-w-0 rounded-xl border border-border-base bg-surface-2/25 open:border-sky-400/25">
                   <summary className="flex min-h-14 list-none items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-400/10 text-sky-300"><Activity size={16} aria-hidden="true" /></span>
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-400/10 text-sky-300">
+                      <Activity size={16} aria-hidden="true" />
+                    </span>
                     <span className="min-w-0 flex-1">Đã loại nhưng từng chạy Auto Paper</span>
-                    <span className="evo-count rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-xs tabular-nums text-sky-200">{data.retired_paper!.length}</span>
-                    <ChevronDown size={16} className="shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+                    <span className="evo-count rounded-md border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-xs tabular-nums text-sky-200">
+                      {data.retired_paper!.length}
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className="shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
                   </summary>
                   <div className="evo-retired-body min-w-0 space-y-3 border-t border-border-subtle p-3 [&_table]:w-full [&_table]:min-w-[600px] [&_table]:text-xs [&_th]:whitespace-nowrap [&_small]:mt-1 [&_small]:block [&_small]:text-text-muted [&_td]:break-words [&_td]:align-middle [&_tr:hover]:bg-surface-2/60">
                     <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
@@ -1047,9 +1161,15 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                     : row.strategy}
                                   {row.open > 0 && <small>{row.open} lệnh còn mở</small>}
                                 </td>
-                                <td className="num font-mono tabular-nums text-right">{row.closed}</td>
-                                <td className="num font-mono tabular-nums text-right">{row.wins}</td>
-                                <td className={`num ${row.net_pnl >= 0 ? 'positive' : 'negative'} font-mono tabular-nums text-right`}>
+                                <td className="num font-mono tabular-nums text-right">
+                                  {row.closed}
+                                </td>
+                                <td className="num font-mono tabular-nums text-right">
+                                  {row.wins}
+                                </td>
+                                <td
+                                  className={`num ${row.net_pnl >= 0 ? 'positive' : 'negative'} font-mono tabular-nums text-right`}
+                                >
                                   {usdt(row.net_pnl)}
                                 </td>
                                 <td>
@@ -1084,23 +1204,30 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               )}
             </>
           )}
-          <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
-            Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay thế:
-            ≥50 mẫu forward đã khớp và đóng, R ròng âm, drawdown ≥10R hoặc trùng mẫu forward với cây
-            tốt hơn đã đủ bằng chứng. 10R không phải 10% tài khoản. Replay không dùng để quyết định
-            loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ được bảo vệ.
-          </p>
-          <p className="evo-note rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
-            Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không
-            vào). Kết quả Auto Paper chỉ để đối chiếu, chưa được tính vào điểm học. Họ gốc đổi tham
-            số; cây luật có thể đổi điều kiện và cách ghép. Họ gốc chọn cha mẹ có ≥10 mẫu và R
-            dương; cây luật xếp hạng từ ≥10 mẫu, trừ điểm theo độ phức tạp. Biến thể chưa chứng minh
-            tốt hơn. Cổng duyệt: ≥100 lệnh forward, PF &gt; 1.3, ≥60% cửa sổ 30 ngày dương, DD &lt;
-            10%. Cây chờ giá hoặc chờ Retest/Sweep M15 vẫn thu mẫu forward nhưng chưa được duyệt.
-            Chế độ paper_learning vẫn có thể chọn các cây này để giao dịch paper; không phải chỉ shadow.
-            H4 hiện là 2/3 (EMA50 + ít nhất 1 xác nhận); cửa sổ forward tính lại từ bản
-            futures_htf_h4_2of3_v3.
-          </p>
+          <details className="rounded-lg border border-border-subtle bg-surface-2/40 p-3 text-xs leading-relaxed text-text-secondary">
+            <summary className="font-medium text-text-secondary hover:text-text-primary">
+              Quy tắc học, duyệt & đào thải
+            </summary>
+            <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">
+              <p>
+                Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay
+                thế: ≥50 mẫu forward đã khớp và đóng, R ròng âm, drawdown ≥10R hoặc trùng mẫu
+                forward với cây tốt hơn đã đủ bằng chứng. 10R không phải 10% tài khoản. Replay không
+                dùng để quyết định loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ được bảo vệ.
+              </p>
+              <p>
+                Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không
+                vào). Kết quả Auto Paper chỉ để đối chiếu, chưa được tính vào điểm học. Họ gốc đổi
+                tham số; cây luật có thể đổi điều kiện và cách ghép. Họ gốc chọn cha mẹ có ≥10 mẫu
+                và R dương; cây luật xếp hạng từ ≥10 mẫu, trừ điểm theo độ phức tạp. Biến thể chưa
+                chứng minh tốt hơn. Cổng duyệt: ≥100 lệnh forward, PF &gt; 1.3, ≥60% cửa sổ 30 ngày
+                dương, DD &lt; 10%. Cây chờ giá hoặc chờ Retest/Sweep M15 vẫn thu mẫu forward nhưng
+                chưa được duyệt. Chế độ paper_learning vẫn có thể chọn các cây này để giao dịch
+                paper; không phải chỉ shadow. H4 hiện là 2/3 (EMA50 + ít nhất 1 xác nhận); cửa sổ
+                forward tính lại từ bản futures_htf_h4_2of3_v3.
+              </p>
+            </div>
+          </details>
         </>
       )}
     </section>

@@ -14,13 +14,7 @@ export type Draft = {
   generation: number;
   parents: string[];
   status:
-    | 'queued'
-    | 'running'
-    | 'insufficient'
-    | 'waiting_slot'
-    | 'rejected'
-    | 'error'
-    | 'admitted';
+    'queued' | 'running' | 'insufficient' | 'waiting_slot' | 'rejected' | 'error' | 'admitted';
   phase: string;
   completed: number | null;
   total: number | null;
@@ -77,43 +71,44 @@ const CHECKS: Record<string, string> = {
   validation_pair_dd_lt_10r: 'Drawdown từng cặp < 10R',
 };
 
-const STATUS_CONFIG: Record<Draft['status'], { label: string; badge: string; cardBorder: string }> = {
-  queued: {
-    label: 'Chờ replay',
-    badge: 'border-border-base bg-surface-2 text-text-muted',
-    cardBorder: 'border-border-base',
-  },
-  running: {
-    label: 'Đang replay',
-    badge: 'border-sky-400/40 bg-sky-500/10 text-sky-300 animate-pulse',
-    cardBorder: 'border-sky-500/40',
-  },
-  insufficient: {
-    label: 'Chưa đủ mẫu',
-    badge: 'border-amber-400/40 bg-amber-500/10 text-amber-300',
-    cardBorder: 'border-amber-500/30',
-  },
-  waiting_slot: {
-    label: 'Đạt · Chờ slot',
-    badge: 'border-bull/40 bg-bull-bg text-bull',
-    cardBorder: 'border-bull/60',
-  },
-  rejected: {
-    label: 'Không đạt',
-    badge: 'border-bear/40 bg-bear-bg text-bear',
-    cardBorder: 'border-bear/30',
-  },
-  error: {
-    label: 'Lỗi',
-    badge: 'border-bear/40 bg-bear-bg text-bear',
-    cardBorder: 'border-bear/40',
-  },
-  admitted: {
-    label: 'Đã vào forward',
-    badge: 'border-bull/40 bg-surface-2 text-bull',
-    cardBorder: 'border-bull/30',
-  },
-};
+const STATUS_CONFIG: Record<Draft['status'], { label: string; badge: string; cardBorder: string }> =
+  {
+    queued: {
+      label: 'Chờ replay',
+      badge: 'border-border-base bg-surface-2 text-text-muted',
+      cardBorder: 'border-border-base',
+    },
+    running: {
+      label: 'Đang replay',
+      badge: 'border-sky-400/40 bg-sky-500/10 text-sky-300 animate-pulse',
+      cardBorder: 'border-sky-500/40',
+    },
+    insufficient: {
+      label: 'Chưa đủ mẫu',
+      badge: 'border-amber-400/40 bg-amber-500/10 text-amber-300',
+      cardBorder: 'border-amber-500/30',
+    },
+    waiting_slot: {
+      label: 'Đạt · Chờ slot',
+      badge: 'border-bull/40 bg-bull-bg text-bull',
+      cardBorder: 'border-bull/60',
+    },
+    rejected: {
+      label: 'Không đạt',
+      badge: 'border-bear/40 bg-bear-bg text-bear',
+      cardBorder: 'border-bear/30',
+    },
+    error: {
+      label: 'Lỗi',
+      badge: 'border-bear/40 bg-bear-bg text-bear',
+      cardBorder: 'border-bear/40',
+    },
+    admitted: {
+      label: 'Đã vào forward',
+      badge: 'border-bull/40 bg-surface-2 text-bull',
+      cardBorder: 'border-bull/30',
+    },
+  };
 
 function phaseText(phase: string): string {
   if (phase.startsWith('parents:')) return `Bố mẹ · ${phaseText(phase.slice(8))}`;
@@ -147,37 +142,54 @@ export function FuturesDraftsPanel({
       <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-2/60 p-3 sm:flex-row sm:items-center sm:justify-between text-xs text-text-secondary">
         <div className="flex items-center gap-2">
           <span>
-            <b>Sàng lọc con nháp</b> · D1/H4 mới: 340 ngày, 10 cặp, chia 70% huấn luyện / 30% kiểm tra.
+            <b>Sàng lọc con nháp</b> · D1/H4 mới: 340 ngày, 10 cặp, chia 70% huấn luyện / 30% kiểm
+            tra.
           </span>
         </div>
-        <div className="text-text-muted">
-          Replay tách biệt forward. Các cặp có thể tương quan.
-        </div>
+        <div className="text-text-muted">Replay tách biệt forward. Các cặp có thể tương quan.</div>
       </div>
 
       {worker?.phase?.startsWith('parents:') && !worker.stale && (
-        <div role="status" className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200"
+        >
           <span className="inline-block h-2 w-2 animate-ping rounded-full bg-sky-400" />
-          <span>Tiến trình bố mẹ nền: <b>{phaseText(worker.phase)}</b></span>
+          <span>
+            Tiến trình bố mẹ nền: <b>{phaseText(worker.phase)}</b>
+          </span>
         </div>
       )}
       {worker?.consumer_enabled === false && !worker.stale && (
-        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p
+          className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"
+          role="status"
+        >
           Worker replay đang tắt; con nháp chờ cho đến khi bật.
         </p>
       )}
       {worker?.stale !== false && (
-        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p
+          className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"
+          role="status"
+        >
           Worker replay chậm hoặc mất kết nối; con nháp sẽ chờ.
         </p>
       )}
       {rows.some(stalled) && (
-        <p className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200" role="status">
+        <p
+          className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"
+          role="status"
+        >
           Worker chậm: có job không cập nhật quá 90 giây.
         </p>
       )}
 
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Lọc con nháp">
+      <div
+        className="flex min-w-0 flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label="Lọc con nháp"
+      >
         {FILTERS.map(([key, label, test]) => {
           const count = drafts.filter(test).length;
           const active = filter === key;
@@ -244,11 +256,15 @@ export function FuturesDraftsPanel({
                       </h4>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                      <code title={draft.strategy}>#{(draft.strategy.split(':')[1] ?? draft.strategy).slice(0, 8)}</code>
-                      <span>{(result?.scope ?? draft.window?.scope) === 'native_universe_v1' ? '340 ngày · 10 cặp' : 'Nháp cũ · từng cặp'}</span>
-                      {draft.attempts > 0 && (
-                        <span>· Lần chạy {draft.attempts}/3</span>
-                      )}
+                      <code title={draft.strategy}>
+                        #{(draft.strategy.split(':')[1] ?? draft.strategy).slice(0, 8)}
+                      </code>
+                      <span>
+                        {(result?.scope ?? draft.window?.scope) === 'native_universe_v1'
+                          ? '340 ngày · 10 cặp'
+                          : 'Nháp cũ · từng cặp'}
+                      </span>
+                      {draft.attempts > 0 && <span>· Lần chạy {draft.attempts}/3</span>}
                     </div>
                   </div>
                   <span
@@ -273,10 +289,20 @@ export function FuturesDraftsPanel({
                       <span>{phaseText(draft.phase)}</span>
                       <span>{pct !== null ? `${pct}%` : 'Đang xử lý'}</span>
                     </div>
-                    <div role="progressbar" aria-label={phaseText(draft.phase)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} className="relative h-1.5 overflow-hidden rounded-full bg-surface-3">
+                    <div
+                      role="progressbar"
+                      aria-label={phaseText(draft.phase)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={pct ?? undefined}
+                      className="relative h-1.5 overflow-hidden rounded-full bg-surface-3"
+                    >
                       <div
                         className="h-full rounded-full bg-sky-400 transition-all duration-300"
-                        style={{ width: pct === null ? '100%' : `${pct}%`, opacity: pct === null ? 0.3 : 1 }}
+                        style={{
+                          width: pct === null ? '100%' : `${pct}%`,
+                          opacity: pct === null ? 0.3 : 1,
+                        }}
                       />
                     </div>
                     {draft.total && draft.completed !== null && (
@@ -306,7 +332,11 @@ export function FuturesDraftsPanel({
                         <div className="text-xs text-text-muted">R TB kiểm tra</div>
                         <div
                           className={`font-mono text-xs font-semibold ${
-                            !hasValidation || result.validation_mean_r === null ? 'text-text-muted' : (result.validation_mean_r > 0 ? 'text-bull' : 'text-bear')
+                            !hasValidation || result.validation_mean_r === null
+                              ? 'text-text-muted'
+                              : result.validation_mean_r > 0
+                                ? 'text-bull'
+                                : 'text-bear'
                           }`}
                         >
                           {hasValidation && result.validation_mean_r !== null
@@ -318,7 +348,11 @@ export function FuturesDraftsPanel({
                         <div className="text-xs text-text-muted">DD kiểm tra</div>
                         <div
                           className={`font-mono text-xs font-semibold ${
-                            !hasValidation ? 'text-text-muted' : result.validation_drawdown_r < 10 ? 'text-bull' : 'text-bear'
+                            !hasValidation
+                              ? 'text-text-muted'
+                              : result.validation_drawdown_r < 10
+                                ? 'text-bull'
+                                : 'text-bear'
                           }`}
                         >
                           {hasValidation ? `${result.validation_drawdown_r.toFixed(1)}R` : '—'}
@@ -326,7 +360,11 @@ export function FuturesDraftsPanel({
                       </div>
                     </div>
 
-                    {!hasValidation && <p className="text-xs leading-relaxed text-text-secondary">Chưa có lệnh kiểm tra đã đóng. Chưa thể kết luận lợi nhuận hoặc drawdown.</p>}
+                    {!hasValidation && (
+                      <p className="text-xs leading-relaxed text-text-secondary">
+                        Chưa có lệnh kiểm tra đã đóng. Chưa thể kết luận lợi nhuận hoặc drawdown.
+                      </p>
+                    )}
                     <div className="space-y-1 pt-1">
                       <div className="flex items-center justify-between text-[11px] text-text-muted">
                         <span>Tiêu chuẩn cổng kiểm tra:</span>
@@ -336,18 +374,33 @@ export function FuturesDraftsPanel({
                       </div>
                       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                         {Object.entries(result.checks).map(([key, ok]) => {
-                          const noData = !hasValidation && key !== 'total_samples_gte_30' && key !== 'validation_samples_gte_10' && key !== 'universe_complete' && key !== 'validation_symbols_gte_3';
+                          const noData =
+                            !hasValidation &&
+                            key !== 'total_samples_gte_30' &&
+                            key !== 'validation_samples_gte_10' &&
+                            key !== 'universe_complete' &&
+                            key !== 'validation_symbols_gte_3';
                           return (
-                          <div
-                            key={key}
-                            className={`flex items-start gap-1.5 rounded px-2 py-1 text-xs ${
-                              noData ? 'bg-surface-2 text-text-muted' : ok ? 'bg-bull/10 text-bull' : 'bg-bear/10 text-bear'
-                            }`}
-                          >
-                            <span className="font-bold" aria-label={noData ? 'Chưa có mẫu' : ok ? 'Đạt' : 'Không đạt'}>{noData ? '—' : ok ? '✓' : '✗'}</span>
-                            <span className="min-w-0 break-words">{CHECKS[key] ?? key}</span>
-                          </div>
-                        );})}
+                            <div
+                              key={key}
+                              className={`flex items-start gap-1.5 rounded px-2 py-1 text-xs ${
+                                noData
+                                  ? 'bg-surface-2 text-text-muted'
+                                  : ok
+                                    ? 'bg-bull/10 text-bull'
+                                    : 'bg-bear/10 text-bear'
+                              }`}
+                            >
+                              <span
+                                className="font-bold"
+                                aria-label={noData ? 'Chưa có mẫu' : ok ? 'Đạt' : 'Không đạt'}
+                              >
+                                {noData ? '—' : ok ? '✓' : '✗'}
+                              </span>
+                              <span className="min-w-0 break-words">{CHECKS[key] ?? key}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -356,13 +409,25 @@ export function FuturesDraftsPanel({
 
               <div className="mt-3 space-y-2 border-t border-border-subtle pt-2 text-xs [&>*]:break-words">
                 <details className="text-text-muted">
-                  <summary className="py-1 hover:text-text-primary">Dòng dõi & mã chiến thuật</summary>
+                  <summary className="py-1 hover:text-text-primary">
+                    Dòng dõi & mã chiến thuật
+                  </summary>
                   <dl className="mt-2 space-y-2">
-                    <div><dt>Chiến thuật</dt><dd className="break-all font-mono text-text-secondary">{draft.strategy}</dd></div>
-                    <div><dt>Bố mẹ</dt><dd className="break-all font-mono text-text-secondary">{draft.parents.join(' × ') || 'Gốc (G0)'}</dd></div>
+                    <div>
+                      <dt>Chiến thuật</dt>
+                      <dd className="break-all font-mono text-text-secondary">{draft.strategy}</dd>
+                    </div>
+                    <div>
+                      <dt>Bố mẹ</dt>
+                      <dd className="break-all font-mono text-text-secondary">
+                        {draft.parents.join(' × ') || 'Gốc (G0)'}
+                      </dd>
+                    </div>
                   </dl>
                 </details>
-                {draft.status === 'rejected' && <p className="text-text-muted">Đã dừng sàng lọc · không tự thử lại.</p>}
+                {draft.status === 'rejected' && (
+                  <p className="text-text-muted">Đã dừng sàng lọc · không tự thử lại.</p>
+                )}
                 {draft.status === 'waiting_slot' && (
                   <div className="text-bull">
                     Đạt điều kiện ·{' '}
