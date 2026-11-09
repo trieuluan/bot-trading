@@ -370,3 +370,36 @@ def test_m15_parent_can_breed_single_pair_60_day_draft():
     drafts.claim(draft, NOW)
     assert draft["window"]["end"] - draft["window"]["start"] == 60 * 86400
     assert "scope" not in draft["window"]
+
+def test_native_early_drawdown_still_protects_open_samples_and_seeds():
+    state, parent, weak = state_for([-2, -3], base=NATIVE_SEEDS[0])
+    assert options(state)[weak]["reason"] == "forward_drawdown"
+    assert weak not in options(state, {weak})
+    state["samples"].append({"strategy": weak, "status": "open"})
+    assert weak not in options(state)
+    assert parent not in options(state)
+
+def test_breeding_alternates_native_and_m15_without_mixed_lineage():
+    for hour, expected in ((100, NATIVE_SEEDS[0]), (101, ENTRY_SEEDS[0])):
+        now = hour * learner.EVOLVE_SECONDS
+        state = learner.new_state(0)
+        native, legacy = genome_name(NATIVE_SEEDS[0]), genome_name(ENTRY_SEEDS[0])
+        state["candidates"] = {name: state["candidates"][name] for name in (native, legacy)}
+        state["drafts"] = {}
+        state["samples"] = samples(native, [0.5] * 12) + samples(legacy, [0.5] * 12)
+        assert learner.evolve(state, now, force=True) == 1
+        draft = next(iter(state["drafts"].values()))
+        assert draft["parents"] == [genome_name(expected)]
+
+def test_m15_screened_training_is_used_despite_unrelated_historical_report():
+    from backend.app.futures_strategies import genome_fingerprint
+    state = learner.new_state(0)
+    name = genome_name(ENTRY_SEEDS[0])
+    candidate = state["candidates"][name]
+    candidate["draft_id"] = "screened"
+    state["historical"] = {"report": {"end_time": 0, "strategies": [{
+        "strategy": "unrelated", "train": {"contexts": {}}, "validation": {"contexts": {}}}]}}
+    state["drafts"] = {"screened": {"replay": {
+        "end_time": 0, "genome_fingerprint": genome_fingerprint(candidate["genome"]),
+        "train_samples": 12, "train_mean_r": 0.5, "validation_samples": 99, "validation_mean_r": 9}}}
+    assert learner.breeding_performance(state, NOW)[name] == (12, 0.5)

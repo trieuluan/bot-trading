@@ -437,6 +437,7 @@ def breeding_performance(state, now):
             count, average = forward.get(name, (0, 0.0))
             total = count * average
             historical = (state.get("historical") or {}).get("report") or {}
+            matched = False
             if historical.get("end_time", now + 1) <= now:
                 for historical_row in historical.get("strategies", []):
                     if (historical_row["strategy"] == name
@@ -444,8 +445,9 @@ def breeding_performance(state, now):
                         training = historical_row["train"]
                         count += training["resolved"]
                         total += training["resolved"] * (training["mean_r"] or 0.0)
+                        matched = True
             screened = (state.get("drafts", {}).get(candidate.get("draft_id")) or {}).get("replay") or {}
-            if (not historical.get("strategies") and screened.get("end_time", now + 1) <= now
+            if (not matched and screened.get("end_time", now + 1) <= now
                     and screened.get("genome_fingerprint") == genome_fingerprint(candidate["genome"])):
                 count += screened["train_samples"]
                 total += screened["train_samples"] * (screened["train_mean_r"] or 0.0)
