@@ -97,29 +97,26 @@ test('ForexEntryPilotPanel displays individual tree metrics and progress', async
         pilot: { status: 'ready', tree_count: 2, generation: 1, population_model: 'independent_v1', min_outcomes: 10, trees },
       },
     }));
-    assert.ok(html.includes('hast4_tree_01'));
-    assert.ok(html.includes('hast4_tree_02'));
+    assert.ok(html.includes('title="hast4_tree_01"'));
+    assert.ok(html.includes('title="hast4_tree_02"'));
     assert.ok(html.includes('2 / 2 cây · entry tiến hóa độc lập'));
-    assert.ok(html.includes('Đủ điều kiện làm cha/mẹ'));
-    assert.ok(html.includes('10 kết quả hợp lệ, tối thiểu 10.'));
-    assert.ok(html.includes('2 shadow mở/chờ'));
-    assert.ok(html.includes('Đủ mẫu trước · Mean R'));
-    assert.ok(html.includes('Đủ mẫu · chưa đạt'));
-    assert.ok(html.includes('Chưa có dữ liệu execution cho cây này.'));
-    assert.ok(html.includes('lg:sr-only">Mean R'));
-    assert.ok(html.includes('#ree_01'));
-    assert.ok(html.includes('#ree_02'));
+    assert.ok(html.includes('aria-label="Ma trận cấu trúc H1 theo cách vào lệnh"'));
+    assert.ok(html.includes('#ree_01 · G0'));
+    assert.ok(html.includes('#ree_02 · G1'));
     assert.ok(html.includes('+0.75R'));
-    assert.ok(html.includes('Cha/mẹ: hast4_tree_01'));
-    assert.ok(html.includes('aria-label="Trạng thái cây"'));
+    assert.ok(html.includes('10/10'));
+    assert.ok(html.includes('2 mở/chờ'));
+    assert.ok(html.includes('Có thể sinh con'));
+    assert.ok(html.includes('Đang gom mẫu'));
+    assert.ok(html.includes('aria-label="Lọc cách vào lệnh"'));
+    assert.ok(html.includes('aria-label="Shadow đang chạy"'));
+    assert.ok(html.includes('aria-label="Thế hệ cây"'));
+    assert.ok(!html.includes('aria-label="Trạng thái cây"'), 'lifecycle filter only via quick chips');
+    assert.ok(html.includes('M15: Lấy lại mốc setup H1'));
     assert.ok(html.includes('aria-label="Sắp xếp cây"'));
-    assert.ok(html.includes('Đủ điều kiện sinh con'));
+    assert.ok(html.includes('Đủ mẫu trước · Mean R'));
     assert.ok(html.includes('Mean R cao nhất'));
-    assert.ok(html.includes('Chi tiết cây'));
-    assert.ok(html.includes('Phả hệ'));
-    assert.ok(html.includes('12 mẫu · 10 kết quả hợp lệ'));
-    assert.ok(!html.includes('Chưa có mẫu shadow'));
-    assert.ok(html.includes('group-open/tree:rotate-180'));
+    assert.ok(!html.includes('Xoá lọc'));
     assert.ok(!html.includes('4/4'));
     assert.ok(!html.includes('bộ'));
   } finally {
@@ -157,7 +154,7 @@ test('ForexEntryPilotPanel renders new root setups with Vietnamese labels', asyn
       assert.ok(html.includes(s.expected), `Expected label ${s.expected} for ${s.setup}`);
     }
     assert.ok(html.includes('Đang chờ mẫu shadow đầu tiên.'));
-    assert.ok(html.includes('Chờ tín hiệu đầu tiên'));
+    assert.ok(html.includes('Chờ tín hiệu'));
     assert.ok(!html.includes('0 đang chạy'));
   } finally {
     await server.close();

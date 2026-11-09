@@ -1,7 +1,7 @@
 import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeForexStream } from '../lib/forex-stream';
-import { CheckCircle2, ChevronDown, CircleDashed, CircleX, Clock3, Eye, GitBranch, Search, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleDashed, CircleX, Clock3, Eye, GitBranch, LayoutGrid, List, Search, X } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import {
   MtfObservationChart,
@@ -1055,6 +1055,11 @@ export function ForexEntryPilotPanel({
   const [pilotPage, setPilotPage] = useState(0);
   const [treeFilter, setTreeFilter] = useState('all');
   const [treeSort, setTreeSort] = useState('qualified');
+  const [policyFilter, setPolicyFilter] = useState('all');
+  const [activityFilter, setActivityFilter] = useState('all');
+  const [generationFilter, setGenerationFilter] = useState('all');
+  const [treeView, setTreeView] = useState<'matrix' | 'list'>('matrix');
+  const [pickedTree, setPickedTree] = useState<string | null>(null);
   const digits = priceDigits(symbol);
   const price = (value: number | null) => (value == null ? '—' : value.toFixed(digits));
   const pilot = entryPilot?.pilot;
@@ -1102,17 +1107,36 @@ export function ForexEntryPilotPanel({
   const populationFilters = [
     { value: 'all', title: 'Tất cả', count: trees.length, tone: 'text-text-primary' },
     { value: 'eligible', title: 'Có thể sinh con', count: trees.filter((tree) => tree.eligible).length, tone: 'text-emerald-300' },
-    { value: 'collecting', title: 'Đang gom mẫu', count: trees.filter((tree) => !tree.ready).length, tone: 'text-sky-300' },
+    { value: 'waiting', title: 'Chờ tín hiệu', count: trees.filter((tree) => !tree.ready && !tree.eligible && tree.samples_count === 0).length, tone: 'text-text-secondary' },
+    { value: 'collecting', title: 'Đang gom mẫu', count: trees.filter((tree) => !tree.ready && !tree.eligible && tree.samples_count > 0).length, tone: 'text-sky-300' },
     { value: 'not_eligible', title: 'Đủ mẫu · chưa đạt', count: trees.filter((tree) => tree.ready && !tree.eligible).length, tone: 'text-rose-300' },
   ];
+  const policyOrder = [...new Set([...Object.keys(entryPolicyLabels), ...policies])];
+  const policyFilters = [
+    { value: 'all', title: 'Mọi cách vào', count: trees.length },
+    ...policyOrder
+      .filter((policy) => policies.has(policy))
+      .map((policy) => ({ value: policy, title: policyLabel(policy), count: trees.filter((tree) => tree.entry_policy === policy).length })),
+  ];
+  const treeStatus = (tree: (typeof trees)[number]) => tree.eligible
+    ? { label: 'Có thể sinh con', tone: 'text-emerald-300', Icon: CheckCircle2 }
+    : tree.ready
+      ? { label: 'Đủ mẫu · chưa đạt', tone: 'text-rose-300', Icon: CircleX }
+      : tree.samples_count === 0
+        ? { label: 'Chờ tín hiệu', tone: 'text-text-muted', Icon: CircleDashed }
+        : { label: 'Đang gom mẫu', tone: 'text-sky-300', Icon: Clock3 };
+  const minOutcomes = Math.max(1, pilot?.min_outcomes ?? 10);
+  const filtersActive = treeFilter !== 'all' || policyFilter !== 'all' || activityFilter !== 'all' || generationFilter !== 'all' || needle !== '';
+  const resetFilters = () => { setEntrySearch(''); setTreeFilter('all'); setPolicyFilter('all'); setActivityFilter('all'); setGenerationFilter('all'); setPilotPage(0); setPickedTree(null); };
   const filteredTrees = trees.filter((tree) => {
     const matchesState = treeFilter === 'all'
       || (treeFilter === 'eligible' && tree.eligible)
-      || (treeFilter === 'running' && runningCount(tree.status_counts) > 0)
-      || (treeFilter === 'collecting' && !tree.ready)
-      || (treeFilter === 'not_eligible' && tree.ready && !tree.eligible)
-      || (treeFilter === 'children' && (tree.generation ?? 0) > 0);
-    return matchesState && (!needle || [
+      || (treeFilter === 'waiting' && !tree.ready && !tree.eligible && tree.samples_count === 0)
+      || (treeFilter === 'collecting' && !tree.ready && !tree.eligible && tree.samples_count > 0)
+      || (treeFilter === 'not_eligible' && tree.ready && !tree.eligible);
+    const matchesActivity = activityFilter === 'all' || (activityFilter === 'active' ? runningCount(tree.status_counts) > 0 : runningCount(tree.status_counts) === 0);
+    const matchesGeneration = generationFilter === 'all' || (generationFilter === 'children' ? (tree.generation ?? 0) > 0 : (tree.generation ?? 0) === 0);
+    return matchesState && matchesActivity && matchesGeneration && (policyFilter === 'all' || tree.entry_policy === policyFilter) && (!needle || [
           tree.id,
           tree.control_tree_id,
           tree.h1_setup,
@@ -1141,6 +1165,26 @@ export function ForexEntryPilotPanel({
   const totalPages = Math.max(1, Math.ceil(filteredTrees.length / pageSize));
   const pageIndex = Math.min(pilotPage, totalPages - 1);
   const pagedTrees = filteredTrees.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
+  const treeDetail = (tree: (typeof trees)[number]) => {
+    const treeIntents = intents.filter((intent) => intent.strategy === tree.id);
+    const filled = treeIntents.filter((intent) => intent.broker_fills?.length).length;
+    return (
+      <>
+                  <dl className="grid min-w-0 gap-x-6 gap-y-4 border-t border-border-subtle bg-surface-2/50 px-3 py-4 leading-relaxed sm:grid-cols-2 lg:grid-cols-3 [&_dt]:text-text-muted">
+                    <div><dt>ID cây</dt><dd className="mt-1 break-all font-mono text-text-primary">{tree.id}</dd></div>
+                    <div><dt>Thoát lệnh</dt><dd className="mt-1 text-text-primary">{label(tree.exit_policy)}</dd></div>
+                    <div><dt>Mẫu shadow</dt><dd className="mt-1 tabular-nums text-text-primary">{tree.samples_count} mẫu · {tree.resolved_count} kết quả hợp lệ</dd></div>
+                    <div><dt>Tiến hoá</dt><dd className="mt-1 text-text-primary">{tree.eligible ? 'Đủ điều kiện làm cha/mẹ' : tree.ready ? 'Chưa đủ điều kiện sinh con' : tree.samples_count === 0 ? 'Chờ tín hiệu đầu tiên' : 'Đang gom mẫu'} · {tree.resolved_count} kết quả hợp lệ, tối thiểu {minOutcomes}.</dd></div>
+                    <div><dt>Execution demo · dữ liệu trả về</dt><dd className="mt-1 text-text-primary">{filled > 0 ? `${filled} setup có broker xác nhận khớp; không suy ra vị thế còn mở.` : treeIntents.length > 0 ? `${treeIntents.length} setup · chưa có xác nhận khớp broker.` : 'Chưa có dữ liệu execution cho cây này.'}{tree.entry_live_sides?.length === 1 && <span className="block text-amber-300">Limit Short chỉ shadow</span>}</dd></div>
+                    <div><dt>Tham số entry</dt><dd className="mt-1 break-words font-mono text-text-primary">{Object.entries(tree.entry_params ?? {}).map(([name, value]) => `${name}=${value}`).join(' · ') || 'Không có tham số entry'}</dd></div>
+                    <div><dt>Phả hệ</dt><dd className="mt-1 break-all text-text-primary">Cha/mẹ: {tree.parents?.join(', ') || 'Cây gốc'}</dd></div>
+                  </dl>
+                  {finishedNoR(tree.status_counts).length > 0 && <p className="px-3 py-2 text-amber-300">Không tính fitness: {finishedNoR(tree.status_counts).join(' · ')}</p>}
+      </>
+    );
+  };
+  const matrixGroups = [...filteredTrees.reduce((map, tree) => map.set(tree.h1_setup, [...(map.get(tree.h1_setup) ?? []), tree]), new Map<string, typeof trees>())];
+  const pickedTreeData = filteredTrees.find((tree) => tree.id === pickedTree);
   const states = Object.entries(pilot?.counts ?? {});
   return (
     <>
@@ -1384,15 +1428,26 @@ export function ForexEntryPilotPanel({
               <h5 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-text-primary"><GitBranch size={19} className="text-sky-300" aria-hidden="true" />Quần thể tiến hoá</h5>
               <span aria-live="polite" className="text-xs tabular-nums text-text-secondary">{filteredTrees.length} / {trees.length} cây · entry tiến hóa độc lập</span>
             </div>
-            <div className="flex flex-wrap gap-x-1 gap-y-2 border-b border-border-base" role="group" aria-label="Lọc nhanh quần thể">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc nhanh quần thể">
               {populationFilters.map((filter) => (
-                <button key={filter.value} type="button" aria-pressed={treeFilter === filter.value} onClick={() => { setTreeFilter(filter.value); setPilotPage(0); }} className={`inline-flex min-h-11 items-center gap-2 border-b-2 px-3 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-sky-400 ${treeFilter === filter.value ? 'border-sky-300 bg-surface-2 text-text-primary' : 'border-transparent text-text-secondary hover:bg-surface-2'} `}>
-                  {filter.title}<span className={`rounded px-1.5 py-0.5 font-mono font-semibold tabular-nums ${treeFilter === filter.value ? 'bg-surface-3' : 'bg-surface-2'} ${filter.tone}`}>{filter.count}</span>
+                <button key={filter.value} type="button" aria-pressed={treeFilter === filter.value} onClick={() => { setTreeFilter(filter.value); setPilotPage(0); }} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-sky-400 ${treeFilter === filter.value ? 'border-sky-400/50 bg-sky-400/15 text-text-primary' : 'border-border-base bg-surface-1 text-text-secondary hover:border-border-active hover:bg-surface-2'}`}>
+                  {filter.title}<span className={`font-mono font-semibold tabular-nums ${filter.tone}`}>{filter.count}</span>
                 </button>
               ))}
             </div>
-            <div className="entry-pilot-toolbar flex min-w-0 flex-wrap items-end gap-3 text-xs">
-            <label className="flex min-w-0 basis-full flex-col gap-1.5 sm:flex-1">
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Lọc cách vào lệnh">
+              <span className="mr-1 text-xs text-text-muted">Cách vào lệnh</span>
+              {policyFilters.map((filter) => {
+                const on = policyFilter === filter.value;
+                return (
+                  <button key={filter.value} type="button" aria-pressed={on} onClick={() => { setPolicyFilter(filter.value); setPilotPage(0); }} className={`inline-flex min-h-10 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? (policyTone[filter.value] ?? 'border-border-active bg-surface-3 text-text-primary') : 'border-border-base bg-surface-1 text-text-secondary hover:bg-surface-2'}`}>
+                    {filter.title}<span className="font-mono tabular-nums opacity-80">{filter.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="entry-pilot-toolbar grid min-w-0 grid-cols-2 items-end gap-3 text-xs sm:grid-cols-3 lg:grid-cols-[minmax(14rem,1fr)_repeat(3,9.5rem)_auto_auto]">
+            <label className="col-span-2 flex min-w-0 flex-col gap-1.5 sm:col-span-3 lg:col-span-1">
               <span className="text-text-secondary">Tìm cây hoặc cha/mẹ</span>
             <span className="relative block">
             <Search size={15} aria-hidden="true" className="pointer-events-none absolute left-3 top-3 text-text-muted" />
@@ -1406,20 +1461,25 @@ export function ForexEntryPilotPanel({
             />
             </span>
             </label>
-            <label className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-none">
-              <span className="text-text-secondary">Trạng thái cây</span>
-              <select aria-label="Trạng thái cây" value={treeFilter} onChange={(event) => { setTreeFilter(event.target.value); setPilotPage(0); }} className="min-h-10 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
-                <option value="all">Tất cả cây</option>
-                <option value="eligible">Đủ điều kiện sinh con</option>
-                <option value="collecting">Chưa đủ mẫu</option>
-                <option value="not_eligible">Đủ mẫu · chưa đạt</option>
-                <option value="running">Có shadow mở/chờ</option>
+            <label className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-text-secondary">Shadow</span>
+              <select aria-label="Shadow đang chạy" value={activityFilter} onChange={(event) => { setActivityFilter(event.target.value); setPilotPage(0); }} className="min-h-10 w-full min-w-0 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
+                <option value="all">Mọi trạng thái</option>
+                <option value="active">Có shadow mở/chờ</option>
+                <option value="idle">Không có shadow</option>
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-col gap-1.5">
+              <span className="text-text-secondary">Thế hệ</span>
+              <select aria-label="Thế hệ cây" value={generationFilter} onChange={(event) => { setGenerationFilter(event.target.value); setPilotPage(0); }} className="min-h-10 w-full min-w-0 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
+                <option value="all">Gốc và con</option>
+                <option value="roots">Cây gốc</option>
                 <option value="children">Thế hệ con</option>
               </select>
             </label>
-            <label className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-none">
+            <label className="flex min-w-0 flex-col gap-1.5">
               <span className="text-text-secondary">Sắp xếp</span>
-              <select aria-label="Sắp xếp cây" value={treeSort} onChange={(event) => { setTreeSort(event.target.value); setPilotPage(0); }} className="min-h-10 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
+              <select aria-label="Sắp xếp cây" value={treeSort} onChange={(event) => { setTreeSort(event.target.value); setPilotPage(0); }} className="min-h-10 w-full min-w-0 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
                 <option value="qualified">Đủ mẫu trước · Mean R</option>
                 <option value="default">Thứ tự quần thể</option>
                 <option value="fitness">Mean R cao nhất</option>
@@ -1427,10 +1487,56 @@ export function ForexEntryPilotPanel({
                 <option value="generation">Thế hệ cao nhất</option>
               </select>
             </label>
+            <div className="col-span-2 flex justify-self-start rounded-md border border-border-base bg-surface-1 p-0.5 sm:col-span-1" role="group" aria-label="Kiểu hiển thị">
+              {([['matrix', 'Ma trận', LayoutGrid], ['list', 'Danh sách', List]] as const).map(([value, title, Icon]) => (
+                <button key={value} type="button" aria-pressed={treeView === value} onClick={() => setTreeView(value)} className={`inline-flex min-h-9 items-center gap-1.5 rounded px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-sky-400 ${treeView === value ? 'bg-surface-3 text-text-primary' : 'text-text-secondary hover:bg-surface-2'}`}>
+                  <Icon size={14} aria-hidden="true" />{title}
+                </button>
+              ))}
+            </div>
+            {filtersActive && <button type="button" onClick={resetFilters} className="inline-flex min-h-10 items-center gap-1.5 rounded-md border border-border-active px-3 text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400"><X size={14} aria-hidden="true" />Xoá lọc</button>}
             </div>
             <p className="text-xs leading-relaxed text-text-muted">Màu nhãn phân biệt cách vào lệnh. Mean R là kết quả shadow, không phải lợi nhuận broker; đủ mẫu không đồng nghĩa đã có lợi thế.</p>
           </div>
           {samples === 0 && <p className="max-w-prose text-xs leading-relaxed text-text-secondary"><strong className="text-text-primary">Đang chờ mẫu shadow đầu tiên.</strong> Mean R “—” là chưa có kết quả, không phải 0R. Shadow không phải lịch sử khớp lệnh broker.</p>}
+          {treeView === 'matrix' && filteredTrees.length > 0 && (
+            <div className="grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Ma trận cấu trúc H1 theo cách vào lệnh">
+              {matrixGroups.map(([setup, group]) => (
+                <section key={setup} className="min-w-0 rounded-xl border border-border-base bg-surface-1 p-3">
+                  <h6 className="flex items-baseline justify-between gap-2 text-sm font-semibold text-text-primary"><span>{label(setup)}</span><span className="font-mono text-[11px] font-normal tabular-nums text-text-muted">{group.length} cây</span></h6>
+                  <div className="mt-3 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+                    {group.map((tree) => {
+                      const status = treeStatus(tree);
+                      const active = runningCount(tree.status_counts);
+                      const percent = Math.min(100, Math.round((tree.resolved_count / minOutcomes) * 100));
+                      const on = pickedTree === tree.id;
+                      return (
+                        <button key={tree.id} type="button" title={tree.id} aria-label={`${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)} · ${signedR(tree.mean_r)} · ${status.label}`} aria-pressed={on} onClick={() => setPickedTree(on ? null : tree.id)} className={`entry-tree min-w-0 rounded-lg border p-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? 'ring-2 ring-sky-400/60 ' : ''}${policyTone[tree.entry_policy] ?? 'border-border-base bg-surface-3 text-text-secondary'}`}>
+                          <span className="flex items-center justify-between gap-1 text-xs font-semibold"><span className="truncate">{policyLabel(tree.entry_policy)}</span><span className="font-mono text-[11px] font-normal opacity-80">#{treeCode(tree.id)} · G{tree.generation ?? 0}</span></span>
+                          <span className="mt-1 block text-[10px] uppercase tracking-wide opacity-70">Mean R</span>
+                          <strong className={'block font-mono text-lg font-semibold tabular-nums ' + (tree.mean_r == null ? 'text-text-muted' : rTone(tree.mean_r) === 'positive' ? 'text-bull' : 'text-bear')}>{signedR(tree.mean_r)}</strong>
+                          <span className="mt-1 block h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label={`Mẫu đóng ${tree.resolved_count} trên ${minOutcomes}`} aria-valuemin={0} aria-valuemax={minOutcomes} aria-valuenow={Math.min(tree.resolved_count, minOutcomes)}><span className="block h-full bg-current" style={{ width: `${percent}%` }} /></span>
+                          <span className="mt-1.5 flex items-center justify-between gap-1 text-[11px] tabular-nums text-text-secondary"><span>{tree.resolved_count}/{minOutcomes}</span>{active > 0 && <span className="text-sky-300">{active} mở/chờ</span>}</span>
+                          <span className="mt-1 block truncate text-[11px] text-text-secondary">M15: {label(tree.m15_trigger)}</span>
+                          <span className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${status.tone}`}><status.Icon size={12} aria-hidden="true" />{status.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {pickedTreeData && group.some((tree) => tree.id === pickedTreeData.id) && (
+                    <div className="mt-3 min-w-0 rounded-xl border border-sky-400/30 bg-surface-1 text-xs leading-relaxed text-text-secondary" role="region" aria-label="Chi tiết cây đã chọn">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                    <strong className="text-sm text-text-primary">{label(pickedTreeData.h1_setup)} · {policyLabel(pickedTreeData.entry_policy)} · M15: {label(pickedTreeData.m15_trigger)}</strong>
+                    <button type="button" onClick={() => setPickedTree(null)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border-base px-2.5 text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400"><X size={14} aria-hidden="true" />Đóng</button>
+                    </div>
+                    {treeDetail(pickedTreeData)}
+                    </div>
+                    )}
+                </section>
+              ))}
+            </div>
+          )}
+          {treeView === 'list' && (<>
           <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_5rem_5rem_10rem_1rem] gap-3 rounded-t-lg border border-border-base bg-surface-2 px-4 py-3 text-xs font-medium text-text-secondary lg:grid">
             <span>Cây · Cấu trúc H1</span><span>Entry · Xác nhận M15</span><span className="text-right">Mean R</span><span className="text-right">Mẫu đóng</span><span className="text-right">Tiến hoá · Shadow</span><span />
           </div>
@@ -1438,8 +1544,6 @@ export function ForexEntryPilotPanel({
             {pagedTrees.map((tree) => {
               const code = treeCode(tree.id);
               const active = runningCount(tree.status_counts);
-              const treeIntents = intents.filter((intent) => intent.strategy === tree.id);
-              const filled = treeIntents.filter((intent) => intent.broker_fills?.length).length;
               const evolutionLabel = tree.eligible ? 'Có thể sinh con' : tree.ready ? 'Đủ mẫu · chưa đạt' : tree.samples_count === 0 ? 'Chờ tín hiệu' : 'Đang gom mẫu';
               const evolutionTone = tree.eligible ? 'text-emerald-300' : tree.ready ? 'text-rose-300' : tree.samples_count === 0 ? 'text-text-muted' : 'text-sky-300';
               const EvolutionIcon = tree.eligible ? CheckCircle2 : tree.ready ? CircleX : tree.samples_count === 0 ? CircleDashed : Clock3;
@@ -1473,27 +1577,19 @@ export function ForexEntryPilotPanel({
                 </span>
                 <ChevronDown size={14} className="col-start-3 row-start-1 mt-1 shrink-0 text-text-muted transition-transform group-open/tree:rotate-180 lg:col-auto lg:row-auto lg:mt-0" aria-hidden="true" />
                 </summary>
-                  <dl className="grid min-w-0 gap-x-6 gap-y-4 border-t border-border-subtle bg-surface-2/50 px-3 py-4 leading-relaxed sm:grid-cols-2 lg:grid-cols-3 [&_dt]:text-text-muted">
-                    <div><dt>ID cây</dt><dd className="mt-1 break-all font-mono text-text-primary">{tree.id}</dd></div>
-                    <div><dt>Thoát lệnh</dt><dd className="mt-1 text-text-primary">{label(tree.exit_policy)}</dd></div>
-                    <div><dt>Mẫu shadow</dt><dd className="mt-1 tabular-nums text-text-primary">{tree.samples_count} mẫu · {tree.resolved_count} kết quả hợp lệ</dd></div>
-                    <div><dt>Tiến hoá</dt><dd className="mt-1 text-text-primary">{tree.eligible ? 'Đủ điều kiện làm cha/mẹ' : tree.ready ? 'Chưa đủ điều kiện sinh con' : tree.samples_count === 0 ? 'Chờ tín hiệu đầu tiên' : 'Đang gom mẫu'} · {tree.resolved_count} kết quả hợp lệ, tối thiểu {pilot.min_outcomes ?? 10}.</dd></div>
-                    <div><dt>Execution demo · dữ liệu trả về</dt><dd className="mt-1 text-text-primary">{filled > 0 ? `${filled} setup có broker xác nhận khớp; không suy ra vị thế còn mở.` : treeIntents.length > 0 ? `${treeIntents.length} setup · chưa có xác nhận khớp broker.` : 'Chưa có dữ liệu execution cho cây này.'}{tree.entry_live_sides?.length === 1 && <span className="block text-amber-300">Limit Short chỉ shadow</span>}</dd></div>
-                    <div><dt>Tham số entry</dt><dd className="mt-1 break-words font-mono text-text-primary">{Object.entries(tree.entry_params ?? {}).map(([name, value]) => `${name}=${value}`).join(' · ') || 'Không có tham số entry'}</dd></div>
-                    <div><dt>Phả hệ</dt><dd className="mt-1 break-all text-text-primary">Cha/mẹ: {tree.parents?.join(', ') || 'Cây gốc'}</dd></div>
-                  </dl>
-                  {finishedNoR(tree.status_counts).length > 0 && <p className="px-3 py-2 text-amber-300">Không tính fitness: {finishedNoR(tree.status_counts).join(' · ')}</p>}
+                  {treeDetail(tree)}
                 </details>
               </li>
             ); })}
           </ul>
+          </>)}
           {!filteredTrees.length && (
             <p className="min-h-24 p-6 text-center text-xs text-text-muted">
               Không có cây phù hợp. Thử đổi trạng thái hoặc từ khoá tìm kiếm.
-              <button type="button" className="ml-2 min-h-10 rounded border border-border-active px-3 py-1 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={() => { setEntrySearch(''); setTreeFilter('all'); setPilotPage(0); }}>Đặt lại lọc cây</button>
+              <button type="button" className="ml-2 min-h-10 rounded border border-border-active px-3 py-1 focus-visible:outline-2 focus-visible:outline-sky-400" onClick={resetFilters}>Đặt lại lọc cây</button>
             </p>
           )}
-          {totalPages > 1 && (
+          {treeView === 'list' && totalPages > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3 text-xs">
               <span className="text-text-muted">Trang {pageIndex + 1} / {totalPages} ({filteredTrees.length} cây)</span>
               <div className="flex items-center gap-1.5">
