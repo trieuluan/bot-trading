@@ -1184,6 +1184,8 @@ export function ForexEntryPilotPanel({
     );
   };
   const matrixGroups = [...filteredTrees.reduce((map, tree) => map.set(tree.h1_setup, [...(map.get(tree.h1_setup) ?? []), tree]), new Map<string, typeof trees>())];
+  const matrixPolicies = policyOrder.filter((policy) => policies.has(policy));
+  const policyDot: Record<string, string> = { market: 'bg-sky-400', limit_setup_mid: 'bg-teal-400', stop_trigger_break: 'bg-amber-400', limit_or_stop: 'bg-indigo-400' };
   const pickedTreeData = filteredTrees.find((tree) => tree.id === pickedTree);
   const states = Object.entries(pilot?.counts ?? {});
   return (
@@ -1500,40 +1502,54 @@ export function ForexEntryPilotPanel({
           </div>
           {samples === 0 && <p className="max-w-prose text-xs leading-relaxed text-text-secondary"><strong className="text-text-primary">Đang chờ mẫu shadow đầu tiên.</strong> Mean R “—” là chưa có kết quả, không phải 0R. Shadow không phải lịch sử khớp lệnh broker.</p>}
           {treeView === 'matrix' && filteredTrees.length > 0 && (
-            <div className="grid min-w-0 gap-3 md:grid-cols-2 2xl:grid-cols-3" aria-label="Ma trận cấu trúc H1 theo cách vào lệnh">
-              {matrixGroups.map(([setup, group]) => (
-                <section key={setup} className="min-w-0 rounded-xl border border-border-base bg-surface-1 p-3">
-                  <h6 className="flex items-baseline justify-between gap-2 text-sm font-semibold text-text-primary"><span>{label(setup)}</span><span className="font-mono text-[11px] font-normal tabular-nums text-text-muted">{group.length} cây</span></h6>
-                  <div className="mt-3 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
-                    {group.map((tree) => {
-                      const status = treeStatus(tree);
-                      const active = runningCount(tree.status_counts);
-                      const percent = Math.min(100, Math.round((tree.resolved_count / minOutcomes) * 100));
-                      const on = pickedTree === tree.id;
-                      return (
-                        <button key={tree.id} type="button" title={tree.id} aria-label={`${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)} · ${signedR(tree.mean_r)} · ${status.label}`} aria-pressed={on} onClick={() => setPickedTree(on ? null : tree.id)} className={`entry-tree min-w-0 rounded-lg border p-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? 'ring-2 ring-sky-400/60 ' : ''}${policyTone[tree.entry_policy] ?? 'border-border-base bg-surface-3 text-text-secondary'}`}>
-                          <span className="flex items-center justify-between gap-1 text-xs font-semibold"><span className="truncate">{policyLabel(tree.entry_policy)}</span><span className="font-mono text-[11px] font-normal opacity-80">#{treeCode(tree.id)} · G{tree.generation ?? 0}</span></span>
-                          <span className="mt-1 block text-[10px] uppercase tracking-wide opacity-70">Mean R</span>
-                          <strong className={'block font-mono text-lg font-semibold tabular-nums ' + (tree.mean_r == null ? 'text-text-muted' : rTone(tree.mean_r) === 'positive' ? 'text-bull' : 'text-bear')}>{signedR(tree.mean_r)}</strong>
-                          <span className="mt-1 block h-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label={`Mẫu đóng ${tree.resolved_count} trên ${minOutcomes}`} aria-valuemin={0} aria-valuemax={minOutcomes} aria-valuenow={Math.min(tree.resolved_count, minOutcomes)}><span className="block h-full bg-current" style={{ width: `${percent}%` }} /></span>
-                          <span className="mt-1.5 flex items-center justify-between gap-1 text-[11px] tabular-nums text-text-secondary"><span>{tree.resolved_count}/{minOutcomes}</span>{active > 0 && <span className="text-sky-300">{active} mở/chờ</span>}</span>
-                          <span className="mt-1 block truncate text-[11px] text-text-secondary">M15: {label(tree.m15_trigger)}</span>
-                          <span className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${status.tone}`}><status.Icon size={12} aria-hidden="true" />{status.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {pickedTreeData && group.some((tree) => tree.id === pickedTreeData.id) && (
-                    <div className="mt-3 min-w-0 rounded-xl border border-sky-400/30 bg-surface-1 text-xs leading-relaxed text-text-secondary" role="region" aria-label="Chi tiết cây đã chọn">
-                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                    <strong className="text-sm text-text-primary">{label(pickedTreeData.h1_setup)} · {policyLabel(pickedTreeData.entry_policy)} · M15: {label(pickedTreeData.m15_trigger)}</strong>
-                    <button type="button" onClick={() => setPickedTree(null)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border-base px-2.5 text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400"><X size={14} aria-hidden="true" />Đóng</button>
+            <div className="min-w-0 overflow-hidden rounded-xl border border-border-base" aria-label="Ma trận cấu trúc H1 theo cách vào lệnh">
+              <div aria-hidden="true" className="hidden grid-cols-[11rem_repeat(4,minmax(0,1fr))] gap-px border-b border-border-base bg-surface-2 text-xs font-semibold lg:grid">
+                <span className="px-3 py-2 text-text-secondary">Cấu trúc H1</span>
+                {matrixPolicies.map((policy) => <span key={policy} className="flex items-center gap-1.5 px-3 py-2 text-text-primary"><span className={`size-2 rounded-full ${policyDot[policy] ?? 'bg-text-muted'}`} />{policyLabel(policy)}</span>)}
+              </div>
+              <ul className="divide-y divide-border-subtle">
+                {matrixGroups.map(([setup, group]) => (
+                  <li key={setup} className="grid min-w-0 gap-2 p-3 lg:grid-cols-[11rem_repeat(4,minmax(0,1fr))] lg:gap-x-2 lg:py-2">
+                    <div className="flex items-baseline justify-between gap-2 lg:block">
+                      <strong className="text-sm font-semibold leading-snug text-text-primary">{label(setup)}</strong>
+                      <span className="font-mono text-[11px] tabular-nums text-text-muted lg:block">{group.length} cây</span>
                     </div>
-                    {treeDetail(pickedTreeData)}
-                    </div>
+                    {matrixPolicies.map((policy) => (
+                      <div key={policy} className="flex min-w-0 flex-col gap-1">
+                        <span className="flex items-center gap-1.5 text-[11px] font-medium text-text-secondary lg:sr-only"><span className={`size-2 rounded-full ${policyDot[policy] ?? 'bg-text-muted'}`} />{policyLabel(policy)}</span>
+                        {group.filter((tree) => tree.entry_policy === policy).map((tree) => {
+                          const status = treeStatus(tree);
+                          const active = runningCount(tree.status_counts);
+                          const on = pickedTree === tree.id;
+                          return (
+                            <button key={tree.id} type="button" title={tree.id} aria-label={`${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)} · ${signedR(tree.mean_r)} · ${status.label}`} aria-pressed={on} onClick={() => setPickedTree(on ? null : tree.id)} className={`entry-tree grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 rounded-md border px-2 py-1.5 text-left transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? 'border-sky-400/70 bg-surface-3' : 'border-border-subtle bg-surface-2/60'}`}>
+                              <status.Icon size={14} className={`shrink-0 ${status.tone}`} aria-hidden="true" />
+                              <span className="min-w-0">
+                                <span className="block truncate text-xs font-medium text-text-primary">M15: {label(tree.m15_trigger)}</span>
+                                <span className="block truncate text-[11px] text-text-muted">{label(tree.exit_policy)}</span>
+                                <span className="block truncate text-[11px] text-text-secondary"><span className="font-mono">#{treeCode(tree.id)} · G{tree.generation ?? 0}</span> · <span className={status.tone}>{status.label}</span>{active > 0 && <span className="text-sky-300"> · {active} mở/chờ</span>}</span>
+                              </span>
+                              <span className="text-right">
+                                <strong className={'block font-mono text-sm font-semibold tabular-nums ' + (tree.mean_r == null ? 'text-text-muted' : rTone(tree.mean_r) === 'positive' ? 'text-bull' : 'text-bear')}>{signedR(tree.mean_r)}</strong>
+                                <span className="block font-mono text-[10px] tabular-nums text-text-muted" role="progressbar" aria-label={`Mẫu đóng ${tree.resolved_count} trên ${minOutcomes}`} aria-valuemin={0} aria-valuemax={minOutcomes} aria-valuenow={Math.min(tree.resolved_count, minOutcomes)}>{tree.resolved_count}/{minOutcomes}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    {pickedTreeData && group.some((tree) => tree.id === pickedTreeData.id) && (
+                      <div className="min-w-0 rounded-xl border border-sky-400/30 bg-surface-1 text-xs leading-relaxed text-text-secondary lg:col-span-5" role="region" aria-label="Chi tiết cây đã chọn">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                          <strong className="text-sm text-text-primary">{label(pickedTreeData.h1_setup)} · {policyLabel(pickedTreeData.entry_policy)} · M15: {label(pickedTreeData.m15_trigger)}</strong>
+                          <button type="button" onClick={() => setPickedTree(null)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border-base px-2.5 text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400"><X size={14} aria-hidden="true" />Đóng</button>
+                        </div>
+                        {treeDetail(pickedTreeData)}
+                      </div>
                     )}
-                </section>
-              ))}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {treeView === 'list' && (<>

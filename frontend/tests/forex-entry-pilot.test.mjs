@@ -101,8 +101,8 @@ test('ForexEntryPilotPanel displays individual tree metrics and progress', async
     assert.ok(html.includes('title="hast4_tree_02"'));
     assert.ok(html.includes('2 / 2 cây · entry tiến hóa độc lập'));
     assert.ok(html.includes('aria-label="Ma trận cấu trúc H1 theo cách vào lệnh"'));
-    assert.ok(html.includes('#ree_01 · G0'));
-    assert.ok(html.includes('#ree_02 · G1'));
+    assert.ok(html.includes('#ree_01 · G0</span>'));
+    assert.ok(html.includes('#ree_02 · G1</span>'));
     assert.ok(html.includes('+0.75R'));
     assert.ok(html.includes('10/10'));
     assert.ok(html.includes('2 mở/chờ'));
@@ -113,6 +113,7 @@ test('ForexEntryPilotPanel displays individual tree metrics and progress', async
     assert.ok(html.includes('aria-label="Thế hệ cây"'));
     assert.ok(!html.includes('aria-label="Trạng thái cây"'), 'lifecycle filter only via quick chips');
     assert.ok(html.includes('M15: Lấy lại mốc setup H1'));
+    assert.ok(html.includes('Chốt từng nấc +1R/+2R'));
     assert.ok(html.includes('aria-label="Sắp xếp cây"'));
     assert.ok(html.includes('Đủ mẫu trước · Mean R'));
     assert.ok(html.includes('Mean R cao nhất'));
