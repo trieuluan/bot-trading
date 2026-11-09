@@ -482,3 +482,10 @@ def test_summary_tree_stats_only_use_current_logic_version(monkeypatch):
     tree = summary("account", "EURUSD")["trees"][0]
     assert tree["mean_r"] == 2.0 and tree["samples_count"] == 1
     assert len(summary("account", "EURUSD")["shadow_trades"]) == 2
+
+
+def test_candidates_ignore_excluded_samples_without_entry_policy(monkeypatch):
+    from backend.app import forex_htf_v4 as v4
+    excluded = {"live_assigned": True, "status": "excluded", "signal": {}}
+    monkeypatch.setattr(v4, "read_ledger", lambda account, symbol: {"samples": [excluded], "since": 0})
+    assert v4.candidates("a", "XAUUSD", 0) == []

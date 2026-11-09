@@ -585,8 +585,8 @@ def candidates(account, symbol, now):
     return [
         sample for sample in ledger["samples"]
         if sample.get("live_assigned", False) is True
-        and live_entry_allowed(sample["signal"]["entry_policy"], sample["signal"].get("side", sample.get("side")))
         and sample["status"] == "waiting"
+        and live_entry_allowed(sample["signal"]["entry_policy"], sample["signal"].get("side", sample.get("side")))
         and sample["strategy_version"] == ver
         and sample["provenance"] == PROVENANCE
         and sample["recorded_at"] >= ledger["since"]
