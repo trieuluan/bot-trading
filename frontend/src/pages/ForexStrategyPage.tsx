@@ -1,5 +1,5 @@
 import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { subscribeForexStream } from '../lib/forex-stream';
 import { CheckCircle2, ChevronDown, CircleDashed, CircleX, Clock3, Eye, GitBranch, LayoutGrid, List, Search, X } from 'lucide-react';
 import type { ForexDashboard } from '../App';
@@ -1044,6 +1044,48 @@ function runningCount(counts: Record<string, number> = {}): number {
   return (counts.open ?? 0) + (counts.pending ?? 0) + (counts.waiting ?? 0);
 }
 
+// Native popover: top layer, light dismiss, Escape; neo theo ô cây đang mở.
+function TreePopover({ anchor, label, onClose, children }: { anchor: { current: HTMLElement | null }; label: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useLayoutEffect(() => {
+    const panel = ref.current;
+    const opener = anchor.current;
+    if (!panel) return;
+    const place = () => {
+      const box = opener?.getBoundingClientRect();
+      const width = Math.min(400, innerWidth - 16);
+      const height = panel.offsetHeight;
+      if (!box) return;
+      const below = box.bottom + 6;
+      const top = below + height <= innerHeight - 8 ? below : Math.max(8, box.top - height - 6);
+      panel.style.width = `${width}px`;
+      panel.style.left = `${Math.min(Math.max(8, box.left), innerWidth - width - 8)}px`;
+      panel.style.top = `${top}px`;
+    };
+    const toggled = (event: Event) => { if ((event as ToggleEvent).newState === 'closed') close.current(); };
+    panel.addEventListener('toggle', toggled);
+    if (typeof panel.showPopover === 'function') panel.showPopover();
+    place();
+    panel.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+    addEventListener('resize', place);
+    addEventListener('scroll', place, true);
+    return () => {
+      panel.removeEventListener('toggle', toggled);
+      removeEventListener('resize', place);
+      removeEventListener('scroll', place, true);
+      if (typeof panel.hidePopover === 'function' && panel.matches?.(':popover-open')) panel.hidePopover();
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [anchor]);
+  return (
+    <div ref={ref} popover="auto" role="dialog" aria-label={label} className="fixed inset-auto m-0 max-h-[min(32rem,calc(100dvh-16px))] overflow-y-auto overscroll-contain rounded-xl border border-border-active bg-surface-1 p-0 text-text-secondary shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-150">
+      {children}
+    </div>
+  );
+}
+
 export function ForexEntryPilotPanel({
   entryPilot,
   symbol,
@@ -1060,6 +1102,7 @@ export function ForexEntryPilotPanel({
   const [generationFilter, setGenerationFilter] = useState('all');
   const [treeView, setTreeView] = useState<'matrix' | 'list'>('matrix');
   const [pickedTree, setPickedTree] = useState<string | null>(null);
+  const pickedAnchor = useRef<HTMLElement | null>(null);
   const digits = priceDigits(symbol);
   const price = (value: number | null) => (value == null ? '—' : value.toFixed(digits));
   const pilot = entryPilot?.pilot;
@@ -1491,7 +1534,7 @@ export function ForexEntryPilotPanel({
             </label>
             <div className="col-span-2 flex justify-self-start rounded-md border border-border-base bg-surface-1 p-0.5 sm:col-span-1" role="group" aria-label="Kiểu hiển thị">
               {([['matrix', 'Ma trận', LayoutGrid], ['list', 'Danh sách', List]] as const).map(([value, title, Icon]) => (
-                <button key={value} type="button" aria-pressed={treeView === value} onClick={() => setTreeView(value)} className={`inline-flex min-h-9 items-center gap-1.5 rounded px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-sky-400 ${treeView === value ? 'bg-surface-3 text-text-primary' : 'text-text-secondary hover:bg-surface-2'}`}>
+                <button key={value} type="button" aria-pressed={treeView === value} onClick={() => { setTreeView(value); setPickedTree(null); }} className={`inline-flex min-h-9 items-center gap-1.5 rounded px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-sky-400 ${treeView === value ? 'bg-surface-3 text-text-primary' : 'text-text-secondary hover:bg-surface-2'}`}>
                   <Icon size={14} aria-hidden="true" />{title}
                 </button>
               ))}
@@ -1522,7 +1565,7 @@ export function ForexEntryPilotPanel({
                           const active = runningCount(tree.status_counts);
                           const on = pickedTree === tree.id;
                           return (
-                            <button key={tree.id} type="button" title={tree.id} aria-label={`${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)} · ${signedR(tree.mean_r)} · ${status.label}`} aria-pressed={on} onClick={() => setPickedTree(on ? null : tree.id)} className={`entry-tree grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 rounded-md border px-2 py-1.5 text-left transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? 'border-sky-400/70 bg-surface-3' : 'border-border-subtle bg-surface-2/60'}`}>
+                            <button key={tree.id} type="button" title={tree.id} aria-label={`${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)} · ${signedR(tree.mean_r)} · ${status.label}`} aria-haspopup="dialog" aria-expanded={on} onClick={(event) => { pickedAnchor.current = event.currentTarget; setPickedTree(tree.id); }} className={`entry-tree grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 rounded-md border px-2 py-1.5 text-left transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-sky-400 ${on ? 'border-sky-400/70 bg-surface-3' : 'border-border-subtle bg-surface-2/60'}`}>
                               <status.Icon size={14} className={`shrink-0 ${status.tone}`} aria-hidden="true" />
                               <span className="min-w-0">
                                 <span className="block truncate text-xs font-medium text-text-primary">M15: {label(tree.m15_trigger)}</span>
@@ -1538,20 +1581,49 @@ export function ForexEntryPilotPanel({
                         })}
                       </div>
                     ))}
-                    {pickedTreeData && group.some((tree) => tree.id === pickedTreeData.id) && (
-                      <div className="min-w-0 rounded-xl border border-sky-400/30 bg-surface-1 text-xs leading-relaxed text-text-secondary lg:col-span-5" role="region" aria-label="Chi tiết cây đã chọn">
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                          <strong className="text-sm text-text-primary">{label(pickedTreeData.h1_setup)} · {policyLabel(pickedTreeData.entry_policy)} · M15: {label(pickedTreeData.m15_trigger)}</strong>
-                          <button type="button" onClick={() => setPickedTree(null)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border-base px-2.5 text-text-secondary hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-sky-400"><X size={14} aria-hidden="true" />Đóng</button>
-                        </div>
-                        {treeDetail(pickedTreeData)}
-                      </div>
-                    )}
                   </li>
                 ))}
               </ul>
             </div>
           )}
+          {pickedTreeData && (() => {
+            const tree = pickedTreeData;
+            const status = treeStatus(tree);
+            const StatusIcon = status.Icon;
+            const treeIntents = intents.filter((intent) => intent.strategy === tree.id);
+            const filled = treeIntents.filter((intent) => intent.broker_fills?.length).length;
+            const noR = finishedNoR(tree.status_counts);
+            return (
+              <TreePopover key={tree.id} anchor={pickedAnchor} label={`Chi tiết cây ${label(tree.h1_setup)} · ${policyLabel(tree.entry_policy)}`} onClose={() => setPickedTree((current) => (current === tree.id ? null : current))}>
+                <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-secondary">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-text-primary"><span className={`size-2 rounded-full ${policyDot[tree.entry_policy] ?? 'bg-text-muted'}`} aria-hidden="true" />{policyLabel(tree.entry_policy)}</span>
+                      <span className="font-mono text-text-muted">#{treeCode(tree.id)} · G{tree.generation ?? 0}</span>
+                    </p>
+                    <h6 className="mt-1.5 text-[15px] font-semibold leading-snug text-text-primary">{label(tree.h1_setup)}</h6>
+                    <p className="mt-0.5 text-xs text-text-secondary">M15: {label(tree.m15_trigger)} · {label(tree.exit_policy)}</p>
+                  </div>
+                  <button type="button" onClick={() => setPickedTree(null)} aria-label="Đóng chi tiết cây" className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400"><X size={16} aria-hidden="true" /></button>
+                </div>
+                <dl className="grid grid-cols-3 divide-x divide-border-subtle border-y border-border-subtle bg-surface-2/50 text-center">
+                  <div className="px-2 py-2.5"><dt className="text-[11px] text-text-muted">Mean R</dt><dd className={'mt-0.5 font-mono text-base font-semibold tabular-nums ' + (tree.mean_r == null ? 'text-text-muted' : rTone(tree.mean_r) === 'positive' ? 'text-bull' : 'text-bear')}>{signedR(tree.mean_r)}</dd></div>
+                  <div className="px-2 py-2.5"><dt className="text-[11px] text-text-muted">Mẫu đóng</dt><dd className="mt-0.5 font-mono text-base font-semibold tabular-nums text-text-primary">{tree.resolved_count}<span className="text-xs font-normal text-text-muted">/{minOutcomes}</span></dd></div>
+                  <div className="px-2 py-2.5"><dt className="text-[11px] text-text-muted">Shadow mở/chờ</dt><dd className={'mt-0.5 font-mono text-base font-semibold tabular-nums ' + (runningCount(tree.status_counts) > 0 ? 'text-sky-300' : 'text-text-muted')}>{runningCount(tree.status_counts)}</dd></div>
+                </dl>
+                <div className="space-y-3 px-4 py-3 text-xs leading-relaxed">
+                  <p className={`flex items-start gap-2 ${status.tone}`}><StatusIcon size={14} className="mt-0.5 shrink-0" aria-hidden="true" /><span><strong className="font-semibold">{status.label}</strong><span className="text-text-secondary"> · {tree.samples_count} mẫu, {tree.resolved_count} kết quả hợp lệ, tối thiểu {minOutcomes}.</span></span></p>
+                  <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 [&_dt]:text-text-muted [&_dd]:min-w-0 [&_dd]:text-text-primary">
+                    <dt>Tham số entry</dt><dd className="break-words font-mono">{Object.entries(tree.entry_params ?? {}).map(([name, value]) => `${name}=${value}`).join(' · ') || 'Không có'}</dd>
+                    <dt>Execution demo</dt><dd>{filled > 0 ? `${filled} setup broker xác nhận khớp` : treeIntents.length > 0 ? `${treeIntents.length} setup · chưa khớp broker` : 'Chưa có dữ liệu'}{tree.entry_live_sides?.length === 1 && <span className="block text-amber-300">Limit Short chỉ shadow</span>}</dd>
+                    <dt>Phả hệ</dt><dd className="break-all">{tree.parents?.length ? tree.parents.join(', ') : 'Cây gốc'}</dd>
+                    <dt>ID cây</dt><dd className="break-all font-mono text-text-secondary">{tree.id}</dd>
+                  </dl>
+                  {noR.length > 0 && <p className="text-amber-300">Không tính fitness: {noR.join(' · ')}</p>}
+                </div>
+              </TreePopover>
+            );
+          })()}
           {treeView === 'list' && (<>
           <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_5rem_5rem_10rem_1rem] gap-3 rounded-t-lg border border-border-base bg-surface-2 px-4 py-3 text-xs font-medium text-text-secondary lg:grid">
             <span>Cây · Cấu trúc H1</span><span>Entry · Xác nhận M15</span><span className="text-right">Mean R</span><span className="text-right">Mẫu đóng</span><span className="text-right">Tiến hoá · Shadow</span><span />
