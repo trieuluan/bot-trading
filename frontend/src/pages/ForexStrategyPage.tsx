@@ -2453,7 +2453,7 @@ export function ForexStrategyPage({
         >
           <span>Danh sách</span>
           <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
-            {pickerPositions.filter((position) => position.status === 'open').length} ticket mở · {setups.length} setup · {shadowTrades.filter((trade) => trade.status === 'open').length} shadow
+            {pickerPositions.filter((position) => position.status === 'open').length} ticket broker · {setups.length} setup · {shadowTrades.filter((trade) => trade.status === 'open').length} shadow mở
           </span>
         </button>
       </div>

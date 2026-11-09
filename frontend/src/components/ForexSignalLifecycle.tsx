@@ -72,6 +72,15 @@ export function ForexSignalLifecycle({
   const tab = initialTab;
   const [setupFilter, setSetupFilter] = useState<'pending' | 'history' | 'all'>('pending');
   const [shadowFilter, setShadowFilter] = useState<'open' | 'waiting' | 'history'>('open');
+  const symbolShadows = shadowTrades.filter((trade) => trade.symbol === symbol);
+  const shadowOpenCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'open').length;
+  const shadowWaitingCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'waiting').length;
+  const shadowHistoryCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'history').length;
+  useEffect(() => {
+    if (tab === 'shadow' && shadowOpenCount === 0 && shadowWaitingCount === 0 && shadowHistoryCount > 0) {
+      setShadowFilter('history');
+    }
+  }, [tab, shadowOpenCount, shadowWaitingCount, shadowHistoryCount]);
   const [detailedSetupId, setDetailedSetupId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -277,7 +286,7 @@ export function ForexSignalLifecycle({
               </button>
               <button type="button" aria-pressed={tab === 'shadow'} onClick={() => onTabChange('shadow')}
                 className={`rounded-md px-3 py-1 font-medium transition-colors ${tab === 'shadow' ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
-                Shadow ({shadowTrades.filter((trade) => shadowPhase(trade) === 'open').length})
+                Shadow ({shadowOpenCount > 0 ? shadowOpenCount : symbolShadows.length})
               </button>
             </div>
           )}
@@ -597,7 +606,7 @@ export function ForexSignalLifecycle({
                   className={`flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
                     shadowFilter === value ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
                   }`}>
-                  {label} <span className="font-mono text-[10px] opacity-75">({shadowTrades.filter((trade) => trade.symbol === symbol && shadowPhase(trade) === value).length})</span>
+                  {label} <span className="font-mono text-[10px] opacity-75">({value === 'open' ? shadowOpenCount : value === 'waiting' ? shadowWaitingCount : shadowHistoryCount})</span>
                 </button>
               ))}
             </div>
