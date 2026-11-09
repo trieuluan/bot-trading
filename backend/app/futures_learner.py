@@ -546,7 +546,7 @@ def admit_drafts(state, now, protected):
                                    "max_drawdown_r": 0.0, "retained_strategy": draft["strategy"], "overlap": None})
                            for name, row in sorted(state["candidates"].items())
                            if protected is not None and name not in protected and not confirmation_enabled(row["genome"])]
-            weak = unconfirmed or retirement_candidates(state, forward_evidence(state, now), protected)
+            weak = unconfirmed or retirement_candidates(state, forward_evidence(state, now), protected, now)
             if not weak:
                 draft["reason"] = "ownership_unknown" if protected is None else "no_retirement_candidate"
                 break

@@ -7,20 +7,21 @@ from statistics import mean
 from .futures_exits import exit_parameters
 from .futures_strategies import NATIVE_SEEDS, exit_policy_enabled, genome_fingerprint
 
-MIN_SAMPLES = 50
-MAX_DRAWDOWN_R = 10
+MIN_SAMPLES = 12
+MAX_DRAWDOWN_R = 5.0
+INACTIVE_SECONDS = 30 * 86400
 MIN_SHARED = 50
 MIN_OVERLAP = 0.9
 MIN_EDGE_R = 0.10
 MIN_CONTEXT_SAMPLES = 10
 
 
-def min_samples_for(genome):
-    return 12 if (genome or {}).get("signal_frame") in ("D1", "H4") else MIN_SAMPLES
+def min_samples_for(genome=None):
+    return MIN_SAMPLES
 
 
-def max_drawdown_for(genome):
-    return 5.0 if (genome or {}).get("signal_frame") in ("D1", "H4") else MAX_DRAWDOWN_R
+def max_drawdown_for(genome=None):
+    return MAX_DRAWDOWN_R
 
 
 def finite(value):
@@ -57,15 +58,11 @@ def metrics(samples):
 
 
 def failure(stats, genome=None):
-    min_samples = min_samples_for(genome) if genome else MIN_SAMPLES
-    max_dd = max_drawdown_for(genome) if genome else MAX_DRAWDOWN_R
+    min_samples = min_samples_for(genome)
+    max_dd = max_drawdown_for(genome)
     if stats["samples"] >= min_samples and stats["mean_r"] < 0:
         return "negative_forward_r"
-    if stats["samples"] < min_samples:
-        if genome and genome.get("signal_frame") in ("D1", "H4") and stats["samples"] > 0 and stats["max_drawdown_r"] >= max_dd:
-            return "forward_drawdown"
-        return None
-    if stats["max_drawdown_r"] >= max_dd:
+    if stats["max_drawdown_r"] >= max_dd and stats["samples"] > 0:
         return "forward_drawdown"
     return None
 
@@ -90,9 +87,8 @@ def redundant(candidate, keeper, samples, retained):
     right_rows = [row for row in retained if start <= row["candle_time"] <= end]
     left = {(row["candle_time"], row["side"]): row for row in left_rows}
     right = {(row["candle_time"], row["side"]): row for row in right_rows}
-    min_s = min(min_samples_for(candidate.get("genome")), min_samples_for(keeper.get("genome")))
     if (len(left) != len(left_rows) or len(right) != len(right_rows)
-            or min(len(left), len(right)) < min_s):
+            or min(len(left), len(right)) < MIN_SHARED):
         return None
     shared, union = left.keys() & right.keys(), left.keys() | right.keys()
     if len(shared) < MIN_SHARED or len(shared) / len(union) < MIN_OVERLAP:
@@ -123,7 +119,7 @@ def redundant(candidate, keeper, samples, retained):
             "retained_matched_mean_r": right_mean}
 
 
-def retirement_candidates(state, evidence, protected):
+def retirement_candidates(state, evidence, protected, now=None):
     if protected is None:
         return []
     protected = set(protected)
@@ -152,8 +148,16 @@ def retirement_candidates(state, evidence, protected):
                 if overlap:
                     metadata.update(reason="redundant_forward", retained_strategy=keeper, overlap=overlap)
                     break
+        if not metadata["reason"]:
+            cursor = state.get("cursor") if state.get("cursor") is not None else now
+            if cursor is not None:
+                tree_samples = [row for row in state["samples"] if row.get("strategy") == name]
+                last_activity = (max((row["candle_time"] for row in tree_samples), default=None)
+                                 if tree_samples else candidate.get("born_at"))
+                if last_activity is not None and cursor - last_activity >= INACTIVE_SECONDS:
+                    metadata.update(reason="stagnant_inactivity")
         if metadata["reason"]:
             result.append((name, metadata))
-    priorities = {"negative_forward_r": 0, "forward_drawdown": 1, "redundant_forward": 2}
+    priorities = {"negative_forward_r": 0, "forward_drawdown": 1, "stagnant_inactivity": 2, "redundant_forward": 3}
     return sorted(result, key=lambda item: (priorities[item[1]["reason"]], item[1]["mean_r"],
                                           -item[1]["max_drawdown_r"], item[0]))

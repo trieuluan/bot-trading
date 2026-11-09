@@ -276,10 +276,12 @@ function Pager({
 
 const RETIRE_REASON: Record<string, [string, string]> = {
   negative_forward_r: ['R forward âm', 'bad'],
-  forward_drawdown: ['Drawdown ≥10R', 'warn'],
+  forward_drawdown: ['Drawdown ≥5R', 'warn'],
+  stagnant_inactivity: ['30 ngày không tín hiệu', 'info'],
   redundant_forward: ['Trùng cây tốt hơn', 'info'],
   h4_diversified: ['Đa dạng H4', 'info'],
   entry_rebalanced: ['Chia đều cách vào', 'info'],
+  unconfirmed_entry_retired: ['Ngừng vào lệnh không xác nhận', 'info'],
 };
 
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
@@ -1211,10 +1213,10 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">
               <p>
                 Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay
-                thế: D1/H4 cần ≥12 mẫu forward để xét R âm, loại sớm nếu drawdown ≥5R; M15/H1 cần
-                ≥50 mẫu, R ròng âm hoặc drawdown ≥10R; hoặc trùng mẫu với cây tốt hơn. 10R không
-                phải 10% tài khoản. Replay không dùng để quyết định loại. Cây còn mẫu mở, vị thế
-                hoặc lệnh chờ được bảo vệ.
+                thế: mọi khung cần ≥12 mẫu forward để xét R âm; drawdown ≥5R bị loại ngay; 30 ngày
+                không có tín hiệu bị loại; hoặc trùng ≥50 mẫu với cây tốt hơn. 5R không phải 5% tài
+                khoản. Replay không dùng để quyết định loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ
+                được bảo vệ.
               </p>
               <p>
                 Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không

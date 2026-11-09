@@ -11,16 +11,16 @@ Failed or duplicate mutations do not remove an existing tree.
 
 ## Forward evidence
 
-Use at least 50 distinct resolved teaching samples with a valid filled entry,
+Use at least 12 distinct resolved teaching samples (all frames: M15, H1, H4, D1) with a valid filled entry,
 positive risk, finite net R and an outcome available by the current cutoff.
 Cancelled, unfilled, excluded, duplicate-key and future-labelled samples do not
 count. Replay can still rank parents, but cannot qualify a tree for retirement.
 
 Retirement priority is negative mean forward R, then cumulative drawdown of at
-least 10R, then confirmed redundancy. Within each group, lower mean R comes
+least 5R (if at least one closed sample), then 30 days without any signal, then confirmed redundancy. Within each group, lower mean R comes
 first, followed by larger drawdown and stable strategy ID. Drawdown starts from
 zero and follows label-availability order; it is **not account drawdown percent**.
-An otherwise profitable tree can retire at the 10R threshold.
+An otherwise profitable tree can retire at the 5R threshold.
 
 ## Redundancy
 

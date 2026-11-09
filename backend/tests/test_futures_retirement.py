@@ -41,8 +41,8 @@ def state_for(weak_values, good_values=None, generation=0, promoted=False, base=
     return state, parent, weak
 
 
-def options(state, protected=()):
-    return dict(retirement.retirement_candidates(state, retirement.forward_evidence(state, NOW), protected))
+def options(state, protected=(), now=None):
+    return dict(retirement.retirement_candidates(state, retirement.forward_evidence(state, NOW), protected, now))
 
 
 def evolve_and_admit(state, now, **kwargs):
@@ -57,9 +57,9 @@ def evolve_and_admit(state, now, **kwargs):
 @pytest.mark.parametrize("generation", [0, 1, 5])
 @pytest.mark.parametrize("promoted", [False, True])
 def test_all_generations_and_promoted_share_threshold(generation, promoted):
-    state, _, weak = state_for([-0.1] * 49, generation=generation, promoted=promoted)
+    state, _, weak = state_for([-0.1] * 11, generation=generation, promoted=promoted)
     assert weak not in options(state)
-    state["samples"].append(samples(weak, [-0.1], start=49 * 900)[0])
+    state["samples"].append(samples(weak, [-0.1], start=11 * 900)[0])
     assert options(state)[weak]["reason"] == "negative_forward_r"
 
 
@@ -70,13 +70,13 @@ def test_all_generations_and_promoted_share_threshold(generation, promoted):
     {"entry_time": -1}, {"candle_time": None}, {"side": "invalid"},
 ])
 def test_invalid_unfilled_cancelled_and_future_samples_do_not_count(changes):
-    state, _, weak = state_for([-0.1] * 49)
-    state["samples"].append({**samples(weak, [-0.1], start=49 * 900)[0], **changes})
+    state, _, weak = state_for([-0.1] * 11)
+    state["samples"].append({**samples(weak, [-0.1], start=11 * 900)[0], **changes})
     assert weak not in options(state)
 
 
 def test_duplicate_sample_keys_do_not_inflate_evidence():
-    state, _, weak = state_for([-0.1] * 49)
+    state, _, weak = state_for([-0.1] * 11)
     state["samples"] += samples(weak, [-0.1]) * 10
     assert weak not in options(state)
 
@@ -88,7 +88,7 @@ def test_drawdown_uses_available_time_and_includes_initial_peak():
     assert stats["mean_r"] > 0
     assert retirement.failure(stats) == "forward_drawdown"
     assert retirement.metrics(samples("x", [-1] * 50))["max_drawdown_r"] == 50
-    assert retirement.failure(retirement.metrics(samples("x", [2, -5, -4.99, 12] + [0.1] * 46))) is None
+    assert retirement.failure(retirement.metrics(samples("x", [2, -2, -2.99, 12] + [0.1] * 46))) is None
 
 
 def test_lower_positive_r_without_duplicate_proof_survives():
@@ -356,7 +356,7 @@ def test_native_forward_retirement_uses_twelve_samples_and_early_5r_drawdown():
     assert retirement.failure(retirement.metrics(samples("x", [-0.1] * 11)), native) is None
     assert retirement.failure(retirement.metrics(samples("x", [-0.1] * 12)), native) == "negative_forward_r"
     assert retirement.failure(retirement.metrics(samples("x", [-2, -3])), native) == "forward_drawdown"
-    assert retirement.failure(retirement.metrics(samples("x", [-2, -3])), SEEDS[0]) is None
+    assert retirement.failure(retirement.metrics(samples("x", [-2, -3])), SEEDS[0]) == "forward_drawdown"
 
 def test_m15_parent_can_breed_single_pair_60_day_draft():
     state = learner.new_state(NOW)
@@ -403,3 +403,15 @@ def test_m15_screened_training_is_used_despite_unrelated_historical_report():
         "end_time": 0, "genome_fingerprint": genome_fingerprint(candidate["genome"]),
         "train_samples": 12, "train_mean_r": 0.5, "validation_samples": 99, "validation_mean_r": 9}}}
     assert learner.breeding_performance(state, NOW)[name] == (12, 0.5)
+
+
+def test_thirty_days_without_any_signal_retires_but_signals_and_protection_keep_tree():
+    state, _, weak = state_for([])
+    state["samples"] = [row for row in state["samples"] if row["strategy"] != weak]
+    now = 30 * 86400
+    assert options(state, now=now)[weak]["reason"] == "stagnant_inactivity"
+    state["samples"].append({"strategy": weak, "candle_time": now, "status": "excluded"})
+    assert weak not in options(state, now=now)
+    state["samples"].pop()
+    assert weak not in options(state, {weak}, now=now)
+    assert weak not in options(state, now=now - 1)
