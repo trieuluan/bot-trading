@@ -10,25 +10,23 @@ const server = await createServer({
   appType: 'custom',
 });
 after(() => server.close());
-const { overlayBundles, toggleOverlayGroup } = await server.ssrLoadModule('/src/components/StrategyOverlayMenu.tsx');
+const { overlayTrees, toggleOverlayGroup } = await server.ssrLoadModule('/src/components/StrategyOverlayMenu.tsx');
 
-test('overlayBundles groups 4 entry variants under 1 bundle', () => {
+test('overlayTrees preserves independent individual tree entries', () => {
   const strategies = {
     hast4_m: { status: 'idle' },
-    hast4_l: { status: 'idle' },
     hast4_s: { status: 'idle' },
-    hast4_h: { status: 'idle' },
   };
   const trees = [
-    { id: 'hast4_m', bundle_id: 'bundle_01', generation: 0, entry_policy: 'market' },
-    { id: 'hast4_l', bundle_id: 'bundle_01', generation: 0, entry_policy: 'limit_setup_mid' },
-    { id: 'hast4_s', bundle_id: 'bundle_01', generation: 0, entry_policy: 'stop_trigger_break' },
-    { id: 'hast4_h', bundle_id: 'bundle_01', generation: 0, entry_policy: 'limit_or_stop' },
+    { id: 'hast4_m', generation: 0, entry_policy: 'market' },
+    { id: 'hast4_s', generation: 0, entry_policy: 'stop_trigger_break' },
   ];
-  const bundles = overlayBundles(strategies, trees);
-  assert.equal(bundles.length, 1);
-  assert.equal(bundles[0].id, 'bundle_01');
-  assert.deepEqual(bundles[0].ids, ['hast4_m', 'hast4_l', 'hast4_s', 'hast4_h']);
+  const items = overlayTrees(strategies, trees);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].id, 'hast4_m');
+  assert.deepEqual(items[0].ids, ['hast4_m']);
+  assert.equal(items[1].id, 'hast4_s');
+  assert.deepEqual(items[1].ids, ['hast4_s']);
 });
 
 test('toggleOverlayGroup toggles whole group and respects automatic/locked IDs', () => {
@@ -40,11 +38,11 @@ test('toggleOverlayGroup toggles whole group and respects automatic/locked IDs',
   assert.deepEqual(selectedAfterOff, ['other']);
 });
 
-test('missing metadata never merges unrelated trees or invents entry variants', () => {
-  assert.deepEqual(overlayBundles({}, []), []);
+test('missing metadata preserves independent trees', () => {
+  assert.deepEqual(overlayTrees({}, []), []);
   const strategies = { old1: { status: 'idle' }, old2: { status: 'idle' } };
-  assert.equal(overlayBundles(strategies, []).length, 2);
-  assert.equal(overlayBundles(strategies, [{ id: 'missing', bundle_id: 'other' }]).length, 2);
+  assert.equal(overlayTrees(strategies, []).length, 2);
+  assert.equal(overlayTrees(strategies, [{ id: 'missing' }]).length, 2);
 });
 
 test('partial selection adds remaining policies; clearing preserves context and automatic overlays', () => {

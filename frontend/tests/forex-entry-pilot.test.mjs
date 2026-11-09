@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-test('ForexEntryPilotPanel always renders entry policy column and labels', async () => {
+test('ForexEntryPilotPanel renders independent entry policy cards and labels', async () => {
   const server = await createServer({
     root: fileURLToPath(new URL('../', import.meta.url)),
     server: { middlewareMode: true, hmr: false, ws: false },
@@ -55,11 +55,7 @@ test('ForexEntryPilotPanel always renders entry policy column and labels', async
         stop_trigger_break: 'Stop ảo',
         limit_or_stop: 'Hybrid · Limit/Stop ảo',
       }[policy];
-      assert.ok(
-        [...html.matchAll(/<span class="[^"]*\bentry-tree-policy\b[^"]*">([^<]*)<\/span>/g)]
-          .some((match) => match[1] === expectedLabel),
-        `Expected ${expectedLabel} in table cell for ${policy}`,
-      );
+      assert.ok(html.includes(expectedLabel), `Expected ${expectedLabel} for ${policy}`);
       if (policy === 'market') {
         assert.ok(html.includes('Market · vào trực tiếp'));
         assert.ok(!html.includes('Chờ tối đa'));
@@ -70,7 +66,7 @@ test('ForexEntryPilotPanel always renders entry policy column and labels', async
   }
 });
 
-test('ForexEntryPilotPanel groups 4 entries per V4 bundle and flags missing trees', async () => {
+test('ForexEntryPilotPanel displays individual tree metrics and progress', async () => {
   const server = await createServer({
     root: fileURLToPath(new URL('../', import.meta.url)),
     server: { middlewareMode: true, hmr: false, ws: false },
@@ -78,30 +74,91 @@ test('ForexEntryPilotPanel groups 4 entries per V4 bundle and flags missing tree
   });
   try {
     const { ForexEntryPilotPanel } = await server.ssrLoadModule('/src/pages/ForexStrategyPage.tsx');
-    const policies = ['market', 'limit_setup_mid', 'stop_trigger_break', 'limit_or_stop'];
-    const tree = (bundle, policy) => ({
-      id: `hast4_${bundle}_${policy}`, bundle_id: bundle, generation: 0, control_tree_id: `hast3_${bundle}`,
-      entry_policy: policy, entry_params: {}, h1_setup: 'channel_breakout', m15_trigger: 'channel',
-      exit_policy: 'fixed_structural', samples_count: 4, resolved_count: 3, mean_r: 0.5, status_counts: { resolved: 2, open: 1, expired_0r: 1 },
-    });
     const trees = [
-      ...policies.map((p) => tree('bundle_00', p)),
-      ...policies.slice(0, 3).map((p) => tree('bundle_01', p)),
+      {
+        id: 'hast4_tree_01', generation: 0, control_tree_id: 'hast3_base',
+        entry_policy: 'stop_trigger_break', entry_params: { wait_bars: 4, stop_buffer_atr: 0.05 },
+        h1_setup: 'channel_breakout', m15_trigger: 'channel', exit_policy: 'fixed_structural',
+        samples_count: 12, resolved_count: 10, mean_r: 0.75, eligible: true, ready: true,
+        status_counts: { resolved: 10, open: 2 }, parents: [],
+      },
+      {
+        id: 'hast4_tree_02', generation: 1, control_tree_id: 'hast3_base',
+        entry_policy: 'market', entry_params: {},
+        h1_setup: 'nr7', m15_trigger: 'setup_reclaim', exit_policy: 'ladder_h1',
+        samples_count: 5, resolved_count: 3, mean_r: -0.2, eligible: false, ready: false,
+        status_counts: { resolved: 3, expired_0r: 2 }, parents: ['hast4_tree_01'],
+      },
     ];
     const html = renderToStaticMarkup(React.createElement(ForexEntryPilotPanel, {
       symbol: 'XAUUSD',
-      entryPilot: { enabled: true, intents: [], pilot: { status: 'ready', tree_count: 7, bundle_count: 2, generation: 0, trees,
-        bundles: { bundle_00: { matched_count: 0, ready: false, mean_r: null, running_setups: 1 } } } },
+      entryPilot: {
+        enabled: true, intents: [],
+        pilot: { status: 'ready', tree_count: 2, generation: 1, population_model: 'independent_v1', min_outcomes: 10, trees },
+      },
     }));
-    assert.equal(html.match(/class="entry-bundle /g)?.length, 2);
-    assert.equal(html.match(/entry-tree-policy-cell/g)?.length, 8);
-    assert.ok(html.includes('thiếu cây'));
-    assert.ok(html.includes('2 / 2 bộ'));
-    assert.ok(html.includes('4 mẫu</b> · 3 có R'));
-    assert.ok(html.includes('1 đang chạy'));
-    assert.match(html, /gồm (<!-- -->)?1(<!-- -->)? lỡ lệnh 0R/);
-    assert.ok(html.includes('1 setup còn nhánh đang chạy'));
-    assert.ok(!html.includes('mẫu đóng'));
+    assert.ok(html.includes('hast4_tree_01'));
+    assert.ok(html.includes('hast4_tree_02'));
+    assert.ok(html.includes('2 / 2 cây · entry tiến hóa độc lập'));
+    assert.ok(html.includes('Đủ điều kiện làm cha/mẹ'));
+    assert.ok(html.includes('10 kết quả hợp lệ, tối thiểu 10.'));
+    assert.ok(html.includes('2 shadow mở/chờ'));
+    assert.ok(html.includes('Đủ mẫu trước · Mean R'));
+    assert.ok(html.includes('Đủ mẫu · chưa đạt'));
+    assert.ok(html.includes('Chưa có dữ liệu execution cho cây này.'));
+    assert.ok(html.includes('lg:sr-only">Mean R'));
+    assert.ok(html.includes('#ree_01'));
+    assert.ok(html.includes('#ree_02'));
+    assert.ok(html.includes('+0.75R'));
+    assert.ok(html.includes('Cha/mẹ: hast4_tree_01'));
+    assert.ok(html.includes('aria-label="Trạng thái cây"'));
+    assert.ok(html.includes('aria-label="Sắp xếp cây"'));
+    assert.ok(html.includes('Đủ điều kiện sinh con'));
+    assert.ok(html.includes('Mean R cao nhất'));
+    assert.ok(html.includes('Chi tiết cây'));
+    assert.ok(html.includes('Phả hệ'));
+    assert.ok(html.includes('12 mẫu · 10 kết quả hợp lệ'));
+    assert.ok(!html.includes('Chưa có mẫu shadow'));
+    assert.ok(html.includes('group-open/tree:rotate-180'));
+    assert.ok(!html.includes('4/4'));
+    assert.ok(!html.includes('bộ'));
+  } finally {
+    await server.close();
+  }
+});
+
+test('ForexEntryPilotPanel renders new root setups with Vietnamese labels', async () => {
+  const server = await createServer({
+    root: fileURLToPath(new URL('../', import.meta.url)),
+    server: { middlewareMode: true, hmr: false, ws: false },
+    appType: 'custom',
+  });
+  try {
+    const { ForexEntryPilotPanel } = await server.ssrLoadModule('/src/pages/ForexStrategyPage.tsx');
+    const setups = [
+      { id: 't_nr7', setup: 'nr7', expected: 'Biên độ hẹp 7 nến NR7' },
+      { id: 't_asia', setup: 'asia_break', expected: 'Phá biên phiên Á UTC' },
+      { id: 't_london', setup: 'london_orb_h1', expected: 'Phá biên mở phiên London H1' },
+    ];
+    const trees = setups.map((s) => ({
+      id: s.id, generation: 0, control_tree_id: 'c_' + s.id,
+      entry_policy: 'market', entry_params: {},
+      h1_setup: s.setup, m15_trigger: 'setup_reclaim', exit_policy: 'fixed_structural',
+      samples_count: 0, resolved_count: 0, mean_r: null,
+    }));
+    const html = renderToStaticMarkup(React.createElement(ForexEntryPilotPanel, {
+      symbol: 'EURUSD',
+      entryPilot: {
+        enabled: true, intents: [],
+        pilot: { status: 'ready', tree_count: 3, generation: 0, population_model: 'independent_v1', min_outcomes: 10, trees },
+      },
+    }));
+    for (const s of setups) {
+      assert.ok(html.includes(s.expected), `Expected label ${s.expected} for ${s.setup}`);
+    }
+    assert.ok(html.includes('Đang chờ mẫu shadow đầu tiên.'));
+    assert.ok(html.includes('Chờ tín hiệu đầu tiên'));
+    assert.ok(!html.includes('0 đang chạy'));
   } finally {
     await server.close();
   }

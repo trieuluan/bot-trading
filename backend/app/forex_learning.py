@@ -135,7 +135,7 @@ def summary(symbol: str = "XAUUSD"):
         intent_status = "ready"
     except SQLAlchemyError:
         active_intents, intent_status = [], "intent_storage_unavailable"
-    return {"symbol": symbol, "engine": SCHEMA, "mode": "v4_balanced", "execution_v2": execution_status(account, int(time.time()), symbol),
+    return {"symbol": symbol, "engine": SCHEMA, "mode": "v4_independent", "execution_v2": execution_status(account, int(time.time()), symbol),
             "htf_ast3_shadow": htf_ast3_summary(account, symbol),
             "entry_pilot": {"enabled": pilot_enabled(), "status": intent_status,
                             "pilot": pilot_summary(account, symbol), "intents": active_intents}}

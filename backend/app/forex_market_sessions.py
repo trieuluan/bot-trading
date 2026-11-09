@@ -13,7 +13,7 @@ DAYS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 def _week_second(value):
     if not isinstance(value, str):
         raise ValueError("invalid_schedule")
-    match = re.fullmatch(r"(Sun|Mon|Tue|Wed|Thu|Fri|Sat), ([0-2][0-9]):([0-5][0-9]):([0-5][0-9])", value)
+    match = re.fullmatch(r"(Sun|Mon|Tue|Wed|Thu|Fri|Sat), ?([0-2][0-9]):([0-5][0-9]):([0-5][0-9])", value)
     if not match or int(match[2]) > 23:
         raise ValueError("invalid_schedule")
     return DAYS.index(match[1]) * 86400 + int(match[2]) * 3600 + int(match[3]) * 60 + int(match[4])

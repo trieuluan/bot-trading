@@ -258,6 +258,37 @@ def detect_h1_mss(closed_bars, side, lookback=10, wait_bars=6, retrace=0.5):
     return None
 
 
+def detect_h1_nr7(closed_bars, side):
+    from .forex_features import detect_inside_bar
+    return detect_inside_bar(closed_bars, side, nr7=True)
+
+def detect_h1_session_break(closed_bars, side, session="asia"):
+    if len(closed_bars) < 15:
+        return None
+    current, previous = closed_bars[-1], closed_bars[-2]
+    if session == "asia":
+        day = current.time // 86400 * 86400
+        if not 7 <= (current.time - day) // 3600 < 11:
+            return None
+        expected = list(range(day, day + 6 * 3600, 3600))
+    else:
+        zone = ZoneInfo("Europe/London")
+        local = datetime.fromtimestamp(current.time, zone)
+        if not 9 <= local.hour < 12:
+            return None
+        opening = local.replace(hour=8, minute=0, second=0, microsecond=0)
+        expected = [int(opening.timestamp())]
+    reference = [bar for bar in closed_bars[:-1] if bar.time in expected]
+    if [bar.time for bar in reference] != expected or current.time - previous.time != 3600:
+        return None
+    direction = 1 if side == "long" else -1
+    level = max(bar.high for bar in reference) if direction == 1 else min(bar.low for bar in reference)
+    if direction * (current.close - level) <= 0 or direction * (previous.close - level) > 0:
+        return None
+    from .forex_features import setup_result
+    return setup_result(closed_bars, side, level, current.low if direction == 1 else current.high,
+                        reference_session={"start": expected[0], "end": expected[-1] + 3600, "name": session})
+
 H1_DETECTORS = {
     "channel_breakout": detect_h1_channel_breakout,
     "retest": detect_h1_retest,
@@ -266,6 +297,9 @@ H1_DETECTORS = {
     "fvg": detect_h1_fvg,
     "squeeze": detect_h1_squeeze,
     "mss": detect_h1_mss,
+    "nr7": detect_h1_nr7,
+    "asia_break": detect_h1_session_break,
+    "london_orb_h1": partial(detect_h1_session_break, session="london"),
 }
 
 

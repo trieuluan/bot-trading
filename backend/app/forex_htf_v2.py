@@ -36,7 +36,7 @@ MAX_RISK_ATR = Decimal("3.0")
 LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast3-shadow.json"
 
 H4_FEATURES = ("trend_ema50",)
-H1_FAMILIES = ("channel_breakout", "squeeze", "retest", "sweep", "pullback", "fvg", "mss", *NEW_H1_DETECTORS)
+H1_FAMILIES = (*H1_DETECTORS, *NEW_H1_DETECTORS)
 M15_FAMILIES = (
     "channel", "rsi", "fvg", "session", "squeeze", "sweep",
     "pullback", "range", "retest", "router", "orb", "vsa", "mss", "vwap", "setup_reclaim", "engulfing"
@@ -75,6 +75,7 @@ TRIGGER_TO_H1_SETUP = {
 ROUND_STEPS = {"XAUUSD": 50, "JPY": 0.5, "FX": 0.005}
 
 H1_BOUNDS = {
+    "nr7": (), "asia_break": (), "london_orb_h1": (),
     "order_block": (("lookback", 5, 20, 40), ("impulse_mult", 0.25, 1.5, 2.5)),
     "pdh_pdl_sweep": (), "asia_sweep": (), "inside_bar": (),
     "round_level": (),
@@ -243,7 +244,8 @@ def describe(tree):
 SETUP_NAMES = {"channel_breakout": "Phá kênh", "squeeze": "Nén biên độ", "retest": "Retest", "sweep": "Quét thanh khoản",
                "pullback": "Pullback EMA", "fvg": "FVG", "mss": "Đổi cấu trúc (MSS)", "order_block": "Order Block",
                "pdh_pdl_sweep": "Quét đỉnh/đáy ngày trước", "asia_sweep": "Quét hộp Á UTC",
-               "inside_bar": "Inside Bar / NR7", "round_level": "Từ chối mốc tròn"}
+               "inside_bar": "Inside Bar / NR7", "round_level": "Từ chối mốc tròn",
+               "nr7": "NR7", "asia_break": "Phá biên Á UTC", "london_orb_h1": "Phá biên mở phiên London H1"}
 TRIGGER_NAMES = {"channel": "Phá kênh", "rsi": "RSI", "fvg": "FVG", "session": "Phiên", "squeeze": "Nén", "sweep": "Quét",
                  "pullback": "Pullback", "range": "Biên", "retest": "Retest", "router": "Router", "orb": "ORB",
                  "vsa": "VSA (tick volume)", "mss": "MSS", "vwap": "VWAP (tick volume)",
@@ -272,6 +274,8 @@ def tree_label(tree, generation=0):
             "full": f"{title} · {policy_name}" + (f" · {', '.join(changed)}" if changed else "") + f" · G{generation} #{tree_id(tree)[6:10]}"}
 
 def default_h1_params(family):
+    if family in ("nr7", "asia_break", "london_orb_h1"):
+        return {}
     if family in NEW_H1_DETECTORS:
         return {"order_block": {"lookback": 20, "impulse_mult": 1.5}, "pdh_pdl_sweep": {},
                 "asia_sweep": {}, "inside_bar": {"nr7": False}, "round_level": {"step": 50}}[family]

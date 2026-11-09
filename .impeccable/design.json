@@ -1,0 +1,659 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-09T18:26:20Z",
+  "title": "Design System: Signal Desk",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · canvas",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "surface-1": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · surface-1",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · surface-2",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "surface-3": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · surface-3",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · border-subtle",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "border-base": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · border-base",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "border-active": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · border-active",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · text-primary",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · text-secondary",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · text-muted",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "bull": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · bull",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "bull-bg": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · bull-bg",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "bull-border": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · bull-border",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "bear": {
+        "role": "secondary",
+        "displayName": "Hồng đỏ rủi ro · bear",
+        "tonalRamp": [
+          "oklch(27.1% 0.105 12.094)",
+          "oklch(41% 0.159 10.272)",
+          "oklch(45.5% 0.188 13.697)",
+          "oklch(51.4% 0.222 16.935)",
+          "oklch(64.5% 0.246 16.439)",
+          "oklch(81% 0.117 11.638)",
+          "oklch(94.1% 0.03 12.58)",
+          "oklch(96.9% 0.015 12.422)"
+        ]
+      },
+      "bear-bg": {
+        "role": "secondary",
+        "displayName": "Hồng đỏ rủi ro · bear-bg",
+        "tonalRamp": [
+          "oklch(27.1% 0.105 12.094)",
+          "oklch(41% 0.159 10.272)",
+          "oklch(45.5% 0.188 13.697)",
+          "oklch(51.4% 0.222 16.935)",
+          "oklch(64.5% 0.246 16.439)",
+          "oklch(81% 0.117 11.638)",
+          "oklch(94.1% 0.03 12.58)",
+          "oklch(96.9% 0.015 12.422)"
+        ]
+      },
+      "bear-border": {
+        "role": "secondary",
+        "displayName": "Hồng đỏ rủi ro · bear-border",
+        "tonalRamp": [
+          "oklch(27.1% 0.105 12.094)",
+          "oklch(41% 0.159 10.272)",
+          "oklch(45.5% 0.188 13.697)",
+          "oklch(51.4% 0.222 16.935)",
+          "oklch(64.5% 0.246 16.439)",
+          "oklch(81% 0.117 11.638)",
+          "oklch(94.1% 0.03 12.58)",
+          "oklch(96.9% 0.015 12.422)"
+        ]
+      },
+      "tone-waiting": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-waiting",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-waiting-bg": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-waiting-bg",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-waiting-border": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-waiting-border",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-triggered": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-triggered",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-triggered-bg": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-triggered-bg",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-triggered-border": {
+        "role": "secondary",
+        "displayName": "Hổ phách chờ xác nhận · tone-triggered-border",
+        "tonalRamp": [
+          "oklch(27.9% 0.077 45.635)",
+          "oklch(41.4% 0.112 45.904)",
+          "oklch(47.3% 0.137 46.201)",
+          "oklch(55.5% 0.163 48.998)",
+          "oklch(76.9% 0.188 70.08)",
+          "oklch(87.9% 0.169 91.605)",
+          "oklch(96.2% 0.059 95.617)",
+          "oklch(98.7% 0.022 95.277)"
+        ]
+      },
+      "tone-filled": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · tone-filled",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "tone-filled-bg": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · tone-filled-bg",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "tone-filled-border": {
+        "role": "primary",
+        "displayName": "Xanh ngọc tín hiệu · tone-filled-border",
+        "tonalRamp": [
+          "oklch(26.2% 0.051 172.552)",
+          "oklch(37.8% 0.077 168.94)",
+          "oklch(43.2% 0.095 166.913)",
+          "oklch(50.8% 0.118 165.612)",
+          "oklch(69.6% 0.17 162.48)",
+          "oklch(84.5% 0.143 164.978)",
+          "oklch(95% 0.052 163.051)",
+          "oklch(97.9% 0.021 166.113)"
+        ]
+      },
+      "tone-uncertain": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-uncertain",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-uncertain-bg": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-uncertain-bg",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-uncertain-border": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-uncertain-border",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-cancelled": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-cancelled",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-cancelled-bg": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-cancelled-bg",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-cancelled-border": {
+        "role": "secondary",
+        "displayName": "Đỏ cảnh báo · tone-cancelled-border",
+        "tonalRamp": [
+          "oklch(25.8% 0.092 26.042)",
+          "oklch(39.6% 0.141 25.723)",
+          "oklch(44.4% 0.177 26.899)",
+          "oklch(50.5% 0.213 27.518)",
+          "oklch(63.7% 0.237 25.331)",
+          "oklch(80.8% 0.114 19.571)",
+          "oklch(93.6% 0.032 17.717)",
+          "oklch(97.1% 0.013 17.38)"
+        ]
+      },
+      "tone-ended": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · tone-ended",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "tone-ended-bg": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · tone-ended-bg",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      },
+      "tone-ended-border": {
+        "role": "neutral",
+        "displayName": "Xanh than trung tính · tone-ended-border",
+        "tonalRamp": [
+          "oklch(12.9% 0.042 264.695)",
+          "oklch(20.8% 0.042 265.755)",
+          "oklch(27.9% 0.041 260.031)",
+          "oklch(37.2% 0.044 257.287)",
+          "oklch(55.4% 0.046 257.417)",
+          "oklch(86.9% 0.022 252.894)",
+          "oklch(96.8% 0.007 247.896)",
+          "oklch(98.4% 0.003 247.858)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Tiêu đề trang",
+        "purpose": "h1 theo stylesheet chung."
+      },
+      "title": {
+        "displayName": "Tiêu đề mục",
+        "purpose": "h2 theo stylesheet chung."
+      },
+      "body": {
+        "displayName": "Nội dung",
+        "purpose": "Chữ đọc và nhãn điều khiển mặc định."
+      },
+      "label": {
+        "displayName": "Nhãn nhỏ",
+        "purpose": "Metadata và nhãn phụ."
+      },
+      "metric": {
+        "displayName": "Số liệu",
+        "purpose": "Giá trị đo lường và số liệu cần so sánh."
+      }
+    },
+    "shadows": [
+      {
+        "name": "drawer",
+        "value": "0 25px 50px -12px rgb(0 0 0 / 0.25)",
+        "purpose": "Bóng của shadow-2xl trong Drawer.tsx, không áp cho panel thường."
+      }
+    ],
+    "motion": [
+      {
+        "name": "default-duration",
+        "value": "150ms",
+        "purpose": "Mặc định Tailwind cho component có transition."
+      },
+      {
+        "name": "default-easing",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Mặc định Tailwind."
+      },
+      {
+        "name": "drawer-duration",
+        "value": "300ms",
+        "purpose": "Drawer trượt vào; hỗ trợ prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "40rem"
+      },
+      {
+        "name": "md",
+        "value": "48rem"
+      },
+      {
+        "name": "lg",
+        "value": "64rem"
+      },
+      {
+        "name": "xl",
+        "value": "80rem"
+      },
+      {
+        "name": "2xl",
+        "value": "96rem"
+      }
+    ],
+    "focus": {
+      "value": "2px solid var(--color-bull)",
+      "offset": "3px",
+      "purpose": "Focus mặc định; component có thể đang ghi đè bằng sky."
+    },
+    "provenance": {
+      "sourceFiles": [
+        "frontend/src/tailwind.css",
+        "frontend/src/components/Sidebar.tsx",
+        "frontend/src/components/Drawer.tsx",
+        "frontend/src/pages/ForexStrategyPage.tsx",
+        "frontend/node_modules/tailwindcss/theme.css"
+      ],
+      "palettePreviews": "Tonal ramps lấy từ các scale Tailwind đang cài, chỉ để xem dải màu; không thay thế mã màu chuẩn trong DESIGN.md.",
+      "verification": "Source scan và các bản render cục bộ đã review. Không xác nhận dữ liệu hoặc trạng thái broker."
+    }
+  },
+  "components": [
+    {
+      "name": "Nút phụ",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Biến thể nút phân trang hiện có; không phải Button API dùng chung.",
+      "html": "<button class=\"secondary\">Sau</button><button class=\"secondary\" disabled>Trước</button>",
+      "css": ".secondary{min-height:40px;padding:0 12px;border:1px solid #2a3545;border-radius:6px;background:#181f2a;color:#bec9d7;font:12px/16px \"DM Sans\",sans-serif}.secondary:hover:not(:disabled){background:#232d3b}.secondary:focus-visible{outline:2px solid #10b981;outline-offset:3px}.secondary:disabled{opacity:.4;cursor:not-allowed}"
+    },
+    {
+      "name": "Ô nhập",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Field mặc định từ stylesheet chung, có label.",
+      "html": "<label class=\"field\">Tìm kiếm<input type=\"search\" placeholder=\"Tìm cấu trúc hoặc mã cây\"></label>",
+      "css": ".field{display:grid;gap:6px;color:#bec9d7;font:12px/16px \"DM Sans\",sans-serif}.field input{min-width:0;padding:8px 10px;border:1px solid #2a3545;border-radius:6px;background:#181f2a;color:#f1f5f9;font:inherit}.field input::placeholder{color:#8d9db2}.field input:focus-visible{outline:2px solid #10b981;outline-offset:3px}"
+    },
+    {
+      "name": "Điều hướng",
+      "kind": "nav",
+      "refersTo": "navigation-item",
+      "description": "Trạng thái chọn trong Sidebar.tsx; nhãn giữ lại khi trình bày mẫu.",
+      "html": "<nav class=\"nav\" aria-label=\"Điều hướng mẫu\"><button aria-current=\"page\">Bot</button><button>Kết nối</button></nav>",
+      "css": ".nav{display:grid;gap:4px}.nav button{padding:10px 8px;border:0;border-radius:6px;background:transparent;text-align:left;color:#8d9db2;font:12px/16px \"DM Sans\",sans-serif}.nav button:hover{background:#181f2a;color:#f1f5f9}.nav button[aria-current]{background:color-mix(in oklab,#10b981 10%,transparent);color:#10b981}.nav button:focus-visible{outline:2px solid #10b981;outline-offset:3px}"
+    },
+    {
+      "name": "Nhãn trung tính",
+      "kind": "chip",
+      "refersTo": "chip-neutral",
+      "description": "Chip môi trường hoặc metadata; nội dung phải nêu ý nghĩa.",
+      "html": "<span class=\"chip\">DEMO</span>",
+      "css": ".chip{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;background:#232d3b;color:#bec9d7;font:12px/16px \"DM Sans\",sans-serif}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Khung nội dung trung tính, không lồng thêm card trong mẫu.",
+      "html": "<section class=\"panel\"><h2>Quần thể tiến hoá</h2><p>Chi tiết mở theo từng cây.</p></section>",
+      "css": ".panel{padding:16px;border:1px solid #2a3545;border-radius:12px;background:#11161f;color:#f1f5f9;font:14px/1.5 \"DM Sans\",sans-serif}.panel h2{margin:0;font-size:14px;font-weight:600}.panel p{margin:8px 0 0;color:#bec9d7;font-size:12px}"
+    },
+    {
+      "name": "Chi tiết trong hàng",
+      "kind": "custom",
+      "description": "Native disclosure đang dùng; mẫu cấu trúc, không mô phỏng kết quả giao dịch.",
+      "html": "<details class=\"detail\"><summary>Chi tiết cây</summary><dl><dt>Tham số entry</dt><dd>Hiện theo dữ liệu từng cây.</dd></dl></details>",
+      "css": ".detail{border-bottom:1px solid #1d2633;color:#bec9d7;font:12px/1.5 \"DM Sans\",sans-serif}.detail summary{min-height:40px;padding:12px;box-sizing:border-box;color:#f1f5f9;cursor:pointer}.detail summary:focus-visible{outline:2px solid #10b981;outline-offset:3px}.detail dl{margin:0;padding:12px;background:#181f2a}.detail dd{margin:4px 0 0;color:#f1f5f9}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Bàn điều hành chính xác",
+    "overview": "Đẹp nhờ phân cấp rõ, nhịp khoảng cách chặt chẽ và điểm nhấn có chủ đích; không nhờ thêm đồ trang trí. Giao diện cần bắt mắt khi nhìn tổng thể, dễ quét khi theo dõi liên tục và đủ thông tin khi cần kiểm tra sâu. Đây là ưu tiên người dùng xác nhận cho những lần thiết kế tiếp theo, không phải tuyên bố mọi màn hình hiện tại đã đạt chuẩn.\n\nGiữ thế giới thị giác hiện có: nền xanh đen, các lớp bề mặt trung tính, chữ sáng và màu trạng thái dứt khoát. Dữ liệu và trạng thái dẫn mắt; công cụ hỗ trợ đứng sau. Gọn nghĩa là giảm lặp và giảm thao tác ghi nhớ, không phải thu nhỏ mọi chữ hay giấu thông tin cần để phân biệt đối tượng.",
+    "keyCharacteristics": [
+      "Đẹp, bắt mắt và tiết chế; điểm nhấn nằm ở thông tin quan trọng.",
+      "Gọn nhưng đủ thông tin; chi tiết kỹ thuật có đường truy cập rõ ràng.",
+      "Phân cấp ổn định, so sánh số liệu nhanh, trạng thái có nhãn chữ.",
+      "Dùng lại hệ màu, typography và thành phần hiện có."
+    ],
+    "rules": [
+      {
+        "name": "The Meaning Before Color Rule",
+        "body": "Màu bổ sung ý nghĩa cho nhãn, không thay thế nhãn. Không suy ra trạng thái broker, quyền giao dịch hoặc chất lượng chiến lược chỉ từ màu xanh.",
+        "section": "colors"
+      },
+      {
+        "name": "The Numbers Align Rule",
+        "body": "Căn phải số liệu trong cột và dùng tabular numerals cho giá, R, số lượng, thời gian. Monospace dành cho đo lường hoặc mã, không dành cho toàn bộ đoạn mô tả.",
+        "section": "typography"
+      },
+      {
+        "name": "The Compact, Not Hidden Rule",
+        "body": "Thu gọn thông tin lặp trước khi giấu thông tin quyết định. Tên, nhận diện đối tượng, chỉ số chính và trạng thái phải giúp người dùng phân biệt ngay; tham số sâu và phả hệ có thể mở theo nhu cầu.",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "**Do** làm giao diện đẹp bằng phân cấp, căn chỉnh và điểm nhấn có nghĩa.",
+      "**Do** ưu tiên gọn, dễ quét và đủ thông tin; cho mở chi tiết mà không bắt nhớ giữa nhiều hàng.",
+      "**Do** giữ nhãn môi trường và nguồn dữ liệu rõ ràng: demo, paper, shadow hoặc broker.",
+      "**Do** kiểm tra chữ dài, dữ liệu rỗng, số âm, chưa có kết quả, focus bàn phím và mobile.",
+      "**Do** dùng token hiện có; cập nhật tài liệu khi chủ động thay đổi hệ thiết kế."
+    ],
+    "donts": [
+      "**Don't** thêm màu, bóng, card lồng hoặc hiệu ứng chỉ để trang trí.",
+      "**Don't** dùng màu xanh thay cho bằng chứng đã khớp, đủ mẫu hoặc được chọn chạy.",
+      "**Don't** giấu mọi nhận diện của đối tượng để đạt cảm giác tối giản.",
+      "**Don't** làm mobile bằng cách chỉ ép bảng desktop thành hai cột chật.",
+      "**Don't** coi lỗi UI đã ghi nhận là quy ước cần duy trì, hoặc đổi cơ chế giao dịch khi chỉ chỉnh giao diện."
+    ]
+  }
+}

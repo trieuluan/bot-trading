@@ -16,7 +16,13 @@ export const forexSetupGuides: Record<string, string> = {
   asia_sweep:
     'Hộp phiên Á UTC (00:00–06:00 UTC); nến H1 mở từ 07:00 đến trước 10:00 UTC quét biên hộp rồi đóng trở lại.',
   inside_bar:
-    'Nến H1 nằm hoàn toàn trong biên nến trước (hoặc biến thể NR7 biên nhỏ nhất 7 nến); xác nhận phá biên theo hướng H4.',
+    'Nến H1 nằm hoàn toàn trong biên nến trước; xác nhận phá biên theo hướng H4.',
+  nr7:
+    'Nến H1 có biên độ cao nhất - thấp nhất hẹp nhất trong 7 nến gần nhất; xác nhận phá biên theo hướng H4.',
+  asia_break:
+    'Hộp giá phiên Á UTC (00:00–06:00 UTC); nến H1 mở từ 07:00 đến trước 11:00 UTC đóng phá biên hộp.',
+  london_orb_h1:
+    'Biên mở phiên London H1 (08:00–09:00 giờ London); nến H1 mở từ 09:00 đến trước 12:00 giờ London đóng phá biên.',
   round_level:
     'Nến H1 xuyên qua mốc giá tròn (50 giá vàng, 0.5 JPY, 50 pip Forex) rồi đóng từ chối quay trở lại theo xu hướng H4.',
 };

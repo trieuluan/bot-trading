@@ -316,26 +316,28 @@ def replay_touch(entry, side, bid, ask):
     return {"status": "filled", "winner": winner, "entry": price, "time": bid.time,
             "intrabar": winner not in opening_hits}
 
+G0_CATALOG = "independent_entries_20261109_v1"
+
 BASE_14_SETUPS = (
-    ("asia_sweep", "engulfing", "evidence_h1"),
-    ("order_block", "setup_reclaim", "fixed_structural"),
-    ("fvg", "fvg", "barrier_partial_h1"),
     ("channel_breakout", "channel", "partial_be_h1"),
-    ("mss", "vsa", "evidence_m15"),
-    ("pdh_pdl_sweep", "engulfing", "trail_swing_h1"),
-    ("inside_bar", "setup_reclaim", "ladder_h1"),
+    ("retest", "retest", "trail_swing_h1"),
+    ("nr7", "setup_reclaim", "ladder_h1"),
+    ("inside_bar", "setup_reclaim", "evidence_h1"),
+    ("squeeze", "squeeze", "ladder_h1"),
+    ("asia_break", "setup_reclaim", "fixed_structural"),
+    ("london_orb_h1", "setup_reclaim", "partial_be_h1"),
     ("pullback", "pullback", "runner_h1"),
     ("round_level", "setup_reclaim", "partial_be_m15"),
-    ("squeeze", "squeeze", "ladder_h1"),
     ("sweep", "range", "barrier_partial_h1"),
-    ("retest", "retest", "trail_swing_h1"),
-    ("mss", "mss", "runner_h1"),
-    ("order_block", "engulfing", "partial_be_h1"),
+    ("pdh_pdl_sweep", "engulfing", "trail_swing_h1"),
+    ("order_block", "setup_reclaim", "fixed_structural"),
+    ("channel_breakout", "channel", "runner_h1"),
+    ("retest", "retest", "barrier_partial_h1"),
 )
 
 
-def make_v4_g0_bundle(symbol="XAUUSD"):
-    """14 base setups x 4 entry policies = 56 balanced trees."""
+def make_v4_g0_population(symbol="XAUUSD"):
+    """Seed all entry policies; subsequent generations have no policy quotas."""
     from .forex_htf_v2 import _tree, default_h1_params, default_m15_params, round_step
     step = round_step(symbol)
     base_trees = []
@@ -346,14 +348,16 @@ def make_v4_g0_bundle(symbol="XAUUSD"):
         m15_p = default_m15_params(m15_fam)
         base = _tree(h1_fam, h1_p, m15_fam, m15_p, exit_pol)
         base_trees.append(base)
-    pop = []
+    return [with_entry(base, entry_node(policy)) for base in base_trees for policy in POLICIES]
+
+def make_v4_g0_bundle(symbol="XAUUSD"):
+    """Legacy research fixture, not used by the independent runtime."""
+    pop = make_v4_g0_population(symbol)
     bundles = {}
-    for bundle_idx, base in enumerate(base_trees):
+    for bundle_idx in range(len(BASE_14_SETUPS)):
         b_id = f"bundle_{bundle_idx:02d}"
+        base = control_tree(pop[bundle_idx * len(POLICIES)])
         bundles[b_id] = {"base": base, "tree_ids": {}}
-        for pol in POLICIES:
-            t = with_entry(base, entry_node(pol))
-            tid = tree_id(t)
-            pop.append(t)
-            bundles[b_id]["tree_ids"][pol] = tid
+        for tree in pop[bundle_idx * len(POLICIES):(bundle_idx + 1) * len(POLICIES)]:
+            bundles[b_id]["tree_ids"][tree["root"]["children"][3]["policy"]] = tree_id(tree)
     return pop, bundles

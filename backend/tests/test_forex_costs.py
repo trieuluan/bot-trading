@@ -187,8 +187,11 @@ def test_cache_invalidated_when_account_changes():
     assert API.calls == 1
 
 
-def test_exness_trade_sessions_boundaries_rollover_and_symbol_schedules():
+@pytest.mark.parametrize("separator", [", ", ","])
+def test_exness_trade_sessions_boundaries_rollover_and_symbol_schedules(separator):
     def eval_at(symbol, sessions, now):
+        sessions = [{**row, "week_start_time": row["week_start_time"].replace(", ", separator),
+                     "week_end_time": row["week_end_time"].replace(", ", separator)} for row in sessions]
         cond = {**specification(), "instrument": symbol, "trade_sessions": sessions}
         specs = {"status": "partial", "error": None,
                  "profile": normalize_specs(account(), cond, now - 10, account_id="demo", symbol=symbol)}
