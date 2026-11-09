@@ -71,16 +71,15 @@ export function ForexSignalLifecycle({
 }: ForexSignalLifecycleProps) {
   const tab = initialTab;
   const [setupFilter, setSetupFilter] = useState<'pending' | 'history' | 'all'>('pending');
-  const [shadowFilter, setShadowFilter] = useState<'open' | 'waiting' | 'history'>('open');
+  const [shadowChoice, setShadowChoice] = useState<'open' | 'waiting' | 'history' | null>(null);
   const symbolShadows = shadowTrades.filter((trade) => trade.symbol === symbol);
   const shadowOpenCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'open').length;
   const shadowWaitingCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'waiting').length;
   const shadowHistoryCount = symbolShadows.filter((trade) => shadowPhase(trade) === 'history').length;
+  const shadowFilter = shadowChoice ?? (shadowOpenCount > 0 ? 'open' : shadowWaitingCount > 0 ? 'waiting' : shadowHistoryCount > 0 ? 'history' : 'open');
   useEffect(() => {
-    if (tab === 'shadow' && shadowOpenCount === 0 && shadowWaitingCount === 0 && shadowHistoryCount > 0) {
-      setShadowFilter('history');
-    }
-  }, [tab, shadowOpenCount, shadowWaitingCount, shadowHistoryCount]);
+    setShadowChoice(null);
+  }, [open, tab, symbol]);
   const [detailedSetupId, setDetailedSetupId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -285,8 +284,9 @@ export function ForexSignalLifecycle({
                 Setup ({setups.length})
               </button>
               <button type="button" aria-pressed={tab === 'shadow'} onClick={() => onTabChange('shadow')}
+                title={`Tổng ${symbolShadows.length} mẫu shadow · ${shadowOpenCount} mở · ${shadowWaitingCount} chờ khớp · ${shadowHistoryCount} lịch sử`}
                 className={`rounded-md px-3 py-1 font-medium transition-colors ${tab === 'shadow' ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
-                Shadow ({shadowOpenCount > 0 ? shadowOpenCount : symbolShadows.length})
+                Shadow ({symbolShadows.length})
               </button>
             </div>
           )}
@@ -602,7 +602,7 @@ export function ForexSignalLifecycle({
             </div>
             <div className="flex items-center rounded-lg border border-border-base bg-surface-2/60 p-0.5" role="group" aria-label="Lọc lệnh shadow">
               {([['open', 'Đang chạy'], ['waiting', 'Chờ khớp'], ['history', 'Lịch sử']] as const).map(([value, label]) => (
-                <button key={value} type="button" aria-pressed={shadowFilter === value} onClick={() => setShadowFilter(value)}
+                <button key={value} type="button" aria-pressed={shadowFilter === value} onClick={() => setShadowChoice(value)}
                   className={`flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
                     shadowFilter === value ? 'bg-surface-1 font-semibold text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
                   }`}>
