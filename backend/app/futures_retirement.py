@@ -15,6 +15,14 @@ MIN_EDGE_R = 0.10
 MIN_CONTEXT_SAMPLES = 10
 
 
+def min_samples_for(genome):
+    return 12 if (genome or {}).get("signal_frame") in ("D1", "H4") else MIN_SAMPLES
+
+
+def max_drawdown_for(genome):
+    return 5.0 if (genome or {}).get("signal_frame") in ("D1", "H4") else MAX_DRAWDOWN_R
+
+
 def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
@@ -48,12 +56,16 @@ def metrics(samples):
             "max_drawdown_r": drawdown}
 
 
-def failure(stats):
-    if stats["samples"] < MIN_SAMPLES:
-        return None
-    if stats["mean_r"] < 0:
+def failure(stats, genome=None):
+    min_samples = min_samples_for(genome) if genome else MIN_SAMPLES
+    max_dd = max_drawdown_for(genome) if genome else MAX_DRAWDOWN_R
+    if stats["samples"] >= min_samples and stats["mean_r"] < 0:
         return "negative_forward_r"
-    if stats["max_drawdown_r"] >= MAX_DRAWDOWN_R:
+    if stats["samples"] < min_samples:
+        if genome and genome.get("signal_frame") in ("D1", "H4") and stats["samples"] > 0 and stats["max_drawdown_r"] >= max_dd:
+            return "forward_drawdown"
+        return None
+    if stats["max_drawdown_r"] >= max_dd:
         return "forward_drawdown"
     return None
 
@@ -78,8 +90,9 @@ def redundant(candidate, keeper, samples, retained):
     right_rows = [row for row in retained if start <= row["candle_time"] <= end]
     left = {(row["candle_time"], row["side"]): row for row in left_rows}
     right = {(row["candle_time"], row["side"]): row for row in right_rows}
+    min_s = min(min_samples_for(candidate.get("genome")), min_samples_for(keeper.get("genome")))
     if (len(left) != len(left_rows) or len(right) != len(right_rows)
-            or min(len(left), len(right)) < MIN_SAMPLES):
+            or min(len(left), len(right)) < min_s):
         return None
     shared, union = left.keys() & right.keys(), left.keys() | right.keys()
     if len(shared) < MIN_SHARED or len(shared) / len(union) < MIN_OVERLAP:
@@ -121,15 +134,18 @@ def retirement_candidates(state, evidence, protected):
     stats = {name: metrics(evidence.get(name, [])) for name in state["candidates"]}
     result = []
     for name, candidate in sorted(state["candidates"].items()):
-        if name in protected or stats[name]["samples"] < MIN_SAMPLES or not exit_policy_enabled(candidate["genome"]):
+        genome = candidate["genome"]
+        min_s = min_samples_for(genome)
+        if name in protected or not exit_policy_enabled(genome):
             continue
-        if genome_fingerprint(candidate["genome"]) in {genome_fingerprint(seed) for seed in NATIVE_SEEDS}:
+        if genome_fingerprint(genome) in {genome_fingerprint(seed) for seed in NATIVE_SEEDS}:
             continue
-        reason = failure(stats[name])
+        reason = failure(stats[name], genome)
         metadata = {"reason": reason, **stats[name], "retained_strategy": None, "overlap": None}
-        if not reason:
+        if not reason and stats[name]["samples"] >= min_s:
             for keeper, other in sorted(state["candidates"].items()):
-                if (keeper == name or stats[keeper]["samples"] < MIN_SAMPLES or failure(stats[keeper])
+                k_min = min_samples_for(other["genome"])
+                if (keeper == name or stats[keeper]["samples"] < k_min or failure(stats[keeper], other["genome"])
                         or not exit_policy_enabled(other["genome"])):
                     continue
                 overlap = redundant(candidate, other, evidence[name], evidence[keeper])

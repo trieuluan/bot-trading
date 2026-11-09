@@ -319,6 +319,7 @@ def test_h4_h1_confirm_is_paper_enabled_and_can_breed():
     state = learner.new_state(1000)
     legacy = genome_name(SEEDS[0])
     h1_name = genome_name(shadow)
+    state["candidates"] = {h1_name: state["candidates"][h1_name]}
     state["samples"] = [
         dict(strategy=legacy, status="resolved", net_r=2.0, label_available_at=1500),
         dict(strategy=h1_name, status="resolved", net_r=1.0, label_available_at=1500),

@@ -208,14 +208,10 @@ def read_state(session, now, *, copy_payload=True):
     if "h4_session_3r_started_at" not in state:
         migrate_h4_session(state, now)
     for draft in state.get("drafts", {}).values():
-        if draft["status"] in PENDING and not draft["genome"].get("signal_frame"):
-            draft.update(status="rejected", phase="done", reason="legacy_breeding_retired",
-                         next_retry_at=None, updated_at=now)
-        elif draft["status"] == "insufficient":
+        if draft["status"] == "insufficient":
             report = draft.get("replay") or {}
-            if (report.get("end_time", 0) - report.get("start_time", 0) >= 90 * 86400
-                    and report.get("total_samples", 5) < 5):
-                draft.update(status="rejected", phase="done", reason="sparse_90d_replay",
+            if report.get("total_samples", 5) < 5:
+                draft.update(status="rejected", phase="done", reason="sparse_replay",
                              next_retry_at=None, updated_at=now)
     return state
 
@@ -438,6 +434,22 @@ def breeding_performance(state, now):
                 and report.get("end_time", now + 1) <= now)
     for name, candidate in state["candidates"].items():
         if candidate["genome"].get("signal_frame") not in ("D1", "H4"):
+            count, average = forward.get(name, (0, 0.0))
+            total = count * average
+            historical = (state.get("historical") or {}).get("report") or {}
+            if historical.get("end_time", now + 1) <= now:
+                for historical_row in historical.get("strategies", []):
+                    if (historical_row["strategy"] == name
+                            and genome_fingerprint(historical_row["genome"]) == genome_fingerprint(candidate["genome"])):
+                        training = historical_row["train"]
+                        count += training["resolved"]
+                        total += training["resolved"] * (training["mean_r"] or 0.0)
+            screened = (state.get("drafts", {}).get(candidate.get("draft_id")) or {}).get("replay") or {}
+            if (not historical.get("strategies") and screened.get("end_time", now + 1) <= now
+                    and screened.get("genome_fingerprint") == genome_fingerprint(candidate["genome"])):
+                count += screened["train_samples"]
+                total += screened["train_samples"] * (screened["train_mean_r"] or 0.0)
+            results[name] = (count, total / count if count else 0.0)
             continue
         row = next((row for row in report.get("strategies", []) if row["strategy"] == name
                     and genome_fingerprint(row["genome"]) == genome_fingerprint(candidate["genome"])), None)
@@ -468,14 +480,16 @@ def evolve(state, now, max_children=1, force=False):
     evidence = forward_evidence(state, now)
     ranked = sorted((name for name, (count, r) in results.items()
                      if count >= MIN_PARENT_SAMPLES and r > 0 and name in state["candidates"]
-                     and state["candidates"][name]["genome"].get("signal_frame") in ("D1", "H4")
-                     and not failure(metrics(evidence.get(name, [])))
+                     and not failure(metrics(evidence.get(name, [])), state["candidates"][name]["genome"])
                      and confirmation_enabled(state["candidates"][name]["genome"])
                      and not shadow_only(state["candidates"][name]["genome"])
                      and exit_policy_enabled(state["candidates"][name]["genome"])),
                     key=lambda name: results[name][1] - 0.01 * complexity(
                         state["candidates"][name]["genome"]), reverse=True)
-    parents = ranked[:4]
+    native = [name for name in ranked if state["candidates"][name]["genome"].get("signal_frame")]
+    legacy = [name for name in ranked if name not in native]
+    groups = [group[:4] for group in (native, legacy) if group]
+    parents = groups[(now // EVOLVE_SECONDS) % len(groups)] if groups else []
     if not parents:
         return 0
     rng, made = random.Random(now // EVOLVE_SECONDS), 0

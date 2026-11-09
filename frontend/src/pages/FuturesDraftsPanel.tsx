@@ -153,8 +153,8 @@ export function FuturesDraftsPanel({
       <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-2/60 p-3 sm:flex-row sm:items-center sm:justify-between text-xs text-text-secondary">
         <div className="flex items-center gap-2">
           <span>
-            <b>Sàng lọc con nháp</b> · D1/H4 mới: 340 ngày, 10 cặp, chia 70% huấn luyện / 30% kiểm
-            tra.
+            <b>Sàng lọc con nháp</b> · D1/H4: 340 ngày, 10 cặp. M15/H1: 60 ngày, cặp riêng. Chia 70%
+            huấn luyện / 30% kiểm tra.
           </span>
         </div>
         <div className="text-text-muted">Replay tách biệt forward. Các cặp có thể tương quan.</div>
@@ -273,7 +273,7 @@ export function FuturesDraftsPanel({
                       <span>
                         {(result?.scope ?? draft.window?.scope) === 'native_universe_v1'
                           ? '340 ngày · 10 cặp'
-                          : 'Nháp cũ · từng cặp'}
+                          : '60 ngày · cặp riêng'}
                       </span>
                       {draft.attempts > 0 && <span>· Lần chạy {draft.attempts}/3</span>}
                     </div>

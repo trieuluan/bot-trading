@@ -19,6 +19,7 @@ BACKOFF_SECONDS = 300
 MAX_ATTEMPTS = 3
 TIMEOUT_SECONDS = 1200
 UNIVERSE_DAYS = 340
+PAIR_DAYS = 60
 UNIVERSE_TIMEOUT_SECONDS = 3600
 UNIVERSE_SCOPE = "native_universe_v1"
 PENDING = {"queued", "running", "insufficient", "waiting_slot"}
@@ -75,7 +76,7 @@ def claim(draft, now):
     if native and "data_start" not in (draft.get("window") or {}):
         draft["window"] = None
     warmup_bars = NATIVE_WARMUP if draft["genome"].get("signal_frame") else 1600
-    data_start = end - (UNIVERSE_DAYS if native else 90) * 86400
+    data_start = end - (UNIVERSE_DAYS if native else PAIR_DAYS) * 86400
     window = draft.get("window") or {
         "start": data_start + warmup_bars * 900 if native else data_start,
         "end": end,
@@ -116,7 +117,7 @@ def gate(report):
                     "validation_drawdown_r": validation["max_drawdown_r"],
                     **({key: report[key] for key in ("scope", "symbols", "per_symbol", "screening_note")}
                        if universe else {}),
-                    **({"genome_fingerprint": genome_fingerprint(row["genome"])} if universe else {}),
+                    **({"genome_fingerprint": genome_fingerprint(row["genome"])} if "genome" in row else {}),
                     **{key: report[key] for key in ("start_time", "end_time", "train_before", "bars",
                                                     "warmup_bars", "fee_bps", "slippage_bps",
                                                     "dataset_sha256", "signal_inputs")}}

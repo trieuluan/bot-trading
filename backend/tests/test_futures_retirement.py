@@ -350,3 +350,23 @@ def test_positions_ownership_and_pending_disagreement_fail_closed():
         add_pending(session, weak, audit=False)
     with Session() as session:
         assert learner.active_strategies(session, state) is None
+
+def test_native_forward_retirement_uses_twelve_samples_and_early_5r_drawdown():
+    native = NATIVE_SEEDS[0]
+    assert retirement.failure(retirement.metrics(samples("x", [-0.1] * 11)), native) is None
+    assert retirement.failure(retirement.metrics(samples("x", [-0.1] * 12)), native) == "negative_forward_r"
+    assert retirement.failure(retirement.metrics(samples("x", [-2, -3])), native) == "forward_drawdown"
+    assert retirement.failure(retirement.metrics(samples("x", [-2, -3])), SEEDS[0]) is None
+
+def test_m15_parent_can_breed_single_pair_60_day_draft():
+    state = learner.new_state(NOW)
+    state["drafts"], parent = {}, genome_name(ENTRY_SEEDS[0])
+    state["candidates"] = {parent: state["candidates"][parent]}
+    state["samples"] = samples(parent, [0.5] * 12)
+    assert learner.evolve(state, NOW, force=True) == 1
+    draft = next(iter(state["drafts"].values()))
+    assert draft["parents"] == [parent] and not draft["genome"].get("signal_frame")
+    from backend.app import futures_drafts as drafts
+    drafts.claim(draft, NOW)
+    assert draft["window"]["end"] - draft["window"]["start"] == 60 * 86400
+    assert "scope" not in draft["window"]

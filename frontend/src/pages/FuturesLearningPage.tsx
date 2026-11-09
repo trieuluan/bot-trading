@@ -1211,9 +1211,10 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
             <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">
               <p>
                 Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay
-                thế: ≥50 mẫu forward đã khớp và đóng, R ròng âm, drawdown ≥10R hoặc trùng mẫu
-                forward với cây tốt hơn đã đủ bằng chứng. 10R không phải 10% tài khoản. Replay không
-                dùng để quyết định loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ được bảo vệ.
+                thế: D1/H4 cần ≥12 mẫu forward để xét R âm, loại sớm nếu drawdown ≥5R; M15/H1 cần
+                ≥50 mẫu, R ròng âm hoặc drawdown ≥10R; hoặc trùng mẫu với cây tốt hơn. 10R không
+                phải 10% tài khoản. Replay không dùng để quyết định loại. Cây còn mẫu mở, vị thế
+                hoặc lệnh chờ được bảo vệ.
               </p>
               <p>
                 Mẫu học = replay lịch sử + forward giả lập mọi tín hiệu (kể cả khi Auto Paper không
