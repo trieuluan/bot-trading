@@ -1,7 +1,7 @@
 import { forexSetupGuides, forexTriggerGuides, forexExitGuides } from '../lib/forex-strategy-info';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { subscribeForexStream } from '../lib/forex-stream';
-import { CheckCircle2, ChevronDown, CircleDashed, CircleX, Clock3, Eye, GitBranch, LayoutGrid, List, Search, X } from 'lucide-react';
+import { Activity, CheckCircle2, ChevronDown, CircleDashed, CircleX, Clock3, Eye, GitBranch, LayoutGrid, List, Search, X } from 'lucide-react';
 import type { ForexDashboard } from '../App';
 import {
   MtfObservationChart,
@@ -1147,12 +1147,28 @@ export function ForexEntryPilotPanel({
     stop_trigger_break: 'border-amber-400/25 bg-amber-400/10 text-amber-300',
     limit_or_stop: 'border-indigo-400/25 bg-indigo-400/10 text-indigo-300',
   };
+  // Ready trees keep their evolution verdict; activity still shows separately as "N mở/chờ".
+  const treeStatus = (tree: (typeof trees)[number]) => tree.eligible
+    ? { key: 'eligible', label: 'Có thể sinh con', tone: 'text-emerald-300', Icon: CheckCircle2 }
+    : tree.ready
+      ? { key: 'not_eligible', label: 'Đủ mẫu · chưa đạt', tone: 'text-rose-300', Icon: CircleX }
+      : runningCount(tree.status_counts) > 0
+        ? { key: 'active', label: 'Có setup đang chạy', tone: 'text-cyan-300', Icon: Activity }
+        : tree.resolved_count > 0
+          ? { key: 'collecting', label: 'Đang gom mẫu', tone: 'text-sky-300', Icon: Clock3 }
+          : tree.samples_count > 0
+            ? { key: 'no_results', label: 'Chưa có kết quả', tone: 'text-amber-300', Icon: CircleDashed }
+            : { key: 'waiting', label: 'Chờ tín hiệu', tone: 'text-text-muted', Icon: CircleDashed };
   const populationFilters = [
     { value: 'all', title: 'Tất cả', count: trees.length, tone: 'text-text-primary' },
-    { value: 'eligible', title: 'Có thể sinh con', count: trees.filter((tree) => tree.eligible).length, tone: 'text-emerald-300' },
-    { value: 'waiting', title: 'Chờ tín hiệu', count: trees.filter((tree) => !tree.ready && !tree.eligible && tree.samples_count === 0).length, tone: 'text-text-secondary' },
-    { value: 'collecting', title: 'Đang gom mẫu', count: trees.filter((tree) => !tree.ready && !tree.eligible && tree.samples_count > 0).length, tone: 'text-sky-300' },
-    { value: 'not_eligible', title: 'Đủ mẫu · chưa đạt', count: trees.filter((tree) => tree.ready && !tree.eligible).length, tone: 'text-rose-300' },
+    ...[
+      { value: 'active', title: 'Có setup đang chạy', tone: 'text-cyan-300' },
+      { value: 'collecting', title: 'Đang gom mẫu', tone: 'text-sky-300' },
+      { value: 'no_results', title: 'Chưa có kết quả', tone: 'text-amber-300' },
+      { value: 'waiting', title: 'Chờ tín hiệu', tone: 'text-text-secondary' },
+      { value: 'eligible', title: 'Có thể sinh con', tone: 'text-emerald-300' },
+      { value: 'not_eligible', title: 'Đủ mẫu · chưa đạt', tone: 'text-rose-300' },
+    ].map((filter) => ({ ...filter, count: trees.filter((tree) => treeStatus(tree).key === filter.value).length })),
   ];
   const policyOrder = [...new Set([...Object.keys(entryPolicyLabels), ...policies])];
   const policyFilters = [
@@ -1161,22 +1177,11 @@ export function ForexEntryPilotPanel({
       .filter((policy) => policies.has(policy))
       .map((policy) => ({ value: policy, title: policyLabel(policy), count: trees.filter((tree) => tree.entry_policy === policy).length })),
   ];
-  const treeStatus = (tree: (typeof trees)[number]) => tree.eligible
-    ? { label: 'Có thể sinh con', tone: 'text-emerald-300', Icon: CheckCircle2 }
-    : tree.ready
-      ? { label: 'Đủ mẫu · chưa đạt', tone: 'text-rose-300', Icon: CircleX }
-      : tree.samples_count === 0
-        ? { label: 'Chờ tín hiệu', tone: 'text-text-muted', Icon: CircleDashed }
-        : { label: 'Đang gom mẫu', tone: 'text-sky-300', Icon: Clock3 };
   const minOutcomes = Math.max(1, pilot?.min_outcomes ?? 10);
   const filtersActive = treeFilter !== 'all' || policyFilter !== 'all' || activityFilter !== 'all' || generationFilter !== 'all' || needle !== '';
   const resetFilters = () => { setEntrySearch(''); setTreeFilter('all'); setPolicyFilter('all'); setActivityFilter('all'); setGenerationFilter('all'); setPilotPage(0); setPickedTree(null); };
   const filteredTrees = trees.filter((tree) => {
-    const matchesState = treeFilter === 'all'
-      || (treeFilter === 'eligible' && tree.eligible)
-      || (treeFilter === 'waiting' && !tree.ready && !tree.eligible && tree.samples_count === 0)
-      || (treeFilter === 'collecting' && !tree.ready && !tree.eligible && tree.samples_count > 0)
-      || (treeFilter === 'not_eligible' && tree.ready && !tree.eligible);
+    const matchesState = treeFilter === 'all' || treeStatus(tree).key === treeFilter;
     const matchesActivity = activityFilter === 'all' || (activityFilter === 'active' ? runningCount(tree.status_counts) > 0 : runningCount(tree.status_counts) === 0);
     const matchesGeneration = generationFilter === 'all' || (generationFilter === 'children' ? (tree.generation ?? 0) > 0 : (tree.generation ?? 0) === 0);
     return matchesState && matchesActivity && matchesGeneration && (policyFilter === 'all' || tree.entry_policy === policyFilter) && (!needle || [
@@ -1217,7 +1222,7 @@ export function ForexEntryPilotPanel({
                     <div><dt>ID cây</dt><dd className="mt-1 break-all font-mono text-text-primary">{tree.id}</dd></div>
                     <div><dt>Thoát lệnh</dt><dd className="mt-1 text-text-primary">{label(tree.exit_policy)}</dd></div>
                     <div><dt>Mẫu shadow</dt><dd className="mt-1 tabular-nums text-text-primary">{tree.samples_count} mẫu · {tree.resolved_count} kết quả hợp lệ</dd></div>
-                    <div><dt>Tiến hoá</dt><dd className="mt-1 text-text-primary">{tree.eligible ? 'Đủ điều kiện làm cha/mẹ' : tree.ready ? 'Chưa đủ điều kiện sinh con' : tree.samples_count === 0 ? 'Chờ tín hiệu đầu tiên' : 'Đang gom mẫu'} · {tree.resolved_count} kết quả hợp lệ, tối thiểu {minOutcomes}.</dd></div>
+                    <div><dt>Tiến hoá</dt><dd className="mt-1 text-text-primary">{treeStatus(tree).label} · {tree.resolved_count} kết quả hợp lệ, tối thiểu {minOutcomes}.</dd></div>
                     <div><dt>Execution demo · dữ liệu trả về</dt><dd className="mt-1 text-text-primary">{filled > 0 ? `${filled} setup có broker xác nhận khớp; không suy ra vị thế còn mở.` : treeIntents.length > 0 ? `${treeIntents.length} setup · chưa có xác nhận khớp broker.` : 'Chưa có dữ liệu execution cho cây này.'}{tree.entry_live_sides?.length === 1 && <span className="block text-amber-300">Limit Short chỉ shadow</span>}</dd></div>
                     <div><dt>Tham số entry</dt><dd className="mt-1 break-words font-mono text-text-primary">{Object.entries(tree.entry_params ?? {}).map(([name, value]) => `${name}=${value}`).join(' · ') || 'Không có tham số entry'}</dd></div>
                     <div><dt>Phả hệ</dt><dd className="mt-1 break-all text-text-primary">Cha/mẹ: {tree.parents?.join(', ') || 'Cây gốc'}</dd></div>
@@ -1511,7 +1516,7 @@ export function ForexEntryPilotPanel({
               <select aria-label="Shadow đang chạy" value={activityFilter} onChange={(event) => { setActivityFilter(event.target.value); setPilotPage(0); }} className="min-h-10 w-full min-w-0 rounded-md border border-border-active bg-surface-1 px-2 text-text-primary focus-visible:outline-2 focus-visible:outline-sky-400">
                 <option value="all">Mọi trạng thái</option>
                 <option value="active">Có shadow mở/chờ</option>
-                <option value="idle">Không có shadow</option>
+                <option value="idle">Không có shadow mở/chờ</option>
               </select>
             </label>
             <label className="flex min-w-0 flex-col gap-1.5">
@@ -1632,9 +1637,7 @@ export function ForexEntryPilotPanel({
             {pagedTrees.map((tree) => {
               const code = treeCode(tree.id);
               const active = runningCount(tree.status_counts);
-              const evolutionLabel = tree.eligible ? 'Có thể sinh con' : tree.ready ? 'Đủ mẫu · chưa đạt' : tree.samples_count === 0 ? 'Chờ tín hiệu' : 'Đang gom mẫu';
-              const evolutionTone = tree.eligible ? 'text-emerald-300' : tree.ready ? 'text-rose-300' : tree.samples_count === 0 ? 'text-text-muted' : 'text-sky-300';
-              const EvolutionIcon = tree.eligible ? CheckCircle2 : tree.ready ? CircleX : tree.samples_count === 0 ? CircleDashed : Clock3;
+              const { label: evolutionLabel, tone: evolutionTone, Icon: EvolutionIcon } = treeStatus(tree);
               return (
               <li key={tree.id} className="entry-tree min-w-0 border-b border-border-subtle last:border-b-0 odd:bg-surface-2/30 transition-colors hover:bg-surface-2 focus-within:bg-surface-2">
                 <details className="group/tree text-xs text-text-secondary">

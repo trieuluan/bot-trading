@@ -161,3 +161,47 @@ test('ForexEntryPilotPanel renders new root setups with Vietnamese labels', asyn
     await server.close();
   }
 });
+
+test('ForexEntryPilotPanel classifies active, collecting, no_results, and waiting trees distinctly', async () => {
+  const server = await createServer({
+    root: fileURLToPath(new URL('../', import.meta.url)),
+    server: { middlewareMode: true, hmr: false, ws: false },
+    appType: 'custom',
+  });
+  try {
+    const { ForexEntryPilotPanel } = await server.ssrLoadModule('/src/pages/ForexStrategyPage.tsx');
+    const base = {
+      control_tree_id: 'hast3_x',
+      entry_policy: 'market',
+      entry_params: {},
+      h1_setup: 'channel_breakout',
+      m15_trigger: 'channel',
+      exit_policy: 'fixed_structural',
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ForexEntryPilotPanel, {
+        symbol: 'XAUUSD',
+        entryPilot: {
+          enabled: true,
+          intents: [],
+          pilot: {
+            status: 'ready',
+            tree_count: 4,
+            trees: [
+              { ...base, id: 'hast4_active', samples_count: 2, resolved_count: 0, mean_r: null, status_counts: { open: 1 } },
+              { ...base, id: 'hast4_collecting', samples_count: 3, resolved_count: 2, mean_r: 1.25, status_counts: { resolved: 2 } },
+              { ...base, id: 'hast4_no_results', samples_count: 1, resolved_count: 0, mean_r: null, status_counts: { excluded: 1 } },
+              { ...base, id: 'hast4_waiting', samples_count: 0, resolved_count: 0, mean_r: null, status_counts: {} },
+            ],
+          },
+        },
+      }),
+    );
+    for (const title of ['Có setup đang chạy', 'Đang gom mẫu', 'Chưa có kết quả', 'Chờ tín hiệu']) {
+      const chip = new RegExp(`${title}<span[^>]*>1</span>`);
+      assert.match(html, chip, `Expected exactly one tree counted under "${title}"`);
+    }
+  } finally {
+    await server.close();
+  }
+});
