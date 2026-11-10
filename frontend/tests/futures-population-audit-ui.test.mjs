@@ -80,6 +80,21 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
     assert.ok(workerHtml.includes('Xem BTC/USDT'));
     assert.ok(workerHtml.includes('62% bước hiện tại'));
     assert.ok(workerHtml.includes('5.376 / 8.640 nến'));
+    const here = renderToStaticMarkup(React.createElement(ReplayWorkerStatus, {
+      worker: { consumer_enabled: true, stale: false, active_job: { purpose: 'audit', symbol: 'BTC_USDT', strategy: 'rule_tree:02952706c012', phase: 'replay', completed: 1, total: 2 } },
+      onView: () => {}, currentSymbol: 'BTC_USDT',
+    }));
+    assert.ok(!here.includes('Xem BTC/USDT'));
+    const duplicate = renderToStaticMarkup(React.createElement(ReplayWorkerStatus, {
+      worker: { consumer_enabled: true, stale: false, active_job: { purpose: 'audit', symbol: 'BTC_USDT', strategy: 'rule_tree:02952706c012', phase: 'replay', completed: 1, total: 2 } },
+      currentSymbol: 'BTC_USDT', localAudit: { status: 'running', strategy: 'rule_tree:02952706c012' },
+    }));
+    assert.equal(duplicate, '');
+    const otherPair = renderToStaticMarkup(React.createElement(ReplayWorkerStatus, {
+      worker: { consumer_enabled: true, stale: false, active_job: { purpose: 'audit', symbol: 'ETH_USDT', strategy: 'rule_tree:02952706c012', phase: 'replay', completed: 1, total: 2 } },
+      onView: () => {}, currentSymbol: 'BTC_USDT', localAudit: { status: 'running', strategy: 'rule_tree:02952706c012' },
+    }));
+    assert.ok(otherPair.includes('Xem ETH/USDT'));
     const universe = (phase, replay_symbol) => renderToStaticMarkup(React.createElement(ReplayWorkerStatus, {
       worker: { consumer_enabled: true, stale: false, active_job: { purpose: 'draft', symbol: 'DOGE_USDT', replay_symbol,
         universe: true, strategy: 'rule_tree:b82f7e1d', phase, completed: 16608, total: 26640 } },

@@ -349,9 +349,11 @@ export function RetirementMetrics({ retirement }: {
 
 export type ReplayTarget = { symbol: FuturesSymbol; purpose: 'audit' | 'draft'; strategy?: string | null };
 
-export function ReplayWorkerStatus({ worker, onView }: { worker?: DraftWorker; onView?: (target: ReplayTarget) => void }) {
+export function ReplayWorkerStatus({ worker, onView, currentSymbol, localAudit }: { worker?: DraftWorker; onView?: (target: ReplayTarget) => void; currentSymbol?: FuturesSymbol; localAudit?: Learning['population_audit_job'] }) {
   const job = worker?.active_job;
   const active = !!job && !!worker?.consumer_enabled && !worker.stale;
+  if (active && job.purpose === 'audit' && job.symbol === currentSymbol
+    && localAudit?.status === 'running' && !!localAudit.strategy && job.strategy === localAudit.strategy) return null;
   const symbol = FUTURES_SYMBOLS.find((value) => value === job?.symbol);
   const labels = { audit: 'Audit quần thể · 90 ngày', draft: 'Replay con nháp', parents: 'Replay cha mẹ · Toàn bộ cặp' };
   const phases: Record<string, string> = { data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price', funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến', benchmark: 'Tải nến tham chiếu', cached: 'Dùng kết quả đã lưu' };
@@ -368,7 +370,7 @@ export function ReplayWorkerStatus({ worker, onView }: { worker?: DraftWorker; o
         <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary"><Activity size={16} className={active ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" />Worker replay <span className="text-xs font-normal text-text-secondary">Toàn hệ thống</span></h3>
         <p role="status" className="text-text-secondary">{worker?.stale ? 'Mất heartbeat · Chưa xác nhận tác vụ còn chạy' : !worker?.consumer_enabled ? 'Worker chưa sẵn sàng' : active ? <><strong className="text-sky-200">{pending ? 'Đang chuẩn bị' : (current ?? symbol)?.replace('_', '/') ?? 'Toàn bộ cặp'}</strong> · {labels[job.purpose]}{job.universe && job.purpose === 'draft' ? ' · 10 cặp' : ''} · {phases[phase] ?? 'Đang xử lý'}{(crossPair || (pending && symbol && job.purpose === 'draft')) && <span className="text-text-muted"> · Con nháp thuộc {symbol!.replace('_', '/')}</span>}</> : 'Đang chờ tác vụ tiếp theo'}</p>
       </div>
-      {active && symbol && job.purpose !== 'parents' && onView && <button type="button" className="min-h-10 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 font-semibold text-sky-200 hover:bg-sky-400/20 focus-visible:outline-2 focus-visible:outline-sky-300" onClick={() => onView({ symbol, purpose: job.purpose as 'audit' | 'draft', strategy: job.strategy })}>Xem {symbol.replace('_', '/')} <ChevronRight size={14} className="inline" aria-hidden="true" /></button>}
+      {active && symbol && job.purpose !== 'parents' && onView && symbol !== currentSymbol && <button type="button" className="min-h-10 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 font-semibold text-sky-200 hover:bg-sky-400/20 focus-visible:outline-2 focus-visible:outline-sky-300" onClick={() => onView({ symbol, purpose: job.purpose as 'audit' | 'draft', strategy: job.strategy })}>Xem {symbol.replace('_', '/')} <ChevronRight size={14} className="inline" aria-hidden="true" /></button>}
     </div>
     {active && <div className="mt-3 space-y-2">
       <div className="flex flex-wrap justify-between gap-2 text-text-secondary"><span>{job.strategy ? `Cây #${job.strategy.split(':').at(-1)?.slice(0, 6)}` : 'Tác vụ đang chạy'}{job.updated_at ? ` · Cập nhật ${formatTime(job.updated_at)}` : ''}</span><span className="tabular-nums text-sky-200">{percent === null ? 'Chưa có số liệu tiến độ' : `${percent}% ${crossPair ? 'cặp hiện tại' : 'bước hiện tại'} · ${job.completed!.toLocaleString('vi-VN')} / ${job.total!.toLocaleString('vi-VN')}${phase === 'replay' ? ' nến' : ''}`}</span></div>
@@ -405,7 +407,7 @@ export function PopulationAuditStatus({ job, worker, queued, symbol }: {
       <div className="flex flex-wrap items-center gap-3">
         <span className="tabular-nums text-text-muted">{queued} cây chờ</span>
         <span className={`rounded-md px-2 py-1 font-medium ${running ? 'bg-sky-500/10 text-sky-300' : warning ? 'bg-amber-500/10 text-amber-300' : 'bg-surface-3 text-text-secondary'}`}>
-          {running ? 'Đang replay' : worker?.stale ? 'Mất heartbeat' : !worker?.consumer_enabled ? 'Chưa sẵn sàng' : isTimeout ? 'Vượt thời gian' : job?.status === 'failed' ? 'Lượt gần nhất lỗi' : 'Chờ lượt tiếp theo'}
+          {running ? 'Worker đang xử lý' : worker?.stale ? 'Mất heartbeat' : !worker?.consumer_enabled ? 'Chưa sẵn sàng' : isTimeout ? 'Vượt thời gian' : job?.status === 'failed' ? 'Lượt gần nhất lỗi' : 'Chờ lượt tiếp theo'}
         </span>
       </div>
     </div>
@@ -731,7 +733,8 @@ export function FuturesLearningPage({ onViewTrade, onViewReplay, replayTarget, o
             </button>
           </div>
           <div ref={workerPanel}>
-            <ReplayWorkerStatus worker={data.draft_worker} onView={onViewReplay} />
+            <ReplayWorkerStatus worker={data.draft_worker} onView={onViewReplay} currentSymbol={getFuturesSymbol()}
+              localAudit={tab === 'forward' ? auditJob : undefined} />
           </div>
           {tab === 'drafts' && (
             <FuturesDraftsPanel
