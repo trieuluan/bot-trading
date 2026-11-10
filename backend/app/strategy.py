@@ -94,14 +94,17 @@ def retest(
 
 
 _aggregations = ContextVar("strategy_aggregations", default=None)
+_slice_aggregations = ContextVar("strategy_slice_aggregations", default=None)
 
 @contextmanager
-def aggregation_cache():
-    """Share immutable candle aggregates only within this evaluation/thread."""
+def aggregation_cache(*, reuse_slices=False):
+    """Share aggregates per evaluation; replay slices must be ordered immutable candles."""
     token = _aggregations.set({})
+    slice_token = _slice_aggregations.set({} if reuse_slices else None)
     try:
         yield
     finally:
+        _slice_aggregations.reset(slice_token)
         _aggregations.reset(token)
 
 def aggregate(candles: list[Candle], seconds: int, *, until: int | None = None) -> list[Candle]:
@@ -112,6 +115,17 @@ def aggregate(candles: list[Candle], seconds: int, *, until: int | None = None) 
     key = (id(candles), seconds, until)
     if cache is not None and key in cache:
         return cache[key][1]
+    slices = _slice_aggregations.get()
+    slice_key = None
+    if slices is not None:
+        first = candles[0].time if candles else 0
+        last = candles[-1].time if candles else -900
+        last = min(last, until) if until is not None else last
+        lower = (first + seconds - 1) // seconds * seconds
+        upper = (last + 900) // seconds * seconds
+        slice_key = (tuple(id(bar) for bar in candles if lower <= bar.time < upper), seconds)
+    if slices is not None and slice_key in slices:
+        return slices[slice_key][1]
     groups: dict[int, list[Candle]] = {}
     for c in candles:
         if until is not None and c.time > until:
@@ -133,6 +147,8 @@ def aggregate(candles: list[Candle], seconds: int, *, until: int | None = None) 
     ]
     if cache is not None:
         cache[key] = (candles, result)
+    if slices is not None:
+        slices[slice_key] = (candles, result)
     return result
 
 

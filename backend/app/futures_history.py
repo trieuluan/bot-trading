@@ -100,15 +100,17 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                 sample.update(status="excluded", exit_reason="split_boundary")
             active.clear()
         history = candles[max(0, index - max_warmup + 1):index + 1]
+        standard_history = history if max_warmup == WARMUP else history[-WARMUP:]
+        fair_history = fair[max(0, index - max_warmup + 1):index + 1]
         btc_history = btc_candles[index - WARMUP + 1:index + 1] if btc_candles else None
         peer_history = {name: peer[index - WARMUP + 1:index + 1] for name, peer in benchmarks.items()} if benchmarks else None
-        with aggregation_cache():
+        with aggregation_cache(reuse_slices=True):
             for key, sample in list(active.items()):
                 had_entry = sample.get("entry") is not None
                 was_confirmed = sample.get('confirmed', False)
                 advance(sample, bar, mark, known_funding, history,
                         {'btc_candles': btc_history, 'benchmarks': peer_history, 'oi_history': oi_history,
-                         'fair_candles': fair[max(0, index - max_warmup + 1):index + 1]})
+                         'fair_candles': fair_history})
                 strat = sample["strategy"]
                 if diagnostics and strat in funnels:
                     if not had_entry and sample.get("entry") is not None:
@@ -119,16 +121,16 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
                         funnels[strat]["resolved"] += 1
                 if sample["status"] != "open":
                     active.pop(key)
-            context = regime(history[-WARMUP:])
+            context = regime(standard_history)
             partition = "train" if bar.time < split else "validation"
             for name, candidate in candidates.items():
                 if name in active and not candidate["genome"].get("signal_frame") and not diagnostics:
                     continue
-                signal_history = history if candidate["genome"].get("signal_frame") else history[-WARMUP:]
+                signal_history = history if candidate["genome"].get("signal_frame") else standard_history
                 kwargs = {k: v for k, v in (("btc_candles", btc_history),
                                            ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
                 if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
-                    kwargs["fair_candles"] = fair[max(0, index - max_warmup + 1):index + 1]
+                    kwargs["fair_candles"] = fair_history
                 diag = {}
                 if diagnostics or candidate['genome'].get('signal_version') == 2:
                     kwargs['diagnostics'] = diag

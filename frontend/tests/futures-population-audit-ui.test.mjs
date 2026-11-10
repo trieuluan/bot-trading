@@ -105,6 +105,26 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
     );
     assert.ok(idleHtml.includes('Đã hoàn tất lượt gần nhất'));
     assert.ok(!idleHtml.includes('role="progressbar"'));
+
+    const timeoutHtml = renderToStaticMarkup(
+      React.createElement(PopulationAuditStatus, {
+        job: {
+          status: 'failed',
+          strategy: 'rule_tree:02952706c012',
+          error: 'Replay exceeded 60 minutes',
+          error_kind: 'timeout',
+          attempts: 2,
+          next_retry_at: 1794336627,
+          updated_at: 1794334550,
+        },
+        worker: { consumer_enabled: true, stale: false, phase: 'idle' },
+        queued: 119,
+      }),
+    );
+    assert.ok(timeoutHtml.includes('Vượt thời gian'));
+    assert.ok(timeoutHtml.includes('Lần thử 2'));
+    assert.ok(timeoutHtml.includes('Thử lại lúc'));
+    assert.ok(!timeoutHtml.includes('role="progressbar"'));
   } finally {
     await server.close();
   }

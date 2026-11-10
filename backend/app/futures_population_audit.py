@@ -10,6 +10,77 @@ from .futures_strategies import genome_fingerprint, genome_name
 
 AUDIT_DAYS = 90
 AUDIT_VERSION = 'futures_population_v1'
+AUDIT_TIMEOUT_SECONDS = 3600
+AUDIT_RETRY_DELAYS = (300, 1800, 86400)
+
+def audit_retries(state):
+    digest = engine_digest()
+    sampled = {sample['strategy'] for sample in state['samples'] + state.get('sample_archive', [])}
+    retries = state.setdefault('population_audit_retries', {})
+    legacy = state.get('population_audit_job') or {}
+    if legacy.get('status') in ('failed', 'running') and legacy.get('snapshot'):
+        name = legacy.get('strategy')
+        if name not in retries:
+            retries[name] = {**copy.deepcopy(legacy), 'attempts': legacy.get('attempts', 1),
+                             'next_retry_at': legacy.get('next_retry_at', legacy.get('updated_at', 0) + 300)}
+    for name, retry in list(retries.items()):
+        candidate = state['candidates'].get(name)
+        frozen = retry.get('snapshot') or {}
+        previous = frozen.get('candidates', {}).get(name, {})
+        if (not candidate or name in sampled or frozen.get('engine') != digest
+                or frozen.get('version') != AUDIT_VERSION
+                or previous.get('fingerprint') != genome_fingerprint(candidate['genome'])
+                or previous.get('born_at') != candidate['born_at']):
+            del retries[name]
+    return retries
+
+def next_audit(state, now):
+    retries = audit_retries(state)
+    sampled = {sample['strategy'] for sample in state['samples'] + state.get('sample_archive', [])}
+    choices = []
+    digest = engine_digest()
+    for name, candidate in state['candidates'].items():
+        if name in sampled:
+            continue
+        audit = state.get('population_audit', {}).get(name) or {}
+        if (audit.get('engine') == digest and audit.get('fingerprint') == genome_fingerprint(candidate['genome'])
+                and audit.get('born_at') == candidate['born_at'] and now - audit.get('cutoff', 0) < 86400):
+            continue
+        retry = retries.get(name)
+        if retry and retry.get('status') != 'running' and now < retry.get('next_retry_at', 0):
+            continue
+        choices.append((-1 if retry and retry.get('status') == 'running' else int(bool(retry)),
+                        audit.get('cutoff', 0), name))
+    return min(choices) if choices else None
+
+def start_audit(state, now, candles):
+    retries = audit_retries(state)
+    choice = next_audit(state, now)
+    if choice is None:
+        return None
+    name = choice[2]
+    retry = retries.get(name)
+    if retry:
+        frozen = copy.deepcopy(retry['snapshot'])
+        attempts = retry.get('attempts', 1)
+        if retry.get('status') != 'running':
+            attempts = 1 if attempts >= 3 else attempts + 1
+    else:
+        frozen = freeze(state, now, candles)
+        frozen.update(purpose='population_audit', candidates={name: frozen['candidates'][name]})
+        attempts = 1
+    return name, frozen, attempts
+
+def finish_audit(state, job, error, retryable, finished):
+    retries = state.setdefault('population_audit_retries', {})
+    job.update(status='failed' if error else 'completed', error=error, updated_at=finished)
+    if error:
+        delay = AUDIT_RETRY_DELAYS[min(job['attempts'], 3) - 1] if retryable else 86400
+        job.update(retryable=retryable, next_retry_at=finished + delay)
+        retries[job['strategy']] = copy.deepcopy(job)
+    else:
+        job.update(next_retry_at=None)
+        retries.pop(job['strategy'], None)
 
 
 def engine_digest():

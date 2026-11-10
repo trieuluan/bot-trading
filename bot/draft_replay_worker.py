@@ -39,7 +39,14 @@ from backend.app.futures_learner import (
     save_state,
 )
 from backend.app.futures_native import NATIVE_WARMUP
-from backend.app.futures_population_audit import attach, engine_digest, freeze, run_audit
+from backend.app.futures_population_audit import (
+    AUDIT_TIMEOUT_SECONDS,
+    attach,
+    finish_audit,
+    next_audit,
+    run_audit,
+    start_audit,
+)
 from backend.app.futures_research_lock import acquire, hold_worker
 from backend.app.futures_strategies import NATIVE_SEEDS, genome_fingerprint, genome_name
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
@@ -137,14 +144,28 @@ def compute(send, symbol, frozen):
         send.close()
 
 
-def supervise(lease, symbol, frozen, emit):
+def replay_timeout(frozen):
+    if frozen.get('purpose') == 'population_audit':
+        return AUDIT_TIMEOUT_SECONDS
     universe = frozen["window"].get("scope") == UNIVERSE_SCOPE
-    timeout = UNIVERSE_TIMEOUT_SECONDS if universe else TIMEOUT_SECONDS
+    return UNIVERSE_TIMEOUT_SECONDS if universe else TIMEOUT_SECONDS
+
+def supervise(lease, symbol, frozen, emit):
+    timeout = replay_timeout(frozen)
     context = multiprocessing.get_context("spawn")
     receive, send = context.Pipe(duplex=False)
     child = context.Process(target=compute, args=(send, symbol, frozen))
     started = last_heartbeat = time.monotonic()
     latest = {}
+    phase_started = started
+    timing_phase = 'data'
+    timings = {'data': 0.0, 'replay': 0.0}
+
+    def progress():
+        current = time.monotonic()
+        measured = {**timings, timing_phase: timings[timing_phase] + current - phase_started}
+        emit(**latest, elapsed_seconds=round(current - started, 3), timeout_seconds=timeout,
+             data_seconds=round(measured['data'], 3), replay_seconds=round(measured['replay'], 3))
     child.start()
     send.close()
     try:
@@ -152,6 +173,7 @@ def supervise(lease, symbol, frozen, emit):
             if stop.is_set():
                 raise InterruptedError("Replay worker stopping")
             if time.monotonic() - started >= timeout:
+                latest['error_kind'] = 'timeout'
                 return None, f"Replay exceeded {int(timeout // 60)} minutes", True
             lease.check()
             if receive.poll(1):
@@ -163,11 +185,16 @@ def supervise(lease, symbol, frozen, emit):
                     return payload, None, True
                 if kind == "error":
                     return None, payload["error"], payload["retryable"]
+                next_phase = 'replay' if payload.get('phase', '').split(':')[-1] == 'replay' else 'data'
+                if next_phase != timing_phase:
+                    current = time.monotonic()
+                    timings[timing_phase] += current - phase_started
+                    phase_started, timing_phase = current, next_phase
                 latest = payload
             elif not child.is_alive():
                 return None, f"Replay process exited ({child.exitcode})", True
             if time.monotonic() - last_heartbeat >= 15:
-                emit(**latest)
+                progress()
                 last_heartbeat = time.monotonic()
     finally:
         if child.is_alive():
@@ -177,6 +204,7 @@ def supervise(lease, symbol, frozen, emit):
             child.kill()
             child.join()
         receive.close()
+        progress()
 
 def parent_progress(token, **changes):
     now = int(time.time())
@@ -293,50 +321,57 @@ def audit_progress(symbol, token, **changes):
         job = state.get('population_audit_job') or {}
         if job.get('token') == token and job.get('status') == 'running':
             job.update(changes, updated_at=now)
+            retry = state.get('population_audit_retries', {}).get(job['strategy'])
+            if retry and retry.get('token') == token:
+                retry.update(changes, updated_at=now)
             save_state(session, state)
             touch(session, now, symbol, phase=f"audit:{job.get('phase', 'data')}")
 
 
 def audit_population(lease, now):
-    digest = engine_digest()
+    choices = []
     for symbol in SYMBOLS:
+        with symbol_scope(symbol), Session() as session:
+            state = read_state(session, now)
+            choice = next_audit(state, now) if state.get('enabled') else None
+            if choice:
+                choices.append((*choice, symbol))
+    if not choices:
+        return False
+    symbol = min(choices)[-1]
+    with symbol_scope(symbol):
         with symbol_scope(symbol), Session.begin() as session:
             lock_wallet(session)
             state = read_state(session, now)
             if not state.get('enabled'):
-                continue
-            job = state.get('population_audit_job') or {}
-            if job.get('status') == 'failed' and now - job.get('updated_at', 0) < 86400:
-                continue
-            frozen = freeze(state, now, load_candles(session, limit=100000))
-            pending = {name: row for name, row in frozen['candidates'].items()
-                       if not (state.get('population_audit', {}).get(name, {}).get('engine') == digest
-                               and state['population_audit'][name].get('fingerprint') == row['fingerprint']
-                               and state['population_audit'][name].get('born_at') == row['born_at']
-                               and now - state['population_audit'][name].get('cutoff', 0) < 86400)}
-            if not pending:
-                continue
-            name = min(pending, key=lambda key: (state.get('population_audit', {}).get(key, {}).get('cutoff', 0), key))
-            frozen.update(purpose='population_audit', candidates={name: pending[name]})
+                return False
+            chosen = start_audit(state, now, load_candles(session, limit=100000))
+            if chosen is None:
+                return False
+            name, frozen, attempts = chosen
             token = str(uuid4())
             state['population_audit_job'] = {'status': 'running', 'strategy': name,
                                             'token': token, 'phase': 'data', 'started_at': now,
-                                            'snapshot': frozen, 'updated_at': now}
+                                            'snapshot': frozen, 'updated_at': now, 'attempts': attempts,
+                                            'timeout_seconds': AUDIT_TIMEOUT_SECONDS}
+            state['population_audit_retries'][name] = dict(state['population_audit_job'])
             save_state(session, state)
             touch(session, now, symbol, phase='audit:data')
-        report, error, _ = supervise(lease, symbol, frozen,
+        report, error, can_retry = supervise(lease, symbol, frozen,
                                     lambda **changes: audit_progress(symbol, token, **changes))
         lease.check()
         finished = int(time.time())
         with symbol_scope(symbol), Session.begin() as session:
             lock_wallet(session)
             state = read_state(session, finished)
+            if state.get('population_audit_job', {}).get('token') != token:
+                return True
             if error is None:
                 attach(state, report)
             before = set(state['candidates'])
             admitted = admit_drafts(state, finished, active_strategies(session, state)) if state.get('enabled') else 0
-            state['population_audit_job'].update(status='failed' if error else 'completed',
-                error=error, updated_at=finished, archived=sorted(before - set(state['candidates'])),
+            finish_audit(state, state['population_audit_job'], error, can_retry, finished)
+            state['population_audit_job'].update(archived=sorted(before - set(state['candidates'])),
                 admitted=admitted, admitted_strategies=sorted(set(state['candidates']) - before))
             save_state(session, state)
             touch(session, finished, phase='idle')

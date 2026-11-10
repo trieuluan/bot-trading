@@ -141,6 +141,13 @@ type Learning = {
     total?: number | null;
     updated_at: number;
     error?: string | null;
+    error_kind?: string | null;
+    attempts?: number | null;
+    next_retry_at?: number | null;
+    timeout_seconds?: number | null;
+    elapsed_seconds?: number | null;
+    data_seconds?: number | null;
+    replay_seconds?: number | null;
     archived?: string[];
     admitted_strategies?: string[];
   } | null;
@@ -354,6 +361,7 @@ export function PopulationAuditStatus({ job, worker, queued }: {
   const measured = typeof job?.completed === 'number' && Number.isFinite(job.completed) && job.completed >= 0
     && typeof job.total === 'number' && Number.isFinite(job.total) && job.total > 0;
   const percent = measured ? Math.min(100, Math.max(0, Math.floor(100 * job.completed! / job.total!))) : null;
+  const isTimeout = job?.error_kind === 'timeout' || (job?.error?.toLowerCase().includes('exceeded') ?? false);
   const warning = worker?.stale || !worker?.consumer_enabled || job?.status === 'failed';
   return <section aria-label="Tiến độ audit quần thể" className="overflow-hidden rounded-xl border border-border-subtle bg-surface-1 text-xs text-text-secondary">
     <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
@@ -364,7 +372,7 @@ export function PopulationAuditStatus({ job, worker, queued }: {
       <div className="flex flex-wrap items-center gap-3">
         <span className="tabular-nums text-text-muted">{queued} cây chờ</span>
         <span className={`rounded-md px-2 py-1 font-medium ${running ? 'bg-sky-500/10 text-sky-300' : warning ? 'bg-amber-500/10 text-amber-300' : 'bg-surface-3 text-text-secondary'}`}>
-          {running ? 'Đang replay' : worker?.stale ? 'Mất heartbeat' : !worker?.consumer_enabled ? 'Chưa sẵn sàng' : job?.status === 'failed' ? 'Lượt gần nhất lỗi' : 'Chờ lượt tiếp theo'}
+          {running ? 'Đang replay' : worker?.stale ? 'Mất heartbeat' : !worker?.consumer_enabled ? 'Chưa sẵn sàng' : isTimeout ? 'Vượt thời gian' : job?.status === 'failed' ? 'Lượt gần nhất lỗi' : 'Chờ lượt tiếp theo'}
         </span>
       </div>
     </div>
@@ -391,8 +399,15 @@ export function PopulationAuditStatus({ job, worker, queued }: {
         `Audit chạy khi worker rảnh sau replay cha mẹ / draft. Tác vụ worker: ${worker.phase ?? 'chờ'}.`}
     </p>}
     <div className="space-y-1.5 border-t border-border-subtle bg-surface-2/40 px-4 py-2.5 leading-relaxed text-text-muted">
-      {job && <p className="break-words">
-        Cập nhật: {formatTime(job.updated_at)}{job.status === 'completed' ? ' · Đã hoàn tất lượt gần nhất' : job.status === 'failed' ? ` · Lỗi: ${job.error ?? 'chưa rõ'}` : ''}
+      {job && <p className="break-words" role={job.status === 'failed' ? 'alert' : undefined}>
+        Cập nhật: {formatTime(job.updated_at)}
+        {job.status === 'completed' ? ' · Đã hoàn tất lượt gần nhất' : job.status === 'failed' ? (
+          <>
+            {' · '}{isTimeout ? 'Vượt thời gian (replay nặng/chậm, không phải cây kém)' : `Lỗi: ${job.error ?? 'chưa rõ'}`}
+            {typeof job.attempts === 'number' && ` · Lần thử ${job.attempts}`}
+            {typeof job.next_retry_at === 'number' && job.next_retry_at > 0 && ` · Thử lại lúc ${formatTime(job.next_retry_at)}`}
+          </>
+        ) : ''}
       </p>}
       <p>Chỉ xét thay cây chưa có mẫu sau 5 ngày forward liên tục, replay dưới 5 lệnh khớp đã đóng. Cần draft đạt kiểm định và không có lệnh mở.</p>
     </div>

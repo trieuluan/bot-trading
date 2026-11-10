@@ -1008,6 +1008,13 @@ def summary(state, now, paper=None):
                 audit_status = audit['status']
             if audit_job.get('strategy') == name and audit_job.get('status') in ('running', 'failed'):
                 audit_status = audit_job['status']
+            retry = state.get('population_audit_retries', {}).get(name)
+            retry_snapshot = (retry or {}).get('snapshot') or {}
+            retry_candidate = retry_snapshot.get('candidates', {}).get(name) or {}
+            if (retry and retry.get('status') == 'failed' and retry_snapshot.get('engine') == audit_engine
+                    and retry_candidate.get('fingerprint') == genome_fingerprint(candidate['genome'])
+                    and retry_candidate.get('born_at') == candidate['born_at']):
+                audit_status = 'failed'
         samples = by_strategy.get(name, [])
         values = [sample["net_r"] for sample in samples if sample["status"] == "resolved"
                   and sample["label_available_at"] <= now]
