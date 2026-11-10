@@ -193,3 +193,12 @@ def test_adaptive_management_applies_to_next_bar_only(monkeypatch):
     advance_variant(row, bar2, bar2, minutes + [entry_bar, bar2], 0, 0)
     assert stop_before != row["legs"][0]["stop_loss_price"] == "2601.000"
     assert "pending_management" not in row or row["pending_management"] != {"stop": "2601.000"}
+
+def test_htf_exit_target_accepts_v4_independent_provenance():
+    from backend.app.forex_buffer_study import htf_exit_target
+    from backend.app.forex_htf_v4 import PROVENANCE
+    signal = {"shadow_only": False, "execution_source": PROVENANCE, "strategy": "hast4_x", "side": "long",
+              "target": 2640, "htf_structure": {"atr": 10, "target_reason": "h1_swing"}}
+    assert htf_exit_target(signal, Decimal("2600"), Decimal("2590"), Decimal("0.001"))[0] == Decimal("2640.000")
+    with pytest.raises(ExnessError, match="invalid_htf_shadow_signal"):
+        htf_exit_target({**signal, "execution_source": "unknown"}, Decimal("2600"), Decimal("2590"), Decimal("0.001"))
