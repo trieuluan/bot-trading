@@ -29,12 +29,14 @@ from .futures_native import NATIVE_WARMUP
 from .futures_research_lock import acquire
 from .futures_retirement import forward_evidence, metrics
 from .futures_rule_tree import nodes
+from .futures_signal_window import consume_event
 from .futures_strategies import exit_policy_enabled, regime, strategy_setup, validate_genome
 from .futures_symbols import SYMBOLS, current_symbol, symbol_scope
 from .macro_calendar import MACRO_TIMESTAMPS
 from .mexc import MarketDataError, MexcFuturesAdapter, validate_candles
 from .paper import lock_wallet
 from .research import check_cooldown, market_failure, research_lock
+from .strategy import aggregation_cache
 
 router = APIRouter(prefix="/api/workspaces/mexc_futures/learning/history", tags=["Futures Learning"])
 LEASE_SECONDS = 1800
@@ -60,7 +62,7 @@ def historical_stats(samples, cutoff=None):
 
 def replay(candidates, candles, fair, funding, start, end, progress=lambda done, total: None,
            btc_candles=None, benchmarks=None, oi_history=None, strict_samples=False,
-           include_samples=False):
+           include_samples=False, diagnostics=False):
     validate_candles(candles)
     validate_candles(fair)
     max_warmup = max((NATIVE_WARMUP if c["genome"].get("signal_frame") else WARMUP)
@@ -83,9 +85,13 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
     total = (end - start) // 900
     split = start + int(total * 0.7) * 900
     rows = {}
+    funnels = {name: {'raw_signals': 0, 'setups': 0, 'blocked_sltp': 0,
+                      'waiting_entry': 0, 'confirmed': 0, 'filled': 0, 'resolved': 0}
+               for name in candidates} if diagnostics else {}
     for name, candidate in candidates.items():
         rows[name] = {"strategy": name, "genome": candidate["genome"], "train": [], "validation": []}
     active = {}
+    signal_events = {}
     for index in range(max_warmup, len(candles)):
         bar, mark = candles[index], fair[index]
         known_funding = [record for record in funding if record["time"] <= bar.time]
@@ -96,39 +102,79 @@ def replay(candidates, candles, fair, funding, start, end, progress=lambda done,
         history = candles[max(0, index - max_warmup + 1):index + 1]
         btc_history = btc_candles[index - WARMUP + 1:index + 1] if btc_candles else None
         peer_history = {name: peer[index - WARMUP + 1:index + 1] for name, peer in benchmarks.items()} if benchmarks else None
-        for key, sample in list(active.items()):
-            advance(sample, bar, mark, known_funding, history)
-            if sample["status"] != "open":
-                active.pop(key)
-        context = regime(history[-WARMUP:])
-        partition = "train" if bar.time < split else "validation"
-        for name, candidate in candidates.items():
-            if name in active and not candidate["genome"].get("signal_frame"):
-                continue
-            signal_history = history if candidate["genome"].get("signal_frame") else history[-WARMUP:]
-            kwargs = {k: v for k, v in (("btc_candles", btc_history),
-                                       ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
-            if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
-                kwargs["fair_candles"] = [mark]
-            setup = strategy_setup(candidate["genome"], signal_history, known_funding, **kwargs)
-            if setup is None:
-                continue
-            sample = {"strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,
-                      "side": setup.side, "stop": setup.stop, "target": setup.target,
-                      "regime": context, "status": "open", "entry": None, "net_r": None,
-                      "label_available_at": None,
-                      "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
-                      "exit_params": candidate["genome"].get("exit_params"),
-                      "exit_rule": candidate["genome"].get("rule"),
-                      **entry_fields(candidate["genome"], signal_history, setup, bar.time)}
-            rows[name][partition].append(sample)
-            active[(name, bar.time) if candidate["genome"].get("signal_frame") else name] = sample
+        with aggregation_cache():
+            for key, sample in list(active.items()):
+                had_entry = sample.get("entry") is not None
+                was_confirmed = sample.get('confirmed', False)
+                advance(sample, bar, mark, known_funding, history,
+                        {'btc_candles': btc_history, 'benchmarks': peer_history, 'oi_history': oi_history,
+                         'fair_candles': fair[max(0, index - max_warmup + 1):index + 1]})
+                strat = sample["strategy"]
+                if diagnostics and strat in funnels:
+                    if not had_entry and sample.get("entry") is not None:
+                        funnels[strat]["filled"] += 1
+                    if not was_confirmed and sample.get('confirmed'):
+                        funnels[strat]['confirmed'] += 1
+                    if forward_evidence({'samples': [sample]}, bar.time + 900):
+                        funnels[strat]["resolved"] += 1
+                if sample["status"] != "open":
+                    active.pop(key)
+            context = regime(history[-WARMUP:])
+            partition = "train" if bar.time < split else "validation"
+            for name, candidate in candidates.items():
+                if name in active and not candidate["genome"].get("signal_frame") and not diagnostics:
+                    continue
+                signal_history = history if candidate["genome"].get("signal_frame") else history[-WARMUP:]
+                kwargs = {k: v for k, v in (("btc_candles", btc_history),
+                                           ("benchmarks", peer_history), ("oi_history", oi_history)) if v}
+                if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
+                    kwargs["fair_candles"] = fair[max(0, index - max_warmup + 1):index + 1]
+                diag = {}
+                if diagnostics or candidate['genome'].get('signal_version') == 2:
+                    kwargs['diagnostics'] = diag
+                setup = strategy_setup(candidate["genome"], signal_history, known_funding, **kwargs)
+                if diagnostics and name in funnels:
+                    if diag.get("raw_signal"):
+                        funnels[name]["raw_signals"] += 1
+                    if diag.get("status") == "blocked_sltp":
+                        funnels[name]["blocked_sltp"] += 1
+                if setup is None:
+                    continue
+                if diagnostics:
+                    funnels[name]['setups'] += 1
+                if name in active and not candidate['genome'].get('signal_frame'):
+                    continue
+                if candidate["genome"].get("signal_version") == 2 and diag.get("event"):
+                    if not consume_event(signal_events, name, diag["event"]):
+                        continue
+                if diagnostics and name in funnels:
+                    extra = entry_fields(candidate["genome"], signal_history, setup, bar.time)
+                    if extra.get("exit_reason") != "no_valid_level":
+                        funnels[name]["waiting_entry"] += 1
+                else:
+                    extra = entry_fields(candidate["genome"], signal_history, setup, bar.time)
+                sample = {"strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,
+                          "side": setup.side, "stop": setup.stop, "target": setup.target,
+                          "regime": context, "status": "open", "entry": None, "net_r": None,
+                          "label_available_at": None,
+                          "exit_policy": candidate["genome"].get("exit_policy", "fixed"),
+                          "exit_params": candidate["genome"].get("exit_params"),
+                          "exit_rule": candidate["genome"].get("rule"),
+                          "signal_frame": candidate['genome'].get('signal_frame'),
+                          "target_r": candidate['genome']['target_r'],
+                          **({'signal_event': diag['event'], 'signal_lookback': candidate['genome']['lookback']}
+                             if diag.get('event') else {}),
+                          **extra}
+                rows[name][partition].append(sample)
+                active[(name, bar.time) if candidate["genome"].get("signal_frame") else name] = sample
         completed = index - max_warmup + 1
         if completed % 96 == 0 or completed == total:
             progress(completed, total)
     for sample in active.values():
         sample.update(status="excluded", exit_reason="dataset_boundary")
     for row in rows.values():
+        if diagnostics:
+            row["funnel"] = funnels.get(row["strategy"], {})
         if include_samples:
             row["samples"] = {
                 partition: [sample for values in forward_evidence({"samples": row[partition]}, end).values()

@@ -38,6 +38,7 @@ from .futures_native import NATIVE_ENTRY, NATIVE_WARMUP, hold_seconds
 from .futures_research_lock import worker_status
 from .futures_retirement import failure, forward_evidence, metrics, retirement_candidates
 from .futures_rule_tree import describe_rule, is_htf_rule, nodes, validate_rule
+from .futures_signal_window import consume_event
 from .futures_strategies import (
     ENTRY_SEEDS,
     EXIT_SEEDS,
@@ -288,11 +289,18 @@ def qualification(candidate):
             "worst_dd": worst_dd}
 
 
-def advance(sample, bar, fair, funding, candles=None):
+def advance(sample, bar, fair, funding, candles=None, signal_context=None):
     """Per-unit teaching labels; next-open entry, stop-first, fees and settled funding."""
     if sample["status"] != "open" or bar.time < sample["entry_time"]:
         return
     direction = 1 if sample["side"] == "long" else -1
+    if sample.get('signal_version') == 2 and sample['entry'] is None:
+        from .futures_signal_window import pending_valid
+        known = [row for row in (candles or []) if row.time < bar.time] if sample.get('confirmed') else candles
+        if not pending_valid(sample.get('signal_event'), sample['exit_rule'], known, direction,
+                             sample['signal_lookback'], {'htf': True, 'funding': funding, **(signal_context or {})}):
+            sample.update(status='excluded', exit_reason='h1_setup_invalidated', label_available_at=bar.time)
+            return
     if sample["entry"] is None and sample.get("entry_policy") and not sample.get("confirmed"):
         filled = wait(sample, bar, funding, candles)
         if sample["status"] == "cancelled":  # unfilled signal scores 0R, never hidden
@@ -308,6 +316,14 @@ def advance(sample, bar, fair, funding, candles=None):
         risk = direction * (entry - sample["stop"])
         target = (entry + direction * sample["target_r"] * risk
                   if sample.get("signal_frame") else sample["target"])
+        if sample.get('signal_version') == 2:
+            from .futures_exits import fill_geometry
+            target = fill_geometry(sample['side'], entry, sample['stop'], target,
+                                   [known for known in (candles or []) if known.time < bar.time])
+            if target is None:
+                sample.update(status='excluded', exit_reason='fill_sltp', label_available_at=bar.time)
+                return
+            sample['target'] = target
         if (risk <= 0 or target <= 0 or direction * (target - entry) <= 0
                 or sample.get("signal_frame") and direction * (bar.open - sample["stop"]) <= 0):
             sample.update(status="excluded", reason="invalid_entry_geometry")
@@ -506,6 +522,12 @@ def evolve(state, now, max_children=1, force=False):
                     base = crossover(base, state["candidates"][lineage[1]]["genome"])
                 genome = mutate(base, rng)
                 validate_genome(genome)
+                if any(genome_fingerprint(row['genome']) == genome_fingerprint(genome)
+                       for row in {**state.get('rule_archive', {}), **state['candidates']}.values()):
+                    continue
+                if not genome.get('signal_frame') and is_htf_rule(genome['rule']):
+                    genome['signal_version'] = 2
+                validate_genome(genome)
             except ValueError:
                 continue
             if not exit_policy_enabled(genome):
@@ -522,6 +544,8 @@ def admit_drafts(state, now, protected):
         return 0
     admitted = 0
     for draft in sorted(state.get("drafts", {}).values(), key=lambda row: (row["created_at"], row["id"])):
+        if admitted >= 3:
+            break
         if draft["status"] != "waiting_slot":
             continue
         validate_genome(draft["genome"])
@@ -567,7 +591,7 @@ def admit_drafts(state, now, protected):
 
 @aggregation_cache()
 def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmarks=None,
-         paper_busy=None):
+         paper_busy=None, fair_candles=None):
     bar = candles[-1]
     if state["cursor"] is not None and bar.time <= state["cursor"]:
         return
@@ -577,7 +601,9 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         if sample["status"] == "open" and sample.get("entry") is None and sample.get("entry_policy") not in (*ENTRY_POLICIES, NATIVE_ENTRY):
             sample.update(status="excluded", exit_reason="unconfirmed_entry_retired")
             continue
-        advance(sample, bar, fair, state["funding"], candles)
+        advance(sample, bar, fair, state["funding"], candles,
+                {'btc_candles': btc_candles, 'benchmarks': benchmarks, 'oi_history': oi_history,
+                 'fair_candles': fair_candles or [fair]})
     context, found, observations = regime(candles[-WARMUP:]), [], []
     busy = {sample["strategy"] for sample in state["samples"] if sample["status"] == "open"}
     for name, candidate in state["candidates"].items():
@@ -594,21 +620,30 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
             continue
         kwargs = {k: v for k, v in (("btc_candles", btc_candles), ("oi_history", oi_history), ("benchmarks", benchmarks)) if v}
         if any(node.get("feature") == "basis_aligned" for _, node in nodes(candidate["genome"]["rule"])):
-            kwargs["fair_candles"] = [fair]
+            kwargs["fair_candles"] = fair_candles or [fair]
         history = candles if candidate["genome"].get("signal_frame") else candles[-WARMUP:]
-        setup = strategy_setup(candidate["genome"], history, state["funding"], **kwargs)
-        observation["status"] = "no_signal"
+        diag = {}
+        setup = strategy_setup(candidate["genome"], history, state["funding"], diagnostics=diag, **kwargs)
+        observation["status"] = diag.get('status', 'no_signal')
         if setup is None:
             continue
+        if candidate['genome'].get('signal_version') == 2:
+            if name in busy or not consume_event(state.setdefault('signal_events', {}), name, diag.get('event')):
+                continue
         ucb = score(state["samples"], name, setup.side, context, bar.time + 900,
                     state.get("historical"))
         extra = entry_fields(candidate["genome"], candles, setup, bar.time)
+        if diag.get('event'):
+            extra['signal_event'] = diag['event']
+            extra['signal_lookback'] = candidate['genome']['lookback']
         valid_entry = extra.get("exit_reason") != "no_valid_level"
         if not shadow_only(candidate["genome"]) and valid_entry:
             found.append({"name": name, "setup": setup, "ucb": ucb, "extra": extra,
                           "promoted": candidate["promoted"] and qualification(candidate)["eligible"]})
         observation.update(status="shadow" if shadow_only(candidate["genome"]) else "signal",
                            side=setup.side, setup=asdict(setup))
+        if not valid_entry:
+            observation['status'] = 'no_valid_level'
         if name not in busy or candidate["genome"].get("signal_frame"):
             state["samples"].append({
                 "strategy": name, "candle_time": bar.time, "entry_time": bar.time + 900,
@@ -643,6 +678,7 @@ def step(state, candles, fair, now, btc_candles=None, oi_history=None, benchmark
         "selected": pick["name"] if pick else None,
         "setup": asdict(pick["setup"]) if pick else None,
         "chart_context": {"fair_candles": [asdict(fair)]},
+        **({'signal_event': pick['extra']['signal_event']} if pick and pick['extra'].get('signal_event') else {}),
         **({"entry_policy": state["candidates"][pick["name"]]["genome"].get("entry_policy", "market"),
             "level": pick["extra"].get("level")} if pick else {}),
         "strategies": observations,
@@ -664,9 +700,28 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
     if [bar.time for bar in candles] != [bar.time for bar in fair]:
         raise ValueError("Fair-price coverage mismatch")
     fair_by_time = {bar.time: bar for bar in fair}
+    signal_events, latest_event = {}, {}
+    def validation_signal(history, allow_short=False):
+        diag = {}
+        setup = strategy_setup(candidate['genome'], history, funding,
+                               **{**(signal_context or {}), 'fair_candles': [
+                                   row for row in fair if row.time <= history[-1].time]}, diagnostics=diag)
+        if setup and candidate['genome'].get('signal_version') == 2:
+            if not consume_event(signal_events, 'validation', diag.get('event')):
+                return None
+            latest_event.clear()
+            latest_event.update(diag.get('event') or {})
+        return setup
+
+    def validation_guard(pending, known):
+        from .futures_signal_window import pending_valid
+        return pending_valid(latest_event, candidate['genome']['rule'], known,
+                             1 if pending['side'] == 'long' else -1, candidate['genome']['lookback'],
+                             {'htf': True, 'funding': funding, **(signal_context or {})})
+
     result = simulate(
         candles, BacktestConfig(), funding, fair, contract, warmup=warmup, window=warmup,
-        signal=lambda history, allow_short=False: strategy_setup(
+        signal=validation_signal if candidate['genome'].get('signal_version') == 2 else lambda history, allow_short=False: strategy_setup(
             candidate["genome"], history, funding,
             **({**(signal_context or {}), "fair_candles": [fair_by_time[history[-1].time]]}
                if any(node.get("feature") == "basis_aligned"
@@ -679,6 +734,8 @@ def validate_window(candidate, candles, fair, funding, contract, signal_context=
         target_r=candidate["genome"]["target_r"],
         entry_confirmation=candidate["genome"].get("entry_confirmation"),
         entry_session=candidate["genome"].get("entry_session"),
+        signal_version=candidate["genome"].get("signal_version"),
+        **({'pending_guard': validation_guard} if candidate['genome'].get('signal_version') == 2 else {}),
     )
     candidate["windows"].append({
         **{key: result[key] for key in ("start_time", "end_time", "trade_count", "net_pnl", "max_drawdown_percent")},
@@ -722,7 +779,7 @@ def learning_tick(now=None, adapter=None):
                                                      start + WINDOW_SECONDS)
     owns_adapter = adapter is None
     adapter = adapter or MexcFuturesAdapter()
-    input_keys = ("version", "enabled", "auto_mode", "cursor", "samples", "candidates",
+    input_keys = ("version", "enabled", "auto_mode", "cursor", "samples", "candidates", "signal_events",
                   "historical", "last_decision", "error")
     try:
         validate_candles(candles)
@@ -735,6 +792,13 @@ def learning_tick(now=None, adapter=None):
         if [bar.time for bar in fair] != [bar.time for bar in bars]:
             raise ValueError("Missing forward fair-price candles")
         funding = adapter.funding_history(first - 2 * 86400, stop)
+        signal_fair = fair
+        if any(candidate['genome'].get('signal_version') == 2 and any(
+                node.get('feature') == 'basis_aligned' for _, node in nodes(candidate['genome']['rule']))
+               for candidate in state['candidates'].values()):
+            signal_fair = adapter.history(first - 3600, stop, now, fair=True)
+            if [bar.time for bar in signal_fair] != list(range(first - 3600, stop, 900)):
+                raise ValueError('Missing versioned H1 fair-price context')
         if validation:
             name, start, history = validation
             if len(history) != warmup + WINDOW_BARS:
@@ -751,7 +815,7 @@ def learning_tick(now=None, adapter=None):
             history = [past for past in candles if past.time <= bar.time][-NATIVE_WARMUP:]
             bench_hist = {name: [p for p in peer if p.time <= bar.time][-WARMUP:] for name, peer in benchmarks.items()} if benchmarks else None
             step(work, history, mark, now, oi_history=oi_history, benchmarks=bench_hist,
-                 paper_busy=paper_busy)
+                 paper_busy=paper_busy, fair_candles=[row for row in signal_fair if row.time <= bar.time])
         if validation:
             validate_window(work["candidates"][name], validation[2], validation_fair,
                             validation_funding, contract, validation_context)
@@ -761,6 +825,8 @@ def learning_tick(now=None, adapter=None):
             if any(current.get(key) != state.get(key) for key in input_keys):
                 return
             current.update({key: work[key] for key in ("funding", "cursor", "samples", "updated_at", "last_decision")})
+            if 'signal_events' in work:
+                current['signal_events'] = work['signal_events']
             if validation:
                 current["candidates"] = work["candidates"]
             sync_seeds(current, now)
@@ -946,6 +1012,7 @@ def summary(state, now, paper=None):
                      "replay_samples": replay[name],
                      "forward_samples": len(values),
                      "forward_open": sum(sample["status"] == "open" for sample in samples),
+                     "population_audit": state.get('population_audit', {}).get(name),
                      "qualification": qualification(candidate)})
     archive = state.get("rule_archive", {})
     retired = [{"strategy": name, "genome": archive[name]["genome"] if name in archive else None,
@@ -962,6 +1029,7 @@ def summary(state, now, paper=None):
                             and not shadow_only(candidate["genome"])
                             for candidate in state["candidates"].values()),
             "last_decision": state["last_decision"], "strategies": rows,
+            "population_audit_job": state.get('population_audit_job'),
             "drafts": [{**copy.deepcopy(draft), "lineage": lineage(state, draft)}
                        for draft in state.get("drafts", {}).values()],
             "retired_paper": retired,

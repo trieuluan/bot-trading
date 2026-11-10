@@ -233,6 +233,8 @@ def place_pending(session, state, wallet, candle_time, now, setup, strat_name, l
             "parents": learning["candidates"][strat_name].get("parents", []),
         },
     }
+    if genome.get('signal_version') == 2:
+        snapshot['signal_event'] = decision.get('signal_event')
     if is_native:
         from .futures_native import NATIVE_FRAMES, entry_session_allowed
         from .futures_strategies import validate_genome
@@ -321,6 +323,21 @@ def fill_pending(session, wallet, state, order, bar, now):
     entry = execution_price(wallet, order.side, opening=True)
     target = order.target
     genome = snap["audit"]["genome"]
+    if genome.get("signal_version") == 2:
+        from .futures_context import load_signal_context
+        from .futures_exits import fill_geometry
+        from .futures_signal_window import pending_valid
+        known = load_candles(session, limit=1600, until=bar.time + 900)
+        if not pending_valid(snap.get('signal_event'), genome['rule'], known,
+                             1 if order.side == 'long' else -1, genome['lookback'],
+                             {'htf': True, **load_signal_context(session, known[0].time if known else bar.time,
+                                                                bar.time + 900)}):
+            close_pending(session, order, 'cancelled', 'h1_setup_invalidated')
+            return
+        target = fill_geometry(order.side, entry, order.stop, target, known)
+        if target is None:
+            close_pending(session, order, "cancelled", "R:R sau giá khớp mô phỏng dưới 1.5")
+            return
     if native:
         from .futures_native import entry_session_allowed
         direction = 1 if order.side == "long" else -1
@@ -340,7 +357,8 @@ def fill_pending(session, wallet, state, order, bar, now):
             session, wallet, order.side, notional, order.stop, target, origin="auto",
             signal_time=order.signal_time, exit_policy=snap["exit_policy"], leverage=state.leverage,
             exit_params=snap["exit_params"], exit_rule=snap["exit_rule"],
-            **({"signal_frame": genome["signal_frame"], "fill_price": entry} if native else {}))
+            **({"signal_frame": genome["signal_frame"], "fill_price": entry} if native else
+               {"fill_price": entry} if genome.get('signal_version') == 2 else {}))
     except HTTPException as exc:
         if exc.status_code == 409:
             raise

@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import select, text
 
 from backend.app.db import FuturesLearningState, Session
+from backend.app.feed import load_candles
 from backend.app.futures_draft_replay import (
     MissingInputError,
     ReplayDataError,
@@ -38,6 +39,7 @@ from backend.app.futures_learner import (
     save_state,
 )
 from backend.app.futures_native import NATIVE_WARMUP
+from backend.app.futures_population_audit import attach, engine_digest, freeze, run_audit
 from backend.app.futures_research_lock import acquire, hold_worker
 from backend.app.futures_strategies import NATIVE_SEEDS, genome_fingerprint, genome_name
 from backend.app.futures_symbols import SYMBOLS, symbol_scope
@@ -123,7 +125,8 @@ def compute(send, symbol, frozen):
     try:
         def emit(**changes):
             send.send(("progress", changes))
-        report = (run_universe(frozen["candidates"], frozen["window"], emit)
+        report = (run_audit(symbol, frozen, emit) if frozen.get('purpose') == 'population_audit' else
+                  run_universe(frozen["candidates"], frozen["window"], emit)
                   if frozen.get("purpose") == "native_parents" else run_screen(symbol, frozen, emit))
         send.send(("result", report))
     except Exception as exc:
@@ -282,6 +285,47 @@ def process(lease, symbol, draft_id):
             save_state(session, state)
             touch(session, now, phase="idle")
 
+def audit_population(lease, now):
+    digest = engine_digest()
+    for symbol in SYMBOLS:
+        with symbol_scope(symbol), Session.begin() as session:
+            lock_wallet(session)
+            state = read_state(session, now)
+            if not state.get('enabled'):
+                continue
+            job = state.get('population_audit_job') or {}
+            if job.get('status') == 'failed' and now - job.get('updated_at', 0) < 86400:
+                continue
+            frozen = freeze(state, now, load_candles(session, limit=100000))
+            pending = {name: row for name, row in frozen['candidates'].items()
+                       if not (state.get('population_audit', {}).get(name, {}).get('engine') == digest
+                               and state['population_audit'][name].get('fingerprint') == row['fingerprint']
+                               and state['population_audit'][name].get('born_at') == row['born_at']
+                               and now - state['population_audit'][name].get('cutoff', 0) < 86400)}
+            if not pending:
+                continue
+            name = min(pending, key=lambda key: (state.get('population_audit', {}).get(key, {}).get('cutoff', 0), key))
+            frozen.update(purpose='population_audit', candidates={name: pending[name]})
+            state['population_audit_job'] = {'status': 'running', 'strategy': name,
+                                            'snapshot': frozen, 'updated_at': now}
+            save_state(session, state)
+        report, error, _ = supervise(lease, symbol, frozen, lambda **changes: None)
+        lease.check()
+        finished = int(time.time())
+        with symbol_scope(symbol), Session.begin() as session:
+            lock_wallet(session)
+            state = read_state(session, finished)
+            if error is None:
+                attach(state, report)
+            before = set(state['candidates'])
+            admitted = admit_drafts(state, finished, active_strategies(session, state)) if state.get('enabled') else 0
+            state['population_audit_job'].update(status='failed' if error else 'completed',
+                error=error, updated_at=finished, archived=sorted(before - set(state['candidates'])),
+                admitted=admitted, admitted_strategies=sorted(set(state['candidates']) - before))
+            save_state(session, state)
+        return True
+    return False
+
 
 def main():
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -309,6 +353,8 @@ def main():
                         symbol, draft_id = next_draft(int(time.time()))
                         if symbol and draft_id:
                             process(lease, symbol, draft_id)
+                        else:
+                            audit_population(lease, int(time.time()))
                     finally:
                         lease.release()
         except InterruptedError:

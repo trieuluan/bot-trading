@@ -108,7 +108,7 @@ def run_screen(symbol, draft, emit=lambda **changes: None, cache_dir=None):
     return run_pair(symbol, candidates, draft["window"], emit, cache_dir)
 
 def run_pair(symbol, candidates, window, emit=lambda **changes: None, cache_dir=None,
-             include_samples=False):
+             include_samples=False, diagnostics=False):
     cache = Path(cache_dir or os.getenv("FUTURES_REPLAY_CACHE", "/tmp/futures-replay-cache"))
     start, end = window["start"], window["end"]
     native = any(candidate["genome"].get("signal_frame") for candidate in candidates.values())
@@ -151,7 +151,7 @@ def run_pair(symbol, candidates, window, emit=lambda **changes: None, cache_dir=
         report = replay(candidates, candles, fair,
                         funding, start, end, lambda done, total: emit(phase="replay", completed=done, total=total),
                         benchmarks=benchmarks or None, oi_history=oi_history, strict_samples=True,
-                        include_samples=include_samples)
+                        include_samples=include_samples, diagnostics=diagnostics)
         report["screening_note"] = "Validation is time-separated, not independent of parent selection"
         return report
 

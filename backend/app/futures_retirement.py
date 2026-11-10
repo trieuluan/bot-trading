@@ -10,6 +10,7 @@ from .futures_strategies import NATIVE_SEEDS, exit_policy_enabled, genome_finger
 MIN_SAMPLES = 12
 MAX_DRAWDOWN_R = 5.0
 INACTIVE_SECONDS = 30 * 86400
+MIN_SPARSE_DAYS = 5
 MIN_SHARED = 50
 MIN_OVERLAP = 0.9
 MIN_EDGE_R = 0.10
@@ -156,8 +157,19 @@ def retirement_candidates(state, evidence, protected, now=None):
                                  if tree_samples else candidate.get("born_at"))
                 if last_activity is not None and cursor - last_activity >= INACTIVE_SECONDS:
                     metadata.update(reason="stagnant_inactivity")
+        if not metadata["reason"] and stats[name]["samples"] == 0 and not genome.get("signal_frame"):
+            cursor = state.get("cursor") if state.get("cursor") is not None else now
+            born = candidate.get("born_at")
+            if cursor is not None and born is not None and cursor - born >= MIN_SPARSE_DAYS * 86400:
+                from .futures_population_audit import eligible
+                audit = state.get('population_audit', {}).get(name)
+                sampled = any(sample['strategy'] == name for sample in
+                              state['samples'] + state.get('sample_archive', []))
+                if not sampled and eligible(candidate, audit, cursor):
+                    metadata.update(reason="sparse_forward_replay", audit=audit)
         if metadata["reason"]:
             result.append((name, metadata))
-    priorities = {"negative_forward_r": 0, "forward_drawdown": 1, "stagnant_inactivity": 2, "redundant_forward": 3}
-    return sorted(result, key=lambda item: (priorities[item[1]["reason"]], item[1]["mean_r"],
+    priorities = {"negative_forward_r": 0, "forward_drawdown": 1, "sparse_forward_replay": 2,
+                  "stagnant_inactivity": 3, "redundant_forward": 4}
+    return sorted(result, key=lambda item: (priorities[item[1]["reason"]], item[1]["mean_r"] or 0.0,
                                           -item[1]["max_drawdown_r"], item[0]))

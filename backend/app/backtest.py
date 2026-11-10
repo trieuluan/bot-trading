@@ -44,6 +44,8 @@ def simulate(
     target_r: float | None = None,
     entry_confirmation: str | None = None,
     entry_session: str | None = None,
+    signal_version: int | None = None,
+    pending_guard=None,
 ) -> dict:
     """Signals at close, next-open entries; conservative OHLC exits, funding at open."""
     validate_candles(candles)
@@ -57,6 +59,8 @@ def simulate(
     if entry_confirmation is not None and (
             entry_confirmation != "h1" or signal_frame != "H4" or entry_session != "utc_12_20"):
         raise ValueError("Invalid native entry confirmation")
+    if signal_version is not None and signal_version != 2:
+        raise ValueError("Invalid signal version")
     if exit_policy not in EXIT_POLICIES:
         raise ValueError("Invalid futures exit policy")
     exit_parameters(exit_policy, exit_params)
@@ -89,6 +93,11 @@ def simulate(
             cash -= payment
             position["funding_cost"] += payment
 
+        if pending is not None and pending_guard:
+            known = candles[max(0, index - window):index if pending.get('confirmed') else index + 1]
+            if not pending_guard(pending, known):
+                pending = None
+
         if pending is not None and (entry_policy == "market" or pending.get("confirmed")):
             if cash <= 0:
                 pending = None
@@ -98,6 +107,12 @@ def simulate(
                 entry = candle.open * (1 + direction * slip)
                 target = (entry + direction * target_r * abs(entry - setup.stop)
                           if signal_frame else setup.target)
+                if signal_version == 2:
+                    from .futures_exits import fill_geometry
+                    target = fill_geometry(setup.side, entry, setup.stop, target,
+                                           candles[max(0, index - 1599):index])
+                    if target is None:
+                        target = 0
                 if direction * (candle.open - setup.stop) > 0 and target > 0 and direction * (target - entry) > 0:
                     available = cash + sum(p["direction"] * (candle.open - p["entry"]) * p["quantity"]
                                            for p in positions)

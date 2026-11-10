@@ -56,6 +56,7 @@ type Row = {
     funding_threshold?: number;
     rule?: Rule;
     exit_profile?: string;
+    signal_version?: number;
   };
   parents: string[];
   born_at: number;
@@ -82,6 +83,24 @@ type Row = {
   resolved: number;
   mean_r: number | null;
   profit_factor: number | null;
+  population_audit?: {
+    status: string;
+    reason: string;
+    cutoff: number;
+    start: number;
+    end: number;
+    engine: string;
+    dataset_sha256?: string;
+    coverage_complete: boolean;
+    forward_coverage: { complete: boolean; bars: number };
+    resolved?: number;
+    comparison?: Record<string, {
+      genome: { signal_version?: number };
+      funnel: Record<string, number>;
+      train: { resolved: number; total_r: number; max_drawdown_r: number };
+      validation: { resolved: number; total_r: number; max_drawdown_r: number };
+    }>;
+  };
   qualification: { eligible: boolean; windows: number; trades: number };
 };
 type Gene = string | number | Record<string, number> | null;
@@ -279,6 +298,7 @@ const RETIRE_REASON: Record<string, [string, string]> = {
   forward_drawdown: ['Drawdown ≥5R', 'warn'],
   stagnant_inactivity: ['30 ngày không tín hiệu', 'info'],
   redundant_forward: ['Trùng cây tốt hơn', 'info'],
+  sparse_forward_replay: ['Archive do quá thưa', 'info'],
   h4_diversified: ['Đa dạng H4', 'info'],
   entry_rebalanced: ['Chia đều cách vào', 'info'],
   unconfirmed_entry_retired: ['Ngừng vào lệnh không xác nhận', 'info'],
@@ -354,6 +374,17 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
       : [],
   );
   const signalSet = new Set(signalSides.keys());
+  const observations = new Map(fresh ? (decision?.strategies ?? []).map((row) => [row.strategy, row.status]) : []);
+  const diagnosticLabel = (row: Row) => {
+    if (row.population_audit?.status === 'insufficient_data') return 'Thiếu dữ liệu';
+    if (row.forward_open) return 'Chờ xác nhận / kết quả';
+    const current = observations.get(row.strategy);
+    if (current === 'blocked_sltp') return 'Bị loại bởi SL/TP';
+    if (current === 'no_valid_level') return 'Không có mức chờ hợp lệ';
+    if (current === 'signal') return 'Chờ xác nhận';
+    if (current === 'no_signal') return 'Chưa có tín hiệu';
+    return null;
+  };
   const titles = new Map(all.map((row) => [row.strategy, strategyName(row.genome)]));
   const replayed = new Set((replay?.report?.strategies ?? []).map((row) => row.strategy));
   const familyName = (name: string) =>
@@ -742,6 +773,24 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                             );
                           })}
                         </ol>
+                        {row.genome.signal_version === 2 && <p className="text-xs text-text-secondary">
+                          Tín hiệu v2: H1 đóng xác nhận, M15 kích hoạt tại đó hoặc tối đa 4 nến tiếp theo.
+                          H4 mất đồng thuận, xuyên mức vô hiệu hóa hoặc thiếu nến sẽ hủy setup. R:R sau khớp phải ≥1.5.
+                        </p>}
+                        {row.population_audit && <section className="space-y-2 border-t border-border-subtle pt-3 text-xs text-text-secondary">
+                          <h3 className="font-semibold text-text-primary">Audit quần thể · 90 ngày</h3>
+                          <p>{row.population_audit.status === 'insufficient_data' ? 'Thiếu dữ liệu — giữ cây.' :
+                            row.population_audit.status === 'sparse' ? 'Tín hiệu thưa, không phải bằng chứng thua lỗ.' : 'Giữ cây theo replay.'}</p>
+                          <p>Cutoff {formatTime(row.population_audit.cutoff)} · Forward {row.population_audit.forward_coverage.complete ? 'đủ nến' : 'chưa đủ nến'} · {row.population_audit.resolved ?? '—'} lệnh khớp đã đóng</p>
+                          <p className="break-words">{row.population_audit.reason}</p>
+                          {Object.entries(row.population_audit.comparison ?? {}).map(([id, arm]) => <div key={id} className="space-y-1">
+                            <p className="font-medium">Tín hiệu v{arm.genome.signal_version ?? 1}</p>
+                            <p>Thô {arm.funnel.raw_signals} · Setup {arm.funnel.setups} · Mức chờ {arm.funnel.waiting_entry} · Xác nhận {arm.funnel.confirmed} · Khớp {arm.funnel.filled} · Đóng {arm.funnel.resolved}</p>
+                            <p>Train / validation net R sau phí, funding: {fmt(arm.train.total_r)} / {fmt(arm.validation.total_r)} · DD R: {fmt(arm.train.max_drawdown_r)} / {fmt(arm.validation.max_drawdown_r)}</p>
+                          </div>)}
+                          <p className="break-all text-text-muted">Dataset {row.population_audit.dataset_sha256 ?? 'chưa đủ'} · Logic {row.population_audit.engine}</p>
+                          <p>Replay không cộng vào mẫu forward, không tự cấp quyền giao dịch. Chỉ archive khi có draft đạt kiểm định và không còn lệnh hoặc mẫu mở.</p>
+                        </section>}
                         <p className="evo-drawer-src rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
                           <b>Nguồn:</b>{' '}
                           {row.generation === 0
@@ -784,6 +833,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         </span>
                       </div>
                       <p className="evo-basis flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                        {diagnosticLabel(row) && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-xs text-text-secondary">{diagnosticLabel(row)}</span>}
                         {openTrades.length > 0 && (
                           <span
                             className="pill evo-open-trades inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary flex min-w-0 flex-wrap items-center gap-2 text-xs"
@@ -1215,7 +1265,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 Đào thải G0 và cây con cùng tiêu chí, chỉ khi đầy quần thể và có con hợp lệ thay
                 thế: mọi khung cần ≥12 mẫu forward để xét R âm; drawdown ≥5R bị loại ngay; 30 ngày
                 không có tín hiệu bị loại; hoặc trùng ≥50 mẫu với cây tốt hơn. 5R không phải 5% tài
-                khoản. Replay không dùng để quyết định loại. Cây còn mẫu mở, vị thế hoặc lệnh chờ
+                khoản. Riêng cây ba khung không có mẫu forward ≥5 ngày nến liên tục, replay đủ 90 ngày
+                có &lt;5 lệnh khớp đã đóng được xét thay vì quá thưa, không phải vì thua lỗ. Thiếu dữ liệu thì giữ.
+                Mỗi lượt thay tối đa 3 cây khi có draft hợp lệ. Native giữ ngưỡng bảo vệ hiện có. Cây còn mẫu mở, vị thế hoặc lệnh chờ
                 được bảo vệ.
               </p>
               <p>

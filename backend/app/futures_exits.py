@@ -95,13 +95,13 @@ def adaptive_levels(side, candles, target_r=2.0, stop_buffer=0.0):
         target = barrier
     return stop, target
 
-def resistance_ahead(position, candles):
+def resistance_ahead(position, candles, *, price=None):
     """Nearest prior closed H1/H4 swing or range barrier."""
     h1, atr = h1_view(candles)
     if atr is None:
         return None
     direction = 1 if position["side"] == "long" else -1
-    close, buffer = candles[-1].close, atr * 0.1
+    close, buffer = candles[-1].close if price is None else price, atr * 0.1
     levels = []
     for prior in (h1[-21:-1], aggregate(candles[-1600:], 14400)[-21:-1]):
         if len(prior) < 5:
@@ -118,6 +118,20 @@ def resistance_ahead(position, candles):
     if not ahead:
         return None
     return min(ahead, key=lambda level: direction * level) - direction * buffer
+
+
+def fill_geometry(side, entry, stop, target, candles):
+    direction = 1 if side == 'long' else -1
+    if (side not in ('long', 'short') or not candles or h1_view(candles)[1] is None
+            or not all(math.isfinite(value) and value > 0 for value in (entry, stop, target))):
+        return None
+    risk = direction * (entry - stop)
+    if risk <= 0 or direction * (target - entry) < 1.5 * risk:
+        return None
+    barrier = resistance_ahead({'side': side}, candles, price=entry)
+    if barrier is not None:
+        target = min(target, barrier) if direction == 1 else max(target, barrier)
+    return target if direction * (target - entry) >= 1.5 * risk else None
 
 def weak_close(position, candles):
     """Take profit only on evidence: opposite body, rejection wick, or stalling just under a barrier."""

@@ -41,6 +41,7 @@ from .futures_rule_tree import (
     validate_rule,
 )
 from .futures_rules import atr14, funding_filter, mean_reversion
+from .futures_signal_window import SIGNAL_VERSION, signal_event
 from .strategy import Setup, aggregate, mtf_retest, mtf_scan, retest
 
 RULE_FAMILY = "rule_tree"
@@ -60,7 +61,7 @@ def shadow_only(genome):
 
 def validate_genome(genome):
     rule_tree = is_rule_tree(genome)
-    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame", "entry_session", "entry_confirmation"} if rule_tree else {"exit_policy", "exit_params"}
+    extra = {"exit_policy", "exit_params", "rule", "exit_profile", "entry_policy", "signal_frame", "entry_session", "entry_confirmation", "signal_version"} if rule_tree else {"exit_policy", "exit_params"}
     if (set(genome) - extra != {"family", *BOUNDS} or ("rule" in genome) != rule_tree
             or genome["family"] not in (*FAMILIES, RULE_FAMILY)):
         raise ValueError("Invalid futures genome family/fields")
@@ -75,6 +76,10 @@ def validate_genome(genome):
         raise ValueError("Invalid native entry confirmation")
     if rule_tree:
         validate_rule(genome["rule"])
+        if 'signal_version' in genome and (type(genome['signal_version']) is not int
+                or genome['signal_version'] != SIGNAL_VERSION or genome.get('signal_frame')
+                or not is_htf_rule(genome['rule'])):
+            raise ValueError('Invalid versioned H1/M15 signal settings')
         native = genome.get("signal_frame")
         if native is not None:
             if (not isinstance(native, str) or native not in NATIVE_FRAMES or genome.get("entry_policy") != NATIVE_ENTRY
@@ -347,7 +352,9 @@ def strategy_levels(genome, candles):
             {"title": f"Đáy {lookback} {frame}", "price": min(bar.low for bar in history)}]
 
 def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, benchmarks=None,
-                   fair_candles=None):
+                   fair_candles=None, diagnostics=None):
+    diagnostics = diagnostics if diagnostics is not None else {}
+    diagnostics.update(status='no_signal', raw_signal=False, event=None)
     validate_genome(genome)
     if len(candles) < 21:
         return None
@@ -362,11 +369,15 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
                "max_er": genome["max_er"], "htf": is_htf_rule(tree["rule"]),
                "btc_candles": btc_candles, "oi_history": oi_history, "benchmarks": benchmarks,
                "fair_candles": fair_candles}
-    found = [side for side in (1, -1)
-             if matches(tree["rule"], candles, side, lookback, context=context)]
+    events = ({side: signal_event(tree['rule'], candles, side, lookback, context)
+               for side in (1, -1)} if genome.get('signal_version') == SIGNAL_VERSION else {})
+    found = ([side for side, event in events.items() if event] if events else
+             [side for side in (1, -1)
+              if matches(tree["rule"], candles, side, lookback, context=context)])
     if len(found) != 1:
         return None
     direction, last = found[0], candles[-1]
+    diagnostics.update(raw_signal=True, event=events.get(direction), status='blocked_sltp')
     levels = (native_levels(candles, frame, direction, genome["target_r"]) if frame else
               adaptive_levels("long" if direction == 1 else "short", candles,
                               genome["target_r"], genome["stop_buffer"]))
@@ -383,6 +394,7 @@ def strategy_setup(genome, candles, funding, btc_candles=None, oi_history=None, 
             return None
     if risk <= 0 or stop <= 0 or target <= 0 or direction * (target - setup.entry) <= 0:
         return None
+    diagnostics['status'] = 'setup'
     return replace(setup, stop=stop, target=target)
 
 def strategy_chart(genome, candles, context=None):

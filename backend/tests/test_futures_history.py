@@ -53,6 +53,13 @@ def test_no_future_candles_or_funding_seen_by_signal(replay_data, monkeypatch):
     history.replay(*args)
     assert seen == list(range(args[4], args[5], 900))
 
+def test_diagnostics_do_not_change_replay_execution(replay_data):
+    plain = history.replay(*replay_data, strict_samples=True)
+    measured = history.replay(*replay_data, strict_samples=True, diagnostics=True)
+    for row in measured['strategies']:
+        row.pop('funnel')
+    assert plain == measured
+
 
 def test_future_change_does_not_change_training_labels(replay_data):
     report = history.replay(*replay_data)

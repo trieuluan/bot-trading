@@ -78,6 +78,8 @@ def entry_fields(genome, history, setup, stamp):
         return fields
     level = entry_level(policy, history, setup.side, setup.stop)
     fields = {"entry_policy": policy, "level": level, "first_entry_time": stamp + 900}
+    if genome.get('signal_version') == 2:
+        fields['signal_version'] = 2
     if level is None:
         fields.update(status="resolved", exit_reason="no_valid_level", net_r=0.0,
                       label_available_at=stamp + 900)

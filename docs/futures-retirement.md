@@ -14,10 +14,13 @@ Failed or duplicate mutations do not remove an existing tree.
 Use at least 12 distinct resolved teaching samples (all frames: M15, H1, H4, D1) with a valid filled entry,
 positive risk, finite net R and an outcome available by the current cutoff.
 Cancelled, unfilled, excluded, duplicate-key and future-labelled samples do not
-count. Replay can still rank parents, but cannot qualify a tree for retirement.
+count. Replay can rank parents, but cannot qualify a tree for retirement, with
+one audited exception: non-native HTF trees with 0 raw forward samples over at
+least 5 complete forward days and <5 filled resolved trades in a complete 90-day
+replay are eligible for early sparse retirement when a validated draft is waiting.
 
-Retirement priority is negative mean forward R, then cumulative drawdown of at
-least 5R (if at least one closed sample), then 30 days without any signal, then confirmed redundancy. Within each group, lower mean R comes
+Retirement priority is negative mean forward R, cumulative drawdown of at
+least 5R (if at least one closed sample), sparse forward replay (<5 filled resolved trades in 90d replay with ≥5 days forward data and waiting draft), 30 days without any signal, then confirmed redundancy. Within each group, lower mean R comes
 first, followed by larger drawdown and stable strategy ID. Drawdown starts from
 zero and follows label-availability order; it is **not account drawdown percent**.
 An otherwise profitable tree can retire at the 5R threshold.
