@@ -80,6 +80,17 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
     assert.ok(workerHtml.includes('Xem BTC/USDT'));
     assert.ok(workerHtml.includes('62% bước hiện tại'));
     assert.ok(workerHtml.includes('5.376 / 8.640 nến'));
+    const universe = (phase, replay_symbol) => renderToStaticMarkup(React.createElement(ReplayWorkerStatus, {
+      worker: { consumer_enabled: true, stale: false, active_job: { purpose: 'draft', symbol: 'DOGE_USDT', replay_symbol,
+        universe: true, strategy: 'rule_tree:b82f7e1d', phase, completed: 16608, total: 26640 } },
+      onView: () => {},
+    }));
+    const cross = universe('AVAX_USDT:replay', 'AVAX_USDT');
+    assert.ok(cross.includes('AVAX/USDT') && cross.includes('Con nháp thuộc DOGE/USDT'));
+    assert.ok(cross.includes('62% cặp hiện tại') && cross.includes('Xem DOGE/USDT'));
+    const pending = universe('data', null);
+    assert.ok(pending.includes('Đang chuẩn bị') && !pending.includes('<strong class="text-sky-200">DOGE'));
+    assert.ok(universe('AVAX_USDT:benchmark:BTC_USDT', 'AVAX_USDT').includes('Tải nến tham chiếu'));
     const runningHtml = renderToStaticMarkup(
       React.createElement(PopulationAuditStatus, {
         job: {

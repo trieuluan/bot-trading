@@ -249,3 +249,14 @@ def test_worker_status_universe_draft_reports_replay_pair():
     with Session() as session:
         active = worker_status(session)['active_job']
     assert (active['symbol'], active['replay_symbol'], active['universe']) == ('DOGE_USDT', 'AVAX_USDT', True)
+
+def test_worker_status_universe_draft_before_pair_prefix_does_not_guess():
+    from backend.app.futures_drafts import UNIVERSE_SCOPE
+    job = {'status': 'running', 'phase': 'data', 'window': {'scope': UNIVERSE_SCOPE}}
+    with Session.begin() as session:
+        session.merge(FuturesLearningState(id=1, payload={'draft_worker': {
+            'heartbeat_at': 1794334550, 'phase': 'data', 'symbol': 'DOGE_USDT', 'draft_id': 'd'}}))
+        session.merge(FuturesLearningState(id=5, payload={'drafts': {'d': job}}))
+    with Session() as session:
+        active = worker_status(session)['active_job']
+    assert (active['symbol'], active['replay_symbol'], active['universe']) == ('DOGE_USDT', None, True)

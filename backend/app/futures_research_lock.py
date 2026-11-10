@@ -56,6 +56,7 @@ def acquire():
 
 
 def worker_status(session):
+    from .futures_drafts import UNIVERSE_SCOPE
     from .futures_symbols import SYMBOLS
 
     worker = session.scalar(select(FuturesLearningState.payload["draft_worker"]).where(
@@ -74,10 +75,12 @@ def worker_status(session):
     if job.get("status") == "running":
         fields = ("strategy", "phase", "completed", "total", "updated_at", "started_at", "timeout_seconds")
         head = str(job.get("phase") or "").split(":")[0]
-        replay = head if head in SYMBOLS else symbol if purpose != "parents" else None
+        universe = head in SYMBOLS or (job.get("window") or {}).get("scope") == UNIVERSE_SCOPE
+        # Universe jobs only name their current pair after the first per-pair emit; never guess the owner.
+        replay = head if head in SYMBOLS else None if universe or purpose == "parents" else symbol
         result["active_job"] = {**{key: job.get(key) for key in fields},
                                 "purpose": purpose, "symbol": symbol, "replay_symbol": replay,
-                                "universe": head in SYMBOLS,
+                                "universe": universe,
                                 "draft_id": worker.get("draft_id") if purpose == "draft" else None}
     return result
 

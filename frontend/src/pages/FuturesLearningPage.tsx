@@ -354,9 +354,11 @@ export function ReplayWorkerStatus({ worker, onView }: { worker?: DraftWorker; o
   const active = !!job && !!worker?.consumer_enabled && !worker.stale;
   const symbol = FUTURES_SYMBOLS.find((value) => value === job?.symbol);
   const labels = { audit: 'Audit quần thể · 90 ngày', draft: 'Replay con nháp', parents: 'Replay cha mẹ · Toàn bộ cặp' };
-  const phases: Record<string, string> = { data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price', funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến' };
-  const phase = job?.phase?.split(':').at(-1) ?? '';
+  const phases: Record<string, string> = { data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price', funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến', benchmark: 'Tải nến tham chiếu', cached: 'Dùng kết quả đã lưu' };
+  const parts = job?.phase?.split(':').filter((part) => !(FUTURES_SYMBOLS as readonly string[]).includes(part)) ?? [];
+  const phase = parts.includes('benchmark') ? 'benchmark' : parts.at(-1) ?? '';
   const current = FUTURES_SYMBOLS.find((value) => value === job?.replay_symbol);
+  const pending = !!job?.universe && !current;
   const crossPair = !!job?.universe && !!current && current !== symbol;
   const measured = typeof job?.completed === 'number' && Number.isFinite(job.completed) && job.completed >= 0 && typeof job.total === 'number' && Number.isFinite(job.total) && job.total > 0;
   const percent = measured ? Math.min(100, Math.floor(100 * job.completed! / job.total!)) : null;
@@ -364,7 +366,7 @@ export function ReplayWorkerStatus({ worker, onView }: { worker?: DraftWorker; o
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="space-y-1">
         <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary"><Activity size={16} className={active ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" />Worker replay <span className="text-xs font-normal text-text-secondary">Toàn hệ thống</span></h3>
-        <p role="status" className="text-text-secondary">{worker?.stale ? 'Mất heartbeat · Chưa xác nhận tác vụ còn chạy' : !worker?.consumer_enabled ? 'Worker chưa sẵn sàng' : active ? <><strong className="text-sky-200">{(current ?? symbol)?.replace('_', '/') ?? 'Toàn bộ cặp'}</strong> · {labels[job.purpose]}{job.universe && job.purpose === 'draft' ? ' · 10 cặp' : ''} · {phases[phase] ?? 'Đang xử lý'}{crossPair && <span className="text-text-muted"> · Con nháp thuộc {symbol!.replace('_', '/')}</span>}</> : 'Đang chờ tác vụ tiếp theo'}</p>
+        <p role="status" className="text-text-secondary">{worker?.stale ? 'Mất heartbeat · Chưa xác nhận tác vụ còn chạy' : !worker?.consumer_enabled ? 'Worker chưa sẵn sàng' : active ? <><strong className="text-sky-200">{pending ? 'Đang chuẩn bị' : (current ?? symbol)?.replace('_', '/') ?? 'Toàn bộ cặp'}</strong> · {labels[job.purpose]}{job.universe && job.purpose === 'draft' ? ' · 10 cặp' : ''} · {phases[phase] ?? 'Đang xử lý'}{(crossPair || (pending && symbol && job.purpose === 'draft')) && <span className="text-text-muted"> · Con nháp thuộc {symbol!.replace('_', '/')}</span>}</> : 'Đang chờ tác vụ tiếp theo'}</p>
       </div>
       {active && symbol && job.purpose !== 'parents' && onView && <button type="button" className="min-h-10 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 font-semibold text-sky-200 hover:bg-sky-400/20 focus-visible:outline-2 focus-visible:outline-sky-300" onClick={() => onView({ symbol, purpose: job.purpose as 'audit' | 'draft', strategy: job.strategy })}>Xem {symbol.replace('_', '/')} <ChevronRight size={14} className="inline" aria-hidden="true" /></button>}
     </div>
