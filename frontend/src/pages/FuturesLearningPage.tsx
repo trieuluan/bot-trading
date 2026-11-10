@@ -340,6 +340,37 @@ export function RetirementMetrics({ retirement }: {
   </>;
 }
 
+export function PopulationAuditStatus({ job, worker, queued }: {
+  job: Learning['population_audit_job'];
+  worker: Learning['draft_worker'];
+  queued: number;
+}) {
+  const phases: Record<string, string> = {
+    data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price',
+    funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến',
+  };
+  const running = job?.status === 'running' && worker?.consumer_enabled && !worker.stale;
+  return <section aria-label="Tiến độ audit quần thể" className="space-y-1 rounded-lg border border-border-subtle bg-surface-2/40 p-3 text-xs text-text-secondary">
+    <p className="flex flex-wrap items-center gap-2 font-medium text-text-primary">
+      <Activity size={14} aria-hidden="true" /> Replay quần thể · 90 ngày
+      <span className="font-normal text-text-muted">{queued} cây chờ</span>
+    </p>
+    <p role="status">
+      {running ? <>
+        Đang replay #{job.strategy.split(':')[1]?.slice(0, 6)} · {phases[job.phase ?? 'data'] ?? job.phase ?? 'Chuẩn bị dữ liệu'}
+        {typeof job.completed === 'number' && typeof job.total === 'number' && job.total > 0 &&
+          ` · ${job.completed}/${job.total} (${fmt(100 * job.completed / job.total, 0)}% bước hiện tại)`}
+      </> : worker?.stale ? 'Worker mất heartbeat; chưa xác nhận đang chạy.' : !worker?.consumer_enabled ?
+        'Worker replay chưa bật hoặc chưa xác nhận trạng thái.' :
+        `Audit chạy khi worker rảnh sau replay cha mẹ / draft. Tác vụ worker: ${worker.phase ?? 'chờ'}.`}
+    </p>
+    {job && <p className="break-words text-text-muted">
+      Lần cập nhật: {formatTime(job.updated_at)} · {job.status === 'completed' ? 'Đã hoàn tất lượt gần nhất' : job.status === 'failed' ? `Lỗi: ${job.error ?? 'chưa rõ'}` : 'Đang xử lý lượt hiện tại'}
+    </p>}
+    <p className="text-text-muted">Audit cây chưa có mẫu forward. Chỉ xét thay sớm khi đủ 5 ngày forward liên tục và replay có dưới 5 lệnh khớp đã đóng; vẫn cần draft đạt kiểm định và không có lệnh mở.</p>
+  </section>;
+}
+
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
   const [data, setData] = useState<Learning | null>(null);
   const [replay, setReplay] = useState<FuturesHistoryJob | null>(null);
@@ -626,6 +657,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           )}
           {tab === 'forward' && (
             <>
+              <PopulationAuditStatus job={auditJob} worker={data.draft_worker}
+                queued={all.filter((row) => row.population_audit_status === 'queued').length} />
               <div
                 className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs [&>button]:inline-flex [&>button]:min-h-8 [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-md [&>button]:border [&>button]:border-border-subtle [&>button]:px-2.5 [&>button]:text-text-muted [&>button:hover]:bg-surface-2 [&>button[aria-pressed=true]]:border-border-active [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary"
                 role="group"
@@ -659,6 +692,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     <option value="queued">Chờ replay ({all.filter((r) => r.population_audit_status === 'queued').length})</option>
                     <option value="keep">Giữ theo replay ({all.filter((r) => r.population_audit_status === 'keep').length})</option>
                     <option value="insufficient_data">Thiếu dữ liệu ({all.filter((r) => r.population_audit_status === 'insufficient_data').length})</option>
+                    <option value="failed">Lỗi — chờ thử lại ({all.filter((r) => r.population_audit_status === 'failed').length})</option>
+                    <option value="not_target">Ngoài diện 0 mẫu ({all.filter((r) => r.population_audit_status === 'not_target').length})</option>
                   </select>
                 </label>
                 {(pausedCount > 0 || showPaused) && (
@@ -899,6 +934,11 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         </span>
                       </div>
                       <p className="evo-basis flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                        {row.population_audit_status && row.population_audit_status !== 'not_target' && (
+                          <span className={`rounded border px-1.5 py-0.5 text-xs ${row.population_audit_status === 'running' ? 'border-sky-400/25 bg-sky-400/10 text-sky-300' : 'border-border-subtle bg-surface-3 text-text-secondary'}`}>
+                            {AUDIT_LABELS[row.population_audit_status] ?? row.population_audit_status}
+                          </span>
+                        )}
                         {diagnosticLabel(row) && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-xs text-text-secondary">{diagnosticLabel(row)}</span>}
                         {openTrades.length > 0 && (
                           <span
@@ -1169,12 +1209,6 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                         />
                         Chỉ hiện cây archive do replay 90 ngày quá thưa ({data.retired_strategies!.filter((r) => r.retirement?.reason === 'sparse_forward_replay').length})
                       </label>
-                      {auditJob?.status === 'running' && (
-                        <span className="inline-flex items-center gap-1.5 rounded bg-surface-3 px-2 py-0.5 text-xs text-amber-300">
-                          <Activity size={12} className="animate-spin" />
-                          Đang audit: #{auditJob.strategy.split(':')[1]?.slice(0, 6)} ({auditJob.phase ?? 'chạy'})
-                        </span>
-                      )}
                     </div>
                     <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
                       <table>
