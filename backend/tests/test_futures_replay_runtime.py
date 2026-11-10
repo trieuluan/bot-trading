@@ -239,3 +239,13 @@ def test_worker_status_does_not_present_old_job_as_active(phase, job_status):
         }))
     with Session() as session:
         assert 'active_job' not in worker_status(session)
+
+def test_worker_status_universe_draft_reports_replay_pair():
+    job = {'status': 'running', 'phase': 'AVAX_USDT:replay', 'completed': 1, 'total': 2}
+    with Session.begin() as session:
+        session.merge(FuturesLearningState(id=1, payload={'draft_worker': {
+            'heartbeat_at': 1794334550, 'phase': 'AVAX_USDT:replay', 'symbol': 'DOGE_USDT', 'draft_id': 'd'}}))
+        session.merge(FuturesLearningState(id=5, payload={'drafts': {'d': job}}))
+    with Session() as session:
+        active = worker_status(session)['active_job']
+    assert (active['symbol'], active['replay_symbol'], active['universe']) == ('DOGE_USDT', 'AVAX_USDT', True)

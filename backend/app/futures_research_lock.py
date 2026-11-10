@@ -73,8 +73,11 @@ def worker_status(session):
         job = job.get(worker.get("draft_id")) or {}
     if job.get("status") == "running":
         fields = ("strategy", "phase", "completed", "total", "updated_at", "started_at", "timeout_seconds")
+        head = str(job.get("phase") or "").split(":")[0]
+        replay = head if head in SYMBOLS else symbol if purpose != "parents" else None
         result["active_job"] = {**{key: job.get(key) for key in fields},
-                                "purpose": purpose, "symbol": symbol,
+                                "purpose": purpose, "symbol": symbol, "replay_symbol": replay,
+                                "universe": head in SYMBOLS,
                                 "draft_id": worker.get("draft_id") if purpose == "draft" else None}
     return result
 

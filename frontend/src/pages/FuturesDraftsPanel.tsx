@@ -55,6 +55,8 @@ export type DraftWorker = {
   active_job?: {
     purpose: 'audit' | 'draft' | 'parents';
     symbol?: string | null;
+    replay_symbol?: string | null;
+    universe?: boolean;
     strategy?: string | null;
     draft_id?: string | null;
     phase?: string | null;
