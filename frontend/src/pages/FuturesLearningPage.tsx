@@ -350,24 +350,52 @@ export function PopulationAuditStatus({ job, worker, queued }: {
     funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến',
   };
   const running = job?.status === 'running' && worker?.consumer_enabled && !worker.stale;
-  return <section aria-label="Tiến độ audit quần thể" className="space-y-1 rounded-lg border border-border-subtle bg-surface-2/40 p-3 text-xs text-text-secondary">
-    <p className="flex flex-wrap items-center gap-2 font-medium text-text-primary">
-      <Activity size={14} aria-hidden="true" /> Replay quần thể · 90 ngày
-      <span className="font-normal text-text-muted">{queued} cây chờ</span>
-    </p>
-    <p role="status">
-      {running ? <>
-        Đang replay #{job.strategy.split(':')[1]?.slice(0, 6)} · {phases[job.phase ?? 'data'] ?? job.phase ?? 'Chuẩn bị dữ liệu'}
-        {typeof job.completed === 'number' && typeof job.total === 'number' && job.total > 0 &&
-          ` · ${job.completed}/${job.total} (${fmt(100 * job.completed / job.total, 0)}% bước hiện tại)`}
-      </> : worker?.stale ? 'Worker mất heartbeat; chưa xác nhận đang chạy.' : !worker?.consumer_enabled ?
+  const phase = phases[job?.phase ?? 'data'] ?? job?.phase ?? 'Chuẩn bị dữ liệu';
+  const measured = typeof job?.completed === 'number' && Number.isFinite(job.completed) && job.completed >= 0
+    && typeof job.total === 'number' && Number.isFinite(job.total) && job.total > 0;
+  const percent = measured ? Math.min(100, Math.max(0, Math.floor(100 * job.completed! / job.total!))) : null;
+  const warning = worker?.stale || !worker?.consumer_enabled || job?.status === 'failed';
+  return <section aria-label="Tiến độ audit quần thể" className="overflow-hidden rounded-xl border border-border-subtle bg-surface-1 text-xs text-text-secondary">
+    <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+        <Activity size={16} className={running ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" /> Replay quần thể
+        <span className="font-normal text-text-muted">90 ngày</span>
+      </h3>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="tabular-nums text-text-muted">{queued} cây chờ</span>
+        <span className={`rounded-md px-2 py-1 font-medium ${running ? 'bg-sky-500/10 text-sky-300' : warning ? 'bg-amber-500/10 text-amber-300' : 'bg-surface-3 text-text-secondary'}`}>
+          {running ? 'Đang replay' : worker?.stale ? 'Mất heartbeat' : !worker?.consumer_enabled ? 'Chưa sẵn sàng' : job?.status === 'failed' ? 'Lượt gần nhất lỗi' : 'Chờ lượt tiếp theo'}
+        </span>
+      </div>
+    </div>
+    {running ? <div className="space-y-2 px-4 py-3">
+      <div className="flex flex-wrap items-end justify-between gap-2" role="status">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-mono text-text-primary">#{(job.strategy.split(':')[1] ?? job.strategy).slice(0, 6)}</span>
+          <span className="font-medium text-sky-200">{phase}</span>
+        </div>
+        <span className="text-sky-200">{percent === null ? 'Đang xử lý' : <><strong className="text-lg tabular-nums">{percent}%</strong> <span className="text-xs">bước hiện tại</span></>}</span>
+      </div>
+      <div role="progressbar" aria-label={`${phase} — bước hiện tại`} aria-valuemin={0} aria-valuemax={100}
+        aria-valuenow={percent ?? undefined} aria-valuetext={percent === null ? 'Chưa có số liệu tiến độ' : `${percent}% bước hiện tại`}
+        className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+        <div className={`h-full rounded-full bg-sky-400 motion-safe:transition-[width] motion-safe:duration-300 ${percent === null ? 'opacity-30' : ''}`} style={{ width: percent === null ? '100%' : `${percent}%` }} />
+      </div>
+      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-text-muted">
+        <span>Tiến độ từng bước, không phải toàn hàng chờ</span>
+        {measured && <span className="tabular-nums">{job.completed!.toLocaleString('vi-VN')} / {job.total!.toLocaleString('vi-VN')}{job.phase === 'replay' ? ' nến' : ''}</span>}
+      </div>
+    </div> : <p role="status" className="px-4 py-3">
+      {worker?.stale ? 'Worker mất heartbeat; chưa xác nhận đang chạy.' : !worker?.consumer_enabled ?
         'Worker replay chưa bật hoặc chưa xác nhận trạng thái.' :
         `Audit chạy khi worker rảnh sau replay cha mẹ / draft. Tác vụ worker: ${worker.phase ?? 'chờ'}.`}
-    </p>
-    {job && <p className="break-words text-text-muted">
-      Lần cập nhật: {formatTime(job.updated_at)} · {job.status === 'completed' ? 'Đã hoàn tất lượt gần nhất' : job.status === 'failed' ? `Lỗi: ${job.error ?? 'chưa rõ'}` : 'Đang xử lý lượt hiện tại'}
     </p>}
-    <p className="text-text-muted">Audit cây chưa có mẫu forward. Chỉ xét thay sớm khi đủ 5 ngày forward liên tục và replay có dưới 5 lệnh khớp đã đóng; vẫn cần draft đạt kiểm định và không có lệnh mở.</p>
+    <div className="space-y-1.5 border-t border-border-subtle bg-surface-2/40 px-4 py-2.5 leading-relaxed text-text-muted">
+      {job && <p className="break-words">
+        Cập nhật: {formatTime(job.updated_at)}{job.status === 'completed' ? ' · Đã hoàn tất lượt gần nhất' : job.status === 'failed' ? ` · Lỗi: ${job.error ?? 'chưa rõ'}` : ''}
+      </p>}
+      <p>Chỉ xét thay cây chưa có mẫu sau 5 ngày forward liên tục, replay dưới 5 lệnh khớp đã đóng. Cần draft đạt kiểm định và không có lệnh mở.</p>
+    </div>
   </section>;
 }
 

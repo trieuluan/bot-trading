@@ -71,6 +71,30 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
     assert.ok(runningHtml.includes('Tải funding'));
     assert.ok(runningHtml.includes('#005cfa'));
     assert.ok(runningHtml.includes('120 cây chờ'));
+    assert.ok(runningHtml.includes('role="progressbar"'));
+    assert.ok(runningHtml.includes('aria-valuenow="36"'));
+    assert.ok(runningHtml.includes('bước hiện tại'));
+    assert.ok(!runningHtml.includes('11 nến'));
+
+    const renderProgress = (progress, worker = {}) => renderToStaticMarkup(
+      React.createElement(PopulationAuditStatus, {
+        job: { status: 'running', strategy: 'rule_tree:005cfaaa4b93', phase: 'replay', updated_at: 1794334550, ...progress },
+        worker: { consumer_enabled: true, stale: false, ...worker },
+        queued: 120,
+      }),
+    );
+    for (const progress of [{}, { completed: 0, total: 0 }, { completed: NaN, total: 10 }, { completed: -1, total: 10 }, { completed: 1, total: Infinity }]) {
+      const html = renderProgress(progress);
+      assert.ok(html.includes('role="progressbar"'));
+      assert.ok(!html.includes('aria-valuenow='));
+      assert.ok(html.includes('Chưa có số liệu tiến độ'));
+    }
+    assert.ok(renderProgress({ completed: 12, total: 10 }).includes('aria-valuenow="100"'));
+    assert.ok(renderProgress({ completed: 0, total: 10 }).includes('aria-valuenow="0"'));
+    assert.ok(renderProgress({ completed: 4, total: 10 }).includes('10 nến'));
+    for (const worker of [{ stale: true }, { consumer_enabled: false }]) {
+      assert.ok(!renderProgress({ completed: 4, total: 10 }, worker).includes('role="progressbar"'));
+    }
 
     const idleHtml = renderToStaticMarkup(
       React.createElement(PopulationAuditStatus, {
@@ -80,6 +104,7 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
       }),
     );
     assert.ok(idleHtml.includes('Đã hoàn tất lượt gần nhất'));
+    assert.ok(!idleHtml.includes('role="progressbar"'));
   } finally {
     await server.close();
   }
