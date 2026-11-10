@@ -29,6 +29,11 @@ RUNTIME = "forex_htf_ast4_v2"
 LEDGER = Path(__file__).resolve().parents[2] / "research-output/exness-htf-ast4-v2.json"
 TOTAL_TREES = 56
 MIN_OUTCOMES = 10
+# ponytail: same simulation logic, hash changed only by the provenance whitelist fix; drop once these samples age out.
+LEGACY_VERSIONS = frozenset({"702f844968bc65e0", "0191f15eecc6f175"})
+
+def same_version(sample_version, version):
+    return sample_version == version or sample_version in LEGACY_VERSIONS
 
 
 def logic_version():
@@ -172,7 +177,7 @@ def is_zero_r_expiry(s):
 def sample_outcome(s, version, born_at, now):
     """Net R of a finished, countable sample, else None."""
     if (s.get("provenance") != PROVENANCE or s.get("costs", {}).get("verified") is not True
-            or s.get("strategy_version") != version):
+            or not same_version(s.get("strategy_version"), version)):
         return None
     if s.get("status") == "resolved":
         r, end = s.get("net_r_ex_swap"), s.get("label_available_at", 0)
@@ -454,7 +459,7 @@ def summary(account, symbol="XAUUSD"):
         for tree in ledger["population"]:
             tid = tree_id(tree)
             mem = ledger["members"].get(tid, {})
-            s_list = [s for s in samples_by_tree[tid] if s.get("strategy_version") == version]
+            s_list = [s for s in samples_by_tree[tid] if same_version(s.get("strategy_version"), version)]
             tree_summaries.append({
                 "id": tid,
                 "control_tree_id": hashlib.sha256(json.dumps(control_tree(tree), sort_keys=True).encode()).hexdigest()[:16],

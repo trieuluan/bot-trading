@@ -15,6 +15,7 @@ from backend.app.forex_htf_v4 import (
     logic_version,
     new_ledger,
     read_ledger,
+    LEGACY_VERSIONS,
     summary,
     tree_stats,
 )
@@ -302,3 +303,10 @@ def test_candidates_ignore_excluded_samples_without_entry_policy(monkeypatch):
     monkeypatch.setattr(v4, "read_ledger", lambda account, symbol: {"samples": [excluded], "since": 0})
     assert v4.candidates("a", "XAUUSD", 0) == []
 
+
+def test_legacy_versions_count_but_unknown_versions_do_not():
+    legacy = next(iter(LEGACY_VERSIONS))
+    samples = [outcome(setup=str(index), strategy_version=legacy) for index in range(10)]
+    assert tree_stats({}, samples, 10000, "current")["ready"]
+    unknown = [{**sample, "strategy_version": "unknown"} for sample in samples]
+    assert tree_stats({}, unknown, 10000, "current")["resolved_count"] == 0
