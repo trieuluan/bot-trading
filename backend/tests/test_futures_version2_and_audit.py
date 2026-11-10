@@ -431,3 +431,19 @@ def test_pair_audit_and_missing_inputs_never_write_forward(monkeypatch):
     assert not eligible(state["candidates"][name], result[name], state["cursor"])
     attach(state, result)
     assert state["samples"] == []
+
+def test_summary_reports_population_audit_status_and_job():
+    from backend.app.futures_learner import summary
+    candidate = {"genome": copy.deepcopy(RULE_SEEDS[0]), "born_at": 1000,
+                 "parents": [], "generation": 0, "windows": [], "promoted": False}
+    state = {
+        "enabled": True, "auto_mode": "learner", "cursor": 2000, "updated_at": 2000,
+        "error": None, "samples": [], "sample_archive": [], "last_decision": None,
+        "candidates": {"rule_tree:target": candidate},
+        "drafts": {}, "rule_archive": {},
+        "population_audit_job": {"status": "running", "strategy": "rule_tree:target"},
+        "population_audit": {},
+    }
+    res = summary(state, 2000, {})
+    assert res["population_audit_job"]["status"] == "running"
+    assert res["strategies"][0]["population_audit_status"] == "running"

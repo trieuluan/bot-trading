@@ -285,6 +285,18 @@ def process(lease, symbol, draft_id):
             save_state(session, state)
             touch(session, now, phase="idle")
 
+def audit_progress(symbol, token, **changes):
+    now = int(time.time())
+    with symbol_scope(symbol), Session.begin() as session:
+        lock_wallet(session)
+        state = read_state(session, now)
+        job = state.get('population_audit_job') or {}
+        if job.get('token') == token and job.get('status') == 'running':
+            job.update(changes, updated_at=now)
+            save_state(session, state)
+            touch(session, now, symbol, phase=f"audit:{job.get('phase', 'data')}")
+
+
 def audit_population(lease, now):
     digest = engine_digest()
     for symbol in SYMBOLS:
@@ -306,10 +318,14 @@ def audit_population(lease, now):
                 continue
             name = min(pending, key=lambda key: (state.get('population_audit', {}).get(key, {}).get('cutoff', 0), key))
             frozen.update(purpose='population_audit', candidates={name: pending[name]})
+            token = str(uuid4())
             state['population_audit_job'] = {'status': 'running', 'strategy': name,
+                                            'token': token, 'phase': 'data', 'started_at': now,
                                             'snapshot': frozen, 'updated_at': now}
             save_state(session, state)
-        report, error, _ = supervise(lease, symbol, frozen, lambda **changes: None)
+            touch(session, now, symbol, phase='audit:data')
+        report, error, _ = supervise(lease, symbol, frozen,
+                                    lambda **changes: audit_progress(symbol, token, **changes))
         lease.check()
         finished = int(time.time())
         with symbol_scope(symbol), Session.begin() as session:
@@ -323,6 +339,7 @@ def audit_population(lease, now):
                 error=error, updated_at=finished, archived=sorted(before - set(state['candidates'])),
                 admitted=admitted, admitted_strategies=sorted(set(state['candidates']) - before))
             save_state(session, state)
+            touch(session, finished, phase='idle')
         return True
     return False
 

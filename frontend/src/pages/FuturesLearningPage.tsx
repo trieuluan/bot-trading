@@ -97,10 +97,11 @@ type Row = {
     comparison?: Record<string, {
       genome: { signal_version?: number };
       funnel: Record<string, number>;
-      train: { resolved: number; total_r: number; max_drawdown_r: number };
-      validation: { resolved: number; total_r: number; max_drawdown_r: number };
+      train: { resolved: number; mean_r: number | null; max_drawdown_r: number | null };
+      validation: { resolved: number; mean_r: number | null; max_drawdown_r: number | null };
     }>;
   };
+  population_audit_status?: string;
   qualification: { eligible: boolean; windows: number; trades: number };
 };
 type Gene = string | number | Record<string, number> | null;
@@ -132,6 +133,17 @@ type Learning = {
   strategies: Row[];
   drafts?: Draft[];
   draft_worker?: DraftWorker;
+  population_audit_job?: {
+    status: string;
+    strategy: string;
+    phase?: string;
+    completed?: number | null;
+    total?: number | null;
+    updated_at: number;
+    error?: string | null;
+    archived?: string[];
+    admitted_strategies?: string[];
+  } | null;
   retired_paper?: Retired[];
   retired_strategies?: {
     strategy: string;
@@ -141,10 +153,10 @@ type Learning = {
       at: number;
       reason: string;
       samples: number;
-      mean_r: number;
-      max_drawdown_r: number;
+      mean_r: number | null;
+      max_drawdown_r: number | null;
       retained_strategy: string | null;
-      overlap: { shared: number; ratio: number } | null;
+      overlap: { shared: number; ratio: number | null } | null;
     } | null;
   }[];
 };
@@ -165,7 +177,8 @@ async function call(path: string, body?: object): Promise<Learning> {
 type StatusKey =
   'all' | 'signal' | 'holding' | 'paper' | 'learned' | 'good' | 'unlearned' | 'promoted';
 
-const fmt = (value: number | null, digits = 2) => (value === null ? '—' : value.toFixed(digits));
+export const fmt = (value: number | null | undefined, digits = 2, suffix = '') =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(digits)}${suffix}` : '—';
 const usdt = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(2)} USDT`;
 
 const GENE_LABELS: Record<string, string> = {
@@ -304,6 +317,29 @@ const RETIRE_REASON: Record<string, [string, string]> = {
   unconfirmed_entry_retired: ['Ngừng vào lệnh không xác nhận', 'info'],
 };
 
+export const AUDIT_LABELS: Record<string, string> = {
+  queued: 'Chờ replay 90 ngày',
+  running: 'Đang replay 90 ngày',
+  sparse: 'Replay ít hơn 5 lệnh đóng',
+  keep: 'Replay: giữ cây',
+  insufficient_data: 'Replay thiếu dữ liệu',
+  failed: 'Replay lỗi — chờ thử lại',
+  not_target: 'Ngoài diện audit 0 mẫu',
+};
+
+export function RetirementMetrics({ retirement }: {
+  retirement: NonNullable<Learning['retired_strategies']>[number]['retirement'];
+}) {
+  const average = retirement?.mean_r;
+  return <>
+    <td className="num font-mono tabular-nums text-right">{retirement?.samples ?? '—'}</td>
+    <td className={`num ${typeof average === 'number' && Number.isFinite(average) ? (average >= 0 ? 'positive' : 'negative') : ''} font-mono tabular-nums text-right`}>
+      {fmt(average, 2, 'R')}
+    </td>
+    <td className="num font-mono tabular-nums text-right">{fmt(retirement?.max_drawdown_r, 2, 'R')}</td>
+  </>;
+}
+
 export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
   const [data, setData] = useState<Learning | null>(null);
   const [replay, setReplay] = useState<FuturesHistoryJob | null>(null);
@@ -315,6 +351,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const [showPaused, setShowPaused] = useState(false);
   const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
+  const [auditFilter, setAuditFilter] = useState('all');
+  const [sparseArchiveOnly, setSparseArchiveOnly] = useState(false);
   const [tab, setTab] = useState<'forward' | 'drafts'>('forward');
   const [detail, setDetail] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -329,7 +367,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
 
   useEffect(() => {
     setPage(1);
-  }, [family, query, status, showPaused, gen, sort]);
+  }, [family, query, status, showPaused, gen, sort, auditFilter]);
 
   useEffect(() => {
     let active = true;
@@ -405,6 +443,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
   const scoped = all.filter(
     (row) =>
       (showPaused || !row.paused || holding(row)) &&
+      (auditFilter === 'all' || row.population_audit_status === auditFilter) &&
       (family === 'all' || profileOf(row.genome) === family) &&
       needles.every((needle) =>
         searchText(
@@ -437,7 +476,11 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
     );
   });
   const cardPage = clampPage(page, sorted.length, PAGE.cards);
-  const treePage = clampPage(retiredPage, data?.retired_strategies?.length ?? 0, PAGE.retired);
+  const retiredTrees = (data?.retired_strategies ?? []).filter(
+    (row) => !sparseArchiveOnly || row.retirement?.reason === 'sparse_forward_replay',
+  );
+  const treePage = clampPage(retiredPage, retiredTrees.length, PAGE.retired);
+  const auditJob = data?.population_audit_job;
   const paperPageNow = clampPage(paperPage, data?.retired_paper?.length ?? 0, PAGE.retired);
   const modes = [
     ['paper_learning', 'Học thử Paper', { enabled: true, auto_mode: 'paper_learning' }],
@@ -602,6 +645,22 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     </button>
                   );
                 })}
+                <label className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+                  Audit:
+                  <select
+                    aria-label="Lọc theo trạng thái audit 90 ngày"
+                    className="rounded-md border border-border-subtle bg-surface-2 px-2 py-1 text-xs text-text-primary"
+                    value={auditFilter}
+                    onChange={(event) => setAuditFilter(event.target.value)}
+                  >
+                    <option value="all">Tất cả audit ({all.length})</option>
+                    <option value="running">Đang replay ({all.filter((r) => r.population_audit_status === 'running').length})</option>
+                    <option value="sparse">Replay &lt; 5 lệnh ({all.filter((r) => r.population_audit_status === 'sparse').length})</option>
+                    <option value="queued">Chờ replay ({all.filter((r) => r.population_audit_status === 'queued').length})</option>
+                    <option value="keep">Giữ theo replay ({all.filter((r) => r.population_audit_status === 'keep').length})</option>
+                    <option value="insufficient_data">Thiếu dữ liệu ({all.filter((r) => r.population_audit_status === 'insufficient_data').length})</option>
+                  </select>
+                </label>
                 {(pausedCount > 0 || showPaused) && (
                   <label className="evo-paused-toggle inline-flex items-center gap-2 text-xs">
                     <input
@@ -676,6 +735,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
                 </span>
                 {(family !== 'all' ||
+                  auditFilter !== 'all' ||
                   query ||
                   status !== 'all' ||
                   showPaused ||
@@ -684,6 +744,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                   <button
                     onClick={() => {
                       setFamily('all');
+                      setAuditFilter('all');
                       setQuery('');
                       setStatus('all');
                       setShowPaused(false);
@@ -777,8 +838,12 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           Tín hiệu v2: H1 đóng xác nhận, M15 kích hoạt tại đó hoặc tối đa 4 nến tiếp theo.
                           H4 mất đồng thuận, xuyên mức vô hiệu hóa hoặc thiếu nến sẽ hủy setup. R:R sau khớp phải ≥1.5.
                         </p>}
-                        {row.population_audit && <section className="space-y-2 border-t border-border-subtle pt-3 text-xs text-text-secondary">
+                        {(row.population_audit || row.population_audit_status) && <section className="space-y-2 border-t border-border-subtle pt-3 text-xs text-text-secondary">
                           <h3 className="font-semibold text-text-primary">Audit quần thể · 90 ngày</h3>
+                          {row.population_audit_status && (
+                            <p className="font-medium text-amber-300">Trạng thái: {AUDIT_LABELS[row.population_audit_status] ?? row.population_audit_status}</p>
+                          )}
+                          {row.population_audit && <>
                           <p>{row.population_audit.status === 'insufficient_data' ? 'Thiếu dữ liệu — giữ cây.' :
                             row.population_audit.status === 'sparse' ? 'Tín hiệu thưa, không phải bằng chứng thua lỗ.' : 'Giữ cây theo replay.'}</p>
                           <p>Cutoff {formatTime(row.population_audit.cutoff)} · Forward {row.population_audit.forward_coverage.complete ? 'đủ nến' : 'chưa đủ nến'} · {row.population_audit.resolved ?? '—'} lệnh khớp đã đóng</p>
@@ -786,9 +851,10 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           {Object.entries(row.population_audit.comparison ?? {}).map(([id, arm]) => <div key={id} className="space-y-1">
                             <p className="font-medium">Tín hiệu v{arm.genome.signal_version ?? 1}</p>
                             <p>Thô {arm.funnel.raw_signals} · Setup {arm.funnel.setups} · Mức chờ {arm.funnel.waiting_entry} · Xác nhận {arm.funnel.confirmed} · Khớp {arm.funnel.filled} · Đóng {arm.funnel.resolved}</p>
-                            <p>Train / validation net R sau phí, funding: {fmt(arm.train.total_r)} / {fmt(arm.validation.total_r)} · DD R: {fmt(arm.train.max_drawdown_r)} / {fmt(arm.validation.max_drawdown_r)}</p>
+                            <p>Train / validation R TB: {fmt(arm.train.mean_r, 2, 'R')} / {fmt(arm.validation.mean_r, 2, 'R')} · DD R: {fmt(arm.train.max_drawdown_r, 2, 'R')} / {fmt(arm.validation.max_drawdown_r, 2, 'R')}</p>
                           </div>)}
                           <p className="break-all text-text-muted">Dataset {row.population_audit.dataset_sha256 ?? 'chưa đủ'} · Logic {row.population_audit.engine}</p>
+                          </>}
                           <p>Replay không cộng vào mẫu forward, không tự cấp quyền giao dịch. Chỉ archive khi có draft đạt kiểm định và không còn lệnh hoặc mẫu mở.</p>
                         </section>}
                         <p className="evo-drawer-src rounded border border-border-subtle bg-surface-2 p-3 text-xs leading-relaxed text-text-secondary">
@@ -1081,6 +1147,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     <span className="evo-count rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-xs tabular-nums text-amber-200">
                       {data.retired_strategies!.length}
                     </span>
+                    {sparseArchiveOnly && (
+                      <span className="text-xs text-text-muted">· Đang lọc archive do thưa ({retiredTrees.length})</span>
+                    )}
                     <ChevronDown
                       size={16}
                       className="shrink-0 text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none"
@@ -1088,6 +1157,25 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                     />
                   </summary>
                   <div className="evo-retired-body min-w-0 space-y-3 border-t border-border-subtle p-3 [&_table]:w-full [&_table]:min-w-[720px] [&_table]:text-xs [&_th]:whitespace-nowrap [&_small]:mt-1 [&_small]:block [&_small]:text-text-muted [&_td]:break-words [&_td]:align-middle [&_tr:hover]:bg-surface-2/60">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs text-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={sparseArchiveOnly}
+                          onChange={(event) => {
+                            setSparseArchiveOnly(event.target.checked);
+                            setRetiredPage(1);
+                          }}
+                        />
+                        Chỉ hiện cây archive do replay 90 ngày quá thưa ({data.retired_strategies!.filter((r) => r.retirement?.reason === 'sparse_forward_replay').length})
+                      </label>
+                      {auditJob?.status === 'running' && (
+                        <span className="inline-flex items-center gap-1.5 rounded bg-surface-3 px-2 py-0.5 text-xs text-amber-300">
+                          <Activity size={12} className="animate-spin" />
+                          Đang audit: #{auditJob.strategy.split(':')[1]?.slice(0, 6)} ({auditJob.phase ?? 'chạy'})
+                        </span>
+                      )}
+                    </div>
                     <div className="table-scroll min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
                       <table>
                         <thead>
@@ -1101,8 +1189,8 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                           </tr>
                         </thead>
                         <tbody>
-                          {data
-                            .retired_strategies!.slice(
+                          {retiredTrees
+                            .slice(
                               (treePage - 1) * PAGE.retired,
                               treePage * PAGE.retired,
                             )
@@ -1133,17 +1221,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                       </span>
                                     )}
                                   </td>
-                                  <td className="num font-mono tabular-nums text-right">
-                                    {r?.samples ?? '—'}
-                                  </td>
-                                  <td
-                                    className={`num ${r ? (r.mean_r >= 0 ? 'positive' : 'negative') : ''} font-mono tabular-nums text-right`}
-                                  >
-                                    {r ? `${r.mean_r.toFixed(2)}R` : '—'}
-                                  </td>
-                                  <td className="num font-mono tabular-nums text-right">
-                                    {r ? `${r.max_drawdown_r.toFixed(2)}R` : '—'}
-                                  </td>
+                                  <RetirementMetrics retirement={r} />
                                   <td>
                                     <span title={r?.retained_strategy ?? undefined}>
                                       {r?.retained_strategy ?? '—'}
@@ -1151,7 +1229,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                                     {r?.overlap && (
                                       <small>
                                         {r.overlap.shared} mẫu khớp ·{' '}
-                                        {(100 * r.overlap.ratio).toFixed(1)}% trùng
+                                        {fmt(r.overlap.ratio != null ? 100 * r.overlap.ratio : null, 1, '% trùng')}
                                       </small>
                                     )}
                                   </td>
@@ -1162,7 +1240,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                       </table>
                     </div>
                     <Pager
-                      total={data.retired_strategies!.length}
+                      total={retiredTrees.length}
                       page={treePage}
                       size={PAGE.retired}
                       onPage={setRetiredPage}

@@ -979,8 +979,13 @@ def lineage(state, candidate):
 
 
 def summary(state, now, paper=None):
+    from .futures_population_audit import engine_digest
+
     paper = paper or {}
     rows, results = [], performance(state, now)
+    audit_engine = engine_digest()
+    audit_job = state.get('population_audit_job') or {}
+    sampled = {sample['strategy'] for sample in state['samples'] + state.get('sample_archive', [])}
     by_strategy = defaultdict(list)
     for sample in state["samples"]:
         by_strategy[sample["strategy"]].append(sample)
@@ -992,6 +997,17 @@ def summary(state, now, paper=None):
                 replay[row["strategy"]] += sum(
                     bucket["resolved"] for bucket in row[part]["contexts"].values())
     for name, candidate in state["candidates"].items():
+        audit = state.get('population_audit', {}).get(name)
+        audit_status = 'not_target'
+        if name not in sampled:
+            audit_status = 'queued'
+            if (audit and audit.get('engine') == audit_engine
+                    and audit.get('fingerprint') == genome_fingerprint(candidate['genome'])
+                    and audit.get('born_at') == candidate['born_at']
+                    and 0 <= now - audit.get('cutoff', 0) < 86400):
+                audit_status = audit['status']
+            if audit_job.get('strategy') == name and audit_job.get('status') in ('running', 'failed'):
+                audit_status = audit_job['status']
         samples = by_strategy.get(name, [])
         values = [sample["net_r"] for sample in samples if sample["status"] == "resolved"
                   and sample["label_available_at"] <= now]
@@ -1012,7 +1028,8 @@ def summary(state, now, paper=None):
                      "replay_samples": replay[name],
                      "forward_samples": len(values),
                      "forward_open": sum(sample["status"] == "open" for sample in samples),
-                     "population_audit": state.get('population_audit', {}).get(name),
+                     "population_audit": audit,
+                     "population_audit_status": audit_status,
                      "qualification": qualification(candidate)})
     archive = state.get("rule_archive", {})
     retired = [{"strategy": name, "genome": archive[name]["genome"] if name in archive else None,
