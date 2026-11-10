@@ -56,9 +56,27 @@ def acquire():
 
 
 def worker_status(session):
+    from .futures_symbols import SYMBOLS
+
     worker = session.scalar(select(FuturesLearningState.payload["draft_worker"]).where(
         FuturesLearningState.id == 1)) or {}
-    return {**worker, "stale": time.time() - worker.get("heartbeat_at", 0) > 90}
+    result = {**worker, "stale": time.time() - worker.get("heartbeat_at", 0) > 90}
+    phase = worker.get("phase") or ""
+    symbol = worker.get("symbol")
+    purpose = "parents" if phase.startswith("parents:") else "audit" if phase.startswith("audit:") else "draft"
+    if phase in ("", "idle", "disabled") or (purpose != "parents" and symbol not in SYMBOLS):
+        return result
+    field = "universe_parent_job" if purpose == "parents" else "population_audit_job" if purpose == "audit" else "drafts"
+    job = session.scalar(select(FuturesLearningState.payload[field]).where(
+        FuturesLearningState.id == (1 if purpose == "parents" else SYMBOLS.index(symbol) + 1))) or {}
+    if purpose == "draft":
+        job = job.get(worker.get("draft_id")) or {}
+    if job.get("status") == "running":
+        fields = ("strategy", "phase", "completed", "total", "updated_at", "started_at", "timeout_seconds")
+        result["active_job"] = {**{key: job.get(key) for key in fields},
+                                "purpose": purpose, "symbol": symbol,
+                                "draft_id": worker.get("draft_id") if purpose == "draft" else None}
+    return result
 
 def hold_worker():
     if engine.dialect.name != "postgresql":

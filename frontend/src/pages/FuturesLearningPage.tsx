@@ -1,4 +1,4 @@
-import { futuresHeaders } from '../lib/futures-symbol';
+import { futuresHeaders, getFuturesSymbol, FUTURES_SYMBOLS, type FuturesSymbol } from '../lib/futures-symbol';
 import { fetchFuturesHistory } from '../lib/api';
 import type { FuturesHistoryJob } from '../types/paper';
 import { formatTime } from '../lib/time-format';
@@ -347,16 +347,45 @@ export function RetirementMetrics({ retirement }: {
   </>;
 }
 
-export function PopulationAuditStatus({ job, worker, queued }: {
+export type ReplayTarget = { symbol: FuturesSymbol; purpose: 'audit' | 'draft'; strategy?: string | null };
+
+export function ReplayWorkerStatus({ worker, onView }: { worker?: DraftWorker; onView?: (target: ReplayTarget) => void }) {
+  const job = worker?.active_job;
+  const active = !!job && !!worker?.consumer_enabled && !worker.stale;
+  const symbol = FUTURES_SYMBOLS.find((value) => value === job?.symbol);
+  const labels = { audit: 'Audit quần thể · 90 ngày', draft: 'Replay con nháp', parents: 'Replay cha mẹ · Toàn bộ cặp' };
+  const phases: Record<string, string> = { data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price', funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến' };
+  const phase = job?.phase?.split(':').at(-1) ?? '';
+  const measured = typeof job?.completed === 'number' && Number.isFinite(job.completed) && job.completed >= 0 && typeof job.total === 'number' && Number.isFinite(job.total) && job.total > 0;
+  const percent = measured ? Math.min(100, Math.floor(100 * job.completed! / job.total!)) : null;
+  return <section aria-label="Worker replay toàn hệ thống" className="rounded-xl border border-border-base bg-surface-2 px-4 py-3 text-xs">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-1">
+        <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary"><Activity size={16} className={active ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" />Worker replay <span className="text-xs font-normal text-text-secondary">Toàn hệ thống</span></h3>
+        <p role="status" className="text-text-secondary">{worker?.stale ? 'Mất heartbeat · Chưa xác nhận tác vụ còn chạy' : !worker?.consumer_enabled ? 'Worker chưa sẵn sàng' : active ? <><strong className="text-sky-200">{symbol?.replace('_', '/') ?? 'Toàn bộ cặp'}</strong> · {labels[job.purpose]} · {phases[phase] ?? 'Đang xử lý'}</> : 'Đang chờ tác vụ tiếp theo'}</p>
+      </div>
+      {active && symbol && job.purpose !== 'parents' && onView && <button type="button" className="min-h-10 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 font-semibold text-sky-200 hover:bg-sky-400/20 focus-visible:outline-2 focus-visible:outline-sky-300" onClick={() => onView({ symbol, purpose: job.purpose as 'audit' | 'draft', strategy: job.strategy })}>Xem {symbol.replace('_', '/')} <ChevronRight size={14} className="inline" aria-hidden="true" /></button>}
+    </div>
+    {active && <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap justify-between gap-2 text-text-secondary"><span>{job.strategy ? `Cây #${job.strategy.split(':').at(-1)?.slice(0, 6)}` : 'Tác vụ đang chạy'}{job.updated_at ? ` · Cập nhật ${formatTime(job.updated_at)}` : ''}</span><span className="tabular-nums text-sky-200">{percent === null ? 'Chưa có số liệu tiến độ' : `${percent}% bước hiện tại · ${job.completed!.toLocaleString('vi-VN')} / ${job.total!.toLocaleString('vi-VN')}${phase === 'replay' ? ' nến' : ''}`}</span></div>
+      <div role="progressbar" aria-label="Tiến độ worker · bước hiện tại" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-sky-400 motion-safe:transition-[width]" style={{ width: `${percent ?? 0}%` }} /></div>
+    </div>}
+  </section>;
+}
+
+export function PopulationAuditStatus({ job, worker, queued, symbol }: {
   job: Learning['population_audit_job'];
   worker: Learning['draft_worker'];
   queued: number;
+  symbol?: string;
 }) {
   const phases: Record<string, string> = {
     data: 'Chuẩn bị dữ liệu', candles: 'Tải nến', fair_price: 'Tải fair price',
     funding: 'Tải funding', open_interest: 'Kiểm tra OI', replay: 'Mô phỏng nến',
   };
-  const running = job?.status === 'running' && worker?.consumer_enabled && !worker.stale;
+  const running = job?.status === 'running' && worker?.consumer_enabled && !worker.stale
+    && (!worker.active_job || (worker.active_job.purpose === 'audit' && worker.active_job.symbol === symbol
+      && worker.active_job.strategy === job.strategy));
   const phase = phases[job?.phase ?? 'data'] ?? job?.phase ?? 'Chuẩn bị dữ liệu';
   const measured = typeof job?.completed === 'number' && Number.isFinite(job.completed) && job.completed >= 0
     && typeof job.total === 'number' && Number.isFinite(job.total) && job.total > 0;
@@ -367,7 +396,7 @@ export function PopulationAuditStatus({ job, worker, queued }: {
     <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
         <Activity size={16} className={running ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" /> Replay quần thể
-        <span className="font-normal text-text-muted">90 ngày</span>
+        <span className="font-normal text-text-muted">{symbol?.replace('_', '/')} · 90 ngày</span>
       </h3>
       <div className="flex flex-wrap items-center gap-3">
         <span className="tabular-nums text-text-muted">{queued} cây chờ</span>
@@ -396,7 +425,7 @@ export function PopulationAuditStatus({ job, worker, queued }: {
     </div> : <p role="status" className="px-4 py-3">
       {worker?.stale ? 'Worker mất heartbeat; chưa xác nhận đang chạy.' : !worker?.consumer_enabled ?
         'Worker replay chưa bật hoặc chưa xác nhận trạng thái.' :
-        `Audit chạy khi worker rảnh sau replay cha mẹ / draft. Tác vụ worker: ${worker.phase ?? 'chờ'}.`}
+        'Audit cặp này chờ worker rảnh sau replay cha mẹ / con nháp. Xem tác vụ đang chạy ở thanh toàn hệ thống.'}
     </p>}
     <div className="space-y-1.5 border-t border-border-subtle bg-surface-2/40 px-4 py-2.5 leading-relaxed text-text-muted">
       {job && <p className="break-words" role={job.status === 'failed' ? 'alert' : undefined}>
@@ -414,20 +443,33 @@ export function PopulationAuditStatus({ job, worker, queued }: {
   </section>;
 }
 
-export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number) => void }) {
+export function FuturesLearningPage({ onViewTrade, onViewReplay, replayTarget, onWorker }: { onViewTrade?: (id: number) => void; onViewReplay?: (target: ReplayTarget) => void; replayTarget?: ReplayTarget | null; onWorker?: (worker?: DraftWorker) => void }) {
   const [data, setData] = useState<Learning | null>(null);
   const [replay, setReplay] = useState<FuturesHistoryJob | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [family, setFamily] = useState('all');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(replayTarget?.purpose === 'audit' ? replayTarget.strategy ?? '' : '');
   const [status, setStatus] = useState<StatusKey>('all');
-  const [showPaused, setShowPaused] = useState(false);
+  const [showPaused, setShowPaused] = useState(!!replayTarget);
   const [gen, setGen] = useState('all');
   const [sort, setSort] = useState('score');
   const [auditFilter, setAuditFilter] = useState('all');
   const [sparseArchiveOnly, setSparseArchiveOnly] = useState(false);
-  const [tab, setTab] = useState<'forward' | 'drafts'>('forward');
+  const [tab, setTab] = useState<'forward' | 'drafts'>(replayTarget?.purpose === 'draft' ? 'drafts' : 'forward');
+  const workerPanel = useRef<HTMLDivElement>(null);
+  useEffect(() => { onWorker?.(data?.draft_worker); }, [data?.draft_worker, onWorker]);
+  useEffect(() => { if (replayTarget && data) workerPanel.current?.scrollIntoView({ block: 'center' }); }, [!!data, replayTarget]);
+  useEffect(() => {
+    if (!replayTarget) return;
+    setTab(replayTarget.purpose === 'draft' ? 'drafts' : 'forward');
+    setFamily('all');
+    setStatus('all');
+    setGen('all');
+    setAuditFilter('all');
+    setShowPaused(true);
+    setQuery(replayTarget.purpose === 'audit' ? replayTarget.strategy ?? '' : '');
+  }, [replayTarget]);
   const [detail, setDetail] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [retiredPage, setRetiredPage] = useState(1);
@@ -684,6 +726,9 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               </span>
             </button>
           </div>
+          <div ref={workerPanel}>
+            <ReplayWorkerStatus worker={data.draft_worker} onView={onViewReplay} />
+          </div>
           {tab === 'drafts' && (
             <FuturesDraftsPanel
               drafts={data.drafts ?? []}
@@ -700,7 +745,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
           )}
           {tab === 'forward' && (
             <>
-              <PopulationAuditStatus job={auditJob} worker={data.draft_worker}
+              <PopulationAuditStatus job={auditJob} worker={data.draft_worker} symbol={getFuturesSymbol()}
                 queued={all.filter((row) => row.population_audit_status === 'queued').length} />
               <div
                 className="evo-filters flex min-w-0 flex-wrap items-center gap-2 text-xs [&>button]:inline-flex [&>button]:min-h-8 [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-md [&>button]:border [&>button]:border-border-subtle [&>button]:px-2.5 [&>button]:text-text-muted [&>button:hover]:bg-surface-2 [&>button[aria-pressed=true]]:border-border-active [&>button[aria-pressed=true]]:bg-surface-3 [&>button[aria-pressed=true]]:text-text-primary"
@@ -812,6 +857,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
                 <span>
                   Hiển thị <b>{sorted.length}</b> / {all.length} chiến thuật
                 </span>
+                {auditFilter !== 'all' && <button type="button" className="min-h-9 rounded-md border border-border-base px-2 text-text-secondary" onClick={() => setAuditFilter('all')}>Audit: {auditFilter === 'sparse' ? 'Dưới 5 lệnh đóng' : auditFilter === 'running' ? 'Đang replay' : auditFilter === 'queued' ? 'Chờ replay' : auditFilter === 'keep' ? 'Giữ theo replay' : auditFilter === 'failed' ? 'Lỗi · chờ thử lại' : auditFilter === 'insufficient_data' ? 'Thiếu dữ liệu' : 'Ngoài diện 0 mẫu'} <X size={12} className="inline" aria-hidden="true" /><span className="sr-only">Bỏ lọc audit</span></button>}
                 {(family !== 'all' ||
                   auditFilter !== 'all' ||
                   query ||
@@ -836,7 +882,7 @@ export function FuturesLearningPage({ onViewTrade }: { onViewTrade?: (id: number
               </div>
               {sorted.length === 0 && (
                 <p className="evo-empty text-center text-text-muted">
-                  Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.
+                  {auditFilter !== 'all' ? 'Không có cây khớp bộ lọc audit và các điều kiện hiện tại. Bỏ lọc audit hoặc xóa bộ lọc để xem lại quần thể.' : 'Không có chiến thuật khớp bộ lọc. Thử đổi họ hoặc từ khóa.'}
                 </p>
               )}
               {detail &&

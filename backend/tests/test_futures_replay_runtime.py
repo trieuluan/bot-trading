@@ -6,6 +6,8 @@ import pytest
 
 from backend.app import futures_history as history
 from backend.app import futures_population_audit as audit
+from backend.app.db import FuturesLearningState, Session
+from backend.app.futures_research_lock import worker_status
 from backend.app.futures_strategies import RULE_SEEDS, genome_fingerprint, genome_name
 from backend.app.market import Candle
 from backend.app.strategy import aggregate, aggregation_cache
@@ -202,3 +204,38 @@ def test_interrupted_audit_keeps_snapshot_without_spending_attempt():
     state['population_audit_retries'][name] = job
     chosen = audit.start_audit(state, 9000100, [])
     assert chosen[1] == job['snapshot'] and chosen[2] == 2
+
+
+@pytest.mark.parametrize('purpose', ['audit', 'draft', 'parents'])
+def test_worker_status_enriches_active_job(purpose):
+    job = {'status': 'running', 'strategy': 'rule_tree:target', 'phase': 'replay',
+           'completed': 4200, 'total': 8640, 'updated_at': 1794334550,
+           'token': 'private', 'snapshot': {'private': True}}
+    phase = {'audit': 'audit:replay', 'draft': 'BTC_USDT:replay', 'parents': 'parents:replay'}[purpose]
+    with Session.begin() as session:
+        session.merge(FuturesLearningState(id=1, payload={
+            'draft_worker': {'heartbeat_at': 1794334550, 'phase': phase, 'symbol': 'ETH_USDT', 'draft_id': 'draft-1'},
+            'universe_parent_job': job,
+            'population_audit_job': {**job, 'strategy': 'wrong-symbol'},
+        }))
+        session.merge(FuturesLearningState(id=2, payload={
+            'population_audit_job': job, 'drafts': {'draft-1': job},
+        }))
+    with Session() as session:
+        status = worker_status(session)
+        assert status['symbol'] == 'ETH_USDT'
+        assert status['active_job']['purpose'] == purpose
+        assert status['active_job']['strategy'] == 'rule_tree:target'
+        assert status['active_job']['completed'] == 4200
+        assert 'token' not in status['active_job'] and 'snapshot' not in status['active_job']
+
+
+@pytest.mark.parametrize('phase,job_status', [('idle', 'running'), ('audit:replay', 'completed')])
+def test_worker_status_does_not_present_old_job_as_active(phase, job_status):
+    with Session.begin() as session:
+        session.merge(FuturesLearningState(id=1, payload={
+            'draft_worker': {'heartbeat_at': 1794334550, 'phase': phase, 'symbol': 'BTC_USDT'},
+            'population_audit_job': {'status': job_status},
+        }))
+    with Session() as session:
+        assert 'active_job' not in worker_status(session)

@@ -3,7 +3,8 @@ import { Bot, Clock3, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { Drawer } from '../components/Drawer';
 import { FuturesStrategyMenu } from '../components/FuturesStrategyMenu';
 import { AutoPaperPanel } from '../components/AutoPaperPanel';
-import { FuturesLearningPage } from './FuturesLearningPage';
+import { FuturesLearningPage, type ReplayTarget } from './FuturesLearningPage';
+import type { DraftWorker } from './FuturesDraftsPanel';
 import { PaperTradeDetails } from '../components/PaperTradeDetails';
 import type { Candle } from '../types/trading';
 import { PaperChart } from '../components/PaperChart';
@@ -49,16 +50,27 @@ export function PaperTradingPage({
   board,
   onSelect,
   chartTrade,
+  replayTarget,
+  onViewReplay,
 }: {
   board: Board;
   onSelect: (s: FuturesSymbol, tradeId?: number | null) => void;
   chartTrade: { id: number } | null;
+  replayTarget?: ReplayTarget | null;
+  onViewReplay?: (target: ReplayTarget) => void;
 }) {
   const symbol = getFuturesSymbol();
   const base = symbol.split('_')[0];
   const [orderMode, setOrderMode] = useState<'manual' | 'auto'>('manual');
-  const [activityTab, setActivityTab] = useState('position');
-  const [allPairs, setAllPairs] = useState(true);
+  const [activityTab, setActivityTab] = useState(replayTarget ? 'evolution' : 'position');
+  const [allPairs, setAllPairs] = useState(!replayTarget);
+  const [replayWorker, setReplayWorker] = useState<DraftWorker>();
+  useEffect(() => {
+    if (replayTarget) {
+      setActivityTab('evolution');
+      setAllPairs(false);
+    }
+  }, [replayTarget]);
   const stream = useMexcLiveCandle();
   const [older, setOlder] = useState<Candle[]>([]);
   const [hasMore, setHasMore] = useState(true);
@@ -393,7 +405,7 @@ export function PaperTradingPage({
   return (
     <div className="futures-desk min-w-0 space-y-3">
       <div className="desk-sticky-header relative min-w-0 rounded-lg border border-border-base bg-surface-1 px-3 py-2 min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-30">
-        <PairStrip board={board} symbol={symbol} onSelect={onSelect} />
+        <PairStrip board={board} symbol={symbol} onSelect={onSelect} replayJob={activityTab === 'evolution' && replayWorker?.consumer_enabled && !replayWorker.stale ? replayWorker.active_job : undefined} />
         <div className="mexc-top-dock relative flex min-w-0 items-center gap-x-4 overflow-x-auto border-t border-border-base pt-2 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <span className="desk-paper-label inline-flex shrink-0 items-center gap-1 rounded border border-amber-400/20 bg-amber-400/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-300" title="Vốn mô phỏng · Không gửi lệnh tới sàn">
             <ShieldCheck size={12} /> PAPER
@@ -962,7 +974,7 @@ export function PaperTradingPage({
             kỳ quyết toán đã đóng.
           </p>
         </section>
-        {activityTab === 'evolution' && <FuturesLearningPage onViewTrade={viewTrade} />}
+        {activityTab === 'evolution' && <FuturesLearningPage key={replayTarget ? `${replayTarget.symbol}:${replayTarget.purpose}:${replayTarget.strategy}` : 'learning'} onViewTrade={viewTrade} onViewReplay={onViewReplay} replayTarget={replayTarget} onWorker={setReplayWorker} />}
         <section hidden={activityTab !== 'history'} className="panel prose desk-activity-panel min-w-0 rounded-lg border border-border-base bg-surface-1 p-4 space-y-3 text-sm leading-relaxed text-text-secondary min-w-0">
           <div className="section-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 [&_p]:text-xs [&_p]:text-text-muted">
             <h2>Lịch sử lệnh mô phỏng</h2>

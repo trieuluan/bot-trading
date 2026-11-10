@@ -335,9 +335,11 @@ function ForexWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
 function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
   useTimeZone();
   const [symbol, setSymbol] = useState(getFuturesSymbol);
+  const [replayTarget, setReplayTarget] = useState<import('./pages/FuturesLearningPage').ReplayTarget | null>(null);
   // A fresh object per click, so re-selecting the same trade still reopens its drawer.
   const [chartTrade, setChartTrade] = useState<{ id: number } | null>(null);
   const selectSymbol = (next: FuturesSymbol, tradeId: number | null = null) => {
+    setReplayTarget(null);
     setFuturesSymbol(next);
     setSymbol(next);
     setChartTrade(tradeId === null ? null : { id: tradeId });
@@ -460,6 +462,11 @@ function MexcWorkspace({ workspacePicker }: { workspacePicker: ReactNode }) {
                 key={symbol}
                 board={board}
                 onSelect={selectSymbol}
+                replayTarget={replayTarget}
+                onViewReplay={(target) => {
+                  selectSymbol(target.symbol);
+                  setReplayTarget(target);
+                }}
                 chartTrade={chartTrade}
               />
             ) : (

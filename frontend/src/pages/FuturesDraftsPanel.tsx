@@ -47,7 +47,22 @@ export type Draft = {
     >;
   } | null;
 };
-export type DraftWorker = { stale?: boolean; consumer_enabled?: boolean; phase?: string };
+export type DraftWorker = {
+  stale?: boolean;
+  consumer_enabled?: boolean;
+  phase?: string;
+  heartbeat_at?: number;
+  active_job?: {
+    purpose: 'audit' | 'draft' | 'parents';
+    symbol?: string | null;
+    strategy?: string | null;
+    draft_id?: string | null;
+    phase?: string | null;
+    completed?: number | null;
+    total?: number | null;
+    updated_at?: number | null;
+  };
+};
 
 const FILTERS: [string, string, (draft: Draft) => boolean][] = [
   ['all', 'Tất cả', (d) => d.status !== 'admitted'],

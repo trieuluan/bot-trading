@@ -714,10 +714,12 @@ export function PairStrip({
   board,
   symbol,
   onSelect,
+  replayJob,
 }: {
   board: Board;
   symbol: FuturesSymbol;
   onSelect: (s: FuturesSymbol) => void;
+  replayJob?: { symbol?: string | null; purpose: string };
 }) {
   return (
     <nav className="pair-strip flex min-w-0 gap-1.5 overflow-x-auto pb-2" aria-label="Chọn cặp Futures">
@@ -737,6 +739,7 @@ export function PairStrip({
             <strong className="pair-sym text-xs font-semibold text-text-primary">{short(s)} <span className="text-[10px] font-normal text-text-muted">/ USDT</span></strong>
             <small className="pair-price font-mono text-xs tabular-nums">{w?.quote ? formatQuote(w.quote.lastPrice) : '—'}</small>
             <span className="pair-indicators flex items-center gap-1 text-xs">
+              {replayJob?.symbol === s && <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-200">{replayJob.purpose === 'audit' ? 'Audit' : 'Draft'}</span>}
               {sigs > 0 && (
                 <span
                   className="pair-signal inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-bull/10 text-bull"

@@ -53,7 +53,33 @@ test('PopulationAuditStatus renders running and idle states safely', async () =>
     appType: 'custom',
   });
   try {
-    const { PopulationAuditStatus } = await server.ssrLoadModule('/src/pages/FuturesLearningPage.tsx');
+    const { PopulationAuditStatus, ReplayWorkerStatus } = await server.ssrLoadModule('/src/pages/FuturesLearningPage.tsx');
+
+    const workerHtml = renderToStaticMarkup(
+      React.createElement(ReplayWorkerStatus, {
+        worker: {
+          consumer_enabled: true,
+          stale: false,
+          phase: 'audit:replay',
+          active_job: {
+            purpose: 'audit',
+            symbol: 'BTC_USDT',
+            strategy: 'rule_tree:02952706c012',
+            phase: 'replay',
+            completed: 5376,
+            total: 8640,
+            updated_at: 1794334550,
+          },
+        },
+        onView: () => {},
+      }),
+    );
+    assert.ok(workerHtml.includes('Worker replay'));
+    assert.ok(workerHtml.includes('BTC/USDT'));
+    assert.ok(workerHtml.includes('Audit quần thể · 90 ngày'));
+    assert.ok(workerHtml.includes('Xem BTC/USDT'));
+    assert.ok(workerHtml.includes('62% bước hiện tại'));
+    assert.ok(workerHtml.includes('5.376 / 8.640 nến'));
     const runningHtml = renderToStaticMarkup(
       React.createElement(PopulationAuditStatus, {
         job: {
