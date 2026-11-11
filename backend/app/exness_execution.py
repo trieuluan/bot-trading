@@ -910,7 +910,9 @@ def submit_leg(client, row, index, data, condition, now):
         if not state.enabled:
             persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Paused before submit"})
             return "paused"
+    started = time.time()
     current = client.snapshot()
+    snapshot_seconds = time.time() - started
     if not capacity_available(current, api.account_id, symbol):
         persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
         return "position_active"
@@ -981,6 +983,8 @@ def submit_leg(client, row, index, data, condition, now):
     try:
         ack = client.mutate("POST", key, body=data["body"], quote_source=lambda: live_quote(symbol),
                             build=build, on_submit=on_submit)
+        if signal.get("entry_intent_id"):  # timing evidence for SUBMIT_WINDOW tuning
+            logging.info("Entry submit timing %s leg=%s snapshot=%.1fs total=%.1fs", symbol, index, snapshot_seconds, time.time() - started)
         persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "submitted", "ack": ack})
         return "submitted"
     except Exception as exc:

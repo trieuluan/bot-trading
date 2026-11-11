@@ -1200,7 +1200,7 @@ def test_live_quote_uses_entry_stream_and_waits_for_fresh_tick(monkeypatch):
     assert REAL_LIVE_QUOTE("EURJPY")["bid"] == 1.0
     assert urls[0].endswith("symbol=EURJPY&purpose=entry")
 
-@pytest.mark.parametrize("delay,sent", [(2.5, 1), (12, 1), (31, 0)])
+@pytest.mark.parametrize("delay,sent", [(2.5, 1), (12, 1), (31, 1), (59, 1), (61, 0)])
 def test_virtual_submit_survives_slow_preparation(monkeypatch, tmp_path, delay, sent):
     from backend.app.forex_entry_intents import execute_trigger
     monkeypatch.setenv("EXNESS_DEMO_MAX_POSITIONS", "6")

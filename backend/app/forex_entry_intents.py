@@ -27,7 +27,7 @@ def execution_signal(row):
     return body
 
 
-SUBMIT_WINDOW = 30  # seconds after trigger; price safety = fresh live_quote (<=2s) + 0.25R drift in late_drift_ok
+SUBMIT_WINDOW = 60  # was 30: 2026-11-11 AUDUSD legs expired at 30-31s with broker prep taking 22-30s; seconds after trigger; price safety = fresh live_quote (<=2s) + 0.25R drift in late_drift_ok
 
 def submit_window_ok(snapshot, now):
     # ponytail: broker prep takes seconds, so quote age is not gated here; add per-step timing if SUBMIT_WINDOW proves too loose.
