@@ -1303,3 +1303,13 @@ def test_execution_tick_symbol_scope_runs_only_that_symbol(monkeypatch):
     seen.clear()
     ee._execution_tick(api, now=NOW)
     assert seen == ["XAUUSD", "EURUSD"]
+
+
+def test_subsequent_leg_uses_extended_window(monkeypatch, tmp_path):
+    from backend.app.forex_entry_intents import submit_window_ok
+    snapshot = {"triggered_at": 1000}
+    assert submit_window_ok(snapshot, 1059) is True
+    assert submit_window_ok(snapshot, 1061) is False
+    assert submit_window_ok(snapshot, 1061, is_subsequent=True) is True
+    assert submit_window_ok(snapshot, 1119, is_subsequent=True) is True
+    assert submit_window_ok(snapshot, 1121, is_subsequent=True) is False

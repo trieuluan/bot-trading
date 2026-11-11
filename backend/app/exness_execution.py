@@ -127,14 +127,14 @@ SIGNAL_WINDOW = 300
 LATE_AFTER = 120
 MAX_LATE_DRIFT_R = 0.25
 
-def late_drift_ok(signal, entry, now):
+def late_drift_ok(signal, entry, now, *, is_subsequent=False):
     """Late retry only while price stays within 0.25R of the closed signal candle."""
     if signal.get("entry_intent_id"):
         from .db import ExnessEntryIntent
         with Session() as session:
             intent = session.get(ExnessEntryIntent, signal["entry_intent_id"])
         from .forex_entry_intents import submit_window_ok
-        if not intent or not submit_window_ok(intent.snapshot, now):
+        if not intent or not submit_window_ok(intent.snapshot, now, is_subsequent=is_subsequent):
             raise ExnessError("virtual_entry_expired")
         risk = abs(float(signal["ref_price"]) - float(signal["stop"]))
         if risk <= 0 or abs(float(entry) - float(signal["ref_price"])) > MAX_LATE_DRIFT_R * risk:
@@ -891,7 +891,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 if result != "submitted":
                     persist_symbol_leg(api.account_id, symbol, stamp, index, {"status": "skipped", "error": "previous_leg_not_confirmed"})
                     continue
-                result = submit_leg(client, row, index, data, condition, int(time.time()))
+                result = submit_leg(client, row, index, data, condition, int(time.time()), is_subsequent=True)
         return result
     except Exception as exc:
         with Session.begin() as s:
@@ -901,7 +901,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 record_journal(st, {"symbol": symbol, "candle_time": stamp, "reason": str(exc)[:200]}, outcome, now)
         raise
 
-def submit_leg(client, row, index, data, condition, now):
+def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False):
     from .forex_conversion import cost_context
     symbol = getattr(row, "symbol", "XAUUSD")
     api = client.api
@@ -929,7 +929,7 @@ def submit_leg(client, row, index, data, condition, now):
         fresh_condition = cost_context(condition, submitted_at, account=api.account_id, symbol=symbol)
         if fresh_condition.get("commission_per_unit") is None:
             raise ExnessError("costs_unverified")
-        late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], submitted_at)
+        late_drift_ok(signal, quote["ask" if signal["side"] == "long" else "bid"], submitted_at, is_subsequent=is_subsequent)
         equity = current.get("account_state", {}).get("equity")
         budget = risk_budget(equity)
         if latest_snapshot.get("risk_budget_usd") is not None:

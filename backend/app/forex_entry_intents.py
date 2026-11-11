@@ -27,12 +27,14 @@ def execution_signal(row):
     return body
 
 
-SUBMIT_WINDOW = 60  # was 30: 2026-11-11 AUDUSD legs expired at 30-31s with broker prep taking 22-30s; seconds after trigger; price safety = fresh live_quote (<=2s) + 0.25R drift in late_drift_ok
+SUBMIT_WINDOW = 60  # was 30: 2026-11-11 AUDUSD legs expired at 30-31s with broker prep taking 22-30s
+SUBSEQUENT_LEG_WINDOW = 120  # subsequent legs share intent after leg 0 committed
 
-def submit_window_ok(snapshot, now):
+def submit_window_ok(snapshot, now, *, is_subsequent=False):
     # ponytail: broker prep takes seconds, so quote age is not gated here; add per-step timing if SUBMIT_WINDOW proves too loose.
     triggered = snapshot.get("triggered_at")
-    return type(triggered) in (int, float) and 0 <= now - triggered <= SUBMIT_WINDOW
+    window = SUBSEQUENT_LEG_WINDOW if is_subsequent else SUBMIT_WINDOW
+    return type(triggered) in (int, float) and 0 <= now - triggered <= window
 
 def validate_execution_signal(signal, account, now):
     from .db import Session
