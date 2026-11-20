@@ -217,7 +217,7 @@ def validate_live_entry_risk(session, state, broker, symbol, stamp, now):
     proposed = equity * setup_pct / 100
     current = next((trade for trade in trades if (trade.symbol, trade.signal_time) == (symbol, stamp)), None)
     if current:
-        proposed = max(proposed, positive_decimal(current.snapshot.get("risk_budget_usd")))
+        proposed = min(proposed, positive_decimal(current.snapshot.get("risk_budget_usd")))
     reserved = sum(
         positive_decimal(trade.snapshot.get("risk_budget_usd"))
         for trade in trades if (trade.symbol, trade.signal_time) != (symbol, stamp)
@@ -324,7 +324,7 @@ def beat(account, now):
             session.add(state)
         state.snapshot = {**state.snapshot, "heartbeat": now}
 
-def reconcile(api, broker, now):
+def reconcile(api, broker, now, *, setup=None):
     with Session() as session:
         trades = session.scalars(select(ExnessExecutionTrade).where(
             ExnessExecutionTrade.account == api.account_id)).all()
@@ -335,6 +335,8 @@ def reconcile(api, broker, now):
     claimed_orders.update(deal.snapshot.get("order_id") for deal in deals
                           if deal.snapshot.get("type") == "open" and deal.position_id in claimed)
     for row in trades:
+        if setup is not None and (row.symbol, row.signal_time) != setup:
+            continue
         for index, data in leg_records(row.snapshot):
             if data["status"] not in ACTIVE:
                 continue
@@ -355,6 +357,13 @@ def reconcile(api, broker, now):
                         logging.exception("Forex notification failed: account=%s symbol=%s signal_time=%s position=%s",
                                           api.account_id, row.symbol, row.signal_time, updated.get("position_id"))
                     update_leg(current, index, updated)
+            if (live_mode() and data["status"] == "uncertain"
+                    and data.get("error") == "ExnessError: live_unmanaged_broker_position"
+                    and not any(data.get(field) for field in ("submitted_at", "ack", "position_id", "order_id"))):
+                # This guard runs before POST. Older workers could carry the
+                # previous leg's submission marker into this skipped leg.
+                save({"status": "skipped"})
+                continue
             pid = data.get("position_id")
             matched_order_id = None
             if not pid:
@@ -1042,23 +1051,16 @@ def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False)
     from .forex_conversion import cost_context
     symbol = getattr(row, "symbol", "XAUUSD")
     api = client.api
+    # Preflight can fail before mutate() resets the previous leg's submission.
+    client.last_submission = None
     with Session() as session:
         state = session.get(ExnessExecutionState, api.account_id)
         if not state.enabled or (live_mode() and not opening_configured()):
             persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Paused before submit"})
             return "paused"
     started = time.time()
-    current = client.snapshot()
-    snapshot_seconds = time.time() - started
-    if not capacity_available(current, api.account_id, symbol):
-        persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
-        return "position_active"
     signal = row.snapshot["signal"]
     latest_snapshot = row.snapshot
-    if signal.get("entry_intent_id"):
-        with Session() as session:
-            latest = session.get(ExnessExecutionTrade, (api.account_id, symbol, row.signal_time))
-            latest_snapshot = latest.snapshot
     key = data["key"]
     planned_volume = positive_decimal(data["body"]["volume"])
     def build(quote):
@@ -1122,6 +1124,19 @@ def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False)
                          "reason": "remaining_risk_budget",
                      } if Decimal(submission["body"]["volume"]) < planned_volume else None})
     try:
+        current = client.snapshot()
+        snapshot_seconds = time.time() - started
+        if live_mode() and is_subsequent and current["positions"]:
+            # The preceding leg can already be in the broker snapshot while
+            # its recorded acknowledgement still has no linked position.
+            reconcile(api, current, max(now, time.time()), setup=(symbol, row.signal_time))
+        if not capacity_available(current, api.account_id, symbol):
+            persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Position limit reached"})
+            return "position_active"
+        if signal.get("entry_intent_id"):
+            with Session() as session:
+                latest = session.get(ExnessExecutionTrade, (api.account_id, symbol, row.signal_time))
+                latest_snapshot = latest.snapshot
         if live_mode():
             with Session.begin() as session:
                 state = session.get(ExnessExecutionState, api.account_id)

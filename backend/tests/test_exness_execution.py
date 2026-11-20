@@ -208,7 +208,8 @@ def test_demo_cutover_rejects_open_exposure_then_records_flat_snapshot(monkeypat
         assert session.get(ExnessExecutionState, api.account_id).snapshot["demo_cutover_flat_at"] > 0
 
 
-def test_live_verified_entry_submits_each_split_leg_only_once(live_config, monkeypatch, tmp_path):
+@pytest.mark.parametrize("first_fills_before_runner", [False, True])
+def test_live_verified_entry_submits_each_split_leg_only_once(live_config, monkeypatch, tmp_path, first_fills_before_runner):
     from backend.app.db import ExnessEntryIntent
     from backend.app.forex_entry_intents import execute_trigger
     from backend.app.forex_htf_v4 import PROVENANCE, logic_version, new_ledger, tree_id
@@ -238,6 +239,29 @@ def test_live_verified_entry_submits_each_split_leg_only_once(live_config, monke
     ledger["samples"] = [{"strategy": strategy, "strategy_version": logic_version(), "setup_id": "setup",
                           "signal": proposal, "costs": {"verified": True}}]
     atomic_json(path, ledger)
+    if first_fills_before_runner:
+        original_get = api.get
+
+        def get(path, params=None):
+            if path.endswith("/snapshot") and api.client.request.call_count:
+                body = json.loads(api.client.request.call_args_list[0].kwargs["content"])
+                return {"positions": [{"position_id": "10", "instrument": "XAUUSD", "direction": "buy",
+                                       "open_price": "4000.25"}],
+                        "orders": [{"order_type": "sltp", "position_id": "10", "order_id": "12",
+                                    "stop_loss_price": body["stop_loss_price"],
+                                    "take_profit_price": body["take_profit_price"]}],
+                        "account_state": {"equity": "9999.90"}}
+            return original_get(path, params)
+
+        def history(_api, kind, _start, _end):
+            if kind == "orders" and api.client.request.call_count:
+                key = api.client.request.call_args_list[0].kwargs["headers"]["EXN-IDEMPOTENCY-KEY"]
+                return [{"order": {"order_id": "11", "position_id": "10", "instrument": "XAUUSD",
+                                   "comment": key[:32], "state": "filled"}}]
+            return []
+
+        api.get = get
+        monkeypatch.setattr(ee, "history", history)
     execute_trigger(api, identifier, "XAUUSD")
     assert api.client.request.call_count == 2
     keys = set()
@@ -247,8 +271,50 @@ def test_live_verified_entry_submits_each_split_leg_only_once(live_config, monke
         assert json.loads(call.kwargs["content"])["stop_loss_price"]
         assert json.loads(call.kwargs["content"])["take_profit_price"]
     assert len(keys) == 2
+    if first_fills_before_runner:
+        with Session() as session:
+            trade = session.get(ExnessExecutionTrade, ("100", "XAUUSD", NOW - 900))
+            assert trade.snapshot["legs"][0]["position_id"] == "10"
     execute_trigger(api, identifier, "XAUUSD")
     assert api.client.request.call_count == 2
+
+
+def test_live_preflight_skip_cannot_inherit_previous_leg_submission(live_config, monkeypatch):
+    api = dummy_api(account_id="100", is_demo=False)
+    client = ee.execution_client(api)
+    client.last_submission = {"method": "POST"}
+    leg = {"status": "planned", "key": "runner", "body": {"volume": "0.01"}}
+    with Session.begin() as session:
+        session.add(ExnessExecutionState(account="100", enabled=True, started_at=NOW, snapshot={}))
+        row = ExnessExecutionTrade(account="100", symbol="XAUUSD", signal_time=NOW - 900,
+            snapshot={"status": "planned", "signal": {}, "legs": [{"status": "closed"}, leg]})
+        session.add(row)
+    with Session() as session:
+        row = session.get(ExnessExecutionTrade, ("100", "XAUUSD", NOW - 900))
+
+    def reject(*_):
+        raise ExnessError("live_unmanaged_broker_position")
+
+    monkeypatch.setattr(ee, "validate_live_entry_risk", reject)
+    with pytest.raises(ExnessError, match="live_unmanaged_broker_position"):
+        ee.submit_leg(client, row, 1, leg, {}, NOW, is_subsequent=True)
+    api.client.request.assert_not_called()
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, ("100", "XAUUSD", NOW - 900)).snapshot["legs"][1]["status"] == "skipped"
+
+
+def test_reconcile_clears_legacy_preflight_skip_only_without_submit_evidence(live_config):
+    api = dummy_api(account_id="100", is_demo=False)
+    record = {"status": "uncertain", "recorded_at": NOW - 900, "key": "runner", "signal": {},
+              "error": "ExnessError: live_unmanaged_broker_position"}
+    with Session.begin() as session:
+        session.add(ExnessExecutionTrade(account="100", symbol="XAUUSD", signal_time=NOW - 900, snapshot=record))
+        session.add(ExnessExecutionTrade(account="100", symbol="XAUUSD", signal_time=NOW - 1800,
+            snapshot={**record, "submitted_at": NOW - 800}))
+    ee.reconcile(api, api.snapshot(), NOW)
+    with Session() as session:
+        assert session.get(ExnessExecutionTrade, ("100", "XAUUSD", NOW - 900)).snapshot["status"] == "skipped"
+        assert session.get(ExnessExecutionTrade, ("100", "XAUUSD", NOW - 1800)).snapshot["status"] == "uncertain"
 
 
 def seed_virtual_entry(api, monkeypatch, tmp_path):
