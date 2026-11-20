@@ -12,6 +12,7 @@ const outcomeLabels: Record<string, string> = {
   no_signal: 'Không có tín hiệu',
   shadow_only: 'Chỉ có gen shadow',
   not_selected: 'Có tín hiệu, bot không chọn',
+  entry_waiting: 'Đã chọn setup · chờ điểm vào',
   signal: 'Có tín hiệu chọn',
   order_sent: 'Đã gửi lệnh',
   order_planned: 'Đã lập lệnh',
@@ -29,6 +30,11 @@ const outcomeLabels: Record<string, string> = {
   outside_signal_window: 'Ngoài cửa sổ đánh giá M15 (5 phút)',
   ask_candle_missing: 'Thiếu nến ask',
   policy_missing: 'Chưa có policy học',
+  unknown: 'Chưa ghi được kết quả',
+  v4_ledger_unavailable: 'Chưa có dữ liệu HTF V4',
+  v4_capture_pending: 'Chưa có kết quả đánh giá HTF V4',
+  v4_capture_missed: 'Lỡ cửa sổ đánh giá HTF V4',
+  costs_unverified: 'Chưa xác minh chi phí',
   preflight_failed: 'Kiểm tra trước lệnh thất bại',
 };
 

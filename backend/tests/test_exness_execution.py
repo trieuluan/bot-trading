@@ -71,6 +71,33 @@ def test_disabled_by_default(monkeypatch):
     assert ee.execution_tick(api, now=NOW) == "disabled"
 
 
+def test_live_journal_distinguishes_v4_evaluation_and_ignores_demo_shadow(monkeypatch):
+    stamp = NOW - 900
+    sample = {"confirm_time": stamp, "strategy": "hast4_native", "side": "long",
+              "live_assigned": False, "signal": {"entry_policy": {"policy": "market"}}}
+    ledger = {"last_capture": {"time": stamp, "status": "captured"},
+              "samples": [{**sample, "strategy": "hast4_demo", "demo_origin": {"cohort_id": "demo"}}]}
+    monkeypatch.setattr("backend.app.forex_htf_v4.read_ledger", lambda *_: ledger)
+    detail = ee.live_journal_detail("100", "XAUUSD", stamp)
+    assert ee.tick_outcome(None, None, detail) == "no_signal"
+
+    ledger["samples"].append(sample)
+    detail = ee.live_journal_detail("100", "XAUUSD", stamp)
+    assert ee.tick_outcome(None, None, detail) == "shadow_only"
+    assert ee.tick_outcome(None, None, {**detail, "selected": sample["strategy"], "entry_waiting": True}) == "entry_waiting"
+    assert ee.tick_outcome(None, None, ee.live_journal_detail("100", "XAUUSD", NOW)) == "unavailable:v4_capture_pending"
+
+
+def test_journal_keeps_failed_preflight_when_next_poll_has_no_signal():
+    state = SimpleNamespace(snapshot={})
+    detail = {"candle_time": NOW - 900, "symbol": "XAUUSD", "evaluated": True}
+    ee.record_journal(state, {**detail, "reason": "Minimum lot exceeds risk budget; skip signal"},
+                      "blocked:preflight_failed", NOW)
+    ee.record_journal(state, detail, "no_signal", NOW + 1)
+    assert state.snapshot["journal"][0]["outcome"] == "blocked:preflight_failed"
+    assert state.snapshot["journal"][0]["reason"] == "Minimum lot exceeds risk budget; skip signal"
+
+
 def test_demo_history_is_read_only_account_scoped_and_paginated(monkeypatch):
     monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
     monkeypatch.setenv("EXNESS_ACCOUNT_ID", "101")

@@ -513,6 +513,8 @@ def record_journal(state, detail, outcome, now):
     if old and ((old["outcome"] in ("order_sent", "execution_error")
                  and outcome not in ("order_sent", "execution_error"))
                 or (old["outcome"] == "order_planned" and outcome not in ("order_sent", "execution_error", "api_rate_limited"))
+                or (old["outcome"] == "blocked:preflight_failed"
+                    and outcome not in ("order_sent", "execution_error", "order_planned", "blocked:preflight_failed"))
                 or (old["evaluated"] and outcome.startswith("unavailable:"))
                 or (old["outcome"] in ("api_rate_limited", "worker_error") and outcome.startswith("unavailable:"))):
         entry["outcome"] = old["outcome"]
@@ -527,8 +529,32 @@ def tick_outcome(reason, signal, detail):
         return "signal"
     if not detail.get("evaluated"):
         return "unavailable:" + detail.get("why", "unknown")
+    if detail.get("entry_waiting"):
+        return "entry_waiting"
     confirmed = detail.get("confirmed", [])
     return "no_signal" if not confirmed else "shadow_only" if all(row["shadow"] for row in confirmed) else "not_selected"
+
+
+def live_journal_detail(account, symbol, stamp):
+    from .forex_htf_v4 import read_ledger
+
+    detail = {"symbol": symbol, "candle_time": stamp, "mode": "htf_v4", "evaluated": False}
+    try:
+        ledger = read_ledger(account, symbol)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {**detail, "why": "v4_ledger_unavailable"}
+    capture = ledger.get("last_capture") or {}
+    if capture.get("time") != stamp:
+        return {**detail, "why": "v4_capture_pending"}
+    if capture.get("status") != "captured":
+        return {**detail, "why": {"blocked_costs": "costs_unverified", "missed_window": "v4_capture_missed"}.get(
+            capture.get("status"), "v4_capture_pending"), "reason": capture.get("reason")}
+    confirmed = [{"strategy": sample["strategy"], "side": sample["side"], "shadow": not sample.get("live_assigned")}
+                 for sample in ledger["samples"] if sample.get("confirm_time") == stamp
+                 and not sample.get("demo_origin") and sample.get("signal", {}).get("entry_policy")]
+    return {**detail, "evaluated": True, "confirmed": confirmed,
+            "strategies": [{"strategy": row["strategy"], "status": "confirmed", "reason": None} for row in confirmed]}
+
 
 def funnel(rows):
     evaluated = [row for row in rows if row["evaluated"]]
@@ -586,9 +612,10 @@ def execution_tick(api, now=None, entry_request=None, *, symbol=None):
                     for evaluated_symbol in configured_symbols() if symbol is None else (symbol,):
                         if state and not any(row["time"] == stamp and row.get("symbol", "XAUUSD") == evaluated_symbol
                                              for row in state.snapshot.get("journal", [])):
-                            signal = evaluate(session, observed_at, evaluated_symbol)
-                            detail = {**session.info.get("execution_evaluation", {"candle_time": stamp}),
-                                      "symbol": evaluated_symbol}
+                            signal = None if live_mode() else evaluate(session, observed_at, evaluated_symbol)
+                            detail = (live_journal_detail(api.account_id, evaluated_symbol, stamp) if live_mode()
+                                      else {**session.info.get("execution_evaluation", {"candle_time": stamp}),
+                                            "symbol": evaluated_symbol})
                             reason = result.get(evaluated_symbol) if isinstance(result, dict) else result
                             if reason == "waiting_signal":
                                 reason = None
@@ -854,6 +881,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             "history_catching_up" if state.snapshot.get("history_until", 0) < now else None)
         from .forex_entry_intents import pilot_enabled
         from .forex_htf_v2 import execution_enabled
+        selected_entry = None
         if not reason and not entry_intent_id and pilot_enabled() and execution_enabled():
             from .forex_entry_intents import create_intent
             from .forex_htf_v4 import candidates as v4_candidates
@@ -874,6 +902,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 if capacity_available(broker, api.account_id, symbol, 1):
                     create_intent(session, api.account_id, proposal, sample["tree"], now, max_legs,
                                   version=sample["strategy_version"], provenance=sample["provenance"])
+                    selected_entry = proposal
                     break
         if entry_intent_id:
             from .db import ExnessEntryIntent
@@ -889,6 +918,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             signal = evaluate(session, now, symbol)
         else:
             signal = None
+        triggered_signal = signal if live_mode() and entry_intent_id else None
         if signal and str(signal.get("strategy", "")).startswith(("hast3_", "hast4_")) and signal.get("shadow_only") is False:
             try:
                 signal = validate_execution_signal(signal, api.account_id, now)
@@ -896,8 +926,24 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                 reason, signal = str(exc), None
         elif signal and (signal.get("shadow_only") or str(signal.get("strategy", "")).startswith(("ast_", "hast_", "hast2_", "hast3_", "hast4_"))):
             reason, signal = "shadow_only_signal", None
-        detail = session.info.get("execution_evaluation", {
-            "symbol": symbol, "candle_time": now // 900 * 900 - 900, "evaluated": False})
+        stamp = now // 900 * 900 - 900
+        if live_mode():
+            entry = triggered_signal or selected_entry
+            if entry:
+                stamp = entry["candle_time"]
+            saved = next((row for row in state.snapshot.get("journal", [])
+                          if row["time"] == stamp and row.get("symbol") == symbol and row["evaluated"]), None)
+            detail = ({**saved, "candle_time": stamp, "entry_waiting": saved["outcome"] == "entry_waiting"}
+                      if saved else live_journal_detail(api.account_id, symbol, stamp))
+            if entry:
+                confirmed = detail.get("confirmed", [])
+                if not any(row["strategy"] == entry["strategy"] for row in confirmed):
+                    confirmed = confirmed + [{"strategy": entry["strategy"], "side": entry["side"], "shadow": False}]
+                detail = {**detail, "evaluated": True, "selected": entry["strategy"], "confirmed": confirmed,
+                          "entry_waiting": selected_entry is not None and triggered_signal is None}
+        else:
+            detail = session.info.get("execution_evaluation", {
+                "symbol": symbol, "candle_time": stamp, "evaluated": False})
         detail = {**detail, "symbol": symbol}
         if reason:
             signal = None
