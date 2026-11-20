@@ -71,6 +71,41 @@ def test_disabled_by_default(monkeypatch):
     assert ee.execution_tick(api, now=NOW) == "disabled"
 
 
+def test_demo_history_is_read_only_account_scoped_and_paginated(monkeypatch):
+    monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
+    monkeypatch.setenv("EXNESS_ACCOUNT_ID", "101")
+    monkeypatch.setenv("EXNESS_PREVIOUS_DEMO_ACCOUNT_ID", "202")
+    with Session.begin() as session:
+        session.add(ExnessExecutionState(account="202", enabled=False, started_at=NOW - 500,
+            snapshot={"demo_verified": True, "history_synced_at": NOW, "broker": {"positions": [], "orders": []}}))
+        for account, pid, symbol, close_time, profit in (
+            ("202", "1", "XAUUSD", NOW - 300, "7"),
+            ("202", "2", "XAUUSD", NOW - 20, "-2"),
+            ("202", "3", "XAUUSD", None, None),
+            ("202", "4", "EURUSD", NOW - 10, "123"),
+            ("101", "1", "XAUUSD", NOW - 10, "999"),
+        ):
+            base = {"instrument": symbol, "direction": "buy", "volume": "0.01"}
+            session.add(ExnessDeal(account=account, deal_id=f"{pid}-open", position_id=pid, event_time=NOW - 400,
+                snapshot={**base, "type": "open", "price": "3900", "event_time": NOW - 400}))
+            if close_time:
+                session.add(ExnessDeal(account=account, deal_id=f"{pid}-close", position_id=pid, event_time=close_time,
+                    snapshot={**base, "type": "close", "price": "3901", "event_time": close_time, "profit": {"amount": profit}}))
+    client = TestClient(app)
+    path = "/api/workspaces/exness_forex/execution/history/demo"
+    response = client.get(path, params={"limit": 1, "account": "101"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2 and data["broker_profit"] == 5 and data["has_more"]
+    assert data["groups"][0]["legs"][0]["position_id"] == "2"
+    assert "enabled" not in data and "account_state" not in data
+    data = client.get(path, params={"limit": 1, "offset": 1}).json()
+    assert data["groups"][0]["realized_pnl"] == 7 and not data["has_more"]
+    assert client.patch(path, json={"enabled": True}).status_code == 405
+    monkeypatch.setenv("EXNESS_PREVIOUS_DEMO_ACCOUNT_ID", "101")
+    assert client.get(path).status_code == 404
+
+
 @pytest.fixture
 def live_config(monkeypatch):
     for name, value in {

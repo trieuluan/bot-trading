@@ -46,6 +46,7 @@ interface FrameSummary {
 
 export interface ForexDashboard {
   workspace: Workspace;
+  account_mode?: 'real' | 'demo';
   execution_enabled?: boolean;
   market_session?: ForexMarketSession;
   instrument?: {

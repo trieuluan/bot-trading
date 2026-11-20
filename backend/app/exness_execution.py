@@ -1114,20 +1114,9 @@ def record_error(account, exc, now=None, symbol=None):
                                        "reason": msg}, label, now)
 
 
-@router.get("")
-def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD",
-                      view: str = "tickets", status: str = "all"):
-    from .forex_position_groups import (
-        group_page,
-        open_setup_count,
-        position_groups,
-        setup_key,
-        ticket_owners,
-    )
-    if view not in ("tickets", "setups") or status not in ("all", "open", "closed", "bot"):
-        raise HTTPException(422, "Unsupported execution view or status")
-    request_symbol(symbol)
-    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+def execution_account_rows(account, symbol):
+    from .forex_position_groups import setup_key, ticket_owners
+
     with Session() as session:
         state = session.get(ExnessExecutionState, account)
         deals = session.scalars(select(ExnessDeal).where(ExnessDeal.account == account,
@@ -1210,6 +1199,50 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
                 position.update(stop=float(order.get("stop_loss_price") or 0) or None,
                                 target=float(order.get("take_profit_price") or 0) or None)
     rows = sorted(positions.values(), key=lambda row: row.get("open_time") or 0, reverse=True)
+    return state, broker, intents, rows
+
+
+@router.get("/history/demo")
+def demo_history(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), symbol: str = "XAUUSD"):
+    from .forex_position_groups import position_groups
+
+    request_symbol(symbol)
+    active_account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    account = os.getenv("EXNESS_PREVIOUS_DEMO_ACCOUNT_ID", "").strip() if live_mode() else active_account
+    if not account or (live_mode() and account == active_account):
+        raise HTTPException(404, "Demo history is not configured")
+
+    state, _, _, rows = execution_account_rows(account, symbol)
+    meta = state.snapshot if state else {}
+    if not (meta.get("demo_verified") is True or meta.get("demo_cutover_flat_at")):
+        raise HTTPException(404, "No verified demo history")
+    closed = [group for group in position_groups(rows) if group["status"] == "closed"]
+    closed.sort(key=lambda group: max(leg["close_time"] or 0 for leg in group["legs"]), reverse=True)
+    profits = [group["realized_pnl"] for group in closed if group["realized_pnl"] is not None]
+    return {
+        "symbol": symbol, "account_suffix": account[-4:],
+        "synced_at": meta.get("history_synced_at"), "total": len(closed),
+        "broker_profit": round(sum(profits), 2) if profits else None,
+        "profit_count": len(profits), "groups": closed[offset:offset + limit],
+        "has_more": offset + limit < len(closed),
+    }
+
+
+@router.get("")
+def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), symbol: str = "XAUUSD",
+                      view: str = "tickets", status: str = "all"):
+    from .forex_position_groups import (
+        group_page,
+        open_setup_count,
+        position_groups,
+        ticket_owners,
+    )
+    if view not in ("tickets", "setups") or status not in ("all", "open", "closed", "bot"):
+        raise HTTPException(422, "Unsupported execution view or status")
+    request_symbol(symbol)
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    state, broker, intents, rows = execution_account_rows(account, symbol)
+    meta = state.snapshot if state else {}
     heartbeat = meta.get("heartbeat")
     with Session() as session:
         account_trades = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()

@@ -6,7 +6,7 @@ const pages = {
 };
 
 const tabs: Record<string, string[]> = {
-  Bot: ['chart', 'orders', 'learning'],
+  Bot: ['chart', 'orders', 'learning', 'demo-history'],
 };
 
 export interface RouteState {

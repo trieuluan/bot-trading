@@ -9,8 +9,7 @@ import { formatForexLeverage, formatForexPrice } from '../lib/format';
 import { formatTime } from '../lib/time-format';
 import { subscribeForexStream } from '../lib/forex-stream';
 import { useStickyBar } from '../hooks/useStickyBar';
-import { demoEURUSDExecution } from '../lib/forex-demo-fixture';
-import { Sparkles } from 'lucide-react';
+import { ForexDemoHistory } from '../components/ForexDemoHistory';
 
 const url = '/api/workspaces/exness_forex/execution';
 const amount = (value: number | string | null | undefined) =>
@@ -19,19 +18,46 @@ const quotePrice = (value: number | string | null | undefined) =>
   value == null ? '—' : formatForexPrice(Number(value));
 const date = (stamp: number | null) => formatTime(stamp, true);
 
-export function ForexExecutionPage({
-  dashboard,
-  pendingSymbol,
-  pendingFailed = false,
-  onRetry,
-}: {
+type Props = {
   dashboard: ForexDashboard;
-  /** Cặp vừa chọn nhưng dashboard của nó chưa về; trang đang hiển thị dữ liệu cặp cũ. */
   pendingSymbol?: string;
-  /** Tải cặp `pendingSymbol` lỗi/timeout; vẫn giữ khoá thao tác, cho thử lại. */
   pendingFailed?: boolean;
   onRetry?: () => void;
-}) {
+};
+
+export function ForexExecutionPage(props: Props) {
+  const [route] = useRoute();
+  const archive = route.tab === 'demo-history';
+  const symbol = props.pendingSymbol ?? props.dashboard.workspace.symbol;
+  const activeLabel = props.dashboard.account_mode === 'demo' ? 'Demo · Điều khiển' : 'Live';
+  const tabClass = 'inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded-md border px-3 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bull sm:flex-none sm:px-5';
+  const idle = 'border-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary';
+  return (
+    <>
+      <nav className="flex gap-2 border-b border-border-base bg-surface-1 px-3 py-2 sm:px-4" aria-label="Tài khoản giao dịch Forex">
+        <button
+          type="button"
+          className={`${tabClass} ${archive ? idle : 'border-amber-400/30 bg-amber-400/10 text-amber-200'}`}
+          aria-current={archive ? undefined : 'page'}
+          onClick={() => { if (archive) setRoute({ tab: 'orders' }); }}
+        >
+          {activeLabel}
+        </button>
+        <button
+          type="button"
+          className={`${tabClass} ${archive ? 'border-sky-400/30 bg-sky-400/10 text-sky-200' : idle}`}
+          aria-current={archive ? 'page' : undefined}
+          onClick={() => { if (!archive) setRoute({ tab: 'demo-history' }); }}
+        >
+          Lịch sử Demo
+        </button>
+      </nav>
+      {archive ? <ForexDemoHistory key={symbol} symbol={symbol} /> : <ForexActiveExecution {...props} />}
+    </>
+  );
+}
+
+function ForexActiveExecution({ dashboard, pendingSymbol, pendingFailed = false, onRetry }: Props) {
   const symbol = dashboard.workspace.symbol;
   const stale = !!pendingSymbol;
   // Đọc trong action() để chặn cả thao tác bắt đầu trước khi đổi cặp (vd. sau hộp confirm).
@@ -39,7 +65,7 @@ export function ForexExecutionPage({
   staleRef.current = stale;
   const [snapshot, setData] = useState<ExnessExecution | null>(null);
   const data = snapshot?.symbol === symbol ? snapshot : null;
-  const liveAccount = data?.account_mode === 'real';
+  const liveAccount = (data?.account_mode ?? dashboard.account_mode) === 'real';
   const accountLabel = liveAccount ? 'LIVE' : 'DEMO';
   const [selectedId, setSelectedId] = useState<string>();
   // 'setup': nút Xem chart của card (cả TP1 + Runner). 'ticket': chọn từ drawer/#id/chart (đúng ticket đó).
@@ -52,7 +78,6 @@ export function ForexExecutionPage({
   const [liveQuote, setLiveQuote] = useState<{ symbol: string; bid: number; ask: number; time: number } | null>(null);
   const [route] = useRoute();
   const [accountRef, accountStuck] = useStickyBar<HTMLDivElement>('--forex-account-h');
-  const [demoMode, setDemoMode] = useState(false);
   // Chart luôn hiển thị; tab cũ `chart` rơi về `orders` để link cũ vẫn chạy.
   const panel: ExecutionPanel = route.tab === 'learning' ? 'learning' : 'orders';
   const setPanel = (next: ExecutionPanel) => setRoute({ tab: next });
@@ -107,8 +132,6 @@ export function ForexExecutionPage({
   }
   const rows = data?.groups ?? [];
   const openGroups = data?.open_groups ?? [];
-  const preview = demoMode && !liveAccount;
-  const effectiveData = preview ? demoEURUSDExecution : data;
   const chartGroups = [...openGroups, ...rows.filter((group) => !openGroups.some((opened) => opened.id === group.id))];
   const chartPositions = chartGroups.flatMap((group) => group.legs);
   const chartPosition = chartPositions.find((position) => position.position_id === selectedId);
@@ -157,19 +180,6 @@ export function ForexExecutionPage({
               {data ? label : 'Đang tải…'}
             </span>
           </div>
-          {!liveAccount && <button
-            type="button"
-            className={`inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-bull ${
-              demoMode
-                ? 'border-sky-400/40 bg-sky-400/15 text-sky-200 shadow-sm'
-                : 'border-border-base bg-surface-2 text-text-secondary hover:bg-surface-3 hover:text-text-primary'
-            }`}
-            onClick={() => setDemoMode((v) => !v)}
-            title="Bật/tắt dữ liệu mẫu để xem trực quan đầy đủ 2 tab khi tài khoản sàn chưa có lệnh"
-          >
-            <Sparkles size={14} className={demoMode ? 'text-sky-300' : 'text-text-muted'} aria-hidden="true" />
-            {demoMode ? 'Tắt dữ liệu mẫu' : 'Bật dữ liệu mẫu (UI Demo)'}
-          </button>}
           <button
             type="button"
             className={`terminal-toggle inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bull disabled:cursor-not-allowed disabled:opacity-50 ${data?.enabled ? 'is-on border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20' : 'border-bull/30 bg-bull/10 text-bull hover:bg-bull/20'}`}
@@ -177,7 +187,7 @@ export function ForexExecutionPage({
             onClick={() => void action('', 'PATCH', { enabled: !data?.enabled })}
             title={stale ? 'Đang đổi cặp; thao tác tạm khoá' : !data?.configured ? 'Chưa đủ cấu hình mở lệnh' : error ? 'Kết nối gián đoạn; thao tác tạm khoá' : `Tài khoản ${data?.account ?? '—'} · ${data?.lot ?? 'Chưa có dữ liệu sizing'}`}
           >
-            {busy ? 'Đang xử lý…' : data?.enabled ? 'Tạm dừng mở lệnh' : 'Cho phép mở lệnh'}
+            {busy ? 'Đang xử lý…' : data?.enabled ? 'Tạm dừng mở lệnh' : `Cho phép mở lệnh ${accountLabel}`}
           </button>
         </div>
       </div>
@@ -249,41 +259,12 @@ export function ForexExecutionPage({
           onClosePosition={closeTicket}
         />
       </section>
-      {preview && (
-        <div className="mx-3 mt-3 flex items-center justify-between gap-3 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3.5 py-2 text-xs text-sky-200">
-          <div className="flex items-center gap-2">
-            <Sparkles size={15} className="shrink-0 text-sky-300" aria-hidden="true" />
-            <span>
-              <strong>Chế độ xem trước UI · EURUSD:</strong> Lệnh và nhật ký là dữ liệu giả. Quần thể HTF và pilot dùng snapshot VPS ngày 27/10/2026, không cập nhật trực tiếp. Mọi thao tác giao dịch bị khóa.
-            </span>
-          </div>
-          <button
-            type="button"
-            className="shrink-0 rounded px-2 py-1 text-[11px] font-semibold text-sky-300 underline underline-offset-2 hover:bg-sky-400/20"
-            onClick={() => setDemoMode(false)}
-          >
-            Quay lại sàn thật
-          </button>
-        </div>
-      )}
-      {!effectiveData && !error && (
-        <div className="m-3 flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-base bg-surface-1 p-6 text-center text-xs text-text-muted">
-          <p>Đang tải lệnh từ Exness...</p>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-1.5 font-medium text-sky-300 hover:bg-sky-400/20"
-            onClick={() => setDemoMode(true)}
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            Xem trước với dữ liệu mẫu ngay
-          </button>
-        </div>
-      )}
-      {effectiveData && (
-        <ForexExecutionTabs data={effectiveData} panel={panel} setPanel={setPanel} filter={filter} setFilter={setFilter}
+      {!data && !error && <p className="px-4 py-6 text-sm text-text-muted" role="status">Đang tải lệnh từ Exness…</p>}
+      {data && (
+        <ForexExecutionTabs data={data} panel={panel} setPanel={setPanel} filter={filter} setFilter={setFilter}
           offset={offset} setOffset={setOffset} selectedId={chartPosition?.position_id}
           onSelect={(id, scope = 'ticket') => { setChartScope(scope); setSelectedId(id); document.getElementById('execution-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-          closeTicket={preview ? () => {} : closeTicket} closeSetup={preview ? () => {} : closeSetup} closeDisabled={preview || closeDisabled} pnlOf={pnlOf} preview={preview} />
+          closeTicket={closeTicket} closeSetup={closeSetup} closeDisabled={closeDisabled} pnlOf={pnlOf} />
       )}
     </div>
   );

@@ -336,6 +336,7 @@ def _workspace_dashboard(workspace_id: str, symbol: str = "XAUUSD"):
         status = "error"
     return {
         "workspace": identity,
+        "account_mode": "real" if os.getenv("EXNESS_ENVIRONMENT") == "real" else "demo",
         "instrument": instrument,
         "market_session": session_status,
         "mode": "demo_execution" if demo_execution_enabled() else "demo_read_only",
