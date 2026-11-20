@@ -70,6 +70,125 @@ def test_disabled_by_default(monkeypatch):
     api = dummy_api()
     assert ee.execution_tick(api, now=NOW) == "disabled"
 
+
+@pytest.fixture
+def live_config(monkeypatch):
+    for name, value in {
+        "EXNESS_ENVIRONMENT": "real", "EXNESS_ACCOUNT_ID": "100", "EXNESS_PREVIOUS_DEMO_ACCOUNT_ID": "200",
+        "EXNESS_LIVE_EXECUTION_ENABLED": "true", "EXNESS_LIVE_OPEN_ORDERS": "true",
+        "EXNESS_LIVE_RISK_PER_SETUP_PCT": "0.25", "EXNESS_LIVE_MAX_TOTAL_RISK_PCT": "0.5",
+        "EXNESS_LIVE_MAX_DAILY_DRAWDOWN_PCT": "1", "APP_PASSWORD": "test-only",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(ee.time, "time", lambda: NOW)
+
+
+def test_live_client_rejects_demo_and_can_close_when_opening_is_off(live_config, monkeypatch):
+    api = dummy_api(account_id="100")
+    with pytest.raises(ExnessError, match="broker-verified"):
+        ee.execution_client(api).mutate("DELETE", "close", position_id="1")
+    api.client.request.assert_not_called()
+
+    api = dummy_api(account_id="100", is_demo=False)
+    client = ee.execution_client(api)
+    monkeypatch.setenv("EXNESS_LIVE_OPEN_ORDERS", "false")
+    with pytest.raises(ExnessError, match="armed strategy"):
+        client.mutate("POST", "open", body={"instrument": "XAUUSD"}, build=lambda *_: {}, on_submit=lambda *_: None)
+    api.client.request.assert_not_called()
+    assert client.mutate("DELETE", "close", position_id="1") == {"operation_id": "op-1"}
+    assert api.client.request.call_args.args == ("DELETE", "https://api.exness.com/v1/trading/accounts/100/positions/1")
+
+
+def test_live_entry_requires_verified_demo_cutover_and_enforces_risk(live_config):
+    api = dummy_api(account_id="100", is_demo=False)
+    broker = api.snapshot()
+    with Session.begin() as session:
+        state = ExnessExecutionState(account="100", enabled=True, started_at=NOW, snapshot={})
+        session.add(state)
+        ee.update_live_drawdown(state, broker, NOW)
+        with pytest.raises(ExnessError, match="cutover_not_verified"):
+            ee.validate_live_entry_risk(session, state, broker, "XAUUSD", NOW, NOW)
+        session.add(ExnessExecutionState(account="200", enabled=False, started_at=NOW - 1,
+            snapshot={"broker": {"positions": [], "orders": []}, "demo_cutover_flat_at": NOW}))
+        session.flush()
+        ee.validate_live_entry_risk(session, state, broker, "XAUUSD", NOW, NOW)
+        assert ee.risk_budget("1000") == ee.Decimal("2.50")
+
+        session.add(ExnessExecutionTrade(account="100", symbol="EURUSD", signal_time=NOW,
+                                       snapshot={"status": "planned", "risk_budget_usd": "4"}))
+        session.flush()
+        with pytest.raises(ExnessError, match="total_risk_limit"):
+            ee.validate_live_entry_risk(session, state, broker, "XAUUSD", NOW, NOW)
+        ee.update_live_drawdown(state, {**broker, "account_state": {"equity": "990"}}, NOW + 1)
+    with Session() as session:
+        state = session.get(ExnessExecutionState, "100")
+        with pytest.raises(ExnessError, match="daily_drawdown"):
+            ee.validate_live_entry_risk(session, state, broker, "XAUUSD", NOW, NOW + 2)
+
+
+def test_demo_cutover_rejects_open_exposure_then_records_flat_snapshot(monkeypatch):
+    from scripts import exness_check
+
+    api = dummy_api(positions=[{"position_id": "42"}])
+    api.use_access_point = lambda: None
+    api.client.close = lambda: None
+    monkeypatch.setattr(exness_check.ExnessReadOnly, "from_env", lambda: api)
+    with Session.begin() as session:
+        session.add(ExnessExecutionState(account=api.account_id, enabled=False, started_at=NOW, snapshot={}))
+    with pytest.raises(ExnessError, match="still has positions"):
+        exness_check.verify_demo_cutover()
+    with Session() as session:
+        assert "demo_cutover_flat_at" not in session.get(ExnessExecutionState, api.account_id).snapshot
+
+    api.get = route([], [])
+    exness_check.verify_demo_cutover()
+    with Session() as session:
+        assert session.get(ExnessExecutionState, api.account_id).snapshot["demo_cutover_flat_at"] > 0
+
+
+def test_live_verified_entry_submits_each_split_leg_only_once(live_config, monkeypatch, tmp_path):
+    from backend.app.db import ExnessEntryIntent
+    from backend.app.forex_entry_intents import execute_trigger
+    from backend.app.forex_htf_v4 import PROVENANCE, logic_version, new_ledger, tree_id
+    from backend.app.forex_migration import atomic_json
+
+    api = dummy_api(account_id="100", is_demo=False, equity="10000")
+    identifier = seed_virtual_entry(api, monkeypatch, tmp_path)
+    path = tmp_path / "live-v4.json"
+    monkeypatch.setattr("backend.app.forex_htf_v4.ledger_path", lambda *_: path)
+    monkeypatch.setattr("backend.app.forex_costs.spec_summary", lambda *_: {"profile": {
+        "observed_at": NOW, "account_currency": "USD", "quote_currency": "USD", "commission_per_unit": 0,
+        "instrument": "XAUUSD", "account_tag": account_tag("100"),
+    }})
+    ledger = new_ledger("100", "XAUUSD", NOW - 1)
+    tree = ledger["population"][0]
+    strategy = tree_id(tree)
+    with Session.begin() as session:
+        state = session.get(ExnessExecutionState, "100")
+        ee.update_live_drawdown(state, api.snapshot(), NOW)
+        session.add(ExnessExecutionState(account="200", enabled=False, started_at=NOW - 1,
+            snapshot={"broker": {"positions": [], "orders": []}, "demo_cutover_flat_at": NOW}))
+        intent = session.get(ExnessEntryIntent, identifier)
+        proposal = {**intent.snapshot["signal"], "strategy": strategy, "htf_ast_v4": True}
+        intent.strategy = strategy
+        intent.snapshot = {**intent.snapshot, "signal": proposal, "tree": tree,
+                           "strategy_version": logic_version(), "provenance": PROVENANCE}
+    ledger["samples"] = [{"strategy": strategy, "strategy_version": logic_version(), "setup_id": "setup",
+                          "signal": proposal, "costs": {"verified": True}}]
+    atomic_json(path, ledger)
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 2
+    keys = set()
+    for call in api.client.request.call_args_list:
+        assert call.args == ("POST", "https://api.exness.com/v1/trading/accounts/100/positions")
+        keys.add(call.kwargs["headers"]["EXN-IDEMPOTENCY-KEY"])
+        assert json.loads(call.kwargs["content"])["stop_loss_price"]
+        assert json.loads(call.kwargs["content"])["take_profit_price"]
+    assert len(keys) == 2
+    execute_trigger(api, identifier, "XAUUSD")
+    assert api.client.request.call_count == 2
+
+
 def seed_virtual_entry(api, monkeypatch, tmp_path):
     from backend.app.forex_entry_intents import create_intent
     from backend.app.forex_entry_pilot import initialize, logic_version

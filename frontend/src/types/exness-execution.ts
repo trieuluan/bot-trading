@@ -49,6 +49,8 @@ export interface BrokerPosition {
 }
 
 export interface ExnessExecution {
+  account_mode?: 'demo' | 'real';
+  opening_configured?: boolean;
   groups?: PositionGroup[];
   open_groups?: PositionGroup[];
   view?: 'tickets' | 'setups';
@@ -238,7 +240,7 @@ export interface ExnessExecution {
   symbol_open_count: number;
   symbol_setup_count?: number;
   account_setup_count?: number;
-  risk_percent?: number;
+  risk_percent?: number | null;
   planned_risk_ceiling_usd?: number | null;
   stop_management_available?: boolean;
   decision: string | null;

@@ -12,6 +12,7 @@ import httpx
 
 from .exness import CONFIG_TTL, ExnessError, b64url
 from .exness_management import risk_budget, size_lot
+from .exness_mode import execution_configured, live_mode, opening_configured, verify_live_account
 from .forex_buffer_study import exit_target
 from .forex_symbols import SYMBOLS, checked_symbol, configured_symbols
 
@@ -54,6 +55,8 @@ def signed_mutation_headers(api, method, path, body, key, now_ms=None):
 PREPARE_TTL = CONFIG_TTL
 
 class ExnessDemoClient:
+    is_live = False
+
     def __init__(self, api):
         self.api = api
         self.last_submission = None
@@ -68,6 +71,13 @@ class ExnessDemoClient:
             raise ExnessError("Only USD demo accounts supported")
         return account
 
+    def verify_account(self):
+        return self.verify_demo()
+
+    def require_mutation_enabled(self, method, build, on_submit):
+        if os.getenv("EXNESS_DEMO_ORDERS_ENABLED") != "true":
+            raise ExnessError("Demo execution is disabled")
+
     def snapshot(self):
         snapshot = self.api.get(f"/v1/trading/accounts/{self.api.account_id}/snapshot")
         if not isinstance(snapshot.get("account_state"), dict):
@@ -78,12 +88,12 @@ class ExnessDemoClient:
 
     def prepare(self, symbol="XAUUSD", *, require_flat=True):
         checked_symbol(symbol)
-        if os.getenv("EXNESS_ENVIRONMENT") != "demo":
-            raise ExnessError("Demo XAUUSD configuration required")
-        identity = (self.api.account_id, self.api.base_url, self.api.api_key)
+        if os.getenv("EXNESS_ENVIRONMENT") != ("real" if self.is_live else "demo"):
+            raise ExnessError("Live configuration required" if self.is_live else "Demo XAUUSD configuration required")
+        identity = (self.api.account_id, self.api.base_url, self.api.api_key, self.is_live)
         account = getattr(self.api, "_prepared_account", None)
         if not account or account[2] != identity or not 0 <= time.monotonic() - account[0] < PREPARE_TTL:
-            self.verify_demo()
+            self.verify_account()
             limits = self.api.limits()["limits"]["rest"]
             required = {"openPosition", "closePosition", "getTradingStateSnapshot", "getAccountDetails"}
             methods = limits["methods"]
@@ -213,8 +223,7 @@ class ExnessDemoClient:
     def mutate(self, method, key, body=None, position_id=None, quote=None,
                quote_source=None, condition=None, on_submit=None, build=None, order_id=None):
         self.last_submission = None
-        if os.getenv("EXNESS_DEMO_ORDERS_ENABLED") != "true":
-            raise ExnessError("Demo execution is disabled")
+        self.require_mutation_enabled(method, build, on_submit)
         if method not in ("POST", "DELETE", "PATCH") or not isinstance(key, str) or not key:
             raise ValueError("Explicit method and stable idempotency key required")
         if method == "POST" and (position_id is not None or not isinstance(body, dict)
@@ -226,7 +235,7 @@ class ExnessDemoClient:
             if not isinstance(order_id, str) or not order_id.isdigit() or set(body or {}) != {"stop_loss_price"}:
                 raise ValueError("Only protective SL updates supported")
             positive_decimal(body["stop_loss_price"])
-        self.verify_demo()
+        self.verify_account()
         delay = self.api.next_request - time.monotonic()
         if delay > 0:
             time.sleep(delay)
@@ -248,6 +257,8 @@ class ExnessDemoClient:
                     or ((condition is not None or build is None) and volume > Decimal("0.01"))):
                 raise ValueError("Invalid demo lot or direction")
             positive_decimal(body.get("stop_loss_price"))
+            if self.is_live:
+                positive_decimal(body.get("take_profit_price"))
         if method == "PATCH":
             validate_quote(quote)
             snapshot = self.snapshot()
@@ -269,11 +280,12 @@ class ExnessDemoClient:
         if method == "PATCH":
             path = f"/v1/trading/accounts/{self.api.account_id}/orders/{order_id}"
         data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode() if body else b""
-        self.last_submission = {"submitted_at": time.time(), "method": method, "key": key,
-                                "quote_age_s": time.time() - quote["time"] if quote else None,
-                                "quote": quote, "body": body}
+        submission = {"submitted_at": time.time(), "method": method, "key": key,
+                      "quote_age_s": time.time() - quote["time"] if quote else None,
+                      "quote": quote, "body": body}
         if on_submit:
-            on_submit(self.last_submission)
+            on_submit(submission)
+        self.last_submission = submission
         try:
             response = self.api.client.request(method, self.api.base_url + path, content=data,
                 headers=signed_mutation_headers(self.api, method, path, data, key), follow_redirects=False)
@@ -284,3 +296,16 @@ class ExnessDemoClient:
         if response.status_code != 202:
             raise ExnessError(f"Mutation HTTP {response.status_code}; reconcile before retry")
         return response.json()
+
+
+class ExnessLiveClient(ExnessDemoClient):
+    is_live = True
+
+    def verify_account(self):
+        return verify_live_account(self.api)
+
+    def require_mutation_enabled(self, method, build, on_submit):
+        if not live_mode() or not execution_configured():
+            raise ExnessError("Live execution is disabled")
+        if method == "POST" and (not opening_configured() or build is None or on_submit is None):
+            raise ExnessError("Live opening requires the armed strategy execution path")

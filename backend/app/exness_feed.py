@@ -12,6 +12,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .db import Session, Workspace, WorkspaceCandle, WorkspaceFeedState, utcnow
 from .exness import ExnessError, ExnessReadOnly
+from .exness_mode import live_mode, verify_live_account
 from .forex_symbols import checked_symbol, configured_symbols
 
 WORKSPACE = "exness_forex"
@@ -20,11 +21,13 @@ HISTORY_FRAMES = {**FRAMES, "1m": ("M1", 60)}
 
 
 def connect_exness():
-    if os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo":
-        raise ExnessError("This feed requires demo configuration and XAUUSD")
+    if os.getenv("EXNESS_ENVIRONMENT", "demo") not in ("demo", "real"):
+        raise ExnessError("Unsupported Exness environment")
     api = ExnessReadOnly.from_env()
     try:
         api.use_access_point()
+        if live_mode():
+            verify_live_account(api)
         limits = api.limits()["limits"]["rest"]
         method = next(row for row in limits["methods"] if row["api_operation_id"] == "getCandleHistory")
         cap = method["limits"]["max_candles_per_request"]

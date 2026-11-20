@@ -1,8 +1,9 @@
-"""Demo-only sizing and closed-candle position management rules."""
+"""Sizing and closed-candle position management rules."""
 
 from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 
 from .exness import ExnessError
+from .exness_mode import live_mode, live_risk_limits
 from .forex_indicators import ema
 
 
@@ -10,10 +11,11 @@ def risk_budget(equity):
     try:
         value = Decimal(str(equity))
     except (InvalidOperation, ValueError, TypeError) as exc:
-        raise ExnessError("Invalid account equity for 1% risk sizing") from exc
+        raise ExnessError("Invalid account equity for risk sizing") from exc
     if not value.is_finite() or value <= 0:
-        raise ExnessError("Invalid account equity for 1% risk sizing")
-    return value / 100
+        raise ExnessError("Invalid account equity for risk sizing")
+    percent = live_risk_limits()[0] if live_mode() else 1
+    return value * percent / 100
 
 def structure_stop_buffer(rows, multiplier=Decimal("0.25")):
     if len(rows) < 15:

@@ -72,8 +72,9 @@ def signal_chart_zone(tree, signal, source, as_of):
 
 def execution_status(account, now, symbol="XAUUSD"):
     from .db import ExnessExecutionState
+    from .exness_mode import opening_configured
     v2 = execution_enabled()
-    exness = os.getenv("EXNESS_DEMO_EXECUTION_ENABLED", "false").lower() == "true"
+    exness = opening_configured()
     with Session() as session:
         state = session.get(ExnessExecutionState, account) if account else None
         control = bool(state and state.enabled)

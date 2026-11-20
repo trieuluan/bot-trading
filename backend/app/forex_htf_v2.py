@@ -1155,8 +1155,9 @@ def virtual_candidates(account, symbol, now):
 
 
 def validate_execution_signal(signal, account, now=None):
+    from .exness_mode import opening_configured
     now = time.time() if now is None else now
-    if not execution_enabled() or os.getenv("EXNESS_DEMO_EXECUTION_ENABLED", "false").lower() != "true":
+    if not execution_enabled() or not opening_configured():
         raise ExnessError("v2_execution_disabled")
     if str(signal.get("strategy", "")).startswith("hast4_"):
         from .forex_entry_intents import validate_execution_signal as validate_entry

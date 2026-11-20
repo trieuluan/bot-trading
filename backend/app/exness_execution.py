@@ -1,6 +1,6 @@
-"""Opt-in DEMO broker execution for regime_router.
+"""Opt-in Exness broker execution for the selected account.
 
-Strictly demo only. Configurable position and risk caps; split TP1/runner positions. Native broker SL/TP.
+Configurable position and risk caps; split TP1/runner positions. Native broker SL/TP.
 Deals synced from Exness are the ground truth for chart markers and trade history.
 """
 
@@ -32,7 +32,7 @@ from .db import (
     engine,
 )
 from .exness import ExnessError
-from .exness_demo_client import ExnessDemoClient, positive_decimal, validate_quote
+from .exness_demo_client import ExnessDemoClient, ExnessLiveClient, positive_decimal, validate_quote
 from .exness_feed import FRAMES, WORKSPACE
 from .exness_management import (
     closed_minutes,
@@ -41,6 +41,7 @@ from .exness_management import (
     risk_budget,
     split_bodies,
 )
+from .exness_mode import execution_configured, live_mode, live_risk_limits, opening_configured
 from .exness_observation import audit_frames, load_frames
 from .exness_sessions import session_closed_ahead
 from .forex_exits import DEFAULTS as ADAPTIVE_EXITS
@@ -58,20 +59,26 @@ def initial_stop_of(data):
     return data.get("body", {}).get("stop_loss_price")
 
 def enabled():
-    return (os.getenv("EXNESS_DEMO_EXECUTION_ENABLED") == "true"
-            and os.getenv("EXNESS_ENVIRONMENT") == "demo"
+    return (os.getenv("EXNESS_ENVIRONMENT") in ("demo", "real")
+            and execution_configured()
             and bool(configured_symbols()))
+
+
+def execution_client(api):
+    return ExnessLiveClient(api) if live_mode() else ExnessDemoClient(api)
 
 
 def max_positions():
     try:
-        return min(66, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS", "1"))))
+        flag = "EXNESS_LIVE_MAX_POSITIONS" if live_mode() else "EXNESS_DEMO_MAX_POSITIONS"
+        return min(66, max(1, int(os.getenv(flag, "1"))))
     except ValueError:
         return 1
 
 def max_positions_per_symbol():
     try:
-        return min(6, max(1, int(os.getenv("EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL", "6"))))
+        flag = "EXNESS_LIVE_MAX_POSITIONS_PER_SYMBOL" if live_mode() else "EXNESS_DEMO_MAX_POSITIONS_PER_SYMBOL"
+        return min(6, max(1, int(os.getenv(flag, "1" if live_mode() else "6"))))
     except ValueError:
         return 1
 
@@ -159,6 +166,67 @@ def utc(stamp):
     return datetime.fromtimestamp(stamp, timezone.utc).isoformat()
 
 
+def update_live_drawdown(state, broker, now):
+    """Track the first observed equity of each UTC day and latch the entry halt."""
+    if not live_mode():
+        return
+    try:
+        equity = positive_decimal(broker.get("account_state", {}).get("equity"))
+        _, _, daily_pct = live_risk_limits()
+    except (ArithmeticError, ValueError, ExnessError):
+        return
+    day = int(now) // 86400
+    record = state.snapshot.get("live_risk_day", {})
+    if record.get("day") != day:
+        record = {"day": day, "initial_equity": str(equity), "halted": False}
+    initial = positive_decimal(record["initial_equity"])
+    if equity <= initial * (1 - daily_pct / 100):
+        record = {**record, "halted": True}
+    state.snapshot = {**state.snapshot, "live_risk_day": record}
+
+
+def validate_live_entry_risk(session, state, broker, symbol, stamp, now):
+    from .forex_position_groups import ticket_owners
+
+    setup_pct, total_pct, daily_pct = live_risk_limits()
+    if not state.enabled or not opening_configured():
+        raise ExnessError("live_opening_paused")
+    demo_account = os.getenv("EXNESS_PREVIOUS_DEMO_ACCOUNT_ID", "").strip()
+    demo = session.get(ExnessExecutionState, demo_account) if demo_account else None
+    if (demo is None or demo.enabled or not demo.snapshot.get("demo_cutover_flat_at")
+            or demo.snapshot.get("broker", {}).get("positions")
+            or demo.snapshot.get("broker", {}).get("orders")):
+        raise ExnessError("live_demo_cutover_not_verified")
+    try:
+        equity = positive_decimal(broker.get("account_state", {}).get("equity"))
+    except (ArithmeticError, ValueError) as exc:
+        raise ExnessError("live_invalid_equity") from exc
+    daily = state.snapshot.get("live_risk_day", {})
+    if daily.get("day") != int(now) // 86400 or daily.get("halted") is not False:
+        raise ExnessError("live_daily_drawdown_or_equity_baseline_unavailable")
+    if equity <= positive_decimal(daily["initial_equity"]) * (1 - daily_pct / 100):
+        raise ExnessError("live_daily_drawdown_limit")
+
+    trades = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == state.account)).all()
+    owners = ticket_owners(trades)
+    if any(not owners.get((state.account, position["instrument"], str(position["position_id"])))
+           for position in broker["positions"]):
+        raise ExnessError("live_unmanaged_broker_position")
+    if any(order.get("order_type") != "sltp" for order in broker["orders"]):
+        raise ExnessError("live_unmanaged_broker_order")
+    proposed = equity * setup_pct / 100
+    current = next((trade for trade in trades if (trade.symbol, trade.signal_time) == (symbol, stamp)), None)
+    if current:
+        proposed = max(proposed, positive_decimal(current.snapshot.get("risk_budget_usd")))
+    reserved = sum(
+        positive_decimal(trade.snapshot.get("risk_budget_usd"))
+        for trade in trades if (trade.symbol, trade.signal_time) != (symbol, stamp)
+        and any(leg.get("status") in (*ACTIVE, "planned") for _, leg in leg_records(trade.snapshot))
+    )
+    if reserved + proposed > equity * total_pct / 100:
+        raise ExnessError("live_total_risk_limit")
+
+
 def live_quote(symbol="XAUUSD"):
     from .app_auth import quote_request
     deadline = time.monotonic() + 5
@@ -171,6 +239,8 @@ def live_quote(symbol="XAUUSD"):
             if line.startswith(b"data: "):
                 data = json.loads(line[6:])
                 if data.get("symbol") == symbol and data.get("status") == "live":
+                    if live_mode() and data.get("account") != os.getenv("EXNESS_ACCOUNT_ID", "").strip():
+                        raise ExnessError("Live quote account mismatch")
                     return validate_quote(data.get("quote") or {})
     raise ExnessError(f"Fresh {symbol} quote unavailable")
 
@@ -249,7 +319,7 @@ def beat(account, now):
     with Session.begin() as session:
         state = session.get(ExnessExecutionState, account)
         if state is None:
-            state = ExnessExecutionState(account=account, enabled=True, started_at=now,
+            state = ExnessExecutionState(account=account, enabled=not live_mode(), started_at=now,
                                          snapshot={"history_from": now - 86400})
             session.add(state)
         state.snapshot = {**state.snapshot, "heartbeat": now}
@@ -501,8 +571,8 @@ def execution_tick(api, now=None, entry_request=None, *, symbol=None):
             try:
                 if entry_request:
                     observed_at = time.time() if now is None else now
-                    client = ExnessDemoClient(api)
-                    client.verify_demo()
+                    client = execution_client(api)
+                    client.verify_account()
                     broker = client.snapshot()
                     sync_deals(api, observed_at)
                     reconcile(api, broker, observed_at)
@@ -535,21 +605,33 @@ def _execution_tick(api, now=None, *, symbol=None):
     if not enabled():
         return "disabled"
     beat(api.account_id, now)  # worker alive even if broker API is rate limited
-    client = ExnessDemoClient(api)
-    client.verify_demo()
+    client = execution_client(api)
+    client.verify_account()
     broker = client.snapshot()
     with Session.begin() as session:
         state = session.get(ExnessExecutionState, api.account_id)
         if state is None:
-            state = ExnessExecutionState(account=api.account_id, enabled=True, started_at=now,
+            state = ExnessExecutionState(account=api.account_id, enabled=not live_mode(), started_at=now,
                                          snapshot={"history_from": now - 86400})
             session.add(state)
         state.snapshot = {**state.snapshot, "heartbeat": now, "broker": broker, "error": None,
-                          "demo_verified": True, "stop_management_available": getattr(client, "can_modify", False)}
+                          "demo_verified": not live_mode(), "account_mode": "real" if live_mode() else "demo", "verified_at": now,
+                          "stop_management_available": getattr(client, "can_modify", False)}
+        if live_mode():
+            armed = opening_configured()
+            if not armed:
+                state.enabled = False
+            elif state.snapshot.get("live_opening_configured") is not True:
+                state.enabled = True
+                state.snapshot["armed_at"] = now
+            state.snapshot["live_opening_configured"] = armed
+        elif state.enabled or broker["positions"] or broker["orders"]:
+            state.snapshot.pop("demo_cutover_flat_at", None)
+        update_live_drawdown(state, broker, now)
     sync_deals(api, now)
     reconcile(api, broker, now)
     from .forex_entry_intents import cancel_waiting, pilot_enabled, reconcile_intents
-    if not pilot_enabled():
+    if not pilot_enabled() or (live_mode() and not opening_configured()):
         with Session.begin() as session:
             cancel_waiting(session, api.account_id, "pilot_disabled", now)
     reconcile_intents(api.account_id, now)
@@ -573,7 +655,7 @@ def _execution_tick(api, now=None, *, symbol=None):
 def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
     from .forex_conversion import cost_context
     from .forex_costs import spec_summary
-    client = ExnessDemoClient(api)
+    client = execution_client(api)
     condition = client.prepare(symbol, require_flat=False)
     with Session() as session:
         specs = spec_summary(session, now, symbol)
@@ -765,7 +847,7 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
         from .db import ExnessEntryIntent
         unresolved = unresolved or session.scalar(select(ExnessEntryIntent.id).where(
             ExnessEntryIntent.account == api.account_id, ExnessEntryIntent.status == "uncertain").limit(1)) is not None
-        reason = "symbol_disabled" if symbol not in configured_symbols() else "costs_unverified" if not costs_ready else "paused" if not state.enabled else "reconciling" if unresolved else (
+        reason = "symbol_disabled" if symbol not in configured_symbols() else "costs_unverified" if not costs_ready else "paused" if not state.enabled or not opening_configured() else "reconciling" if unresolved else (
             "position_active" if not capacity_available(broker, api.account_id, symbol, 0 if entry_intent_id else 1,
                                                         entry_intent_id=entry_intent_id) else
             "session_close_near" if near_close else
@@ -799,8 +881,14 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
             requested = session.get(ExnessEntryIntent, entry_intent_id)
             signal = (execution_signal(requested) if requested and requested.account == api.account_id
                       and requested.symbol == symbol and requested.status == "triggered" else None)
-        else:
+            if live_mode() and signal:
+                from .forex_htf_v4 import PROVENANCE
+                if signal.get("execution_source") != PROVENANCE:
+                    signal, reason = None, "live_requires_htf_v4"
+        elif not live_mode():
             signal = evaluate(session, now, symbol)
+        else:
+            signal = None
         if signal and str(signal.get("strategy", "")).startswith(("hast3_", "hast4_")) and signal.get("shadow_only") is False:
             try:
                 signal = validate_execution_signal(signal, api.account_id, now)
@@ -841,6 +929,8 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
         try:
             quote = live_quote(symbol)
             equity = broker.get("account_state", {}).get("equity")
+            if live_mode():
+                validate_live_entry_risk(session, state, broker, symbol, stamp, now)
             setup_budget = risk_budget(equity)
             body = client.strategy_body(signal, condition, quote, key, equity=equity)
             late_drift_ok(signal, quote["ask" if body["side"] == "buy" else "bid"], now)
@@ -870,7 +960,8 @@ def _symbol_execution_tick(api, broker, now, symbol, *, entry_intent_id=None):
                  "role": part["role"], "status": "planned", "recorded_at": now,
                  "contract_size": condition["contract_size"]} for index, part in enumerate(bodies)]
         record = {"symbol": symbol, "key": key, "recorded_at": now, "status": "planned", "signal": signal,
-                  "risk_equity": str(equity), "risk_budget_usd": str(setup_budget), "risk_percent": 1,
+                  "risk_equity": str(equity), "risk_budget_usd": str(setup_budget),
+                  "risk_percent": float(live_risk_limits()[0]) if live_mode() else 1,
                   "signal_time": stamp, "side": signal["side"], "reason": signal["reason"],
                   "legs": legs, "exit_policy": "structural_tp_v1" if signal.get("target_context") else "split_1r_2r_be_trail_early_v1"}
         if len(legs) == 1:
@@ -907,7 +998,7 @@ def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False)
     api = client.api
     with Session() as session:
         state = session.get(ExnessExecutionState, api.account_id)
-        if not state.enabled:
+        if not state.enabled or (live_mode() and not opening_configured()):
             persist_symbol_leg(api.account_id, symbol, row.signal_time, index, {"status": "skipped", "error": "Paused before submit"})
             return "paused"
     started = time.time()
@@ -971,6 +1062,10 @@ def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False)
             full["take_profit_price"] = str(target)
         return full
     def on_submit(submission):
+        if live_mode():
+            with Session() as session:
+                state = session.get(ExnessExecutionState, api.account_id)
+                validate_live_entry_risk(session, state, current, symbol, row.signal_time, submission["submitted_at"])
         persist_symbol_leg(api.account_id, symbol, row.signal_time, index,
                     {"status": "submitting", "body": submission["body"], "quote": submission["quote"],
                      "tp_reason": signal.get("tp_reason"),
@@ -981,6 +1076,13 @@ def submit_leg(client, row, index, data, condition, now, *, is_subsequent=False)
                          "reason": "remaining_risk_budget",
                      } if Decimal(submission["body"]["volume"]) < planned_volume else None})
     try:
+        if live_mode():
+            with Session.begin() as session:
+                state = session.get(ExnessExecutionState, api.account_id)
+                update_live_drawdown(state, current, max(now, time.time()))
+            with Session() as session:
+                state = session.get(ExnessExecutionState, api.account_id)
+                validate_live_entry_risk(session, state, current, symbol, row.signal_time, max(now, time.time()))
         ack = client.mutate("POST", key, body=data["body"], quote_source=lambda: live_quote(symbol),
                             build=build, on_submit=on_submit)
         if signal.get("entry_intent_id"):  # timing evidence for SUBMIT_WINDOW tuning
@@ -1113,11 +1215,19 @@ def execution_summary(offset: int = Query(0, ge=0), limit: int = Query(50, ge=1,
         account_trades = session.scalars(select(ExnessExecutionTrade).where(ExnessExecutionTrade.account == account)).all()
     account_owners = ticket_owners(account_trades)
     broker_positions = broker.get("positions", [])
-    result = {"enabled": enabled() and bool(state and state.enabled), "configured": enabled(),
+    risk = planned_risk_usd(broker.get("account_state", {}).get("equity"))
+    risk_pct = None
+    try:
+        risk_pct = float(live_risk_limits()[0]) if live_mode() else 1
+    except ExnessError:
+        pass
+    result = {"enabled": enabled() and opening_configured() and bool(state and state.enabled),
+        "configured": enabled(), "opening_configured": opening_configured(),
+        "account_mode": "real" if live_mode() else "demo",
         "worker_online": bool(heartbeat and time.time() - heartbeat < 90), "heartbeat": heartbeat,
-        "account": account, "strategy": "learning", "lot": "Theo rủi ro 1% equity", "risk_percent": 1,
+        "account": account, "strategy": "learning", "lot": f"Theo rủi ro {risk_pct:g}% equity" if risk_pct else "Chưa cấu hình rủi ro", "risk_percent": risk_pct,
         "symbol": symbol, "max_concurrent": max_positions(), "max_concurrent_per_symbol": max_positions_per_symbol(),
-        "planned_risk_ceiling_usd": planned_risk_usd(broker.get("account_state", {}).get("equity")),
+        "planned_risk_ceiling_usd": risk,
         "stop_management_available": meta.get("stop_management_available", False),
         "error": meta.get("error"),
         "error_msg": meta.get("error_msg") if meta.get("error") else None,
@@ -1176,25 +1286,41 @@ class ExecutionControl(BaseModel):
 
 
 @router.patch("")
-def control(body: ExecutionControl, symbol: str = "XAUUSD"):
+def control(body: ExecutionControl, symbol: str = "XAUUSD", account: str | None = None):
     request_symbol(symbol)
     if not enabled():
-        raise HTTPException(409, "Demo execution not configured")
+        raise HTTPException(409, "Exness execution not configured")
+    selected_account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
+    if (live_mode() or account is not None) and account != selected_account:
+        raise HTTPException(409, "Exness account selection changed")
     with Session.begin() as session:
-        state = session.get(ExnessExecutionState, os.getenv("EXNESS_ACCOUNT_ID", ""))
+        state = session.get(ExnessExecutionState, selected_account, with_for_update=True)
         if not state:
-            raise HTTPException(409, "Executor has not verified demo account")
+            raise HTTPException(409, "Executor has not verified account")
+        if body.enabled and live_mode():
+            if (not opening_configured() or state.snapshot.get("account_mode") != "real"
+                    or not 0 <= time.time() - state.snapshot.get("verified_at", 0) < 90):
+                raise HTTPException(409, "Live opening is disabled or account has not been recently verified")
         state.enabled = body.enabled
         if body.enabled:
             state.snapshot = {**state.snapshot, "armed_at": int(time.time())}
+            state.snapshot.pop("demo_cutover_flat_at", None)
+        elif live_mode():
+            from .forex_entry_intents import cancel_waiting
+            cancel_waiting(session, selected_account, "paused", int(time.time()))
     return {"enabled": body.enabled}
 
 
 @router.post("/trades/{signal_time}/close")
-def request_close(signal_time: int, position_id: str | None = Query(None, pattern=r"^[0-9]+$"), symbol: str = "XAUUSD"):
+def request_close(signal_time: int, position_id: str | None = Query(None, pattern=r"^[0-9]+$"),
+                  symbol: str = "XAUUSD", account: str | None = None):
     request_symbol(symbol)
     if not enabled():
-        raise HTTPException(409, "Demo execution not configured")
+        raise HTTPException(409, "Exness execution not configured")
+    if live_mode() and not os.getenv("APP_PASSWORD", "").strip():
+        raise HTTPException(409, "Live control requires application login")
+    if (live_mode() or account is not None) and account != os.getenv("EXNESS_ACCOUNT_ID", "").strip():
+        raise HTTPException(409, "Exness account selection changed")
     with Session.begin() as session:
         row = session.get(ExnessExecutionTrade, (os.getenv("EXNESS_ACCOUNT_ID", ""), symbol, signal_time))
         if not row or not any(leg["status"] == "open" for _, leg in leg_records(row.snapshot)):

@@ -107,10 +107,12 @@ def cost_context(profile, now, session=None, *, account=None, symbol=None):
     if not profile or profile.get("account_currency") != "USD":
         raise ValueError("Only verified USD demo account costs supported")
     if account is not None or symbol is not None:
-        from .forex_costs import SPEC_TTL, account_tag
+        from .forex_costs import SPEC_TTL, account_tag, standard_zero_commission
         if (profile.get("instrument") != symbol or profile.get("account_tag") != account_tag(account)
                 or not 0 <= now - profile.get("observed_at", 0) < SPEC_TTL):
             raise ValueError("Instrument specification identity mismatch or stale")
+        if profile.get("commission_source") == "configured_standard_account" and not standard_zero_commission(account):
+            raise ValueError("Standard commission configuration no longer matches the account")
     conversion = conversion_to_usd(profile.get("quote_currency"), session, now)
     if not conversion["verified"]:
         raise ValueError("Currency conversion unavailable or stale")

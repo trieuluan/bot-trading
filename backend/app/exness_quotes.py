@@ -15,6 +15,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
 from .exness import ExnessError, ExnessReadOnly, signed_headers
+from .exness_mode import live_mode, verify_live_account
 from .forex_paper import sync_paper_quote
 from .forex_symbols import SYMBOLS, configured_symbols, request_symbol
 
@@ -25,6 +26,8 @@ router = APIRouter()
 
 def stream_config(api):
     api.use_access_point()
+    if live_mode():
+        verify_live_account(api)
     limits = api.limits()["limits"]["websocket"]
     global_limits = limits["global_account_limits"]
     endpoint = next(item for item in limits["endpoints"] if item["path"] == TICKS_PATH)
@@ -224,8 +227,8 @@ class QuoteStream:
     async def run_once(self):
         api = None
         try:
-            if os.getenv("EXNESS_ENVIRONMENT", "demo") != "demo":
-                raise ValueError("Demo accounts only")
+            if os.getenv("EXNESS_ENVIRONMENT", "demo") not in ("demo", "real"):
+                raise ValueError("Unsupported Exness environment")
             api = ExnessReadOnly.from_env()
             setup_delay = 60
             while True:
@@ -359,6 +362,7 @@ async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart", frame: st
     request_symbol(symbol)
     if frame not in CHART_FRAMES:
         raise HTTPException(422, "Unsupported chart timeframe")
+    account = os.getenv("EXNESS_ACCOUNT_ID", "").strip()
     async def events():
         if purpose == "entry":
             queue = asyncio.Queue(maxsize=256)
@@ -375,7 +379,7 @@ async def quote_events(symbol: str = "XAUUSD", purpose: str = "chart", frame: st
                         else:
                             yield ": heartbeat\n\n"
                             continue
-                    yield "data: " + json.dumps(event) + "\n\n"
+                    yield "data: " + json.dumps({**event, "account": account}) + "\n\n"
                     if event["status"] != "live":
                         return
             finally:

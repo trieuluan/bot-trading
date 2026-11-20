@@ -9,6 +9,7 @@ from urllib.request import urlopen
 from sqlalchemy import select
 
 from .db import ExnessEntryIntent, Session
+from .exness_mode import live_mode
 from .forex_entry_intents import cancel_waiting, consume_quote, reconcile_intents
 from .forex_entry_policy import MAX_QUOTE_GAP, QUOTE_GAP
 
@@ -84,6 +85,9 @@ class EntryConsumers:
                             return
                         if event.get("kind") == "ready" or event.get("status") == "waiting":
                             continue
+                        if live_mode() and event.get("account") != self.account:
+                            self.cancel(symbol, "stream_disconnected", cause="account_mismatch")
+                            return
                         if event.get("status") != "live" or not event.get("quote"):
                             self.cancel(symbol, "stream_disconnected", cause="event", status=str(event.get("status")),
                                         since_tick=round(now - tick, 2))

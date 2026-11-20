@@ -1,4 +1,4 @@
-"""Read-only, timestamped instrument audit. Never assumes missing fees are zero."""
+"""Read-only, timestamped instrument audit with account-scoped fee provenance."""
 
 import hashlib
 import os
@@ -8,12 +8,18 @@ from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from .db import ForexInstrumentState, Session
 from .exness import ExnessError
 from .exness_feed import WORKSPACE
+from .exness_mode import live_mode, verify_live_account
 from .forex_symbols import checked_symbol
 
 SPEC_TTL = 3600
 
 def account_tag(account_id):
     return hashlib.sha256(str(account_id).encode()).hexdigest()[:12]
+
+def standard_zero_commission(account_id):
+    pinned = os.getenv("EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID", "").strip()
+    return (live_mode() and pinned.isascii() and pinned.isdigit()
+            and pinned == str(account_id) == os.getenv("EXNESS_ACCOUNT_ID", "").strip())
 
 def decimal_value(value, positive=False):
     if isinstance(value, bool):
@@ -26,11 +32,14 @@ def decimal_value(value, positive=False):
         raise ValueError("Invalid numeric specification")
     return result
 
-def normalize_specs(account, condition, now, account_id=None, symbol="XAUUSD"):
+def normalize_specs(account, condition, now, account_id=None, symbol="XAUUSD", *, is_demo=True):
     checked_symbol(symbol)
     settings = account.get("settings", {})
-    if account.get("is_demo") is not True or condition.get("instrument") != symbol:
-        raise ValueError("Only verified matching Demo instrument specifications are accepted")
+    if account.get("is_demo") is not is_demo or condition.get("instrument") != symbol:
+        mode = "Demo" if is_demo else "Live"
+        raise ValueError(f"Only verified matching {mode} instrument specifications are accepted")
+    aid = account_id if account_id is not None else account.get("account_id")
+    standard_commission = not is_demo and str(account.get("account_id")) == str(aid) and standard_zero_commission(aid)
     numbers = {
         key: str(decimal_value(condition.get(key), positive=True))
         for key in ("contract_size", "volume_min", "volume_max", "volume_step")
@@ -64,14 +73,18 @@ def normalize_specs(account, condition, now, account_id=None, symbol="XAUUSD"):
     source = "api" if commission_per_unit is not None else None
     override = os.getenv("EXNESS_COMMISSION_PER_LOT_USD", "").strip()
     # ponytail: operator override only when API omits commission_settings; demo-only, never guessed.
-    if commission_per_unit is None and not condition.get("commission_settings") and override and currencies_valid:
+    if is_demo and commission_per_unit is None and not condition.get("commission_settings") and override and currencies_valid:
         fee = decimal_value(override)
         if fee < 0:
             raise ValueError("Invalid commission override")
         commission_per_unit = float(fee / Decimal(numbers["contract_size"]))
         commission_type, source = "operator_override_round_turn", "operator_override"
+    elif standard_commission and currencies_valid and condition.get("commission_settings") in (None, {}):
+        commission_per_unit = 0.0
+        commission_type, source = "standard_zero", "configured_standard_account"
     return {
-        "version": "exness_specs_v1", "observed_at": now, "account_tag": account_tag(account_id if account_id is not None else account.get("account_id")), "instrument": symbol,
+        "version": "exness_specs_v1", "observed_at": now, "account_tag": account_tag(aid), "instrument": symbol,
+        "standard_commission_configured": standard_commission,
         "account_currency": settings.get("currency"), "quote_currency": condition.get("quote_currency"),
         "account_leverage": str(decimal_value(settings.get("leverage"), positive=True)),
         "point_digits": digits, "trade_mode": condition.get("trade_mode"), **numbers,
@@ -94,9 +107,13 @@ def sync_specs(api, now=None, symbol="XAUUSD"):
     try:
         with Session.begin() as session:
             state = session.get(ForexInstrumentState, (WORKSPACE, symbol))
-            # ponytail: cache keyed by account only; commission override changes still wait for TTL.
             aid = getattr(api, "account_id", None)
-            stale = bool(aid is not None and state and state.snapshot and state.snapshot.get("account_tag") != account_tag(aid))
+            profile = state.snapshot if state else None
+            changed_standard = bool(profile and (
+                profile.get("standard_commission_configured", False) != standard_zero_commission(aid)))
+            if changed_standard:
+                state.snapshot = {}
+            stale = changed_standard or bool(aid is not None and profile and profile.get("account_tag") != account_tag(aid))
             if state and state.retry_at > now and not stale:
                 return
             if state is None:
@@ -108,9 +125,10 @@ def sync_specs(api, now=None, symbol="XAUUSD"):
         return
     blocked = None
     try:
-        acc = api.account()
+        is_demo = not live_mode()
+        acc = api.account() if is_demo else verify_live_account(api)
         aid = getattr(api, "account_id", acc.get("account_id"))
-        snapshot = normalize_specs(acc, api.condition(symbol), now, account_id=aid, symbol=symbol)
+        snapshot = normalize_specs(acc, api.condition(symbol), now, account_id=aid, symbol=symbol, is_demo=is_demo)
         error = None
         retry = now + SPEC_TTL - 600  # ponytail: refresh before TTL so the worker's 60-90s loop never leaves a stale gap
     except (ExnessError, ValueError, KeyError, TypeError, AttributeError) as exc:

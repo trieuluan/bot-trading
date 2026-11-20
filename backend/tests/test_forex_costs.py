@@ -87,6 +87,50 @@ def test_live_account_never_accepted():
     with pytest.raises(ValueError, match="Demo"):
         normalize_specs(data, specification(), 1000)
 
+
+def test_live_standard_assumes_zero_only_for_pinned_broker_account(monkeypatch):
+    monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
+    monkeypatch.setenv("EXNESS_ACCOUNT_ID", "123")
+    monkeypatch.setenv("EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID", "123")
+    real = {**account(), "account_id": "123", "is_demo": False}
+    profile = normalize_specs(real, specification(), 1000, is_demo=False)
+    assert profile["commission_per_unit"] == 0
+    assert profile["commission_source"] == "configured_standard_account"
+    condition = {**specification(), "commission_settings": {
+        "commission_type": "per_lot_per_side", "commission_value": {"amount": "3.5", "currency": "USD"},
+    }}
+    explicit = normalize_specs(real, condition, 1000, is_demo=False)
+    assert explicit["commission_per_unit"] == 0.07
+    assert explicit["commission_source"] == "api"
+    condition["commission_settings"]["commission_type"] = "unsupported"
+    assert normalize_specs(real, condition, 1000, is_demo=False)["commission_per_unit"] is None
+    assert normalize_specs({**real, "account_id": "456"}, specification(), 1000,
+                           account_id="123", is_demo=False)["commission_per_unit"] is None
+    monkeypatch.setenv("EXNESS_ACCOUNT_ID", "456")
+    assert normalize_specs(real, specification(), 1000, is_demo=False)["commission_per_unit"] is None
+
+
+def test_revoking_standard_pin_invalidates_cached_zero(monkeypatch):
+    class API:
+        account_id = "123"
+
+        def account(self):
+            return {**account(), "account_id": self.account_id, "is_demo": False}
+
+        def condition(self, instrument):
+            return specification()
+
+    monkeypatch.setenv("EXNESS_ENVIRONMENT", "real")
+    monkeypatch.setenv("EXNESS_ACCOUNT_ID", "123")
+    monkeypatch.setenv("EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID", "123")
+    sync_specs(API(), 1000)
+    with Session() as session:
+        assert spec_summary(session, 1001)["profile"]["commission_per_unit"] == 0
+    monkeypatch.delenv("EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID")
+    sync_specs(API(), 1001)
+    with Session() as session:
+        assert spec_summary(session, 1002)["profile"]["commission_per_unit"] is None
+
 @pytest.mark.parametrize("units,result", [(2.49, (2.0, 0.02)), (0.99, None), (1.0, (1.0, 0.01)), (30000, (20000.0, 200.0))])
 def test_decimal_lot_floor_min_max_preserves_risk_cap(units, result):
     assert lot_size(units, normalize_specs(account(), specification(), 1000)) == result

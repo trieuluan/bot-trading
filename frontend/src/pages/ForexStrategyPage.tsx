@@ -1336,7 +1336,7 @@ export function ForexEntryPilotPanel({
               <ChevronDown size={16} aria-hidden="true" className="text-text-muted group-open:rotate-180" />
             </summary>
             <p className="mt-2 text-text-muted">
-              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Limit và Stop là mức ảo do bot canh qua tick stream, không phải pending trên sàn. Hybrid chờ nến M15 đóng xác nhận; nhánh xác nhận trước gửi Market lên Exness Demo.
+              Mỗi cây dùng cách vào lệnh trong bảng bên dưới. Bot canh các mức Limit và Stop qua tick stream. Hybrid chờ nến M15 đóng xác nhận. Nhánh xác nhận trước gửi lệnh Market lên Exness.
             </p>
             <ol className="mt-3 space-y-2 border-t border-border-subtle pt-3">
               {policies.has('market') ? (
@@ -2120,7 +2120,7 @@ export function ForexStrategyPage({
                 {symbol} <span>Exness</span>
               </h2>
               <p>
-                Exness Demo <span>·</span> Giá gốc sàn <span>·</span> {timeZoneLabel()}
+                Exness <span>·</span> Giá gốc sàn <span>·</span> {timeZoneLabel()}
               </p>
             </div>
           </div>
@@ -2180,7 +2180,7 @@ export function ForexStrategyPage({
         </div>
       )}
       <div className="mtf-source-strip flex flex-wrap items-center gap-3 border-b border-border-subtle px-3 py-2 text-xs text-text-muted">
-        <span>Nến M15/H1/H4 Exness Demo</span>
+        <span>Nến M15/H1/H4 Exness</span>
         {snap?.['available_at'] && <span>Snapshot {formatTime(snap.available_at)}</span>}
         {disconnected && <span className="negative text-bear">Mất kết nối API · dữ liệu lưu gần nhất</span>}
       </div>
@@ -2557,7 +2557,7 @@ export function ForexStrategyPage({
               ]
             : null
         }
-        title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN DEMO' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
+        title={`Exness ${symbol} · ${executionOnly ? 'FILL SÀN' : 'MTF'} · ${side.toUpperCase()} ${frame} · ${timeZoneLabel()}`}
       />
       {executionOnly && (
         <div className="bot-footer min-w-0 border-t border-border-base bg-surface-1">

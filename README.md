@@ -714,6 +714,80 @@ Không thay đổi ví MEXC, không gửi lệnh Demo hay tiền thật tới Ex
   Nếu khối lượng theo rủi ro nhỏ hơn lot tối thiểu, lệnh bị từ chối thay vì tăng quy mô ép vào lệnh.
   Ghi rõ các khoản chưa thể xác minh tự động (như đơn vị swap, giờ rollover, HMR động) thay vì mặc định chi phí bằng 0.
 
+### Chuyển worker Forex từ demo sang Exness thật
+
+Dùng `.env.live` riêng với quyền `600`. File này nằm ngoài Git. Giữ ID và key demo
+trong `.env` để xác định tài khoản cần đối soát trước khi chuyển.
+Lấy Gateway từ DNS widget của Exness Key Management. Key **Trading Read-only**
+dùng được cho kiểm tra kết nối. Gửi lệnh và quản lý vị thế cần **Trading Full access**
+cho đúng tài khoản Exness thật bằng USD.
+
+```dotenv
+EXNESS_LIVE_ACCOUNT_ID=
+EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID=
+EXNESS_LIVE_API_KEY=
+EXNESS_LIVE_PRIVATE_KEY=
+EXNESS_LIVE_API_BASE_URL=
+EXNESS_LIVE_SYMBOL=XAUUSD
+EXNESS_LIVE_SYMBOLS=XAUUSD
+EXNESS_LIVE_EXECUTION_ENABLED=false
+EXNESS_LIVE_OPEN_ORDERS=false
+EXNESS_LIVE_RISK_PER_SETUP_PCT=
+EXNESS_LIVE_MAX_TOTAL_RISK_PCT=
+EXNESS_LIVE_MAX_DAILY_DRAWDOWN_PCT=
+EXNESS_LIVE_MAX_POSITIONS=1
+EXNESS_LIVE_MAX_POSITIONS_PER_SYMBOL=1
+```
+
+Từ thư mục repo, chạy trong môi trường Python đã cài dependencies của backend.
+
+```sh
+(set -a; . ./.env.live && python -m scripts.exness_check --real)
+```
+
+Lệnh chỉ đọc, xác minh ID và loại tài khoản do broker trả về, kiểm tra USD,
+market execution và số vị thế hoặc lệnh chờ của tài khoản.
+
+Với tài khoản Standard không thu hoa hồng, đặt
+`EXNESS_LIVE_ZERO_COMMISSION_ACCOUNT_ID` bằng đúng ID Standard đã xác minh
+trong Personal Area. Khi broker bỏ trống commission, bot ghi phí bằng 0 cho
+ID đó. Phí broker báo rõ vẫn được ưu tiên. Khi đổi sang Raw Spread hoặc tài
+khoản khác, chỉ cấu hình trường này cho tài khoản Standard tương ứng.
+
+1. Trên UI demo, tạm dừng mở lệnh và để worker quản lý các vị thế đến khi
+   tài khoản hết vị thế và lệnh chờ. Chạy lệnh xác minh với cấu hình demo.
+   Container kiểm tra chạy một lần và tự xóa khi hoàn tất.
+
+   ```sh
+   docker compose run --rm --no-deps --build exness-feed python -m scripts.exness_check --verify-demo-cutover
+   ```
+
+2. Dùng overlay để thay cấu hình của chính API và worker Forex hiện tại.
+   Có thể giữ hai cờ ở `false` để kiểm tra feed và UI LIVE trước. Lệnh dưới
+   đây thay worker demo bằng worker live trong cùng dự án Compose.
+
+   ```sh
+   docker compose --env-file .env --env-file .env.live \
+     -f compose.yaml -f compose.forex-live.yaml up -d --build --no-deps api exness-feed frontend
+   ```
+
+3. Để bắt đầu giao dịch, bảo đảm `APP_PASSWORD` đã được đặt trong `.env`,
+   điền ba giá trị phần trăm rủi ro, đặt
+   `EXNESS_LIVE_EXECUTION_ENABLED=true` và `EXNESS_LIVE_OPEN_ORDERS=true`, rồi
+   chạy lại lệnh Compose. Các giá trị là phần trăm equity, ví dụ `0.25` là
+   `0.25%`. Tài khoản live có ledger tín hiệu và lịch sử giao dịch theo ID riêng.
+   Chỉ luồng virtual entry HTF V4 được phép mở lệnh live.
+
+Ngưỡng lỗ ngày so equity với lần quan sát đầu tiên trong ngày UTC. Khi chạm
+ngưỡng, mở lệnh mới bị khóa hết ngày kể cả sau khi restart. Tổng rủi ro dùng
+ngân sách SL của các setup đang hoạt động hoặc đang gửi, chưa gồm trượt giá
+hay phí. Bot chặn mở lệnh nếu broker còn vị thế hoặc lệnh chờ ngoài luồng quản lý.
+
+Để tạm dừng, dùng UI hoặc đổi `EXNESS_LIVE_OPEN_ORDERS=false` và recreate. Giữ
+`EXNESS_LIVE_EXECUTION_ENABLED=true` để tiếp tục đối soát, cập nhật SL và thoát
+vị thế. Khi chuyển về demo, kiểm tra live đã hết vị thế và lệnh chờ rồi mới
+recreate bằng `compose.yaml` mặc định.
+
 ### Exness Demo: lệnh trên sàn
 
 **Runtime hiện tại: HTF AST V2 đa cặp.** Các mô tả family/learner/paper bên dưới là tài liệu

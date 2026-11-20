@@ -75,7 +75,7 @@ export function ForexExecutionTabs({ data, panel, setPanel, filter, setFilter, o
               </button>
             ))}
             <span className="terminal-tabs-note ml-auto hidden items-center gap-1.5 text-[11px] text-text-muted md:inline-flex" role="presentation">
-              <ShieldCheck size={14} aria-hidden="true" /> {preview ? 'Dữ liệu giả · chỉ xem UI' : 'Dữ liệu broker · tài khoản demo'}
+              <ShieldCheck size={14} aria-hidden="true" /> {preview ? 'Dữ liệu giả · chỉ xem UI' : data.account_mode === 'real' ? 'Dữ liệu broker · LIVE' : 'Dữ liệu broker · DEMO'}
             </span>
           </nav>
           <section
